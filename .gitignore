@@ -17,6 +17,13 @@ session_log.txt
 .grepai/
 graphify-out/
 .agents/
+AGENTS.md
+WORKSPACE_ORCHESTRATION_RULE_V2.md
+docs/agent-operating-rules.md
+docs/agent-tasks/
+docs/agent-results/
+docs/worker-reports/
+docs/orchestrator-review/
 
 # Python generated files, if training is added later
 __pycache__/

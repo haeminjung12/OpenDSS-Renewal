@@ -1,0 +1,47 @@
+# Build artifacts
+build/
+build_vs18/
+out/
+dist/
+installer_output/
+installer/third_party/
+*.obj
+*.pdb
+*.lib
+*.exp
+*.exe
+*.dll
+*.tlog
+*.ilk
+*.log
+*.user
+*.suo
+*.vcxproj.user
+*.vcxproj.filters
+*.vcxproj
+*.vcxproj.*
+*.sln
+*.ninja
+*.cmake
+CMakeCache.txt
+CMakeFiles/
+
+# IDE
+.vs/
+.vscode/
+
+# Logs
+session_log.txt
+*.dmp
+crash_*.dmp
+
+# Data / outputs
+pipeline_output/
+output_sequence_detection/
+*.tif
+*.tiff
+*.png
+!desktop_app/resources/branding/opendss-icon-512.png
+*.jpg
+*.jpeg
+*.bmp

@@ -1,0 +1,5 @@
+Pre-install requirements
+
+- Hamamatsu DCAM runtime/driver must be installed before running this application. The installer does not bundle DCAM.
+- NI-DAQmx is required for the accepted NI-enabled build because the application imports nicaiu.dll. The installer build requires a local NI-DAQmx installer path supplied through build_installer.ps1 -NiInstaller.
+- Microsoft Visual C++ Redistributable x64 is required for clean target machines. The installer build requires a local redistributable path supplied through build_installer.ps1 -VcRedist, unless auto-discovery finds it in Downloads.

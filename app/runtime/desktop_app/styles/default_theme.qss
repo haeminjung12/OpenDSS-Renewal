@@ -1,0 +1,83 @@
+/*
+  OpenDSS Qt Widgets default theme tokens.
+  Passive reference stylesheet; not applied until a later integration task.
+*/
+
+QWidget {
+  background: #0e0f12;
+  color: #e8eaee;
+  font-size: 13px;
+}
+
+QMainWindow,
+QDialog {
+  background: #0e0f12;
+}
+
+QFrame,
+QGroupBox {
+  background: #14161b;
+  border: 1px solid #262a33;
+  border-radius: 8px;
+}
+
+QLineEdit,
+QPlainTextEdit,
+QTextEdit,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox {
+  background: #1a1d24;
+  color: #e8eaee;
+  border: 1px solid #262a33;
+  border-radius: 5px;
+  min-height: 28px;
+  selection-background-color: #5b9dff;
+}
+
+QPushButton {
+  background: #1a1d24;
+  color: #e8eaee;
+  border: 1px solid #262a33;
+  border-radius: 5px;
+  min-height: 28px;
+  padding: 4px 10px;
+}
+
+QPushButton:hover,
+QComboBox:hover,
+QLineEdit:hover {
+  border-color: #5b9dff;
+}
+
+QPushButton:pressed {
+  background: #1f232b;
+}
+
+QPushButton:disabled,
+QLineEdit:disabled,
+QComboBox:disabled {
+  color: #5b6370;
+  background: #14161b;
+  border-color: #1f232b;
+}
+
+QLabel[muted="true"] {
+  color: #98a0ad;
+}
+
+QLabel[status="running"] {
+  color: #4ade80;
+}
+
+QLabel[status="warn"] {
+  color: #f5a524;
+}
+
+QLabel[status="error"] {
+  color: #f87171;
+}
+
+QLabel[status="armed"] {
+  color: #a78bfa;
+}

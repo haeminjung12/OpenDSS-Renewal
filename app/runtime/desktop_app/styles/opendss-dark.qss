@@ -1,0 +1,147 @@
+/*
+  Passive first-pass OpenDSS dark theme.
+  This file is not loaded by main.cpp; it records Qt Widgets styling tokens for
+  the later shell integration pass.
+*/
+
+QWidget {
+  background-color: #0e0f12;
+  color: #e8eaee;
+  font-size: 13px;
+}
+
+QMainWindow,
+QDialog {
+  background-color: #0e0f12;
+}
+
+QFrame[panel="true"],
+QGroupBox {
+  background-color: #14161b;
+  border: 1px solid #262a33;
+  border-radius: 8px;
+}
+
+QLabel[role="muted"],
+QCheckBox[role="muted"],
+QRadioButton[role="muted"] {
+  color: #98a0ad;
+}
+
+QPushButton {
+  background-color: #1a1d24;
+  border: 1px solid #262a33;
+  border-radius: 6px;
+  color: #e8eaee;
+  min-height: 28px;
+  padding: 4px 10px;
+}
+
+QPushButton:hover {
+  background-color: #20242c;
+}
+
+QPushButton:pressed,
+QPushButton:checked {
+  background-color: #24405f;
+  border-color: #5b9dff;
+}
+
+QPushButton[primary="true"] {
+  background-color: #2563eb;
+  border-color: #5b9dff;
+  color: #ffffff;
+}
+
+QLineEdit,
+QTextEdit,
+QPlainTextEdit,
+QComboBox,
+QSpinBox,
+QDoubleSpinBox {
+  background-color: #1a1d24;
+  border: 1px solid #262a33;
+  border-radius: 5px;
+  color: #e8eaee;
+  min-height: 28px;
+  padding: 3px 8px;
+  selection-background-color: #5b9dff;
+  selection-color: #0e0f12;
+}
+
+QLineEdit:focus,
+QTextEdit:focus,
+QPlainTextEdit:focus,
+QComboBox:focus,
+QSpinBox:focus,
+QDoubleSpinBox:focus {
+  border-color: #5b9dff;
+}
+
+QTableView,
+QTreeView,
+QListView {
+  background-color: #14161b;
+  alternate-background-color: #1a1d24;
+  border: 1px solid #262a33;
+  gridline-color: #1f232b;
+  selection-background-color: #24405f;
+  selection-color: #e8eaee;
+}
+
+QHeaderView::section {
+  background-color: #1a1d24;
+  border: 0;
+  border-bottom: 1px solid #262a33;
+  color: #98a0ad;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 5px 8px;
+}
+
+QScrollBar:vertical,
+QScrollBar:horizontal {
+  background: #14161b;
+  border: 0;
+}
+
+QScrollBar::handle:vertical,
+QScrollBar::handle:horizontal {
+  background: #343a46;
+  border-radius: 4px;
+  min-height: 24px;
+  min-width: 24px;
+}
+
+QProgressBar {
+  background-color: #1a1d24;
+  border: 1px solid #262a33;
+  border-radius: 5px;
+  color: #e8eaee;
+  text-align: center;
+}
+
+QProgressBar::chunk {
+  background-color: #5b9dff;
+  border-radius: 4px;
+}
+
+QLabel[state="running"],
+QFrame[state="running"] {
+  color: #4ade80;
+}
+
+QLabel[state="warn"],
+QFrame[state="warn"] {
+  color: #f5a524;
+}
+
+QLabel[state="error"],
+QFrame[state="error"] {
+  color: #f87171;
+}
+
+QLabel[state="armed"],
+QFrame[state="armed"] {
+  color: #a78bfa;
+}

@@ -1,0 +1,112 @@
+{
+    "description": "Durable Model Manager registry source consumed by the Model Manager gate view and Live Sorting model selector.",
+    "entries": [
+        {
+            "blockers": [
+            ],
+            "classes": [
+                "0",
+                "1"
+            ],
+            "display_labels": {
+                "0": "Waste",
+                "1": "Hits"
+            },
+            "display_name": "Promoted/current binary runtime",
+            "label_schema_version": "droplet-labels-binary-v1",
+            "limitations": [
+                "Sequence validation remains internal/provisional by current policy.",
+                "Public model/data redistribution and public claim approvals remain separate from internal promoted-current runtime use."
+            ],
+            "live_use_mode": "normal",
+            "metadata_path": "app/runtime/models/metadata.json",
+            "metadata_schema_version": "model-metadata-v1",
+            "metadata_sha256": "fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f",
+            "metadata_status": "Pass",
+            "model_id": "run_20260429_221500_wsl2_binary_linuxmirror_onnx",
+            "model_path": "app/runtime/models/squeezenet_final_new_condition.onnx",
+            "model_sha256": "34eec09f49ab4612a34e3a24ccf85eccc98516b388fbadbfb0736ecbf8fb1769",
+            "model_sidecars": [
+                {
+                    "path": "app/runtime/models/model.onnx.data",
+                    "required": true,
+                    "sha256": "2e3727b593fee4f155caf67eb18a7b3a2b73ebb3655a1a6ab33b74c25a02ebd4"
+                }
+            ],
+            "promotion_record_path": "docs/worker-reports/2026-04-30-actual-model-promotion-execution.md",
+            "promotion_status": "Available",
+            "registry_entry_id": "run_20260429_221500_wsl2_binary_linuxmirror_onnx",
+            "selectable_for_normal_live_sorting": false,
+            "state": "available",
+            "target_policy": {
+                "target_class_id": "1",
+                "target_display_label": "Hits",
+                "trigger_rule": "trigger_on_target_class",
+                "waste_class_id": "0",
+                "waste_display_label": "Waste"
+            },
+            "validation_evidence": {
+                "hardware_trigger_reports": [
+                    "docs/worker-reports/2026-04-30-ni-class-driven-trigger-validation.md",
+                    "docs/worker-reports/2026-04-30-ni-scope-observation-confirmation.md",
+                    "docs/worker-reports/2026-04-30-final-gui-daq-assumed-hardware-rerun.md"
+                ],
+                "image_validation_report_path": "docs/worker-reports/2026-04-30-post-promotion-validation-execution.md",
+                "image_validation_summary_path": "outputs/validation/run_20260429_221500_wsl2_binary_linuxmirror_onnx/metadata_hygiene_check/image_validation/validation_summary.json",
+                "sequence_validation_status": "internal_provisional",
+                "sequence_validation_summary_path": "outputs/validation/sequence_validation_draft_wave05_binary_runtime_replay/sequence_validation/sequence_validation_summary.json"
+            },
+            "validation_status": "Default hashes match / image pass / NI pass / sequence provisional"
+        },
+        {
+            "blockers": [
+                {
+                    "blocker": "Retired backup",
+                    "evidence": "outputs/model_promotion_backups/pre_binary_promotion_20260430_055156/",
+                    "owner_type": "Model Manager",
+                    "required_next_action": "Use the promoted/current default model for normal live sorting."
+                }
+            ],
+            "classes": [
+                "Empty",
+                "Single",
+                "MoreThanTwo"
+            ],
+            "display_labels": {
+                "Empty": "Empty",
+                "MoreThanTwo": "More than two",
+                "Single": "Single"
+            },
+            "display_name": "Cell aggregate model V1 (2026-05-14)",
+            "label_schema_version": "legacy-three-class",
+            "limitations": [
+                "Legacy three-class runtime retained as the packaged active default for this internal release."
+            ],
+            "live_use_mode": "normal",
+            "metadata_path": "app/runtime/models/pre_binary_promotion_backup_metadata.json",
+            "metadata_schema_version": "legacy",
+            "metadata_sha256": "dd5499f4c96e3b5d9c812adc114262a20a5b56e927ef15ba06d69720d4cc9bac",
+            "metadata_status": "Legacy schema",
+            "model_id": "pre_binary_promotion_backup",
+            "model_path": "app/runtime/models/pre_binary_promotion_backup.onnx",
+            "model_sha256": "8b534dbec19d4f37e75803f6d01c9f32827f9d394c92a59c21c2ac6b23a2d1fd",
+            "model_sidecars": [
+            ],
+            "promotion_record_path": "open-visual-droplet-sorter-suite/docs/worker-reports/2026-04-30-actual-model-promotion-execution.md",
+            "promotion_status": "Packaged active default",
+            "registry_entry_id": "pre_binary_promotion_backup",
+            "selectable_for_normal_live_sorting": true,
+            "state": "promoted_current",
+            "target_policy": {
+                "target_class_id": "Single",
+                "target_display_label": "Single"
+            },
+            "validation_evidence": {
+            },
+            "validation_status": "Legacy backup packaged as active default"
+        }
+    ],
+    "registry_id": "installed-default-model-registry",
+    "schema_version": "model-registry-v1",
+    "updated_at": "2026-04-30T00:00:00-05:00"
+}

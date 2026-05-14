@@ -1,0 +1,9 @@
+<RCC>
+  <qresource prefix="/branding">
+    <file alias="opendss-primary-full-color.svg">branding/opendss-primary-full-color.svg</file>
+    <file alias="opendss-primary-white.svg">branding/opendss-primary-white.svg</file>
+    <file alias="opendss-icon-full-color.svg">branding/opendss-icon-full-color.svg</file>
+    <file alias="opendss-icon-512.png">branding/opendss-icon-512.png</file>
+    <file alias="opendss-small-icon-full-color.svg">branding/opendss-small-icon-full-color.svg</file>
+  </qresource>
+</RCC>

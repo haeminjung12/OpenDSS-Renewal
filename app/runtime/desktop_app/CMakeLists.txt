@@ -43,10 +43,64 @@ if (NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIB)
   message(FATAL_ERROR "ONNX Runtime not found. Set ONNXRUNTIME_DIR to a valid install path.")
 endif()
 
+set(OPENDSS_RUNTIME_SOURCES
+  ../dataset_capture_session.cpp
+  ../cli_runner.cpp
+  ../dcam_camera.cpp
+  ../event_detector.cpp
+  ../daq_trigger.cpp
+  ../fast_event_detector.cpp
+  ../metadata_loader.cpp
+  ../onnx_classifier.cpp
+)
+
+add_library(opendss_runtime STATIC
+  ${OPENDSS_RUNTIME_SOURCES}
+)
+
+target_include_directories(opendss_runtime
+  PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/..
+  PRIVATE
+    ${DCAM_SDK_DIR}/inc
+    ${ONNXRUNTIME_INCLUDE_DIR}
+    ${OpenCV_INCLUDE_DIRS}
+)
+
 add_executable(desktop_app
   main.cpp
+  app_options.cpp
+  app_options.h
+  app_paths.cpp
+  app_paths.h
+  app_context.cpp
+  app_context.h
+  main_window.cpp
+  main_window.h
   background_task_registry.cpp
   background_task_registry.h
+  app_utils.cpp
+  app_utils.h
+  live_log_writer.cpp
+  live_log_writer.h
+  model_registry_service.cpp
+  model_registry_service.h
+  sequence_summary_writer.cpp
+  sequence_summary_writer.h
+  crash_handler.cpp
+  crash_handler.h
+  camera_workspace_controller.cpp
+  camera_workspace_controller.h
+  dataset_workspace_controller.cpp
+  dataset_workspace_controller.h
+  model_workspace_controller.cpp
+  model_workspace_controller.h
+  reports_workspace_controller.cpp
+  reports_workspace_controller.h
+  settings_workspace_controller.cpp
+  settings_workspace_controller.h
+  validator_workspace_controller.cpp
+  validator_workspace_controller.h
   camera_worker.cpp
   camera_worker.h
   dcam_controller.cpp
@@ -71,6 +125,16 @@ add_executable(desktop_app
   workspace_reports.h
   workspace_settings.cpp
   workspace_settings.h
+  stats_figure_window.cpp
+  stats_figure_window.h
+  dataset_labeler_dialog.cpp
+  dataset_labeler_dialog.h
+  image_validation_dialog.cpp
+  image_validation_dialog.h
+  viewer_window.cpp
+  viewer_window.h
+  zoom_image_view.cpp
+  zoom_image_view.h
   resources/desktop_app_resources.qrc
   styles/default_theme.qss
   styles/opendss-dark.qss
@@ -82,14 +146,6 @@ add_executable(desktop_app
   widgets/panel_frame.h
   widgets/status_chip.cpp
   widgets/status_chip.h
-  ../dataset_capture_session.cpp
-  ../cli_runner.cpp
-  ../dcam_camera.cpp
-  ../event_detector.cpp
-  ../daq_trigger.cpp
-  ../fast_event_detector.cpp
-  ../metadata_loader.cpp
-  ../onnx_classifier.cpp
 )
 
 if (WIN32)
@@ -119,6 +175,7 @@ target_link_directories(desktop_app PRIVATE
 
 target_link_libraries(desktop_app PRIVATE
   Qt6::Widgets
+  opendss_runtime
   dcamapi
   ${ONNXRUNTIME_LIB}
   ${OpenCV_LIBS}
@@ -180,6 +237,10 @@ if (EXISTS "${RUNTIME_MODELS_DIR}")
   )
 endif()
 
+if (BUILD_TESTING)
+  add_subdirectory(../tests ${CMAKE_CURRENT_BINARY_DIR}/tests)
+endif()
+
 if (ENABLE_NIDAQMX)
   find_path(NIDAQMX_INCLUDE_DIR NIDAQmx.h
     PATHS
@@ -204,6 +265,8 @@ if (ENABLE_NIDAQMX)
   )
   if (NIDAQMX_INCLUDE_DIR AND NIDAQMX_LIBRARY)
     message(STATUS "NI-DAQmx enabled: include='${NIDAQMX_INCLUDE_DIR}', library='${NIDAQMX_LIBRARY}'")
+    target_compile_definitions(opendss_runtime PRIVATE HAVE_NIDAQMX=1)
+    target_include_directories(opendss_runtime PRIVATE ${NIDAQMX_INCLUDE_DIR})
     target_compile_definitions(desktop_app PRIVATE HAVE_NIDAQMX=1)
     target_include_directories(desktop_app PRIVATE ${NIDAQMX_INCLUDE_DIR})
     target_link_libraries(desktop_app PRIVATE ${NIDAQMX_LIBRARY})

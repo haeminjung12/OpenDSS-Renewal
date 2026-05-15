@@ -12,6 +12,8 @@ project(open_visual_droplet_sorter LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+include(CTest)
+
 set(DCAM_SDK_DIR "" CACHE PATH "Path to Hamamatsu DCAM SDK (dcamsdk4)")
 set(ONNXRUNTIME_DIR "" CACHE PATH "Path to ONNX Runtime")
 set(NIDAQMX_DIR "" CACHE PATH "Path to NI-DAQmx (optional)")

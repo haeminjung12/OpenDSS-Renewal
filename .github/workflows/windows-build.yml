@@ -1,0 +1,69 @@
+name: windows-build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+      - refactor/**
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  no-hardware-build:
+    name: No-hardware desktop build and CTest
+    runs-on:
+      - self-hosted
+      - Windows
+      - X64
+      - opendss
+    env:
+      BUILD_DIR: ${{ github.workspace }}\build-ci
+      QT_DIR: ${{ vars.OPENDSS_QT_DIR }}
+      ONNXRUNTIME_DIR: ${{ vars.OPENDSS_ONNXRUNTIME_DIR }}
+      DCAM_SDK_DIR: ${{ vars.OPENDSS_DCAM_SDK_DIR }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate required environment
+        shell: pwsh
+        run: |
+          $missing = @()
+          if (-not $env:QT_DIR) { $missing += 'OPENDSS_QT_DIR' }
+          if (-not $env:ONNXRUNTIME_DIR) { $missing += 'OPENDSS_ONNXRUNTIME_DIR' }
+          if (-not $env:DCAM_SDK_DIR) { $missing += 'OPENDSS_DCAM_SDK_DIR' }
+          if ($missing.Count -gt 0) {
+            throw "Missing required Actions variables: $($missing -join ', ')"
+          }
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -S "${{ github.workspace }}\app\runtime" -B "$env:BUILD_DIR" `
+            -D CMAKE_PREFIX_PATH="$env:QT_DIR" `
+            -D ONNXRUNTIME_DIR="$env:ONNXRUNTIME_DIR" `
+            -D DCAM_SDK_DIR="$env:DCAM_SDK_DIR" `
+            -D ENABLE_NIDAQMX=OFF `
+            -D BUILD_QT_GUI=ON
+
+      - name: Build desktop_app
+        shell: pwsh
+        run: cmake --build "$env:BUILD_DIR" --config Release --target desktop_app
+
+      - name: Build no-hardware test
+        shell: pwsh
+        run: cmake --build "$env:BUILD_DIR" --config Release --target opendss_runtime_metadata_loader_test
+
+      - name: Run CTest
+        shell: pwsh
+        run: ctest --test-dir "$env:BUILD_DIR" -C Release --output-on-failure
+
+      - name: Upload CTest logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctest-logs
+          path: |
+            ${{ env.BUILD_DIR }}\Testing
+            ${{ env.BUILD_DIR }}\desktop_app\Testing

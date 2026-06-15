@@ -6,10 +6,7 @@
 
 #include <cmath>
 
-QIcon makeBrandIcon(const QString& key,
-                    const QColor& fg,
-                    const QColor& accent,
-                    const QColor& fill) {
+QIcon makeBrandIcon(const QString& key, const QColor& fg, const QColor& accent, const QColor& fill) {
     QPixmap pixmap(32, 32);
     pixmap.fill(Qt::transparent);
     QPainter painter(&pixmap);

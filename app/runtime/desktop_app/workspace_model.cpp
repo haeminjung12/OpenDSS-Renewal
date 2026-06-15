@@ -29,7 +29,8 @@ QString findProjectRootFromApp() {
                  QFileInfo(dir.filePath("internal-release/app/runtime/models")).isDir())) {
                 return dir.absolutePath();
             }
-            if (!dir.cdUp()) break;
+            if (!dir.cdUp())
+                break;
         }
     }
     return QString();
@@ -45,7 +46,8 @@ QString registryNestedString(const QJsonObject& entry, const QString& objectKey,
 
 QString runtimePathFromRegistryPath(const QString& path) {
     QString trimmed = path.trimmed();
-    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute()) return trimmed;
+    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute())
+        return trimmed;
     QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         QString absolute = QDir(projectRoot).absoluteFilePath(trimmed);
@@ -58,20 +60,24 @@ QString runtimePathFromRegistryPath(const QString& path) {
 
 QString absoluteRegistryPath(const QString& path) {
     const QString trimmed = path.trimmed();
-    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute()) return trimmed;
+    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute())
+        return trimmed;
     const QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         const QString absolute = QDir(projectRoot).absoluteFilePath(trimmed);
-        if (QFileInfo::exists(absolute)) return absolute;
+        if (QFileInfo::exists(absolute))
+            return absolute;
         const QString internalAbsolute = QDir(projectRoot).absoluteFilePath("internal-release/" + trimmed);
-        if (QFileInfo::exists(internalAbsolute)) return internalAbsolute;
+        if (QFileInfo::exists(internalAbsolute))
+            return internalAbsolute;
     }
     return QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(runtimePathFromRegistryPath(trimmed));
 }
 
 QString fileSizeSummary(const QString& path) {
     QFileInfo info(absoluteRegistryPath(path));
-    if (!info.isFile()) return QString();
+    if (!info.isFile())
+        return QString();
     const qint64 bytes = info.size();
     if (bytes >= 1024 * 1024) {
         return QString::number(bytes / (1024.0 * 1024.0), 'f', 1) + " MB";
@@ -93,14 +99,16 @@ QLabel* makeModelValue(const QString& objectName, bool selectable = false) {
     nameWidget(label, objectName.toUtf8().constData());
     label->setTextInteractionFlags(selectable ? (Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard)
                                               : Qt::NoTextInteraction);
-    if (selectable) label->setTextFormat(Qt::RichText);
+    if (selectable)
+        label->setTextFormat(Qt::RichText);
     label->setWordWrap(true);
     label->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     return label;
 }
 
 QString wrapTechnicalText(QString text) {
-    if (text.isEmpty()) return QString();
+    if (text.isEmpty())
+        return QString();
     QString escaped = text.toHtmlEscaped();
     escaped.replace("/", "/<br>");
     escaped.replace("\\", "\\<br>");
@@ -140,18 +148,22 @@ void addField(QGridLayout* grid, int row, int column, const QString& label, QLab
 
 QStringList jsonStringList(const QJsonArray& values) {
     QStringList result;
-    for (const auto& value : values) result << value.toVariant().toString();
+    for (const auto& value : values)
+        result << value.toVariant().toString();
     return result;
 }
 
 QString jsonCompact(const QJsonValue& value) {
-    if (value.isObject()) return QString::fromUtf8(QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact));
-    if (value.isArray()) return QString::fromUtf8(QJsonDocument(value.toArray()).toJson(QJsonDocument::Compact));
+    if (value.isObject())
+        return QString::fromUtf8(QJsonDocument(value.toObject()).toJson(QJsonDocument::Compact));
+    if (value.isArray())
+        return QString::fromUtf8(QJsonDocument(value.toArray()).toJson(QJsonDocument::Compact));
     return value.toVariant().toString();
 }
 
 QString jsonPathSummary(const QJsonValue& value) {
-    if (value.isUndefined() || value.isNull()) return "(none)";
+    if (value.isUndefined() || value.isNull())
+        return "(none)";
     if (value.isObject()) {
         QStringList lines;
         const QJsonObject object = value.toObject();
@@ -188,12 +200,14 @@ QJsonObject loadMetadataDoc(const QJsonObject& entry) {
             candidates << QDir(projectRootForMetadata).absoluteFilePath(registryPath);
             candidates << QDir(projectRootForMetadata).absoluteFilePath("internal-release/" + registryPath);
         }
-        candidates << QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(runtimePathFromRegistryPath(registryPath));
+        candidates
+            << QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(runtimePathFromRegistryPath(registryPath));
         QDir probe(QCoreApplication::applicationDirPath());
         for (int i = 0; i < 8; ++i) {
             candidates << probe.absoluteFilePath(registryPath);
             candidates << probe.absoluteFilePath("internal-release/" + registryPath);
-            if (!probe.cdUp()) break;
+            if (!probe.cdUp())
+                break;
         }
         for (const auto& candidate : candidates) {
             if (QFileInfo(candidate).isFile()) {
@@ -203,10 +217,12 @@ QJsonObject loadMetadataDoc(const QJsonObject& entry) {
         }
     }
     QFile file(absolutePath);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) return {};
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+        return {};
     return doc.object();
 }
 
@@ -218,25 +234,28 @@ QString inputSizeSummary(const QJsonObject& metadataDoc) {
 QString metadataArchitectureSummary(const QJsonObject& metadataDoc) {
     const QJsonObject architecture = metadataDoc.value("architecture").toObject();
     QStringList parts;
-    if (!architecture.value("family").toString().isEmpty()) parts << architecture.value("family").toString();
-    if (!architecture.value("variant").toString().isEmpty()) parts << architecture.value("variant").toString();
+    if (!architecture.value("family").toString().isEmpty())
+        parts << architecture.value("family").toString();
+    if (!architecture.value("variant").toString().isEmpty())
+        parts << architecture.value("variant").toString();
     const QString format = metadataDoc.value("export").toObject().value("format").toString();
-    if (!format.isEmpty()) parts << format.toUpper();
+    if (!format.isEmpty())
+        parts << format.toUpper();
     return parts.isEmpty() ? QString("ONNX classifier") : parts.join(" / ");
 }
 
 bool entryIsActive(const QJsonObject& entry) {
     return entry.value("selectable_for_normal_live_sorting").toBool(false) ||
-        registryString(entry, "state").contains("promoted", Qt::CaseInsensitive) ||
-        registryString(entry, "promotion_status").contains("current", Qt::CaseInsensitive);
+           registryString(entry, "state").contains("promoted", Qt::CaseInsensitive) ||
+           registryString(entry, "promotion_status").contains("current", Qt::CaseInsensitive);
 }
 
 bool entryIsValidated(const QJsonObject& entry) {
     const QString status = registryString(entry, "validation_status").trimmed();
-    if (status.isEmpty()) return false;
+    if (status.isEmpty())
+        return false;
     return !status.contains("no validation", Qt::CaseInsensitive) &&
-        !status.contains("not validated", Qt::CaseInsensitive) &&
-        !status.contains("missing", Qt::CaseInsensitive);
+           !status.contains("not validated", Qt::CaseInsensitive) && !status.contains("missing", Qt::CaseInsensitive);
 }
 
 QString displayNameForEntry(const QJsonObject& entry) {
@@ -247,51 +266,62 @@ QString displayNameForEntry(const QJsonObject& entry) {
 QString modelRegistryDirectory(const QString& registryFilePath) {
     if (!registryFilePath.trimmed().isEmpty()) {
         const QFileInfo info(registryFilePath);
-        if (info.absoluteDir().exists()) return info.absolutePath();
+        if (info.absoluteDir().exists())
+            return info.absolutePath();
     }
     const QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         const QString internalModels = QDir(projectRoot).absoluteFilePath("internal-release/app/runtime/models");
-        if (QFileInfo(internalModels).isDir()) return internalModels;
+        if (QFileInfo(internalModels).isDir())
+            return internalModels;
         const QString runtimeModels = QDir(projectRoot).absoluteFilePath("app/runtime/models");
-        if (QFileInfo(runtimeModels).isDir()) return runtimeModels;
+        if (QFileInfo(runtimeModels).isDir())
+            return runtimeModels;
     }
     return QCoreApplication::applicationDirPath();
 }
 
 QJsonArray loadRegistryEntriesFromPath(const QString& registryFilePath, QString* warning) {
-    if (warning) warning->clear();
+    if (warning)
+        warning->clear();
     QFile file(registryFilePath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (warning) *warning = "Registry file not readable: " + registryFilePath;
+        if (warning)
+            *warning = "Registry file not readable: " + registryFilePath;
         return {};
     }
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        if (warning) *warning = "Registry parse failed: " + parseError.errorString();
+        if (warning)
+            *warning = "Registry parse failed: " + parseError.errorString();
         return {};
     }
     return doc.object().value("entries").toArray();
 }
 
 bool saveRegistryEntriesToPath(const QString& registryFilePath, const QJsonArray& entries, QString* error) {
-    if (error) error->clear();
+    if (error)
+        error->clear();
     if (registryFilePath.trimmed().isEmpty()) {
-        if (error) *error = "No registry file path is available.";
+        if (error)
+            *error = "No registry file path is available.";
         return false;
     }
     QJsonObject registry;
     QFile existing(registryFilePath);
     if (existing.open(QIODevice::ReadOnly | QIODevice::Text)) {
         const QJsonDocument doc = QJsonDocument::fromJson(existing.readAll());
-        if (doc.isObject()) registry = doc.object();
+        if (doc.isObject())
+            registry = doc.object();
     }
-    if (registry.value("schema_version").toString().isEmpty()) registry["schema_version"] = "model-registry-v1";
+    if (registry.value("schema_version").toString().isEmpty())
+        registry["schema_version"] = "model-registry-v1";
     registry["entries"] = entries;
     QFile file(registryFilePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-        if (error) *error = "Registry file not writable: " + registryFilePath;
+        if (error)
+            *error = "Registry file not writable: " + registryFilePath;
         return false;
     }
     file.write(QJsonDocument(registry).toJson(QJsonDocument::Indented));
@@ -304,10 +334,12 @@ QString firstExistingEvidencePath(const QJsonObject& entry) {
     if (evidenceValue.isObject()) {
         const QJsonObject evidence = evidenceValue.toObject();
         for (auto it = evidence.constBegin(); it != evidence.constEnd(); ++it) {
-            if (it.value().isString()) candidates << it.value().toString();
+            if (it.value().isString())
+                candidates << it.value().toString();
             if (it.value().isArray()) {
                 for (const auto& value : it.value().toArray()) {
-                    if (value.isString()) candidates << value.toString();
+                    if (value.isString())
+                        candidates << value.toString();
                 }
             }
         }
@@ -315,10 +347,12 @@ QString firstExistingEvidencePath(const QJsonObject& entry) {
         candidates << evidenceValue.toString();
     }
     const QString promotion = registryString(entry, "promotion_record_path");
-    if (!promotion.isEmpty()) candidates << promotion;
+    if (!promotion.isEmpty())
+        candidates << promotion;
     for (const auto& candidate : candidates) {
         const QString absolute = absoluteRegistryPath(candidate);
-        if (QFileInfo(absolute).exists()) return absolute;
+        if (QFileInfo(absolute).exists())
+            return absolute;
     }
     return {};
 }
@@ -341,8 +375,10 @@ QPushButton* makeSmallButton(const QString& text, const char* objectName) {
 
 QString canonicalTargetClassId(QString value) {
     value = value.trimmed();
-    if (value.compare("Empty", Qt::CaseInsensitive) == 0) return "0";
-    if (value.compare("Single", Qt::CaseInsensitive) == 0) return "1";
+    if (value.compare("Empty", Qt::CaseInsensitive) == 0)
+        return "0";
+    if (value.compare("Single", Qt::CaseInsensitive) == 0)
+        return "1";
     if (value.compare("MoreThanTwo", Qt::CaseInsensitive) == 0 ||
         value.compare("More than two", Qt::CaseInsensitive) == 0) {
         return "2";
@@ -350,7 +386,7 @@ QString canonicalTargetClassId(QString value) {
     return value.isEmpty() ? QString("1") : value;
 }
 
-}  // namespace
+} // namespace
 
 QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     using desktop_app::ui::makeMetric;
@@ -399,13 +435,17 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
             const QJsonObject metadataDoc = loadMetadataDoc(entry);
             QStringList summary;
             const QString input = inputSizeSummary(metadataDoc);
-            if (input != "--") summary << input;
+            if (input != "--")
+                summary << input;
             const QString size = fileSizeSummary(registryString(entry, "model_path"));
-            if (!size.isEmpty()) summary << size;
+            if (!size.isEmpty())
+                summary << size;
             const QString liveMode = registryString(entry, "live_use_mode");
-            if (!liveMode.isEmpty()) summary << liveMode;
+            if (!liveMode.isEmpty())
+                summary << liveMode;
             const QString metadataStatus = registryString(entry, "metadata_status");
-            if (!metadataStatus.isEmpty()) summary << metadataStatus;
+            if (!metadataStatus.isEmpty())
+                summary << metadataStatus;
             const QString active = entryIsActive(entry) ? "  [Active]" : QString();
             auto* item = new QTableWidgetItem(displayNameForEntry(entry) + active + "\n" + summary.join("  -  "));
             item->setToolTip(displayNameForEntry(entry));
@@ -622,40 +662,48 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     modelDetailScroll->setWidget(modelDetailStack);
 
     auto setRuntimeTargetClassId = [=](const QString& classId) {
-        if (classId.trimmed().isEmpty()) return;
+        if (classId.trimmed().isEmpty())
+            return;
         const QString canonicalId = canonicalTargetClassId(classId);
         QSettings().setValue(kRuntimeTargetClassIdKey, canonicalId);
-        if (controls.appState) controls.appState->targetClassId = canonicalId;
+        if (controls.appState)
+            controls.appState->targetClassId = canonicalId;
         if (controls.targetClassCombo) {
             int match = -1;
             for (int i = 0; i < controls.targetClassCombo->count(); ++i) {
                 const QString data = controls.targetClassCombo->itemData(i).toString();
                 const QString text = controls.targetClassCombo->itemText(i);
-                if (data == canonicalId || text.contains("(" + canonicalId + ")") || canonicalTargetClassId(text) == canonicalId) {
+                if (data == canonicalId || text.contains("(" + canonicalId + ")") ||
+                    canonicalTargetClassId(text) == canonicalId) {
                     match = i;
                     break;
                 }
             }
-            if (match >= 0) controls.targetClassCombo->setCurrentIndex(match);
+            if (match >= 0)
+                controls.targetClassCombo->setCurrentIndex(match);
         }
     };
 
     auto selectedEntry = [=]() -> QJsonObject {
         int row = modelRegistryList->currentRow();
-        if (row < 0 || row >= registryEntries->size()) row = 0;
-        if (row < 0 || row >= registryEntries->size()) return {};
+        if (row < 0 || row >= registryEntries->size())
+            row = 0;
+        if (row < 0 || row >= registryEntries->size())
+            return {};
         return registryEntries->at(row).toObject();
     };
 
     auto updateModelWorkspaceDetails = [=]() {
         int row = modelRegistryList->currentRow();
-        if (row < 0 || row >= registryEntries->size()) row = 0;
-        if (row < 0 || row >= registryEntries->size()) return;
+        if (row < 0 || row >= registryEntries->size())
+            row = 0;
+        if (row < 0 || row >= registryEntries->size())
+            return;
         const QJsonObject entry = registryEntries->at(row).toObject();
         const QJsonObject metadataDoc = loadMetadataDoc(entry);
         const QString modelName = registryString(entry, "display_name").isEmpty()
-            ? registryString(entry, "registry_entry_id")
-            : registryString(entry, "display_name");
+                                      ? registryString(entry, "registry_entry_id")
+                                      : registryString(entry, "display_name");
         modelNameValue->setText(modelName);
         registryIdValue->setText(wrapTechnicalText(registryString(entry, "registry_entry_id")));
         architectureValue->setText(metadataArchitectureSummary(metadataDoc));
@@ -664,15 +712,22 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         const QString modelFileSize = fileSizeSummary(registryString(entry, "model_path"));
         modelFileSizeValue->setText(modelFileSize.isEmpty() ? "(unavailable)" : modelFileSize);
         modelPathValue->setText(wrapTechnicalText(registryString(entry, "model_path")));
-        const QString modelSha = registryString(entry, "model_sha256").isEmpty() ? "(not recorded)" : registryString(entry, "model_sha256");
+        const QString modelSha =
+            registryString(entry, "model_sha256").isEmpty() ? "(not recorded)" : registryString(entry, "model_sha256");
         modelShaValue->setText(wrapTechnicalText(modelSha));
         metadataPathValue->setText(wrapTechnicalText(registryString(entry, "metadata_path")));
-        const QString metadataSha = registryString(entry, "metadata_sha256").isEmpty() ? "(not recorded)" : registryString(entry, "metadata_sha256");
+        const QString metadataSha = registryString(entry, "metadata_sha256").isEmpty()
+                                        ? "(not recorded)"
+                                        : registryString(entry, "metadata_sha256");
         metadataShaValue->setText(wrapTechnicalText(metadataSha));
         modelClassesValue->setText(classesSummary(entry));
         const QString metadataStatus = registryString(entry, "metadata_status");
-        metadataSchemaValue->setText(metadataStatus.isEmpty() ? "(unknown)" : metadataStatus + " / " + registryString(entry, "metadata_schema_version"));
-        labelSchemaValue->setText(registryString(entry, "label_schema_version").isEmpty() ? "(unknown)" : registryString(entry, "label_schema_version"));
+        metadataSchemaValue->setText(metadataStatus.isEmpty()
+                                         ? "(unknown)"
+                                         : metadataStatus + " / " + registryString(entry, "metadata_schema_version"));
+        labelSchemaValue->setText(registryString(entry, "label_schema_version").isEmpty()
+                                      ? "(unknown)"
+                                      : registryString(entry, "label_schema_version"));
         inputSizeValue->setText(inputSizeSummary(metadataDoc));
         const QJsonObject normalization = metadataDoc.value("normalization").toObject();
         const QString mean = jsonStringList(normalization.value("mean").toArray()).join(", ");
@@ -681,18 +736,27 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         normalizationStdValue->setText(std.isEmpty() ? "--" : std);
         const QString targetId = registryNestedString(entry, "target_policy", "target_class_id");
         const QString targetDisplay = registryNestedString(entry, "target_policy", "target_display_label");
-        targetPolicyValue->setText(QString("Policy target: %1 (%2)").arg(targetDisplay.isEmpty() ? targetId : targetDisplay, targetId));
-        const QString runtimeTargetId = canonicalTargetClassId(controls.appState && !controls.appState->targetClassId.isEmpty()
-            ? controls.appState->targetClassId
-            : QSettings().value(kRuntimeTargetClassIdKey, controls.targetClassCombo ? controls.targetClassCombo->currentData().toString() : QString("1")).toString());
+        targetPolicyValue->setText(
+            QString("Policy target: %1 (%2)").arg(targetDisplay.isEmpty() ? targetId : targetDisplay, targetId));
+        const QString runtimeTargetId = canonicalTargetClassId(
+            controls.appState && !controls.appState->targetClassId.isEmpty()
+                ? controls.appState->targetClassId
+                : QSettings()
+                      .value(kRuntimeTargetClassIdKey, controls.targetClassCombo
+                                                           ? controls.targetClassCombo->currentData().toString()
+                                                           : QString("1"))
+                      .toString());
         if (auto* button = targetButtonGroup->button(runtimeTargetId.toInt())) {
             QSignalBlocker blocker(targetButtonGroup);
             button->setChecked(true);
         }
-        const QString runtimeTarget = controls.targetClassCombo ? controls.targetClassCombo->currentText().trimmed() : runtimeTargetId;
-        targetRuntimeValue->setText("Shared runtime target: " + (runtimeTarget.isEmpty() ? runtimeTargetId : runtimeTarget));
+        const QString runtimeTarget =
+            controls.targetClassCombo ? controls.targetClassCombo->currentText().trimmed() : runtimeTargetId;
+        targetRuntimeValue->setText("Shared runtime target: " +
+                                    (runtimeTarget.isEmpty() ? runtimeTargetId : runtimeTarget));
         setActiveButton->setEnabled(!entryIsActive(entry));
-        setActiveButton->setToolTip(entryIsActive(entry) ? "Selected model is already active." : "Mark the selected model as active.");
+        setActiveButton->setToolTip(entryIsActive(entry) ? "Selected model is already active."
+                                                         : "Mark the selected model as active.");
         validationStatusValue->setText("Status: " + registryString(entry, "validation_status"));
         const QJsonObject validationSummary = metadataDoc.value("validation_summary").toObject();
         const QJsonObject imageValidation = validationSummary.value("image_validation").toObject();
@@ -709,25 +773,37 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         lossValue->setText(decimal(imageValidation.value("loss")));
         const QJsonObject benchmark = metadataDoc.value("benchmark").toObject();
         const QJsonObject inferenceBenchmark = metadataDoc.value("inference_benchmark").toObject();
-        meanLatencyValue->setText(decimal(benchmark.value("mean_latency_ms").isUndefined() ? inferenceBenchmark.value("mean_latency_ms") : benchmark.value("mean_latency_ms")));
-        p99LatencyValue->setText(decimal(benchmark.value("p99_latency_ms").isUndefined() ? imageValidation.value("p99_latency_ms") : benchmark.value("p99_latency_ms")));
-        const QJsonValue throughput = benchmark.value("throughput_fps").isUndefined() ? inferenceBenchmark.value("throughput_fps") : benchmark.value("throughput_fps");
-        throughputValue->setText(throughput.isDouble() ? QString::number(throughput.toDouble(), 'f', 0) + " fps" : "--");
+        meanLatencyValue->setText(decimal(benchmark.value("mean_latency_ms").isUndefined()
+                                              ? inferenceBenchmark.value("mean_latency_ms")
+                                              : benchmark.value("mean_latency_ms")));
+        p99LatencyValue->setText(decimal(benchmark.value("p99_latency_ms").isUndefined()
+                                             ? imageValidation.value("p99_latency_ms")
+                                             : benchmark.value("p99_latency_ms")));
+        const QJsonValue throughput = benchmark.value("throughput_fps").isUndefined()
+                                          ? inferenceBenchmark.value("throughput_fps")
+                                          : benchmark.value("throughput_fps");
+        throughputValue->setText(throughput.isDouble() ? QString::number(throughput.toDouble(), 'f', 0) + " fps"
+                                                       : "--");
         benchmarkAccuracyValue->setText(percent(imageValidation.value("accuracy")));
         validationEvidenceValue->setText(wrapTechnicalText(jsonPathSummary(entry.value("validation_evidence"))));
         promotionStatusValue->setText("Promotion: " + registryString(entry, "promotion_status"));
-        promotionRecordValue->setText(wrapTechnicalText("Record: " + (registryString(entry, "promotion_record_path").isEmpty() ? "(none)" : registryString(entry, "promotion_record_path"))));
+        promotionRecordValue->setText(
+            wrapTechnicalText("Record: " + (registryString(entry, "promotion_record_path").isEmpty()
+                                                ? "(none)"
+                                                : registryString(entry, "promotion_record_path"))));
         limitationsValue->setText("Limitations: " + jsonStringList(entry.value("limitations").toArray()).join("; "));
-        blockersValue->setText(wrapTechnicalText("Blockers: " + (entry.value("blockers").toArray().isEmpty() ? "(none)" : jsonPathSummary(entry.value("blockers")))));
+        blockersValue->setText(wrapTechnicalText("Blockers: " + (entry.value("blockers").toArray().isEmpty()
+                                                                     ? "(none)"
+                                                                     : jsonPathSummary(entry.value("blockers")))));
     };
-    QObject::connect(modelRegistryList, &QTableWidget::currentCellChanged, [=](int, int, int, int) {
-        updateModelWorkspaceDetails();
-    });
+    QObject::connect(modelRegistryList, &QTableWidget::currentCellChanged,
+                     [=](int, int, int, int) { updateModelWorkspaceDetails(); });
     if (controls.targetClassCombo) {
         QObject::connect(controls.targetClassCombo, qOverload<int>(&QComboBox::currentIndexChanged), [=]() {
             if (controls.appState) {
                 const QString classId = controls.targetClassCombo->currentData().toString().trimmed();
-                if (!classId.isEmpty()) controls.appState->targetClassId = canonicalTargetClassId(classId);
+                if (!classId.isEmpty())
+                    controls.appState->targetClassId = canonicalTargetClassId(classId);
             }
             updateModelWorkspaceDetails();
         });
@@ -739,15 +815,14 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     QObject::connect(openMetadataButton, &QPushButton::clicked, [=]() {
         openPathOrWarn(modelWorkspacePage, selectedEntry().value("metadata_path").toString(), "Open Metadata");
     });
-    QObject::connect(reloadMetadataButton, &QPushButton::clicked, [=]() {
-        updateModelWorkspaceDetails();
-    });
+    QObject::connect(reloadMetadataButton, &QPushButton::clicked, [=]() { updateModelWorkspaceDetails(); });
     QObject::connect(openReportButton, &QPushButton::clicked, [=]() {
         const QString reportPath = firstExistingEvidencePath(selectedEntry());
         openPathOrWarn(modelWorkspacePage, reportPath, "Open Report");
     });
     auto navigateToValidator = [=]() {
-        if (controls.imageValidationAction) controls.imageValidationAction->trigger();
+        if (controls.imageValidationAction)
+            controls.imageValidationAction->trigger();
         if (controls.workspaceStack && controls.validatorWorkspace) {
             controls.workspaceStack->setCurrentWidget(controls.validatorWorkspace);
         }
@@ -767,12 +842,13 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     });
     QObject::connect(setActiveButton, &QPushButton::clicked, [=]() {
         int row = modelRegistryList->currentRow();
-        if (row < 0 || row >= registryEntries->size()) return;
+        if (row < 0 || row >= registryEntries->size())
+            return;
         QJsonObject selected = registryEntries->at(row).toObject();
         if (!entryIsValidated(selected)) {
-            QMessageBox::warning(modelWorkspacePage,
-                                 "Unvalidated Model",
-                                 "This model has no validation pass recorded. Activation is allowed, but run validation before relying on DAQ firing.");
+            QMessageBox::warning(modelWorkspacePage, "Unvalidated Model",
+                                 "This model has no validation pass recorded. Activation is allowed, but run "
+                                 "validation before relying on DAQ firing.");
         }
         QJsonArray updated;
         for (int i = 0; i < registryEntries->size(); ++i) {
@@ -783,7 +859,8 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
                 entry["state"] = "promoted_current";
                 entry["promotion_status"] = "Active in workspace";
                 const QString targetId = registryNestedString(entry, "target_policy", "target_class_id");
-                if (!targetId.isEmpty()) setRuntimeTargetClassId(targetId);
+                if (!targetId.isEmpty())
+                    setRuntimeTargetClassId(targetId);
             } else if (registryString(entry, "state") == "promoted_current") {
                 entry["state"] = "available";
                 entry["promotion_status"] = "Available";
@@ -801,11 +878,10 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     });
     QObject::connect(addModelButton, &QPushButton::clicked, [=]() {
         const QString startDir = modelRegistryDirectory(controls.registryFilePath);
-        const QString path = QFileDialog::getOpenFileName(modelWorkspacePage,
-                                                          "Add ONNX Model",
-                                                          startDir,
+        const QString path = QFileDialog::getOpenFileName(modelWorkspacePage, "Add ONNX Model", startDir,
                                                           "ONNX models (*.onnx);;All files (*.*)");
-        if (path.isEmpty()) return;
+        if (path.isEmpty())
+            return;
         QJsonObject entry;
         const QFileInfo info(path);
         entry["registry_entry_id"] = info.completeBaseName();
@@ -840,8 +916,7 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         QString warning;
         QJsonArray refreshed = loadRegistryEntriesFromPath(controls.registryFilePath, &warning);
         if (refreshed.isEmpty()) {
-            QMessageBox::information(modelWorkspacePage,
-                                     "Refresh Models",
+            QMessageBox::information(modelWorkspacePage, "Refresh Models",
                                      warning.isEmpty() ? "Registry refresh found no model entries." : warning);
             return;
         }
@@ -860,4 +935,4 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     return modelWorkspacePage;
 }
 
-}  // namespace desktop_app::workspace
+} // namespace desktop_app::workspace

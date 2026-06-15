@@ -51,7 +51,7 @@ struct PipelineEvent {
 };
 
 class PipelineRunner {
-public:
+  public:
     PipelineRunner() = default;
     ~PipelineRunner();
     bool init(const PipelineConfig& cfg, std::string& err);
@@ -66,7 +66,7 @@ public:
     std::string targetDisplayLabel() const;
     std::string targetDisplayText() const;
 
-private:
+  private:
     static std::string toLowerAscii(const std::string& s);
     static cv::Rect makeSquareRect(const cv::Rect& bbox, const cv::Size& size);
 

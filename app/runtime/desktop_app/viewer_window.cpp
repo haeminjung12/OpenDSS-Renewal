@@ -24,8 +24,7 @@
 #include "object_names.h"
 #include "zoom_image_view.h"
 
-ViewerWindow::ViewerWindow(QWidget* parent)
-    : QWidget(parent) {
+ViewerWindow::ViewerWindow(QWidget* parent) : QWidget(parent) {
     nameWidget(this, "CaptureViewerWindow");
     setWindowFlags(Qt::Window);
     setWindowTitle("Capture Viewer");
@@ -108,9 +107,7 @@ ViewerWindow::ViewerWindow(QWidget* parent)
             folderEdit->setText(dir);
         }
     });
-    QObject::connect(loadBtn, &QPushButton::clicked, [this]() {
-        loadFolder(folderEdit->text());
-    });
+    QObject::connect(loadBtn, &QPushButton::clicked, [this]() { loadFolder(folderEdit->text()); });
     QObject::connect(recentCombo, &QComboBox::activated, [this](int idx) {
         if (idx < 0) {
             return;
@@ -121,9 +118,7 @@ ViewerWindow::ViewerWindow(QWidget* parent)
             loadFolder(dir);
         }
     });
-    QObject::connect(slider, &QSlider::valueChanged, [this](int v) {
-        loadFrame(v);
-    });
+    QObject::connect(slider, &QSlider::valueChanged, [this](int v) { loadFrame(v); });
     QObject::connect(prevBtn, &QPushButton::clicked, [this]() {
         if (frameFiles.isEmpty()) {
             return;
@@ -145,24 +140,12 @@ ViewerWindow::ViewerWindow(QWidget* parent)
     auto* ctrlRightShortcut = new QShortcut(QKeySequence(Qt::CTRL | Qt::Key_Right), this);
     auto* pageUpShortcut = new QShortcut(QKeySequence(Qt::Key_PageUp), this);
     auto* pageDownShortcut = new QShortcut(QKeySequence(Qt::Key_PageDown), this);
-    QObject::connect(leftShortcut, &QShortcut::activated, [this]() {
-        stepFrames(-1);
-    });
-    QObject::connect(rightShortcut, &QShortcut::activated, [this]() {
-        stepFrames(1);
-    });
-    QObject::connect(ctrlLeftShortcut, &QShortcut::activated, [this]() {
-        stepFrames(-5);
-    });
-    QObject::connect(ctrlRightShortcut, &QShortcut::activated, [this]() {
-        stepFrames(5);
-    });
-    QObject::connect(pageUpShortcut, &QShortcut::activated, [this]() {
-        stepFrames(-10);
-    });
-    QObject::connect(pageDownShortcut, &QShortcut::activated, [this]() {
-        stepFrames(10);
-    });
+    QObject::connect(leftShortcut, &QShortcut::activated, [this]() { stepFrames(-1); });
+    QObject::connect(rightShortcut, &QShortcut::activated, [this]() { stepFrames(1); });
+    QObject::connect(ctrlLeftShortcut, &QShortcut::activated, [this]() { stepFrames(-5); });
+    QObject::connect(ctrlRightShortcut, &QShortcut::activated, [this]() { stepFrames(5); });
+    QObject::connect(pageUpShortcut, &QShortcut::activated, [this]() { stepFrames(-10); });
+    QObject::connect(pageDownShortcut, &QShortcut::activated, [this]() { stepFrames(10); });
 
     loadRecentFolders();
 }
@@ -236,8 +219,7 @@ double ViewerWindow::readFpsFromInfo(const QString& infoPath) const {
     double foundFps = 0.0;
     while (!ts.atEnd()) {
         const QString line = ts.readLine().trimmed();
-        if (line.startsWith("Internal FPS:", Qt::CaseInsensitive) ||
-            line.startsWith("FPS:", Qt::CaseInsensitive)) {
+        if (line.startsWith("Internal FPS:", Qt::CaseInsensitive) || line.startsWith("FPS:", Qt::CaseInsensitive)) {
             const QStringList parts = line.split(":");
             if (parts.size() >= 2) {
                 bool ok = false;
@@ -277,6 +259,5 @@ void ViewerWindow::updateTimeLabel(int index) {
     }
     const double totalSec = static_cast<double>(count) / fps;
     const double currentSec = static_cast<double>(index) / fps;
-    timeLabel->setText(
-        QString("Time: %1 / %2").arg(formatTimeSeconds(currentSec)).arg(formatTimeSeconds(totalSec)));
+    timeLabel->setText(QString("Time: %1 / %2").arg(formatTimeSeconds(currentSec)).arg(formatTimeSeconds(totalSec)));
 }

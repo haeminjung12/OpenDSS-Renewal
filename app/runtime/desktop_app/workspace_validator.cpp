@@ -56,9 +56,11 @@ QFrame* makeValidatorMetric(const QString& label, const QString& value, const QS
 }
 
 QJsonObject loadSummaryArtifact(const QString& path, QString* parseDiagnostic) {
-    if (parseDiagnostic) parseDiagnostic->clear();
+    if (parseDiagnostic)
+        parseDiagnostic->clear();
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
@@ -80,12 +82,13 @@ QJsonObject loadSummaryArtifact(const QString& path, QString* parseDiagnostic) {
 QString validationSummaryPath() {
     QSettings settings;
     const QString outputFolder = settings.value("validator/outputFolder").toString().trimmed();
-    if (outputFolder.isEmpty()) return {};
+    if (outputFolder.isEmpty())
+        return {};
     const QString summaryPath = QDir(outputFolder).filePath("image_validation/validation_summary.json");
     return QFileInfo::exists(summaryPath) ? QFileInfo(summaryPath).absoluteFilePath() : QString();
 }
 
-}  // namespace
+} // namespace
 
 QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     using desktop_app::ui::makePanel;
@@ -110,18 +113,14 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     auto validatorImagePanel = makePanel("Image Validation", "External Python validator");
     validatorImagePanel->setObjectName("ValidatorImageValidationPanel");
     auto validatorImageBody = makePanelBody(validatorImagePanel);
-    validatorImageBody->addWidget(makeValidatorField("Model artifact",
-                                                     controls.modelPath,
-                                                     "ValidatorWorkspaceModelEdit"));
-    validatorImageBody->addWidget(makeValidatorField("Model metadata",
-                                                     controls.metadataPath,
-                                                     "ValidatorWorkspaceMetadataEdit"));
-    validatorImageBody->addWidget(makeValidatorField("Test set",
-                                                     "datasets/prepared/droplet_binary_2026-04-30",
-                                                     "ValidatorWorkspaceDatasetEdit"));
-    validatorImageBody->addWidget(makeValidatorField("Output folder",
-                                                     "outputs/validation_gui_image",
-                                                     "ValidatorWorkspaceOutputEdit"));
+    validatorImageBody->addWidget(
+        makeValidatorField("Model artifact", controls.modelPath, "ValidatorWorkspaceModelEdit"));
+    validatorImageBody->addWidget(
+        makeValidatorField("Model metadata", controls.metadataPath, "ValidatorWorkspaceMetadataEdit"));
+    validatorImageBody->addWidget(
+        makeValidatorField("Test set", "datasets/prepared/droplet_binary_2026-04-30", "ValidatorWorkspaceDatasetEdit"));
+    validatorImageBody->addWidget(
+        makeValidatorField("Output folder", "outputs/validation_gui_image", "ValidatorWorkspaceOutputEdit"));
     auto validatorActionRow = new QHBoxLayout;
     validatorActionRow->setSpacing(8);
     auto validatorOpenBtn = new QPushButton("Run Image Validation");
@@ -163,7 +162,9 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorStatusRow->addWidget(validatorEtaLabel);
     validatorImageBody->addLayout(validatorStatusRow);
 
-    auto validatorSequenceNote = new QLabel("Sequence validation remains disabled: runner-wrapped replay is not available in this workspace, and provisional artifact comparison is not promoted for public gates.");
+    auto validatorSequenceNote =
+        new QLabel("Sequence validation remains disabled: runner-wrapped replay is not available in this workspace, "
+                   "and provisional artifact comparison is not promoted for public gates.");
     validatorSequenceNote->setWordWrap(true);
     validatorSequenceNote->setProperty("mutedText", true);
     nameWidget(validatorSequenceNote, "ValidatorWorkspaceSequenceValidationNote");
@@ -258,7 +259,8 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     nameWidget(validatorLog, "ValidatorWorkspaceLogTextEdit");
     validatorLog->setReadOnly(true);
     validatorLog->setMaximumHeight(170);
-    validatorLog->setPlainText("Idle. Run Image Validation opens the existing validator dialog, where stdout/stderr streaming and cancellation are preserved.");
+    validatorLog->setPlainText("Idle. Run Image Validation opens the existing validator dialog, where stdout/stderr "
+                               "streaming and cancellation are preserved.");
     validatorLogBody->addWidget(validatorLog);
     auto validatorSequenceButton = new QPushButton("Sequence Validation");
     nameWidget(validatorSequenceButton, "ValidatorWorkspaceSequenceValidationButton");
@@ -289,8 +291,8 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
             const QString accuracy = metrics.value("accuracy").toString();
             validatorSummaryDiagnostic->setText(
                 QString("Loaded validation summary from %1 (status=%2).")
-                    .arg(QFileInfo(summaryPath).fileName(), status)
-                    + (accuracy.isEmpty() ? QString() : QString(" accuracy=%1").arg(accuracy)));
+                    .arg(QFileInfo(summaryPath).fileName(), status) +
+                (accuracy.isEmpty() ? QString() : QString(" accuracy=%1").arg(accuracy)));
         }
     } else {
         validatorSummaryDiagnostic->setText("Validation summary diagnostics: summary path was not found in settings.");
@@ -306,5 +308,4 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     return validatorWorkspacePage;
 }
 
-}  // namespace desktop_app::workspace
-
+} // namespace desktop_app::workspace

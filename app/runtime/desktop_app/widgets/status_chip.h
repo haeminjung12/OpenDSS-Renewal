@@ -11,17 +11,8 @@ class StatusChip : public QWidget {
     Q_PROPERTY(QString state READ stateName WRITE setStateName)
     Q_PROPERTY(bool dotVisible READ isDotVisible WRITE setDotVisible)
 
-public:
-    enum class State {
-        Neutral,
-        Info,
-        Success,
-        Warning,
-        Error,
-        Running,
-        Armed,
-        Disabled
-    };
+  public:
+    enum class State { Neutral, Info, Success, Warning, Error, Running, Armed, Disabled };
     Q_ENUM(State)
 
     explicit StatusChip(QWidget* parent = nullptr);
@@ -39,7 +30,7 @@ public:
     bool isDotVisible() const;
     void setDotVisible(bool visible);
 
-private:
+  private:
     void updateStatePresentation();
     void updateAccessibleLabel();
 

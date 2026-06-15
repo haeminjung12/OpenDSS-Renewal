@@ -6,7 +6,7 @@
 
 namespace {
 std::string toLower(std::string s) {
-    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     return s;
 }
 
@@ -52,7 +52,8 @@ bool computeClipRange(const cv::Mat& src, double clip, float& low, float& high) 
 }
 
 cv::Mat normalizeForOtsu(const cv::Mat& src, double clip) {
-    if (src.empty()) return cv::Mat();
+    if (src.empty())
+        return cv::Mat();
     float low = 0.0f;
     float high = 0.0f;
     if (!computeClipRange(src, clip, low, high) || high <= low) {
@@ -68,8 +69,7 @@ cv::Mat normalizeForOtsu(const cv::Mat& src, double clip) {
 }
 } // namespace
 
-EventDetector::EventDetector(const EventDetectorConfig& cfg)
-    : cfg_(cfg) {}
+EventDetector::EventDetector(const EventDetectorConfig& cfg) : cfg_(cfg) {}
 
 bool EventDetector::buildBackground(const std::vector<cv::Mat>& frames, std::string& err) {
     std::string mode = toLower(cfg_.bgMode);
@@ -98,8 +98,10 @@ bool EventDetector::buildBackground(const std::vector<cv::Mat>& frames, std::str
     std::vector<cv::Mat> validFrames;
     validFrames.reserve(frames.size());
     for (const auto& f : frames) {
-        if (f.empty()) continue;
-        if (f.size() != first8.size()) continue;
+        if (f.empty())
+            continue;
+        if (f.size() != first8.size())
+            continue;
         cv::Mat f8;
         if (f.type() != CV_8UC1) {
             f.convertTo(f8, CV_8U);
@@ -168,7 +170,8 @@ const cv::Mat& EventDetector::background() const {
 
 EventResult EventDetector::detect(const cv::Mat& gray8, bool includeMask) {
     EventResult result;
-    if (gray8.empty()) return result;
+    if (gray8.empty())
+        return result;
 
     cv::Mat gray;
     if (gray8.type() != CV_8UC1) {
@@ -186,8 +189,10 @@ EventResult EventDetector::detect(const cv::Mat& gray8, bool includeMask) {
         cv::GaussianBlur(grayF, blur, cv::Size(0, 0), cfg_.sigma);
         diff = grayF - blur;
     } else {
-        if (background_.empty()) return result;
-        if (background_.size() != grayF.size()) return result;
+        if (background_.empty())
+            return result;
+        if (background_.size() != grayF.size())
+            return result;
         diff = cv::abs(grayF - background_);
         cv::GaussianBlur(diff, diff, cv::Size(0, 0), cfg_.sigma);
     }
@@ -231,8 +236,7 @@ EventResult EventDetector::detect(const cv::Mat& gray8, bool includeMask) {
             continue;
         }
         cv::Rect bbox = cv::boundingRect(filtered[i]);
-        if (bbox.x <= cfg_.borderMargin ||
-            bbox.y <= cfg_.borderMargin ||
+        if (bbox.x <= cfg_.borderMargin || bbox.y <= cfg_.borderMargin ||
             (bbox.x + bbox.width) >= (gray.cols - cfg_.borderMargin) ||
             (bbox.y + bbox.height) >= (gray.rows - cfg_.borderMargin)) {
             continue;

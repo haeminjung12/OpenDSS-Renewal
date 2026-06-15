@@ -50,8 +50,10 @@ void writeSequenceLogHeader(QTextStream& ts, const SequenceLogMetadata& metadata
     ts << "# daq_frequency_hz=" << QString::number(metadata.daqFrequencyHz, 'f', 1) << "\n";
     ts << "# daq_duration_ms=" << QString::number(metadata.daqDurationMs, 'f', 3) << "\n";
     ts << "# daq_delay_ms=" << QString::number(metadata.daqDelayMs, 'f', 3) << "\n";
-    ts << "index,filename,scheduled_ms,actual_ms,jitter_ms,wall_time,proc_ms,processed,pipeline_enabled,pipeline_ready,bg_remaining,skip_reason,"
-          "detected,fired,area,bbox_x,bbox_y,bbox_w,bbox_h,crop_x,crop_y,crop_w,crop_h,crop_path,label,score,triggered,trigger_ok,frame_number,"
+    ts << "index,filename,scheduled_ms,actual_ms,jitter_ms,wall_time,proc_ms,processed,pipeline_enabled,pipeline_ready,"
+          "bg_remaining,skip_reason,"
+          "detected,fired,area,bbox_x,bbox_y,bbox_w,bbox_h,crop_x,crop_y,crop_w,crop_h,crop_path,label,score,triggered,"
+          "trigger_ok,frame_number,"
           "event_dir,decision_frame,decision_event_id\n";
 }
 
@@ -79,34 +81,19 @@ bool SequenceLogWriter::isOpen() const {
 }
 
 void SequenceLogWriter::writeFrame(const SequenceLogFrameRow& row) {
-    if (!open_) return;
-    stream_ << row.index << ","
-            << csvQuote(row.filename) << ","
-            << QString::number(row.scheduledMs, 'f', 3) << ","
-            << QString::number(row.actualMs, 'f', 3) << ","
-            << QString::number(row.jitterMs, 'f', 3) << ","
-            << csvQuote(row.wallTime) << ","
-            << QString::number(row.procMs, 'f', 3) << ","
-            << (row.processed ? "1" : "0") << ","
-            << (row.pipelineEnabled ? "1" : "0") << ","
-            << (row.pipelineReady ? "1" : "0") << ","
-            << row.bgRemaining << ","
-            << csvQuote(row.skipReason) << ","
-            << (row.detected ? "1" : "0") << ","
-            << (row.fired ? "1" : "0") << ","
-            << QString::number(row.area, 'f', 1) << ","
-            << row.bboxX << "," << row.bboxY << "," << row.bboxW << "," << row.bboxH << ","
-            << row.cropX << "," << row.cropY << "," << row.cropW << "," << row.cropH << ","
-            << csvQuote(row.cropPath) << ","
-            << csvQuote(row.label) << ","
-            << QString::number(row.score, 'f', 4) << ","
-            << (row.triggered ? "1" : "0") << ","
-            << (row.triggerOk ? "1" : "0") << ","
-            << row.frameNumber << ","
-            << csvQuote(row.eventDir) << ","
-            << row.decisionFrame << ","
-            << row.decisionEventId
-            << "\n";
+    if (!open_)
+        return;
+    stream_ << row.index << "," << csvQuote(row.filename) << "," << QString::number(row.scheduledMs, 'f', 3) << ","
+            << QString::number(row.actualMs, 'f', 3) << "," << QString::number(row.jitterMs, 'f', 3) << ","
+            << csvQuote(row.wallTime) << "," << QString::number(row.procMs, 'f', 3) << ","
+            << (row.processed ? "1" : "0") << "," << (row.pipelineEnabled ? "1" : "0") << ","
+            << (row.pipelineReady ? "1" : "0") << "," << row.bgRemaining << "," << csvQuote(row.skipReason) << ","
+            << (row.detected ? "1" : "0") << "," << (row.fired ? "1" : "0") << "," << QString::number(row.area, 'f', 1)
+            << "," << row.bboxX << "," << row.bboxY << "," << row.bboxW << "," << row.bboxH << "," << row.cropX << ","
+            << row.cropY << "," << row.cropW << "," << row.cropH << "," << csvQuote(row.cropPath) << ","
+            << csvQuote(row.label) << "," << QString::number(row.score, 'f', 4) << "," << (row.triggered ? "1" : "0")
+            << "," << (row.triggerOk ? "1" : "0") << "," << row.frameNumber << "," << csvQuote(row.eventDir) << ","
+            << row.decisionFrame << "," << row.decisionEventId << "\n";
 }
 
 void SequenceLogWriter::flush() {
@@ -124,10 +111,10 @@ void SequenceLogWriter::close() {
     }
 }
 
-QString writeEventTrajectoryCsv(const QString& outDir,
-                                const QString& filename,
+QString writeEventTrajectoryCsv(const QString& outDir, const QString& filename,
                                 const std::vector<SequenceEventRecord>& events) {
-    if (outDir.isEmpty()) return QString();
+    if (outDir.isEmpty())
+        return QString();
     QDir out(outDir);
     out.mkpath(".");
     QString path = out.filePath(filename);
@@ -139,34 +126,24 @@ QString writeEventTrajectoryCsv(const QString& outDir,
     ts << "event_id,label,detected_frame,decision_frame,decision_dir,fired_frame,frames_tracked,"
           "start_x,start_y,end_x,end_y,min_y,max_y,cumulative_dy,path_length,frame_height\n";
     for (const auto& rec : events) {
-        ts << rec.eventId << ","
-           << csvQuote(rec.label) << ","
-           << rec.startFrame << ","
-           << rec.decisionFrame << ","
-           << csvQuote(rec.decisionDir) << ","
-           << rec.firedFrame << ","
-           << rec.framesTracked << ","
-           << QString::number(rec.startX, 'f', 3) << ","
-           << QString::number(rec.startY, 'f', 3) << ","
-           << QString::number(rec.endX, 'f', 3) << ","
-           << QString::number(rec.endY, 'f', 3) << ","
-           << QString::number(rec.minY, 'f', 3) << ","
-           << QString::number(rec.maxY, 'f', 3) << ","
-           << QString::number(rec.cumulativeDy, 'f', 3) << ","
-           << QString::number(rec.pathLength, 'f', 3) << ","
-           << rec.frameHeight
-           << "\n";
+        ts << rec.eventId << "," << csvQuote(rec.label) << "," << rec.startFrame << "," << rec.decisionFrame << ","
+           << csvQuote(rec.decisionDir) << "," << rec.firedFrame << "," << rec.framesTracked << ","
+           << QString::number(rec.startX, 'f', 3) << "," << QString::number(rec.startY, 'f', 3) << ","
+           << QString::number(rec.endX, 'f', 3) << "," << QString::number(rec.endY, 'f', 3) << ","
+           << QString::number(rec.minY, 'f', 3) << "," << QString::number(rec.maxY, 'f', 3) << ","
+           << QString::number(rec.cumulativeDy, 'f', 3) << "," << QString::number(rec.pathLength, 'f', 3) << ","
+           << rec.frameHeight << "\n";
     }
     ts.flush();
     file.close();
     return path;
 }
 
-QString writeSequenceSummaryCsv(const QString& outDir,
-                                const QString& filename,
+QString writeSequenceSummaryCsv(const QString& outDir, const QString& filename,
                                 const std::vector<SequenceEventRecord>& events,
                                 const SequenceSummaryMetadata& metadata) {
-    if (outDir.isEmpty()) return QString();
+    if (outDir.isEmpty())
+        return QString();
     QDir out(outDir);
     out.mkpath(".");
     QString path = out.filePath(filename);
@@ -202,8 +179,10 @@ QString writeSequenceSummaryCsv(const QString& outDir,
         bool isTarget = (labelLower == targetLower);
         bool isHit = (rec.decisionDir == "Hit");
         bool isWaste = (rec.decisionDir == "Waste");
-        if (isHit) hitCount++;
-        if (isWaste) wasteCount++;
+        if (isHit)
+            hitCount++;
+        if (isWaste)
+            wasteCount++;
         if (isTarget) {
             if (isHit) {
                 truePositive++;
@@ -220,16 +199,17 @@ QString writeSequenceSummaryCsv(const QString& outDir,
     }
     int totalDecisions = consideredEvents;
     double efficiency = totalDecisions > 0 ? static_cast<double>(truePositive + trueNegative) / totalDecisions : 0.0;
-    double precision = (truePositive + falsePositive) > 0
-        ? static_cast<double>(truePositive) / (truePositive + falsePositive)
-        : 0.0;
-    double recall = (truePositive + falseNegative) > 0
-        ? static_cast<double>(truePositive) / (truePositive + falseNegative)
-        : 0.0;
+    double precision =
+        (truePositive + falsePositive) > 0 ? static_cast<double>(truePositive) / (truePositive + falsePositive) : 0.0;
+    double recall =
+        (truePositive + falseNegative) > 0 ? static_cast<double>(truePositive) / (truePositive + falseNegative) : 0.0;
 
     ts << "metric,value\n";
     ts << "summary_schema,sequence_summary.motion_alignment.v2\n";
-    ts << "summary_note," << csvQuote("Counts compare the runtime target label to motion Hit/Waste decisions; this is not sequence accuracy.") << "\n";
+    ts << "summary_note,"
+       << csvQuote(
+              "Counts compare the runtime target label to motion Hit/Waste decisions; this is not sequence accuracy.")
+       << "\n";
     ts << "sequence_folder," << csvQuote(metadata.sequenceFolder) << "\n";
     ts << "output_dir," << csvQuote(metadata.outputDir) << "\n";
     ts << "onnx," << csvQuote(metadata.onnxResolved) << "\n";
@@ -260,23 +240,19 @@ QString writeSequenceSummaryCsv(const QString& outDir,
         ts << "class," << csvQuote(it.key()) << "," << it.value() << "\n";
     }
 
-    ts << "\ntarget_event_id,detected_frame,decision_frame,decision_dir,fired_frame,frames_tracked,start_y,end_y,cumulative_dy,path_length\n";
+    ts << "\ntarget_event_id,detected_frame,decision_frame,decision_dir,fired_frame,frames_tracked,start_y,end_y,"
+          "cumulative_dy,path_length\n";
     for (const auto& rec : events) {
         QString labelLower = normalizeEventLabel(rec.label).toLower();
         bool isClassified = (labelLower != unclassifiedLower);
-        if (rec.firedFrame < 0 || !isClassified) continue;
-        if (labelLower != targetLower) continue;
-        ts << rec.eventId << ","
-           << rec.startFrame << ","
-           << rec.decisionFrame << ","
-           << csvQuote(rec.decisionDir) << ","
-           << rec.firedFrame << ","
-           << rec.framesTracked << ","
-           << QString::number(rec.startY, 'f', 3) << ","
-           << QString::number(rec.endY, 'f', 3) << ","
-           << QString::number(rec.cumulativeDy, 'f', 3) << ","
-           << QString::number(rec.pathLength, 'f', 3)
-           << "\n";
+        if (rec.firedFrame < 0 || !isClassified)
+            continue;
+        if (labelLower != targetLower)
+            continue;
+        ts << rec.eventId << "," << rec.startFrame << "," << rec.decisionFrame << "," << csvQuote(rec.decisionDir)
+           << "," << rec.firedFrame << "," << rec.framesTracked << "," << QString::number(rec.startY, 'f', 3) << ","
+           << QString::number(rec.endY, 'f', 3) << "," << QString::number(rec.cumulativeDy, 'f', 3) << ","
+           << QString::number(rec.pathLength, 'f', 3) << "\n";
     }
     ts.flush();
     file.close();

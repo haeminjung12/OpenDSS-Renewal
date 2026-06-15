@@ -77,24 +77,32 @@ cv::Rect makeSquareRect(const cv::Rect& bbox, const cv::Size& size) {
     int cy = bbox.y + bbox.height / 2;
     int x = cx - side / 2;
     int y = cy - side / 2;
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x + side > size.width) x = size.width - side;
-    if (y + side > size.height) y = size.height - side;
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
+    if (x + side > size.width)
+        x = size.width - side;
+    if (y + side > size.height)
+        y = size.height - side;
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
     return cv::Rect(x, y, side, side);
 }
 
 int getInt(const Args& args, const std::string& key, int def) {
     auto it = args.values.find(key);
-    if (it == args.values.end()) return def;
+    if (it == args.values.end())
+        return def;
     return std::stoi(it->second);
 }
 
 double getDouble(const Args& args, const std::string& key, double def) {
     auto it = args.values.find(key);
-    if (it == args.values.end()) return def;
+    if (it == args.values.end())
+        return def;
     return std::stod(it->second);
 }
 
@@ -124,7 +132,8 @@ std::string resolveExistingPath(const std::vector<fs::path>& candidates) {
     return "";
 }
 
-void appendUpwardCandidates(std::vector<fs::path>& candidates, fs::path dir, const fs::path& suffix, int maxLevels = 6) {
+void appendUpwardCandidates(std::vector<fs::path>& candidates, fs::path dir, const fs::path& suffix,
+                            int maxLevels = 6) {
     for (int i = 0; i <= maxLevels; ++i) {
         candidates.push_back(dir / suffix);
         fs::path parent = dir.parent_path();
@@ -136,69 +145,73 @@ void appendUpwardCandidates(std::vector<fs::path>& candidates, fs::path dir, con
 }
 
 void printUsage() {
-    std::cout <<
-        "Usage:\n"
-        "  OpenVisualDropletSorter.exe --cli [--onnx <model.onnx>] [--metadata <metadata.json>] [options]\n"
-        "\n"
-        "Defaults:\n"
-        "  --onnx     app/runtime/models/squeezenet_final_new_condition.onnx\n"
-        "  --metadata models/metadata.json\n"
-        "\n"
-        "Options:\n"
-        "  --device <index>              Camera index (default: 0)\n"
-        "  --width <px>                  Subarray width (default: 0 = full)\n"
-        "  --height <px>                 Subarray height (default: 0 = full)\n"
-        "  --binning <n>                 Binning (default: 1)\n"
-        "  --bits <n>                    Bit depth (default: 12)\n"
-        "  --pixel-type <mono8|mono16>   Pixel type (default: mono8)\n"
-        "  --exposure-ms <ms>            Exposure in ms (default: 5)\n"
-        "  --readout <fastest|slowest>   Readout speed (default: fastest)\n"
-        "  --camera-trigger <internal|external|software|master>  Trigger source (default: internal)\n"
-        "  --timeout-ms <ms>             Frame wait timeout (default: 1000)\n"
-        "  --bg-frames <n>               Frames for background (default: 50)\n"
-        "  --bg-mode <mean|median>       Background mode (default: mean)\n"
-        "  --bg-update-frames <n>        Rolling background window (fast mode, default: 50)\n"
-        "  --min-area <px>               Min blob area (default: 40)\n"
-        "  --min-area-frac <f>           Min blob area fraction (default: 0.0)\n"
-        "  --max-area-frac <f>           Max blob area fraction (default: 0.10)\n"
-        "  --min-bbox <px>               Min bbox width/height (default: 32)\n"
-        "  --margin <px>                 Border margin (default: 5)\n"
-        "  --sigma <f>                   Gaussian sigma (default: 1.0)\n"
-        "  --detect-mode <fast|precise>  Detection mode (default: fast)\n"
-        "  --diff-thresh <0-255>         Fixed diff threshold (fast mode, default: 15)\n"
-        "  --blur-radius <px>            Box blur radius (fast mode, default: 1)\n"
-        "  --morph-radius <px>           Morph radius (fast mode, default: 1)\n"
-        "  --scale <f>                   Downscale factor (fast mode, default: 0.5)\n"
-        "  --frame-skip <n>              Skip n frames between checks (default: 0)\n"
-        "  --reset-frames <n>            Frames with no detection to reset gate (default: 3)\n"
-        "  --gap-fire-shift <px>         Min centroid shift to fire after gap (fast mode)\n"
-        "  --target-class-id <id>        Metadata class id that triggers DAQ (binary default: 1)\n"
-        "  --target-label <name>         Legacy label/display label transition alias\n"
-        "  --daq-channel <Dev1/ao0>      Analog output channel (default: Dev1/ao0)\n"
-        "  --daq-amp <V>                 Sine amplitude (default: 5)\n"
-        "  --daq-freq <Hz>               Sine frequency (default: 1000)\n"
-        "  --daq-duration-ms <ms>        Sine duration (default: 5)\n"
-        "  --daq-delay-ms <ms>           Delay before output (default: 0)\n"
-        "  --output-dir <dir>            Save event crops/overlays\n"
-        "  --save-overlay                Save overlay image with bbox/mask\n"
-        "  --continuous                  Do not stop after first event\n"
-        "  --help                        Show this help\n";
+    std::cout << "Usage:\n"
+                 "  OpenVisualDropletSorter.exe --cli [--onnx <model.onnx>] [--metadata <metadata.json>] [options]\n"
+                 "\n"
+                 "Defaults:\n"
+                 "  --onnx     app/runtime/models/squeezenet_final_new_condition.onnx\n"
+                 "  --metadata models/metadata.json\n"
+                 "\n"
+                 "Options:\n"
+                 "  --device <index>              Camera index (default: 0)\n"
+                 "  --width <px>                  Subarray width (default: 0 = full)\n"
+                 "  --height <px>                 Subarray height (default: 0 = full)\n"
+                 "  --binning <n>                 Binning (default: 1)\n"
+                 "  --bits <n>                    Bit depth (default: 12)\n"
+                 "  --pixel-type <mono8|mono16>   Pixel type (default: mono8)\n"
+                 "  --exposure-ms <ms>            Exposure in ms (default: 5)\n"
+                 "  --readout <fastest|slowest>   Readout speed (default: fastest)\n"
+                 "  --camera-trigger <internal|external|software|master>  Trigger source (default: internal)\n"
+                 "  --timeout-ms <ms>             Frame wait timeout (default: 1000)\n"
+                 "  --bg-frames <n>               Frames for background (default: 50)\n"
+                 "  --bg-mode <mean|median>       Background mode (default: mean)\n"
+                 "  --bg-update-frames <n>        Rolling background window (fast mode, default: 50)\n"
+                 "  --min-area <px>               Min blob area (default: 40)\n"
+                 "  --min-area-frac <f>           Min blob area fraction (default: 0.0)\n"
+                 "  --max-area-frac <f>           Max blob area fraction (default: 0.10)\n"
+                 "  --min-bbox <px>               Min bbox width/height (default: 32)\n"
+                 "  --margin <px>                 Border margin (default: 5)\n"
+                 "  --sigma <f>                   Gaussian sigma (default: 1.0)\n"
+                 "  --detect-mode <fast|precise>  Detection mode (default: fast)\n"
+                 "  --diff-thresh <0-255>         Fixed diff threshold (fast mode, default: 15)\n"
+                 "  --blur-radius <px>            Box blur radius (fast mode, default: 1)\n"
+                 "  --morph-radius <px>           Morph radius (fast mode, default: 1)\n"
+                 "  --scale <f>                   Downscale factor (fast mode, default: 0.5)\n"
+                 "  --frame-skip <n>              Skip n frames between checks (default: 0)\n"
+                 "  --reset-frames <n>            Frames with no detection to reset gate (default: 3)\n"
+                 "  --gap-fire-shift <px>         Min centroid shift to fire after gap (fast mode)\n"
+                 "  --target-class-id <id>        Metadata class id that triggers DAQ (binary default: 1)\n"
+                 "  --target-label <name>         Legacy label/display label transition alias\n"
+                 "  --daq-channel <Dev1/ao0>      Analog output channel (default: Dev1/ao0)\n"
+                 "  --daq-amp <V>                 Sine amplitude (default: 5)\n"
+                 "  --daq-freq <Hz>               Sine frequency (default: 1000)\n"
+                 "  --daq-duration-ms <ms>        Sine duration (default: 5)\n"
+                 "  --daq-delay-ms <ms>           Delay before output (default: 0)\n"
+                 "  --output-dir <dir>            Save event crops/overlays\n"
+                 "  --save-overlay                Save overlay image with bbox/mask\n"
+                 "  --continuous                  Do not stop after first event\n"
+                 "  --help                        Show this help\n";
 }
 
 int parsePixelType(const std::string& s) {
-    if (s == "mono16") return DCAM_PIXELTYPE_MONO16;
+    if (s == "mono16")
+        return DCAM_PIXELTYPE_MONO16;
     return DCAM_PIXELTYPE_MONO8;
 }
 
 int parseReadout(const std::string& s) {
-    if (s == "slowest") return DCAMPROP_READOUTSPEED__SLOWEST;
+    if (s == "slowest")
+        return DCAMPROP_READOUTSPEED__SLOWEST;
     return DCAMPROP_READOUTSPEED__FASTEST;
 }
 
 int parseCameraTriggerSource(const std::string& s) {
-    if (s == "external") return DCAMPROP_TRIGGERSOURCE__EXTERNAL;
-    if (s == "software") return DCAMPROP_TRIGGERSOURCE__SOFTWARE;
-    if (s == "master") return DCAMPROP_TRIGGERSOURCE__MASTERPULSE;
+    if (s == "external")
+        return DCAMPROP_TRIGGERSOURCE__EXTERNAL;
+    if (s == "software")
+        return DCAMPROP_TRIGGERSOURCE__SOFTWARE;
+    if (s == "master")
+        return DCAMPROP_TRIGGERSOURCE__MASTERPULSE;
     return DCAMPROP_TRIGGERSOURCE__INTERNAL;
 }
 
@@ -220,7 +233,6 @@ cv::Mat toGray8(const cv::Mat& src, int bits) {
     return out;
 }
 
-
 int run_cli(int argc, char** argv) {
     Args args = parseArgs(argc, argv);
     if (hasFlag(args, "--help")) {
@@ -236,10 +248,8 @@ int run_cli(int argc, char** argv) {
     const std::string defaultMetaName = "metadata.json";
 
     if (onnxPath.empty()) {
-        std::vector<fs::path> candidates = {
-            fs::current_path() / "models" / defaultOnnxName,
-            fs::current_path() / "app" / "runtime" / "models" / defaultOnnxName
-        };
+        std::vector<fs::path> candidates = {fs::current_path() / "models" / defaultOnnxName,
+                                            fs::current_path() / "app" / "runtime" / "models" / defaultOnnxName};
         appendUpwardCandidates(candidates, exeDir, fs::path("models") / defaultOnnxName);
         appendUpwardCandidates(candidates, exeDir, fs::path("app") / "runtime" / "models" / defaultOnnxName);
         onnxPath = resolveExistingPath(candidates);
@@ -286,12 +296,8 @@ int run_cli(int argc, char** argv) {
     }
     std::string targetClassId;
     std::string targetDisplayLabel;
-    if (!ResolveTargetClassId(meta,
-                              getString(args, "--target-class-id"),
-                              getString(args, "--target-label"),
-                              targetClassId,
-                              targetDisplayLabel,
-                              err)) {
+    if (!ResolveTargetClassId(meta, getString(args, "--target-class-id"), getString(args, "--target-label"),
+                              targetClassId, targetDisplayLabel, err)) {
         std::cerr << "Target error: " << err << "\n";
         return 1;
     }
@@ -439,7 +445,8 @@ int run_cli(int argc, char** argv) {
                 continue;
             }
             FrameData fd;
-            if (!camera.getLatestFrame(fd)) continue;
+            if (!camera.getLatestFrame(fd))
+                continue;
             cv::Mat gray8 = toGray8(fd.image, fd.meta.bits);
             bgStack.push_back(gray8);
             collected++;
@@ -506,7 +513,8 @@ int run_cli(int argc, char** argv) {
         }
         timeoutCount = 0;
         FrameData fd;
-        if (!camera.getLatestFrame(fd)) continue;
+        if (!camera.getLatestFrame(fd))
+            continue;
         frameCounter++;
         if (frameSkip > 0 && (frameCounter % (frameSkip + 1)) != 0) {
             continue;
@@ -527,9 +535,7 @@ int run_cli(int argc, char** argv) {
             detected = ev.detected;
             if (detected) {
                 double imgArea = static_cast<double>(gray8.rows) * static_cast<double>(gray8.cols);
-                if (ev.area < (minAreaFrac * imgArea) ||
-                    ev.bbox.width < minBbox ||
-                    ev.bbox.height < minBbox) {
+                if (ev.area < (minAreaFrac * imgArea) || ev.bbox.width < minBbox || ev.bbox.height < minBbox) {
                     detected = false;
                 }
             }
@@ -558,20 +564,20 @@ int run_cli(int argc, char** argv) {
             fpsStart = now;
         }
 
-        if (!fired) continue;
+        if (!fired)
+            continue;
 
         cv::Rect bbox = fastMode ? fastEv.bbox : ev.bbox;
         bbox &= cv::Rect(0, 0, gray8.cols, gray8.rows);
         cv::Rect squareRect = makeSquareRect(bbox, gray8.size());
-        if (squareRect.width <= 0 || squareRect.height <= 0) continue;
+        if (squareRect.width <= 0 || squareRect.height <= 0)
+            continue;
         cv::Mat crop = gray8(squareRect).clone();
         ClassificationResult cls = classifier.classify(crop);
 
         double areaOut = fastMode ? fastEv.area : ev.area;
-        std::cout << "[Event] frame=" << frameCounter
-                  << " label=" << cls.label
-                  << " area=" << areaOut
-                  << " bbox=(" << bbox.x << "," << bbox.y << "," << bbox.width << "," << bbox.height << ")"
+        std::cout << "[Event] frame=" << frameCounter << " label=" << cls.label << " area=" << areaOut << " bbox=("
+                  << bbox.x << "," << bbox.y << "," << bbox.width << "," << bbox.height << ")"
                   << " fps=" << fps << "\n";
 
         if (!outputDir.empty()) {
@@ -602,7 +608,8 @@ int run_cli(int argc, char** argv) {
             }
         }
 
-        if (!continuous) break;
+        if (!continuous)
+            break;
     }
 
     trigger.shutdown();

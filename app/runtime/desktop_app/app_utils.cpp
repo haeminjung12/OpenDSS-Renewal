@@ -18,7 +18,8 @@ QString findProjectRootFromApp() {
                  QFileInfo(dir.filePath("internal-release/app/runtime/models")).isDir())) {
                 return dir.absolutePath();
             }
-            if (!dir.cdUp()) break;
+            if (!dir.cdUp())
+                break;
         }
     }
     return QString();
@@ -26,7 +27,8 @@ QString findProjectRootFromApp() {
 
 QString runOutputBaseForSettings(const QString& outputDir) {
     QString trimmed = outputDir.trimmed();
-    if (trimmed.isEmpty()) return trimmed;
+    if (trimmed.isEmpty())
+        return trimmed;
     QDir dir(trimmed);
     QString leaf = dir.dirName();
     if (leaf.startsWith("sequence_") || leaf.startsWith("live_") || leaf.startsWith("test_")) {
@@ -37,21 +39,25 @@ QString runOutputBaseForSettings(const QString& outputDir) {
 }
 
 void setComboTextIfPresent(QComboBox* combo, const QString& text) {
-    if (!combo || text.isEmpty()) return;
+    if (!combo || text.isEmpty())
+        return;
     int index = combo->findText(text);
-    if (index >= 0) combo->setCurrentIndex(index);
+    if (index >= 0)
+        combo->setCurrentIndex(index);
 }
 
 QJsonObject comboSnapshot(QComboBox* combo) {
     QJsonObject obj;
-    if (!combo) return obj;
+    if (!combo)
+        return obj;
     obj["index"] = combo->currentIndex();
     obj["text"] = combo->currentText();
     return obj;
 }
 
 QString formatTimeSeconds(double seconds) {
-    if (seconds < 0) seconds = 0;
+    if (seconds < 0)
+        seconds = 0;
     int totalMs = static_cast<int>(std::lround(seconds * 1000.0));
     int ms = totalMs % 1000;
     int totalSec = totalMs / 1000;
@@ -66,17 +72,11 @@ QString formatTimeSeconds(double seconds) {
             .arg(s, 2, 10, QChar('0'))
             .arg(ms, 3, 10, QChar('0'));
     }
-    return QString("%1:%2.%3")
-        .arg(m, 2, 10, QChar('0'))
-        .arg(s, 2, 10, QChar('0'))
-        .arg(ms, 3, 10, QChar('0'));
+    return QString("%1:%2.%3").arg(m, 2, 10, QChar('0')).arg(s, 2, 10, QChar('0')).arg(ms, 3, 10, QChar('0'));
 }
 
-QImage renderPieChart(const QString& title,
-                      const QVector<QString>& labels,
-                      const QVector<double>& values,
-                      const QVector<QColor>& colors,
-                      const QSize& size) {
+QImage renderPieChart(const QString& title, const QVector<QString>& labels, const QVector<double>& values,
+                      const QVector<QColor>& colors, const QSize& size) {
     QImage img(size, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::white);
 
@@ -90,7 +90,8 @@ QImage renderPieChart(const QString& title,
     p.drawText(QRect(0, 0, size.width(), 30), Qt::AlignCenter, title);
 
     double total = 0.0;
-    for (double v : values) total += v;
+    for (double v : values)
+        total += v;
     QRect pieRect(20, 40, size.height() - 60, size.height() - 60);
     if (total <= 0.0) {
         p.setFont(QFont(p.font().family(), 10));
@@ -120,10 +121,7 @@ QImage renderPieChart(const QString& title,
         QRect colorBox(legendRect.left(), y + 4, 12, 12);
         p.fillRect(colorBox, colors.value(i, Qt::gray));
         p.drawRect(colorBox);
-        QString text = QString("%1  %2% (%3)")
-            .arg(labels[i])
-            .arg(percent, 0, 'f', 1)
-            .arg(static_cast<int>(values[i]));
+        QString text = QString("%1  %2% (%3)").arg(labels[i]).arg(percent, 0, 'f', 1).arg(static_cast<int>(values[i]));
         p.drawText(legendRect.left() + 18, y + 14, text);
         y += 20;
     }

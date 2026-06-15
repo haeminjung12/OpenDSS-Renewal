@@ -9,18 +9,20 @@ class DcamController;
 
 class FrameGrabber : public QObject {
     Q_OBJECT
-public:
-    FrameGrabber(DcamController* ctrl, QObject* parent=nullptr);
+  public:
+    FrameGrabber(DcamController* ctrl, QObject* parent = nullptr);
 
     void setDisplayEvery(int n);
     void startGrabbing();
     void stopGrabbing();
-    void setRecordHook(std::function<void(const QImage&, const FrameMeta&, double)> hook) { recordHook = std::move(hook); }
+    void setRecordHook(std::function<void(const QImage&, const FrameMeta&, double)> hook) {
+        recordHook = std::move(hook);
+    }
 
-signals:
+  signals:
     void frameReady(const QImage& img, FrameMeta meta, double fps);
 
-private:
+  private:
     DcamController* controller;
     bool running;
     int displayEvery;

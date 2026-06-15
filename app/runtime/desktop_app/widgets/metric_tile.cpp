@@ -4,13 +4,10 @@
 #include <QSizePolicy>
 #include <QVBoxLayout>
 
-MetricTile::MetricTile(QWidget* parent)
-    : MetricTile(QString(), QStringLiteral("--"), QString(), parent) {}
+MetricTile::MetricTile(QWidget* parent) : MetricTile(QString(), QStringLiteral("--"), QString(), parent) {}
 
 MetricTile::MetricTile(const QString& label, const QString& value, const QString& sublabel, QWidget* parent)
-    : QWidget(parent),
-      label_(new QLabel(label, this)),
-      value_(new QLabel(value, this)),
+    : QWidget(parent), label_(new QLabel(label, this)), value_(new QLabel(value, this)),
       sublabel_(new QLabel(sublabel, this)) {
     setObjectName(QStringLiteral("MetricTile"));
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
@@ -74,9 +71,7 @@ void MetricTile::setSublabel(const QString& sublabel) {
 }
 
 void MetricTile::updateAccessibleLabel() {
-    QString accessible = label().isEmpty()
-        ? value()
-        : QStringLiteral("%1: %2").arg(label(), value());
+    QString accessible = label().isEmpty() ? value() : QStringLiteral("%1: %2").arg(label(), value());
     if (!sublabel().isEmpty()) {
         accessible += QStringLiteral(", %1").arg(sublabel());
     }

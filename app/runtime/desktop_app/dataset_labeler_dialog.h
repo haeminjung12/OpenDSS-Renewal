@@ -16,10 +16,10 @@ class QPushButton;
 class QTableWidget;
 
 class DatasetLabelerDialog : public QDialog {
-public:
+  public:
     explicit DatasetLabelerDialog(QWidget* parent = nullptr, const QString& initialPath = QString());
 
-private:
+  private:
     struct BrowserRow {
         int manifestIndex = -1;
         QString imageId;
@@ -49,14 +49,12 @@ private:
     void loadClassBalanceCsv(const QString& path);
     bool loadCropsCsv(QStringList& report);
     void populateCountsFromMap(const QMap<QString, int>& counts, const QMap<QString, QString>& displayByClass);
-    void populateBuilderBalanceTable(const QMap<QString, int>& autoCounts,
-                                     const QMap<QString, int>& reviewedCounts,
-                                     const QMap<QString, int>& eligibleCounts,
-                                     int totalItems);
+    void populateBuilderBalanceTable(const QMap<QString, int>& autoCounts, const QMap<QString, int>& reviewedCounts,
+                                     const QMap<QString, int>& eligibleCounts, int totalItems);
     void updateBannerFromBuilderCounts(const QMap<QString, int>& reviewedCounts,
-                                       const QMap<QString, int>& eligibleCounts,
-                                       int totalItems);
-    void addLegacyBrowserRow(const QString& path, const QString& label, const QString& status, const QString& origin, const QString& seed);
+                                       const QMap<QString, int>& eligibleCounts, int totalItems);
+    void addLegacyBrowserRow(const QString& path, const QString& label, const QString& status, const QString& origin,
+                             const QString& seed);
     bool rowMatchesFilter(const BrowserRow& row) const;
     void applyBrowserFilter();
     void updateLoadStatus();

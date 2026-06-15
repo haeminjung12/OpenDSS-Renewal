@@ -12,7 +12,7 @@ class CollapsibleSection : public QWidget {
     Q_PROPERTY(QString title READ title WRITE setTitle)
     Q_PROPERTY(bool collapsed READ isCollapsed WRITE setCollapsed NOTIFY collapsedChanged)
 
-public:
+  public:
     explicit CollapsibleSection(QWidget* parent = nullptr);
     explicit CollapsibleSection(const QString& title, QWidget* parent = nullptr);
 
@@ -28,13 +28,13 @@ public:
     QBoxLayout* contentLayout() const;
     void addWidget(QWidget* widget);
 
-signals:
+  signals:
     void collapsedChanged(bool collapsed);
 
-public slots:
+  public slots:
     void toggleCollapsed();
 
-private:
+  private:
     void updateHeader();
     void updateAccessibleLabel();
 

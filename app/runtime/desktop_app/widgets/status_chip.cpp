@@ -102,14 +102,10 @@ QString borderColor(StatusChip::State state) {
 
 } // namespace
 
-StatusChip::StatusChip(QWidget* parent)
-    : StatusChip(QString(), State::Neutral, parent) {}
+StatusChip::StatusChip(QWidget* parent) : StatusChip(QString(), State::Neutral, parent) {}
 
 StatusChip::StatusChip(const QString& text, State state, QWidget* parent)
-    : QWidget(parent),
-      dot_(new QFrame(this)),
-      label_(new QLabel(this)),
-      state_(state) {
+    : QWidget(parent), dot_(new QFrame(this)), label_(new QLabel(this)), state_(state) {
     setObjectName(QStringLiteral("StatusChip"));
     setSizePolicy(QSizePolicy::Minimum, QSizePolicy::Fixed);
 
@@ -184,23 +180,23 @@ void StatusChip::updateStatePresentation() {
     dot_->setProperty("state", state);
     label_->setProperty("state", state);
 
-    setStyleSheet(QStringLiteral(
-        "QWidget#StatusChip {"
-        "background: #19202A;"
-        "border: 1px solid %1;"
-        "border-radius: 8px;"
-        "color: #F1F5F9;"
-        "}").arg(borderColor(state_)));
+    setStyleSheet(QStringLiteral("QWidget#StatusChip {"
+                                 "background: #19202A;"
+                                 "border: 1px solid %1;"
+                                 "border-radius: 8px;"
+                                 "color: #F1F5F9;"
+                                 "}")
+                      .arg(borderColor(state_)));
 
-    dot_->setStyleSheet(QStringLiteral(
-        "QFrame#StatusChipDot {"
-        "background: %1;"
-        "border-radius: 4px;"
-        "min-width: 8px;"
-        "max-width: 8px;"
-        "min-height: 8px;"
-        "max-height: 8px;"
-        "}").arg(dotColor(state_)));
+    dot_->setStyleSheet(QStringLiteral("QFrame#StatusChipDot {"
+                                       "background: %1;"
+                                       "border-radius: 4px;"
+                                       "min-width: 8px;"
+                                       "max-width: 8px;"
+                                       "min-height: 8px;"
+                                       "max-height: 8px;"
+                                       "}")
+                            .arg(dotColor(state_)));
 
     style()->unpolish(this);
     style()->polish(this);
@@ -212,9 +208,8 @@ void StatusChip::updateStatePresentation() {
 }
 
 void StatusChip::updateAccessibleLabel() {
-    const QString label = text().isEmpty()
-        ? QStringLiteral("Status: %1").arg(stateName())
-        : QStringLiteral("%1 status: %2").arg(text(), stateName());
+    const QString label = text().isEmpty() ? QStringLiteral("Status: %1").arg(stateName())
+                                           : QStringLiteral("%1 status: %2").arg(text(), stateName());
     setAccessibleName(label);
     label_->setAccessibleName(label);
 }

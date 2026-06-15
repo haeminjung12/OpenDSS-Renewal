@@ -14,7 +14,7 @@ class QWidget;
 class ModelWorkspaceController : public QObject {
     Q_OBJECT
 
-public:
+  public:
     struct Dependencies {
         const QJsonArray* registryEntries = nullptr;
         QString registryFilePath;
@@ -29,7 +29,7 @@ public:
 
     explicit ModelWorkspaceController(const Dependencies& dependencies, QObject* parent = nullptr);
 
-private:
+  private:
     QString summaryForRow(int row) const;
     void openModelManager();
     void wireRegistrySelection();

@@ -26,8 +26,7 @@ std::string sha256Bytes(const std::vector<unsigned char>& data) {
         0x27b70a85u, 0x2e1b2138u, 0x4d2c6dfcu, 0x53380d13u, 0x650a7354u, 0x766a0abbu, 0x81c2c92eu, 0x92722c85u,
         0xa2bfe8a1u, 0xa81a664bu, 0xc24b8b70u, 0xc76c51a3u, 0xd192e819u, 0xd6990624u, 0xf40e3585u, 0x106aa070u,
         0x19a4c116u, 0x1e376c08u, 0x2748774cu, 0x34b0bcb5u, 0x391c0cb3u, 0x4ed8aa4au, 0x5b9cca4fu, 0x682e6ff3u,
-        0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u
-    };
+        0x748f82eeu, 0x78a5636fu, 0x84c87814u, 0x8cc70208u, 0x90befffau, 0xa4506cebu, 0xbef9a3f7u, 0xc67178f2u};
     std::vector<unsigned char> msg = data;
     const std::uint64_t bitLen = static_cast<std::uint64_t>(msg.size()) * 8u;
     msg.push_back(0x80u);
@@ -38,19 +37,15 @@ std::string sha256Bytes(const std::vector<unsigned char>& data) {
         msg.push_back(static_cast<unsigned char>((bitLen >> (i * 8)) & 0xffu));
     }
 
-    std::array<std::uint32_t, 8> h = {
-        0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
-        0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u
-    };
+    std::array<std::uint32_t, 8> h = {0x6a09e667u, 0xbb67ae85u, 0x3c6ef372u, 0xa54ff53au,
+                                      0x510e527fu, 0x9b05688cu, 0x1f83d9abu, 0x5be0cd19u};
 
     for (std::size_t chunk = 0; chunk < msg.size(); chunk += 64) {
         std::array<std::uint32_t, 64> w{};
         for (std::size_t i = 0; i < 16; ++i) {
             const std::size_t j = chunk + i * 4;
-            w[i] = (static_cast<std::uint32_t>(msg[j]) << 24) |
-                   (static_cast<std::uint32_t>(msg[j + 1]) << 16) |
-                   (static_cast<std::uint32_t>(msg[j + 2]) << 8) |
-                   static_cast<std::uint32_t>(msg[j + 3]);
+            w[i] = (static_cast<std::uint32_t>(msg[j]) << 24) | (static_cast<std::uint32_t>(msg[j + 1]) << 16) |
+                   (static_cast<std::uint32_t>(msg[j + 2]) << 8) | static_cast<std::uint32_t>(msg[j + 3]);
         }
         for (std::size_t i = 16; i < 64; ++i) {
             const std::uint32_t s0 = rotr(w[i - 15], 7) ^ rotr(w[i - 15], 18) ^ (w[i - 15] >> 3);
@@ -76,8 +71,14 @@ std::string sha256Bytes(const std::vector<unsigned char>& data) {
             b = a;
             a = temp1 + temp2;
         }
-        h[0] += a; h[1] += b; h[2] += c; h[3] += d;
-        h[4] += e; h[5] += f; h[6] += g; h[7] += hh;
+        h[0] += a;
+        h[1] += b;
+        h[2] += c;
+        h[3] += d;
+        h[4] += e;
+        h[5] += f;
+        h[6] += g;
+        h[7] += hh;
     }
 
     std::ostringstream out;
@@ -87,7 +88,7 @@ std::string sha256Bytes(const std::vector<unsigned char>& data) {
     }
     return out.str();
 }
-}
+} // namespace
 
 bool DatasetCaptureSession::parseCollectionMode(const std::string& text, DatasetCollectionMode& mode) {
     if (text == "hit-only") {
@@ -155,7 +156,8 @@ bool DatasetCaptureSession::start(const DatasetCaptureConfig& config, std::strin
         err = "failed to create metadata directory: " + ec.message();
         return false;
     }
-    for (const char* dirName : {"reviewed/hit", "reviewed/waste", "reviewed/exclude", "trainer_ready/hit", "trainer_ready/waste"}) {
+    for (const char* dirName :
+         {"reviewed/hit", "reviewed/waste", "reviewed/exclude", "trainer_ready/hit", "trainer_ready/waste"}) {
         fs::create_directories(config_.sessionDir / dirName, ec);
         if (ec) {
             err = std::string("failed to create Dataset Builder directory ") + dirName + ": " + ec.message();
@@ -213,7 +215,8 @@ bool DatasetCaptureSession::addCrop(const DatasetCropCandidate& candidate, std::
     if (underscore != std::string::npos && underscore + 1 < shortId.size()) {
         shortId = shortId.substr(underscore + 1);
     }
-    if (shortId.empty()) shortId = "session";
+    if (shortId.empty())
+        shortId = "session";
     std::ostringstream sourceFrameId;
     if (candidate.sourceFrameIndex >= 0) {
         sourceFrameId << "f" << std::setw(6) << std::setfill('0') << candidate.sourceFrameIndex;
@@ -224,12 +227,9 @@ bool DatasetCaptureSession::addCrop(const DatasetCropCandidate& candidate, std::
     }
     cropId << "crop_" << shortId << "_" << std::setw(6) << std::setfill('0') << next;
     std::ostringstream cropFile;
-    cropFile << "crop_" << shortId
-             << "_b" << std::setw(3) << std::setfill('0') << batchIndex
-             << "_c" << std::setw(6) << std::setfill('0') << next
-             << "_" << sourceFrameId.str()
-             << "_" << modeText
-             << "_auto-" << autoLabelFile << ".png";
+    cropFile << "crop_" << shortId << "_b" << std::setw(3) << std::setfill('0') << batchIndex << "_c" << std::setw(6)
+             << std::setfill('0') << next << "_" << sourceFrameId.str() << "_" << modeText << "_auto-" << autoLabelFile
+             << ".png";
     fs::path destPath = cropsDir_ / cropFile.str();
     fs::copy_file(candidate.sourceCropPath, destPath, fs::copy_options::none, ec);
     if (ec) {
@@ -241,27 +241,17 @@ bool DatasetCaptureSession::addCrop(const DatasetCropCandidate& candidate, std::
     const std::string hash = sha256File(destPath);
     const std::string relPath = (fs::path("pending") / "crops" / destPath.filename()).generic_string();
     const double confidence = std::clamp(candidate.confidence, 0.0, 1.0);
-    cropsCsv_ << cropId.str() << ","
-              << csvQuote(relPath) << ","
-              << csvQuote(candidate.sourceType) << ","
-              << csvQuote(candidate.sourceSequenceId) << ","
-              << csvQuote(candidate.sourceFrameFilename) << ","
-              << candidate.sourceFrameIndex << ","
-              << candidate.eventId << ","
-              << candidate.classificationFrame << ","
+    cropsCsv_ << cropId.str() << "," << csvQuote(relPath) << "," << csvQuote(candidate.sourceType) << ","
+              << csvQuote(candidate.sourceSequenceId) << "," << csvQuote(candidate.sourceFrameFilename) << ","
+              << candidate.sourceFrameIndex << "," << candidate.eventId << "," << candidate.classificationFrame << ","
               << candidate.cropX << "," << candidate.cropY << "," << candidate.cropW << "," << candidate.cropH << ","
               << candidate.bboxX << "," << candidate.bboxY << "," << candidate.bboxW << "," << candidate.bboxH << ","
-              << csvQuote(autoLabelFile) << ","
-              << csvQuote(modeText) << ","
-              << csvQuote(candidate.predictedClassId) << ","
-              << csvQuote(candidate.predictedLabel) << ","
-              << std::fixed << std::setprecision(6) << confidence << ","
-              << "," << csvQuote("unreviewed") << "," << ","
-              << csvQuote(candidate.sourceCropPath.string()) << ","
-              << csvQuote(config_.modelPath) << ","
-              << csvQuote(config_.metadataPath) << ","
-              << csvQuote(createdAt) << ","
-              << csvQuote(hash) << "\n";
+              << csvQuote(autoLabelFile) << "," << csvQuote(modeText) << "," << csvQuote(candidate.predictedClassId)
+              << "," << csvQuote(candidate.predictedLabel) << "," << std::fixed << std::setprecision(6) << confidence
+              << ","
+              << "," << csvQuote("unreviewed") << "," << "," << csvQuote(candidate.sourceCropPath.string()) << ","
+              << csvQuote(config_.modelPath) << "," << csvQuote(config_.metadataPath) << "," << csvQuote(createdAt)
+              << "," << csvQuote(hash) << "\n";
     cropsCsv_.flush();
     CapturedItem item;
     item.imageId = cropId.str();
@@ -300,8 +290,7 @@ void DatasetCaptureSession::extendBatchTarget() {
 void DatasetCaptureSession::recordBatchPrompt(const std::string& decision) {
     std::ostringstream audit;
     audit << "{\"batch_index\":" << (((collectedCount_ == 0 ? 1 : collectedCount_) - 1) / config_.batchTarget + 1)
-          << ",\"collected_count\":" << collectedCount_
-          << ",\"prompted_at\":" << jsonQuote(nowIso8601())
+          << ",\"collected_count\":" << collectedCount_ << ",\"prompted_at\":" << jsonQuote(nowIso8601())
           << ",\"decision\":" << jsonQuote(decision) << "}";
     batchPromptAudit_.push_back(audit.str());
 }
@@ -341,11 +330,21 @@ std::string DatasetCaptureSession::jsonQuote(const std::string& value) {
     out << '"';
     for (unsigned char c : value) {
         switch (c) {
-        case '\\': out << "\\\\"; break;
-        case '"': out << "\\\""; break;
-        case '\n': out << "\\n"; break;
-        case '\r': out << "\\r"; break;
-        case '\t': out << "\\t"; break;
+        case '\\':
+            out << "\\\\";
+            break;
+        case '"':
+            out << "\\\"";
+            break;
+        case '\n':
+            out << "\\n";
+            break;
+        case '\r':
+            out << "\\r";
+            break;
+        case '\t':
+            out << "\\t";
+            break;
         default:
             if (c < 0x20) {
                 out << "\\u" << std::hex << std::setw(4) << std::setfill('0') << static_cast<int>(c) << std::dec;
@@ -406,11 +405,12 @@ std::string DatasetCaptureSession::sha256File(const fs::path& path) {
 }
 
 std::string DatasetCaptureSession::normalizedStopReason(const std::string& reason) {
-    if (reason == "sequence_complete") return "source_complete";
-    if (reason == "live_stopped") return "cancelled";
-    if (reason == "target_reached" || reason == "user_stop_after_batch_prompt" ||
-        reason == "source_complete" || reason == "cancelled" || reason == "error" ||
-        reason == "not_stopped") {
+    if (reason == "sequence_complete")
+        return "source_complete";
+    if (reason == "live_stopped")
+        return "cancelled";
+    if (reason == "target_reached" || reason == "user_stop_after_batch_prompt" || reason == "source_complete" ||
+        reason == "cancelled" || reason == "error" || reason == "not_stopped") {
         return reason;
     }
     return "cancelled";
@@ -424,22 +424,16 @@ bool DatasetCaptureSession::writeLabelsCsv(std::string& err) const {
         err = "failed to write labels.csv";
         return false;
     }
-    out << "image_id,crop_path,source_frame_path,source_frame_id,timestamp,crop_x,crop_y,crop_w,crop_h,collection_mode,batch_index,auto_label,auto_label_source,auto_label_confidence,auto_label_model_id,review_state,reviewed_label,exclude_reason,trainer_eligible,hash_sha256\n";
+    out << "image_id,crop_path,source_frame_path,source_frame_id,timestamp,crop_x,crop_y,crop_w,crop_h,collection_mode,"
+           "batch_index,auto_label,auto_label_source,auto_label_confidence,auto_label_model_id,review_state,reviewed_"
+           "label,exclude_reason,trainer_eligible,hash_sha256\n";
     for (const auto& item : items_) {
-        out << csvQuote(item.imageId) << ","
-            << csvQuote(item.cropPath) << ","
-            << csvQuote(item.sourceFramePath) << ","
-            << csvQuote(item.sourceFrameId) << ","
-            << csvQuote(item.timestamp) << ","
-            << item.cropX << "," << item.cropY << "," << item.cropW << "," << item.cropH << ","
-            << csvQuote(item.collectionMode) << ","
-            << item.batchIndex << ","
-            << csvQuote(item.autoLabel) << ","
-            << csvQuote(item.autoLabelSource) << ","
-            << std::fixed << std::setprecision(6) << item.autoLabelConfidence << ","
-            << csvQuote(item.autoLabelModelId) << ","
-            << csvQuote("unreviewed") << ",,,false,"
-            << csvQuote(item.hashSha256) << "\n";
+        out << csvQuote(item.imageId) << "," << csvQuote(item.cropPath) << "," << csvQuote(item.sourceFramePath) << ","
+            << csvQuote(item.sourceFrameId) << "," << csvQuote(item.timestamp) << "," << item.cropX << "," << item.cropY
+            << "," << item.cropW << "," << item.cropH << "," << csvQuote(item.collectionMode) << "," << item.batchIndex
+            << "," << csvQuote(item.autoLabel) << "," << csvQuote(item.autoLabelSource) << "," << std::fixed
+            << std::setprecision(6) << item.autoLabelConfidence << "," << csvQuote(item.autoLabelModelId) << ","
+            << csvQuote("unreviewed") << ",,,false," << csvQuote(item.hashSha256) << "\n";
     }
     out.flush();
     out.close();
@@ -489,8 +483,10 @@ bool DatasetCaptureSession::writeClassBalanceCsv(std::string& err) const {
 }
 
 bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
-    if (!writeLabelsCsv(err)) return false;
-    if (!writeClassBalanceCsv(err)) return false;
+    if (!writeLabelsCsv(err))
+        return false;
+    if (!writeClassBalanceCsv(err))
+        return false;
 
     fs::path sessionPath = metadataDir_ / "collection_session.json";
     fs::path sessionTempPath = metadataDir_ / "collection_session.json.tmp";
@@ -512,7 +508,8 @@ bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
     session << "  \"batch_stop_reason\": " << jsonQuote(normalizedStopReason(batchStopReason_)) << ",\n";
     session << "  \"batch_prompts\": [";
     for (std::size_t i = 0; i < batchPromptAudit_.size(); ++i) {
-        if (i > 0) session << ", ";
+        if (i > 0)
+            session << ", ";
         session << batchPromptAudit_[i];
     }
     session << "],\n";
@@ -536,9 +533,11 @@ bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
     out << "  \"created_at\": " << jsonQuote(createdAt_.empty() ? nowIso8601() : createdAt_) << ",\n";
     out << "  \"updated_at\": " << jsonQuote(nowIso8601()) << ",\n";
     out << "  \"source\": {\n";
-    out << "    \"type\": " << jsonQuote(config_.sourceType == "live_stream" ? "live_stream" : "recorded_sequence") << ",\n";
+    out << "    \"type\": " << jsonQuote(config_.sourceType == "live_stream" ? "live_stream" : "recorded_sequence")
+        << ",\n";
     out << "    \"path\": " << (config_.sourcePath.empty() ? "null" : jsonQuote(config_.sourcePath)) << ",\n";
-    out << "    \"run_manifest_path\": " << (config_.runManifestPath.empty() ? "null" : jsonQuote(config_.runManifestPath)) << ",\n";
+    out << "    \"run_manifest_path\": "
+        << (config_.runManifestPath.empty() ? "null" : jsonQuote(config_.runManifestPath)) << ",\n";
     out << "    \"capture_session_path\": \"metadata/collection_session.json\"\n";
     out << "  },\n";
     out << "  \"collection\": {\n";
@@ -559,8 +558,10 @@ bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
         out << "  \"auto_label_model\": {\n";
         out << "    \"model_id\": " << (config_.modelId.empty() ? "null" : jsonQuote(config_.modelId)) << ",\n";
         out << "    \"model_path\": " << (config_.modelPath.empty() ? "null" : jsonQuote(config_.modelPath)) << ",\n";
-        out << "    \"metadata_path\": " << (config_.metadataPath.empty() ? "null" : jsonQuote(config_.metadataPath)) << ",\n";
-        out << "    \"model_sha256\": " << (config_.modelSha256.empty() ? "null" : jsonQuote(config_.modelSha256)) << ",\n";
+        out << "    \"metadata_path\": " << (config_.metadataPath.empty() ? "null" : jsonQuote(config_.metadataPath))
+            << ",\n";
+        out << "    \"model_sha256\": " << (config_.modelSha256.empty() ? "null" : jsonQuote(config_.modelSha256))
+            << ",\n";
         out << "    \"class_mapping\": {\"0\": \"waste\", \"1\": \"hit\"}\n";
         out << "  },\n";
     } else {
@@ -572,18 +573,22 @@ bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
         out << "    {\n";
         out << "      \"image_id\": " << jsonQuote(item.imageId) << ",\n";
         out << "      \"crop_path\": " << jsonQuote(item.cropPath) << ",\n";
-        out << "      \"source_frame_path\": " << (item.sourceFramePath.empty() ? "null" : jsonQuote(item.sourceFramePath)) << ",\n";
+        out << "      \"source_frame_path\": "
+            << (item.sourceFramePath.empty() ? "null" : jsonQuote(item.sourceFramePath)) << ",\n";
         out << "      \"overlay_path\": " << (item.overlayPath.empty() ? "null" : jsonQuote(item.overlayPath)) << ",\n";
         out << "      \"source_frame_id\": " << jsonQuote(item.sourceFrameId) << ",\n";
         out << "      \"timestamp\": " << jsonQuote(item.timestamp) << ",\n";
-        out << "      \"crop_rect\": [" << item.cropX << ", " << item.cropY << ", " << item.cropW << ", " << item.cropH << "],\n";
+        out << "      \"crop_rect\": [" << item.cropX << ", " << item.cropY << ", " << item.cropW << ", " << item.cropH
+            << "],\n";
         out << "      \"collection_mode\": " << jsonQuote(item.collectionMode) << ",\n";
         out << "      \"batch_index\": " << item.batchIndex << ",\n";
         out << "      \"batch_target\": " << item.batchTarget << ",\n";
         out << "      \"auto_label\": " << jsonQuote(item.autoLabel) << ",\n";
         out << "      \"auto_label_source\": " << jsonQuote(item.autoLabelSource) << ",\n";
-        out << "      \"auto_label_confidence\": " << std::fixed << std::setprecision(6) << item.autoLabelConfidence << ",\n";
-        out << "      \"auto_label_model_id\": " << (item.autoLabelModelId.empty() ? "null" : jsonQuote(item.autoLabelModelId)) << ",\n";
+        out << "      \"auto_label_confidence\": " << std::fixed << std::setprecision(6) << item.autoLabelConfidence
+            << ",\n";
+        out << "      \"auto_label_model_id\": "
+            << (item.autoLabelModelId.empty() ? "null" : jsonQuote(item.autoLabelModelId)) << ",\n";
         out << "      \"review_state\": \"unreviewed\",\n";
         out << "      \"reviewed_label\": null,\n";
         out << "      \"reviewed_by\": null,\n";

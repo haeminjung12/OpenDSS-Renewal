@@ -6,15 +6,11 @@
 #include <QToolButton>
 #include <QVBoxLayout>
 
-CollapsibleSection::CollapsibleSection(QWidget* parent)
-    : CollapsibleSection(QString(), parent) {}
+CollapsibleSection::CollapsibleSection(QWidget* parent) : CollapsibleSection(QString(), parent) {}
 
 CollapsibleSection::CollapsibleSection(const QString& title, QWidget* parent)
-    : QWidget(parent),
-      toggleButton_(new QToolButton(this)),
-      titleLabel_(new QLabel(title, this)),
-      content_(new QWidget(this)),
-      contentLayout_(new QVBoxLayout(content_)) {
+    : QWidget(parent), toggleButton_(new QToolButton(this)), titleLabel_(new QLabel(title, this)),
+      content_(new QWidget(this)), contentLayout_(new QVBoxLayout(content_)) {
     setObjectName(QStringLiteral("CollapsibleSection"));
     setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 
@@ -121,14 +117,11 @@ void CollapsibleSection::toggleCollapsed() {
 void CollapsibleSection::updateHeader() {
     toggleButton_->setChecked(!collapsed_);
     toggleButton_->setArrowType(collapsed_ ? Qt::RightArrow : Qt::DownArrow);
-    toggleButton_->setToolTip(collapsed_
-        ? QStringLiteral("Show section")
-        : QStringLiteral("Hide section"));
+    toggleButton_->setToolTip(collapsed_ ? QStringLiteral("Show section") : QStringLiteral("Hide section"));
 }
 
 void CollapsibleSection::updateAccessibleLabel() {
     const QString sectionTitle = title().isEmpty() ? QStringLiteral("Section") : title();
-    setAccessibleName(QStringLiteral("%1, %2").arg(
-        sectionTitle,
-        collapsed_ ? QStringLiteral("collapsed") : QStringLiteral("expanded")));
+    setAccessibleName(QStringLiteral("%1, %2").arg(sectionTitle, collapsed_ ? QStringLiteral("collapsed")
+                                                                            : QStringLiteral("expanded")));
 }

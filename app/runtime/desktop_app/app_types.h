@@ -72,7 +72,8 @@ inline QString normalizeEventLabel(const QString& label) {
 }
 
 inline QString decideEventDirection(double cumulativeDy, double lastY, int frameHeight, bool hasCentroid) {
-    if (!hasCentroid) return "Unknown";
+    if (!hasCentroid)
+        return "Unknown";
     double threshold = 2.0;
     if (frameHeight > 0) {
         threshold = std::max(threshold, frameHeight * 0.02);
@@ -174,14 +175,16 @@ struct SequenceEventTracker {
         maxY = evt.centroid.y;
         pathLength = 0.0;
         framesTracked = 1;
-        if (evt.frameHeight > 0) frameHeight = evt.frameHeight;
+        if (evt.frameHeight > 0)
+            frameHeight = evt.frameHeight;
         currentLabel = normalizeEventLabel(QString::fromStdString(evt.label));
         startFrame = static_cast<int>(evt.frameNumber);
         firedFrame = evt.fired ? static_cast<int>(evt.frameNumber) : -1;
     }
 
     void endEvent(int decisionFrame) {
-        if (!eventActive) return;
+        if (!eventActive)
+            return;
         QString dir = decideEventDirection(cumulativeDy, lastY, frameHeight, hasCentroid);
 
         SequenceEventRecord rec;
@@ -219,7 +222,8 @@ struct SequenceEventTracker {
     }
 
     void update(const PipelineEvent& evt, bool processed) {
-        if (!processed) return;
+        if (!processed)
+            return;
         lastFrameNumber = static_cast<int>(evt.frameNumber);
         if (evt.fired) {
             if (eventActive) {
@@ -242,7 +246,8 @@ struct SequenceEventTracker {
                 minY = std::min(minY, static_cast<double>(evt.centroid.y));
                 maxY = std::max(maxY, static_cast<double>(evt.centroid.y));
                 framesTracked++;
-                if (evt.frameHeight > 0) frameHeight = evt.frameHeight;
+                if (evt.frameHeight > 0)
+                    frameHeight = evt.frameHeight;
                 missCount = 0;
             }
         } else if (eventActive) {
@@ -254,7 +259,8 @@ struct SequenceEventTracker {
     }
 
     void finalize() {
-        if (!eventActive) return;
+        if (!eventActive)
+            return;
         int decisionFrame = (lastFrameNumber >= 0) ? lastFrameNumber : startFrame;
         endEvent(decisionFrame);
     }

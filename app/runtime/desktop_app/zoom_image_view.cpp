@@ -14,15 +14,10 @@
 #include "object_names.h"
 
 ZoomImageView::ZoomImageView(QWidget* parent)
-    : QScrollArea(parent),
-      label_(new QLabel),
-      scale_(1.0),
-      effectiveScale_(1.0),
-      hasImage_(false),
-      zoomSteps_(0) {
+    : QScrollArea(parent), label_(new QLabel), scale_(1.0), effectiveScale_(1.0), hasImage_(false), zoomSteps_(0) {
     label_->setBackgroundRole(QPalette::Base);
     label_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
-    label_->setScaledContents(true);  // paint-time scaling instead of allocating huge pixmaps
+    label_->setScaledContents(true); // paint-time scaling instead of allocating huge pixmaps
     setWidget(label_);
     setAlignment(Qt::AlignCenter);
     setWidgetResizable(false);
@@ -128,9 +123,9 @@ void ZoomImageView::wheelEvent(QWheelEvent* ev) {
         const double ticks = ev->angleDelta().y() / 120.0;
         const double oldScale = scale_;
         const int newSteps = std::clamp(zoomSteps_ + static_cast<int>(std::round(ticks)), -50, 50);
-        const double desiredScale = std::pow(1.25, newSteps);  // ~1.25x per tick
+        const double desiredScale = std::pow(1.25, newSteps); // ~1.25x per tick
         const double maxScale = computeMaxScale();
-        const double newScale = std::clamp(desiredScale, 0.05, maxScale);  // avoid zero/negative and clamp max
+        const double newScale = std::clamp(desiredScale, 0.05, maxScale); // avoid zero/negative and clamp max
         if (qFuzzyCompare(newScale, scale_)) {
             ev->accept();
             return;
@@ -139,7 +134,8 @@ void ZoomImageView::wheelEvent(QWheelEvent* ev) {
         zoomSteps_ = static_cast<int>(std::lround(std::log(newScale) / std::log(1.25)));
 
         const QPointF vpPos = ev->position();
-        const QPointF contentPos = (vpPos + QPointF(horizontalScrollBar()->value(), verticalScrollBar()->value())) / oldScale;
+        const QPointF contentPos =
+            (vpPos + QPointF(horizontalScrollBar()->value(), verticalScrollBar()->value())) / oldScale;
 
         scale_ = newScale;
         updatePixmap();
@@ -176,13 +172,14 @@ void ZoomImageView::updatePixmap() {
         }
         const int baseW = basePixmap_.width();
         const int baseH = basePixmap_.height();
-        QSize targetSize = (scale_ == 1.0)
-            ? basePixmap_.size()
-            : QSize(std::max(1, int(std::lround(baseW * scale_))), std::max(1, int(std::lround(baseH * scale_))));
+        QSize targetSize = (scale_ == 1.0) ? basePixmap_.size()
+                                           : QSize(std::max(1, int(std::lround(baseW * scale_))),
+                                                   std::max(1, int(std::lround(baseH * scale_))));
 
         const int maxDim = (std::min(baseW, baseH) <= 256) ? 8192 : 4096;
         if (targetSize.width() > maxDim || targetSize.height() > maxDim) {
-            const double factor = static_cast<double>(maxDim) / static_cast<double>(std::max(targetSize.width(), targetSize.height()));
+            const double factor =
+                static_cast<double>(maxDim) / static_cast<double>(std::max(targetSize.width(), targetSize.height()));
             targetSize.setWidth(std::max(1, int(std::lround(targetSize.width() * factor))));
             targetSize.setHeight(std::max(1, int(std::lround(targetSize.height() * factor))));
         }

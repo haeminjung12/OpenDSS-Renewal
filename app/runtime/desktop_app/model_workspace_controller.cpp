@@ -18,8 +18,7 @@ QString ModelWorkspaceController::summaryForRow(int row) const {
     if (!deps_.registryEntries || row < 0 || row >= deps_.registryEntries->size()) {
         return {};
     }
-    return registryEntrySummary(deps_.registryEntries->at(row).toObject(),
-                                deps_.registryFilePath,
+    return registryEntrySummary(deps_.registryEntries->at(row).toObject(), deps_.registryFilePath,
                                 deps_.registryLoadWarning);
 }
 
@@ -41,21 +40,18 @@ void ModelWorkspaceController::wireRegistrySelection() {
         deps_.modelDetailsText->setPlainText(summaryForRow(0));
     }
 
-    connect(deps_.modelRegistryTable, &QTableWidget::currentCellChanged, this,
-            [this](int currentRow, int, int, int) {
-                const QString summary = summaryForRow(currentRow);
-                if (summary.isEmpty()) {
-                    return;
-                }
-                deps_.modelDetailsText->setPlainText(summary);
-            });
+    connect(deps_.modelRegistryTable, &QTableWidget::currentCellChanged, this, [this](int currentRow, int, int, int) {
+        const QString summary = summaryForRow(currentRow);
+        if (summary.isEmpty()) {
+            return;
+        }
+        deps_.modelDetailsText->setPlainText(summary);
+    });
 }
 
 void ModelWorkspaceController::wireModelManagerAction() {
     if (!deps_.modelManagerAction) {
         return;
     }
-    connect(deps_.modelManagerAction, &QAction::triggered, this, [this]() {
-        openModelManager();
-    });
+    connect(deps_.modelManagerAction, &QAction::triggered, this, [this]() { openModelManager(); });
 }

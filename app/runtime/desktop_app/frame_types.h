@@ -7,7 +7,7 @@ struct ApplySettings {
     int width = 0;
     int height = 0;
     int binning = 1;
-    int bits = 12;     // default to camera min (mono8 removed)
+    int bits = 12;                        // default to camera min (mono8 removed)
     int pixelType = DCAM_PIXELTYPE_MONO8; // default mono8 to maximize FPS
     bool enableSubarray = true;
     double exposure_s = 0.010; // default 10 ms

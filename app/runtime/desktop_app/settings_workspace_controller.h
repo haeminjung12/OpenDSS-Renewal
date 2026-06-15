@@ -22,7 +22,7 @@ struct AppState;
 class SettingsWorkspaceController : public QObject {
     Q_OBJECT
 
-public:
+  public:
     struct DaqAvailabilityState {
         bool available = false;
         bool disabled = false;
@@ -71,7 +71,7 @@ public:
     int discoveredCompatibleDeviceCount() const;
     const std::vector<DaqDeviceInfo>& discoveredDaqDevices() const;
 
-private:
+  private:
     static bool sameText(const QString& left, const QString& right);
     static QString channelDeviceName(const QString& channel);
     static QString channelSuffix(const QString& channel);
@@ -79,8 +79,7 @@ private:
 
     const DaqDeviceInfo* findDiscoveredDaqDevice(const QString& deviceName) const;
     QString formatDaqDeviceLabel(const DaqDeviceInfo& device) const;
-    QString chooseChannelForDevice(const DaqDeviceInfo& device,
-                                   const QString& currentChannel,
+    QString chooseChannelForDevice(const DaqDeviceInfo& device, const QString& currentChannel,
                                    const QString& previousDeviceName) const;
     void syncDaqDeviceComboToChannel();
     void wireControls();

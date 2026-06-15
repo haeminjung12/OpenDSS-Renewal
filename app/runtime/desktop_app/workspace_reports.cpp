@@ -31,9 +31,11 @@ QFrame* makeReportMetric(const QString& label, const QString& value, const QStri
 }
 
 QJsonObject readJsonObject(const QString& path, QString* parseDiagnostic) {
-    if (parseDiagnostic) parseDiagnostic->clear();
+    if (parseDiagnostic)
+        parseDiagnostic->clear();
     QFile file(path);
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) return {};
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
     QJsonParseError parseError;
     const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
@@ -60,24 +62,28 @@ QString findOutputRoot() {
         if (QFileInfo::exists(candidate)) {
             return candidate;
         }
-        if (!dir.cdUp()) break;
+        if (!dir.cdUp())
+            break;
     }
     return {};
 }
 
 QString findLatestRunDir(const QString& outputRoot) {
-    if (outputRoot.trimmed().isEmpty()) return {};
+    if (outputRoot.trimmed().isEmpty())
+        return {};
     QDir root(outputRoot);
-    if (!root.exists()) return {};
+    if (!root.exists())
+        return {};
     const auto candidates = root.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot, QDir::Time);
     for (const QFileInfo& candidate : candidates) {
-        if (!candidate.isDir()) continue;
+        if (!candidate.isDir())
+            continue;
         return candidate.absoluteFilePath();
     }
     return {};
 }
 
-}  // namespace
+} // namespace
 
 QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
     using desktop_app::ui::makePanel;
@@ -111,7 +117,8 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
     }
     reportsRunList->setCurrentRow(0);
     reportsRunBody->addWidget(reportsRunList, 1);
-    auto reportsRunHint = new QLabel("Run folders, logs, validator summaries, and trainer readiness artifacts are opened through existing actions.");
+    auto reportsRunHint = new QLabel(
+        "Run folders, logs, validator summaries, and trainer readiness artifacts are opened through existing actions.");
     reportsRunHint->setWordWrap(true);
     reportsRunHint->setProperty("mutedText", true);
     nameWidget(reportsRunHint, "ReportsWorkspaceRunListHint");
@@ -156,7 +163,8 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
     nameWidget(reportsOpenFiguresBtn, "ReportsWorkspaceOpenFiguresButton");
     reportsExportCsvBtn->setEnabled(false);
     reportsOpenFiguresBtn->setEnabled(false);
-    reportsExportCsvBtn->setToolTip("CSV export remains tied to generated run artifacts; no export is synthesized here.");
+    reportsExportCsvBtn->setToolTip(
+        "CSV export remains tied to generated run artifacts; no export is synthesized here.");
     reportsOpenFiguresBtn->setToolTip("Enabled by generated report artifacts when available.");
     reportsActionRow->addWidget(reportsRunFolderBtn);
     reportsActionRow->addWidget(reportsExportCsvBtn);
@@ -190,13 +198,17 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
     auto reportsDiagnosticsBody = makePanelBody(reportsDiagnosticsPanel);
     auto reportsDiagnosticsRow = new QHBoxLayout;
     reportsDiagnosticsRow->setSpacing(8);
-    reportsDiagnosticsRow->addWidget(makeReportMetric("Camera", controls.hardwareFreeMode ? "mock" : "startup", controls.viewerOnly ? "viewer-only" : "pending"));
+    reportsDiagnosticsRow->addWidget(makeReportMetric("Camera", controls.hardwareFreeMode ? "mock" : "startup",
+                                                      controls.viewerOnly ? "viewer-only" : "pending"));
     reportsDiagnosticsRow->addWidget(makeReportMetric("Model", "not loaded", "pipeline"));
-    reportsDiagnosticsRow->addWidget(makeReportMetric("DAQ", controls.noDaq ? "disabled" : "unchecked", "trigger safe"));
+    reportsDiagnosticsRow->addWidget(
+        makeReportMetric("DAQ", controls.noDaq ? "disabled" : "unchecked", "trigger safe"));
     reportsDiagnosticsRow->addWidget(makeReportMetric("Python", "not configured", "trainer/validator"));
-    reportsDiagnosticsRow->addWidget(makeReportMetric("Run", "idle", controls.hardwareFreeMode ? "no hardware" : "hardware"));
+    reportsDiagnosticsRow->addWidget(
+        makeReportMetric("Run", "idle", controls.hardwareFreeMode ? "no hardware" : "hardware"));
     reportsDiagnosticsBody->addLayout(reportsDiagnosticsRow);
-    auto reportsDiagnosticsNote = new QLabel("Detailed hardware and subprocess diagnostics remain in the existing System Diagnostics dock.");
+    auto reportsDiagnosticsNote =
+        new QLabel("Detailed hardware and subprocess diagnostics remain in the existing System Diagnostics dock.");
     reportsDiagnosticsNote->setWordWrap(true);
     reportsDiagnosticsNote->setProperty("mutedText", true);
     nameWidget(reportsDiagnosticsNote, "ReportsWorkspaceDiagnosticsNote");
@@ -213,7 +225,8 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
         QObject::connect(reportsLogsBtn, &QPushButton::clicked, controls.showLogsAction, &QAction::trigger);
     }
     if (controls.showDiagnosticsAction) {
-        QObject::connect(reportsDiagnosticsBtn, &QPushButton::clicked, controls.showDiagnosticsAction, &QAction::trigger);
+        QObject::connect(reportsDiagnosticsBtn, &QPushButton::clicked, controls.showDiagnosticsAction,
+                         &QAction::trigger);
     }
     if (controls.openRunFolderAction) {
         QObject::connect(reportsRunFolderBtn, &QPushButton::clicked, controls.openRunFolderAction, &QAction::trigger);
@@ -242,7 +255,8 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
         }
         reportsJsonDiagnostics->setText(QString("Reports JSON diagnostics: %1").arg(diagnostics.join(" | ")));
     } else if (!latestRunDir.isEmpty()) {
-        reportsJsonDiagnostics->setText("Reports JSON diagnostics: checked latest run artifacts; no malformed JSON detected.");
+        reportsJsonDiagnostics->setText(
+            "Reports JSON diagnostics: checked latest run artifacts; no malformed JSON detected.");
     } else if (!outputRoot.isEmpty()) {
         reportsJsonDiagnostics->setText("Reports JSON diagnostics: no run directory found for optional artifacts.");
     } else {
@@ -252,5 +266,4 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
     return reportsWorkspacePage;
 }
 
-}  // namespace desktop_app::workspace
-
+} // namespace desktop_app::workspace

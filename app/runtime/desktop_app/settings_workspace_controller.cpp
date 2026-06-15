@@ -81,9 +81,8 @@ std::vector<DaqDeviceInfo> SettingsWorkspaceController::parseSimulatedDaqDevices
             devices.push_back(std::move(info));
         }
     }
-    std::sort(devices.begin(), devices.end(), [](const DaqDeviceInfo& left, const DaqDeviceInfo& right) {
-        return left.name < right.name;
-    });
+    std::sort(devices.begin(), devices.end(),
+              [](const DaqDeviceInfo& left, const DaqDeviceInfo& right) { return left.name < right.name; });
     return devices;
 }
 
@@ -136,9 +135,8 @@ QString SettingsWorkspaceController::describeDiscoveredDaqDevices() const {
     return parts.join("; ");
 }
 
-QString SettingsWorkspaceController::chooseChannelForDevice(const DaqDeviceInfo& device,
-                                                           const QString& currentChannel,
-                                                           const QString& previousDeviceName) const {
+QString SettingsWorkspaceController::chooseChannelForDevice(const DaqDeviceInfo& device, const QString& currentChannel,
+                                                            const QString& previousDeviceName) const {
     if (!device.isCompatible()) {
         return {};
     }
@@ -244,7 +242,8 @@ void SettingsWorkspaceController::refreshDaqDeviceOptions(bool allowChannelRewri
     } else if (discoveredCompatibleDeviceCount() > 1) {
         if (const DaqDeviceInfo* saved = findDiscoveredDaqDevice(savedDevice); saved && saved->isCompatible()) {
             chosenDevice = savedDevice;
-        } else if (const DaqDeviceInfo* current = findDiscoveredDaqDevice(currentDevice); current && current->isCompatible()) {
+        } else if (const DaqDeviceInfo* current = findDiscoveredDaqDevice(currentDevice);
+                   current && current->isCompatible()) {
             chosenDevice = currentDevice;
         } else {
             for (const auto& device : discoveredDaqDevices_) {
@@ -265,9 +264,8 @@ void SettingsWorkspaceController::refreshDaqDeviceOptions(bool allowChannelRewri
     }
 
     if (discoveredDaqDevices_.empty()) {
-        const QString emptyText = daqDiscoveryError_.isEmpty()
-            ? QStringLiteral("No NI-DAQmx devices detected")
-            : QStringLiteral("DAQ discovery unavailable");
+        const QString emptyText = daqDiscoveryError_.isEmpty() ? QStringLiteral("No NI-DAQmx devices detected")
+                                                               : QStringLiteral("DAQ discovery unavailable");
         deps_.daqDeviceCombo->addItem(emptyText, QString());
         deps_.daqDeviceCombo->setCurrentIndex(0);
         deps_.daqDeviceCombo->setEnabled(false);
@@ -337,11 +335,10 @@ SettingsWorkspaceController::DaqAvailabilityState SettingsWorkspaceController::p
         state.fault = true;
         state.statusText = QStringLiteral("DAQ: unavailable");
         if (discoveredDaqDevices_.empty()) {
-            state.faultText = daqDiscoveryError_.isEmpty()
-                ? QStringLiteral("No NI-DAQmx devices detected.")
-                : daqDiscoveryError_;
-        } else if (const DaqDeviceInfo* selectedInfo =
-                       findDiscoveredDaqDevice(deps_.daqDeviceCombo ? deps_.daqDeviceCombo->currentData().toString() : QString());
+            state.faultText =
+                daqDiscoveryError_.isEmpty() ? QStringLiteral("No NI-DAQmx devices detected.") : daqDiscoveryError_;
+        } else if (const DaqDeviceInfo* selectedInfo = findDiscoveredDaqDevice(
+                       deps_.daqDeviceCombo ? deps_.daqDeviceCombo->currentData().toString() : QString());
                    selectedInfo && !selectedInfo->isCompatible()) {
             state.faultText = QStringLiteral("Selected device %1 does not report analog output channels in NI-DAQmx.")
                                   .arg(QString::fromStdString(selectedInfo->name));
@@ -439,9 +436,9 @@ void SettingsWorkspaceController::wireControls() {
             settings.setValue("settings/daqSelectedDevice", selectedDevice);
             settings.sync();
             if (const DaqDeviceInfo* device = findDiscoveredDaqDevice(selectedDevice)) {
-                const QString nextChannel = chooseChannelForDevice(*device,
-                                                                   deps_.daqChannelEdit ? deps_.daqChannelEdit->text().trimmed() : QString(),
-                                                                   deps_.daqChannelEdit ? channelDeviceName(deps_.daqChannelEdit->text()) : QString());
+                const QString nextChannel = chooseChannelForDevice(
+                    *device, deps_.daqChannelEdit ? deps_.daqChannelEdit->text().trimmed() : QString(),
+                    deps_.daqChannelEdit ? channelDeviceName(deps_.daqChannelEdit->text()) : QString());
                 if (deps_.daqChannelEdit && nextChannel != deps_.daqChannelEdit->text().trimmed()) {
                     deps_.daqChannelEdit->setText(nextChannel);
                 } else {

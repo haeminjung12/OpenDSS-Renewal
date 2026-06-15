@@ -20,5 +20,4 @@ struct ReportsWorkspaceControls {
 
 QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls);
 
-}  // namespace desktop_app::workspace
-
+} // namespace desktop_app::workspace

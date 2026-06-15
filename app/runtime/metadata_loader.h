@@ -14,11 +14,7 @@ struct Metadata {
 };
 
 bool LoadMetadata(const std::string& path, Metadata& out, std::string& err);
-bool ResolveTargetClassId(const Metadata& meta,
-                          const std::string& targetClassId,
-                          const std::string& targetLabel,
-                          std::string& resolvedClassId,
-                          std::string& resolvedDisplayLabel,
-                          std::string& err);
+bool ResolveTargetClassId(const Metadata& meta, const std::string& targetClassId, const std::string& targetLabel,
+                          std::string& resolvedClassId, std::string& resolvedDisplayLabel, std::string& err);
 std::string DisplayLabelForClassId(const Metadata& meta, const std::string& classId);
 std::string FormatClassForDisplay(const std::string& classId, const std::string& displayLabel);

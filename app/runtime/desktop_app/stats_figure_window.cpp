@@ -9,8 +9,7 @@
 
 #include "object_names.h"
 
-StatsFigureWindow::StatsFigureWindow(QWidget* parent)
-    : QDialog(parent) {
+StatsFigureWindow::StatsFigureWindow(QWidget* parent) : QDialog(parent) {
     nameWidget(this, "StatsFigureWindow");
     setWindowTitle("Pipeline Figures");
     resize(1100, 600);

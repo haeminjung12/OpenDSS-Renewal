@@ -10,13 +10,13 @@
 
 class CameraWorker : public QObject {
     Q_OBJECT
-public:
+  public:
     explicit CameraWorker(QObject* parent = nullptr);
     ~CameraWorker() override;
 
     void setRecordHook(std::function<void(const QImage&, const FrameMeta&, double)> hook);
 
-public slots:
+  public slots:
     void initAndOpen(int bits, int pixelType);
     void reconnect(int bits, int pixelType);
     void startCapture(int bits, int pixelType);
@@ -25,7 +25,7 @@ public slots:
     void setDisplayEvery(int n);
     void shutdown();
 
-signals:
+  signals:
     void initCompleted(const QString& error);
     void reconnectCompleted(const QString& error);
     void startCompleted(const QString& error);
@@ -37,10 +37,10 @@ signals:
     void frameReady(const QImage& img, FrameMeta meta, double fps);
     void shutdownDone();
 
-private slots:
+  private slots:
     void grabOnce();
 
-private:
+  private:
     DcamController* controller();
     void emitExposureLimits();
     void emitFormatOptions();

@@ -10,7 +10,7 @@
 #include <vector>
 
 class BackgroundTaskRegistry {
-public:
+  public:
     using StopFlag = std::shared_ptr<std::atomic_bool>;
     using TaskBody = std::function<void(const StopFlag&)>;
 
@@ -25,7 +25,7 @@ public:
     void waitAll();
     void reapCompleted();
 
-private:
+  private:
     struct Task {
         QString name;
         StopFlag stop;

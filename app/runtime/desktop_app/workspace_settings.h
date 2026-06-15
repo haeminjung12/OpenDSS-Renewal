@@ -47,4 +47,4 @@ struct SettingsWorkspaceControls {
 
 QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls);
 
-}  // namespace desktop_app::workspace
+} // namespace desktop_app::workspace

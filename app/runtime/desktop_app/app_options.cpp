@@ -43,8 +43,7 @@ AppOptions parseAppOptions(int argc, char* argv[]) {
         if (arg == "--dataset-builder-review-manifest" && i + 1 < argc) {
             options.datasetBuilderReviewPath = QString::fromLocal8Bit(argv[++i]);
         } else if (arg.rfind(reviewPrefix, 0) == 0) {
-            options.datasetBuilderReviewPath =
-                QString::fromLocal8Bit(arg.substr(reviewPrefix.size()).c_str());
+            options.datasetBuilderReviewPath = QString::fromLocal8Bit(arg.substr(reviewPrefix.size()).c_str());
         }
     }
     return options;

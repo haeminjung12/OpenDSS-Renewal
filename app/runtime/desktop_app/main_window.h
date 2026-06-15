@@ -16,19 +16,14 @@ struct AppState;
 }
 
 class MainWindow : public QMainWindow {
-public:
+  public:
     explicit MainWindow(const AppContext& context, QWidget* parent = nullptr);
 
     const AppContext& appContext() const;
-    int runSetupAndEventLoop(QApplication& app,
-                             QSettings& runtimeSettings,
-                             desktop_app::AppState& appState,
-                             const QJsonArray& registryEntries,
-                             const QString& registryFilePath,
-                             const QString& registryLoadWarning,
-                             QSplashScreen& splash,
-                             QElapsedTimer& splashTimer);
+    int runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettings, desktop_app::AppState& appState,
+                             const QJsonArray& registryEntries, const QString& registryFilePath,
+                             const QString& registryLoadWarning, QSplashScreen& splash, QElapsedTimer& splashTimer);
 
-private:
+  private:
     const AppContext& context_;
 };

@@ -8,7 +8,7 @@ struct FastEventConfig {
     int bgFrames = 100;
     int bgUpdateFrames = 50;
     int resetFrames = 2;
-    double minArea = -1.0;    // <=0 means auto
+    double minArea = -1.0; // <=0 means auto
     double minAreaFrac = 0.0;
     double maxAreaFrac = 0.10;
     int minBbox = 32;
@@ -18,7 +18,7 @@ struct FastEventConfig {
     int morphRadius = 1;
     bool useContourExtraction = false;
     double scale = 0.5;
-    int gapFireShift = 0;     // <=0 means auto
+    int gapFireShift = 0; // <=0 means auto
 };
 
 struct FastEventResult {
@@ -31,7 +31,7 @@ struct FastEventResult {
 };
 
 class FastEventDetector {
-public:
+  public:
     explicit FastEventDetector(const FastEventConfig& cfg);
 
     void reset();
@@ -42,7 +42,7 @@ public:
     bool addBackgroundFrame(const cv::Mat& gray8);
     bool processFrame(const cv::Mat& gray8, FastEventResult& out);
 
-private:
+  private:
     struct RollingBackground8 {
         std::deque<cv::Mat> frames;
         cv::Mat sum;

@@ -54,19 +54,13 @@ void ReportsWorkspaceController::openCurrentRunFolder() {
 
 void ReportsWorkspaceController::wireActions() {
     if (deps_.openRunFolderAction) {
-        connect(deps_.openRunFolderAction, &QAction::triggered, this, [this]() {
-            openCurrentRunFolder();
-        });
+        connect(deps_.openRunFolderAction, &QAction::triggered, this, [this]() { openCurrentRunFolder(); });
     }
     if (deps_.openOutputAction) {
-        connect(deps_.openOutputAction, &QAction::triggered, this, [this]() {
-            openCurrentRunFolder();
-        });
+        connect(deps_.openOutputAction, &QAction::triggered, this, [this]() { openCurrentRunFolder(); });
     }
     if (deps_.liveOpenRunButton) {
-        connect(deps_.liveOpenRunButton, &QPushButton::clicked, this, [this]() {
-            openCurrentRunFolder();
-        });
+        connect(deps_.liveOpenRunButton, &QPushButton::clicked, this, [this]() { openCurrentRunFolder(); });
     }
     if (deps_.showLogsAction && deps_.logDock) {
         connect(deps_.showLogsAction, &QAction::triggered, deps_.logDock, &QDockWidget::show);

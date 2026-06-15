@@ -10,12 +10,8 @@
 namespace desktop_app::workspace {
 namespace {
 
-QWidget* makePathField(const QString& label,
-                       const QString& settingsKey,
-                       const QString& defaultValue,
-                       const QString& editObjectName,
-                       const QString& browseObjectName,
-                       bool filePicker,
+QWidget* makePathField(const QString& label, const QString& settingsKey, const QString& defaultValue,
+                       const QString& editObjectName, const QString& browseObjectName, bool filePicker,
                        QLineEdit* linkedEdit = nullptr) {
     auto* wrapper = new QWidget;
     auto* layout = new QGridLayout;
@@ -29,7 +25,8 @@ QWidget* makePathField(const QString& label,
     const QString linkedValue = linkedEdit ? linkedEdit->text().trimmed() : QString();
     const QString fallbackValue = !linkedValue.isEmpty() ? linkedValue : defaultValue;
     const QString initialValue = settings.value(settingsKey, fallbackValue).toString();
-    if (!initialValue.isEmpty()) edit->setText(QDir::toNativeSeparators(initialValue));
+    if (!initialValue.isEmpty())
+        edit->setText(QDir::toNativeSeparators(initialValue));
     edit->setMinimumWidth(0);
     nameWidget(edit, editObjectName.toLatin1().constData());
     auto* browseButton = new QPushButton("Browse");
@@ -43,15 +40,16 @@ QWidget* makePathField(const QString& label,
         QSettings settings;
         settings.setValue(settingsKey, edit->text().trimmed());
         settings.sync();
-        if (linkedEdit) linkedEdit->setText(edit->text());
+        if (linkedEdit)
+            linkedEdit->setText(edit->text());
     };
     QObject::connect(edit, &QLineEdit::editingFinished, edit, persist);
     QObject::connect(browseButton, &QPushButton::clicked, edit, [edit, settingsKey, filePicker, persist]() {
         const QString current = edit->text().trimmed();
-        const QString selected = filePicker
-            ? QFileDialog::getOpenFileName(edit, "Select file", current)
-            : QFileDialog::getExistingDirectory(edit, "Select folder", current);
-        if (selected.isEmpty()) return;
+        const QString selected = filePicker ? QFileDialog::getOpenFileName(edit, "Select file", current)
+                                            : QFileDialog::getExistingDirectory(edit, "Select folder", current);
+        if (selected.isEmpty())
+            return;
         edit->setText(QDir::toNativeSeparators(selected));
         persist();
     });
@@ -65,12 +63,14 @@ QString textOrEmpty(const QLineEdit* edit) {
 
 QString modelsFolderFromModelPath(const QString& modelPath) {
     const QFileInfo modelInfo(modelPath);
-    if (modelInfo.exists() && modelInfo.isDir()) return modelInfo.absoluteFilePath();
-    if (!modelPath.trimmed().isEmpty()) return modelInfo.absolutePath();
+    if (modelInfo.exists() && modelInfo.isDir())
+        return modelInfo.absoluteFilePath();
+    if (!modelPath.trimmed().isEmpty())
+        return modelInfo.absolutePath();
     return QString();
 }
 
-}  // namespace
+} // namespace
 
 QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     using desktop_app::ui::makePanel;
@@ -96,33 +96,21 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     settingsPathsPanel->setObjectName("SettingsPathsPanel");
     auto settingsPathsBody = makePanelBody(settingsPathsPanel);
     settingsPathsBody->setSpacing(8);
-    settingsPathsBody->addWidget(makePathField("Output root",
-                                               "settings/outputRoot",
-                                               controls.outputRoot,
-                                               "SettingsWorkspaceOutputRootEdit",
-                                               "SettingsWorkspaceOutputRootBrowseButton",
-                                               false,
-                                               controls.outputRootEdit));
-    settingsPathsBody->addWidget(makePathField("Models folder",
-                                               "settings/modelsFolder",
-                                               modelsFolderFromModelPath(controls.modelPath),
-                                               "SettingsWorkspaceModelsFolderEdit",
-                                               "SettingsWorkspaceModelsFolderBrowseButton",
-                                               false));
-    settingsPathsBody->addWidget(makePathField("Datasets root",
-                                               "settings/datasetsRoot",
-                                               controls.datasetsRoot.isEmpty() ? textOrEmpty(controls.trainerDatasetRootEdit) : controls.datasetsRoot,
-                                               "SettingsWorkspaceDatasetsRootEdit",
-                                               "SettingsWorkspaceDatasetsRootBrowseButton",
-                                               false,
-                                               controls.trainerDatasetRootEdit));
-    settingsPathsBody->addWidget(makePathField("Python trainer",
-                                               "settings/pythonTrainer",
-                                               textOrEmpty(controls.trainerPythonEdit),
-                                               "SettingsWorkspacePythonTrainerEdit",
-                                               "SettingsWorkspacePythonTrainerBrowseButton",
-                                               true,
-                                               controls.trainerPythonEdit));
+    settingsPathsBody->addWidget(
+        makePathField("Output root", "settings/outputRoot", controls.outputRoot, "SettingsWorkspaceOutputRootEdit",
+                      "SettingsWorkspaceOutputRootBrowseButton", false, controls.outputRootEdit));
+    settingsPathsBody->addWidget(
+        makePathField("Models folder", "settings/modelsFolder", modelsFolderFromModelPath(controls.modelPath),
+                      "SettingsWorkspaceModelsFolderEdit", "SettingsWorkspaceModelsFolderBrowseButton", false));
+    settingsPathsBody->addWidget(makePathField(
+        "Datasets root", "settings/datasetsRoot",
+        controls.datasetsRoot.isEmpty() ? textOrEmpty(controls.trainerDatasetRootEdit) : controls.datasetsRoot,
+        "SettingsWorkspaceDatasetsRootEdit", "SettingsWorkspaceDatasetsRootBrowseButton", false,
+        controls.trainerDatasetRootEdit));
+    settingsPathsBody->addWidget(
+        makePathField("Python trainer", "settings/pythonTrainer", textOrEmpty(controls.trainerPythonEdit),
+                      "SettingsWorkspacePythonTrainerEdit", "SettingsWorkspacePythonTrainerBrowseButton", true,
+                      controls.trainerPythonEdit));
     settingsStackLayout->addWidget(settingsPathsPanel);
 
     QSettings settings;
@@ -139,52 +127,62 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
         auto* labelWidget = new QLabel(label);
         labelWidget->setProperty("metricLabel", true);
         settingsHardwareGrid->addWidget(labelWidget, row, 0);
-        if (control) settingsHardwareGrid->addWidget(control, row, 1);
+        if (control)
+            settingsHardwareGrid->addWidget(control, row, 1);
     };
 
     if (controls.daqChannelEdit) {
-        controls.daqChannelEdit->setText(settings.value("settings/daqChannel", controls.daqChannelEdit->text()).toString());
-        QObject::connect(controls.daqChannelEdit, &QLineEdit::editingFinished, controls.daqChannelEdit, [edit = controls.daqChannelEdit]() {
-            QSettings settings;
-            settings.setValue("settings/daqChannel", edit->text().trimmed());
-            settings.sync();
-        });
+        controls.daqChannelEdit->setText(
+            settings.value("settings/daqChannel", controls.daqChannelEdit->text()).toString());
+        QObject::connect(controls.daqChannelEdit, &QLineEdit::editingFinished, controls.daqChannelEdit,
+                         [edit = controls.daqChannelEdit]() {
+                             QSettings settings;
+                             settings.setValue("settings/daqChannel", edit->text().trimmed());
+                             settings.sync();
+                         });
     }
     if (controls.amplitudeSpin) {
         controls.amplitudeSpin->setRange(0.1, 10.0);
-        controls.amplitudeSpin->setValue(settings.value("settings/daqAmplitudeV", controls.amplitudeSpin->value()).toDouble());
-        QObject::connect(controls.amplitudeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), controls.amplitudeSpin, [](double value) {
-            QSettings settings;
-            settings.setValue("settings/daqAmplitudeV", value);
-            settings.sync();
-        });
+        controls.amplitudeSpin->setValue(
+            settings.value("settings/daqAmplitudeV", controls.amplitudeSpin->value()).toDouble());
+        QObject::connect(controls.amplitudeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         controls.amplitudeSpin, [](double value) {
+                             QSettings settings;
+                             settings.setValue("settings/daqAmplitudeV", value);
+                             settings.sync();
+                         });
     }
     if (controls.frequencySpin) {
         controls.frequencySpin->setRange(1.0, 100.0);
-        controls.frequencySpin->setValue(settings.value("settings/daqFrequencyKhz", controls.frequencySpin->value()).toDouble());
-        QObject::connect(controls.frequencySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), controls.frequencySpin, [](double value) {
-            QSettings settings;
-            settings.setValue("settings/daqFrequencyKhz", value);
-            settings.sync();
-        });
+        controls.frequencySpin->setValue(
+            settings.value("settings/daqFrequencyKhz", controls.frequencySpin->value()).toDouble());
+        QObject::connect(controls.frequencySpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         controls.frequencySpin, [](double value) {
+                             QSettings settings;
+                             settings.setValue("settings/daqFrequencyKhz", value);
+                             settings.sync();
+                         });
     }
     if (controls.durationSpin) {
         controls.durationSpin->setRange(0.1, 50.0);
-        controls.durationSpin->setValue(settings.value("settings/daqDurationMs", controls.durationSpin->value()).toDouble());
-        QObject::connect(controls.durationSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), controls.durationSpin, [](double value) {
-            QSettings settings;
-            settings.setValue("settings/daqDurationMs", value);
-            settings.sync();
-        });
+        controls.durationSpin->setValue(
+            settings.value("settings/daqDurationMs", controls.durationSpin->value()).toDouble());
+        QObject::connect(controls.durationSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), controls.durationSpin,
+                         [](double value) {
+                             QSettings settings;
+                             settings.setValue("settings/daqDurationMs", value);
+                             settings.sync();
+                         });
     }
     if (controls.delaySpin) {
         controls.delaySpin->setRange(0.0, 100.0);
         controls.delaySpin->setValue(settings.value("settings/daqDelayMs", controls.delaySpin->value()).toDouble());
-        QObject::connect(controls.delaySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), controls.delaySpin, [](double value) {
-            QSettings settings;
-            settings.setValue("settings/daqDelayMs", value);
-            settings.sync();
-        });
+        QObject::connect(controls.delaySpin, qOverload<double>(&QDoubleSpinBox::valueChanged), controls.delaySpin,
+                         [](double value) {
+                             QSettings settings;
+                             settings.setValue("settings/daqDelayMs", value);
+                             settings.sync();
+                         });
     }
 
     addControlRow(0, "DAQ device", controls.daqDeviceCombo);
@@ -196,13 +194,16 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     auto settingsTestModeCheck = new QCheckBox("Test mode");
     nameWidget(settingsTestModeCheck, "SettingsWorkspaceTestModeCheckBox");
     settingsTestModeCheck->setChecked(settings.value("settings/testMode", controls.hardwareFreeMode).toBool());
-    if (controls.appState) controls.appState->testMode = settingsTestModeCheck->isChecked();
-    QObject::connect(settingsTestModeCheck, &QCheckBox::toggled, settingsTestModeCheck, [appState = controls.appState](bool checked) {
-        QSettings settings;
-        settings.setValue("settings/testMode", checked);
-        settings.sync();
-        if (appState) appState->testMode = checked;
-    });
+    if (controls.appState)
+        controls.appState->testMode = settingsTestModeCheck->isChecked();
+    QObject::connect(settingsTestModeCheck, &QCheckBox::toggled, settingsTestModeCheck,
+                     [appState = controls.appState](bool checked) {
+                         QSettings settings;
+                         settings.setValue("settings/testMode", checked);
+                         settings.sync();
+                         if (appState)
+                             appState->testMode = checked;
+                     });
     addControlRow(6, "No-hardware launch flag", settingsTestModeCheck);
     settingsHardwareGrid->setColumnStretch(1, 1);
     settingsHardwareBody->addLayout(settingsHardwareGrid);
@@ -246,4 +247,4 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     return settingsWorkspacePage;
 }
 
-}  // namespace desktop_app::workspace
+} // namespace desktop_app::workspace

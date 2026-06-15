@@ -18,21 +18,27 @@ QString defaultOpenDssRoot() {
         return QDir(userProfile).filePath("Documents/OpenDSS");
     }
     QString documents = QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation);
-    if (documents.isEmpty()) documents = QDir::home().filePath("Documents");
+    if (documents.isEmpty())
+        documents = QDir::home().filePath("Documents");
     return QDir(documents).filePath("OpenDSS");
 }
 
 bool copyFileIfMissing(const QString& sourcePath, const QString& destinationPath) {
-    if (!QFileInfo(sourcePath).isFile()) return false;
-    if (QFileInfo(destinationPath).isFile()) return true;
+    if (!QFileInfo(sourcePath).isFile())
+        return false;
+    if (QFileInfo(destinationPath).isFile())
+        return true;
     QDir().mkpath(QFileInfo(destinationPath).absolutePath());
     return QFile::copy(sourcePath, destinationPath);
 }
 
 bool copyDirectoryIfMissing(const QString& sourcePath, const QString& destinationPath) {
-    if (sourcePath.trimmed().isEmpty()) return false;
-    if (!QFileInfo(sourcePath).isDir()) return false;
-    if (QFileInfo(destinationPath).isDir()) return true;
+    if (sourcePath.trimmed().isEmpty())
+        return false;
+    if (!QFileInfo(sourcePath).isDir())
+        return false;
+    if (QFileInfo(destinationPath).isDir())
+        return true;
     QDir().mkpath(destinationPath);
     QDirIterator it(sourcePath, QDir::NoDotAndDotDot | QDir::AllEntries, QDirIterator::Subdirectories);
     bool ok = true;
@@ -50,19 +56,19 @@ bool copyDirectoryIfMissing(const QString& sourcePath, const QString& destinatio
     return ok;
 }
 
-}  // namespace
+} // namespace
 
 QString runtimeModelArtifactPath(const QString& projectRoot, const QString& relativePath) {
-    if (projectRoot.isEmpty() || relativePath.trimmed().isEmpty()) return QString();
+    if (projectRoot.isEmpty() || relativePath.trimmed().isEmpty())
+        return QString();
     const QString trimmed = relativePath.trimmed();
     const QStringList candidates = {
-        QDir(projectRoot).absoluteFilePath(trimmed),
-        QDir(projectRoot).absoluteFilePath("internal-release/" + trimmed),
+        QDir(projectRoot).absoluteFilePath(trimmed), QDir(projectRoot).absoluteFilePath("internal-release/" + trimmed),
         QDir(projectRoot).absoluteFilePath("internal-release/app/runtime/models/" + QFileInfo(trimmed).fileName()),
-        QDir(projectRoot).absoluteFilePath("app/runtime/models/" + QFileInfo(trimmed).fileName())
-    };
+        QDir(projectRoot).absoluteFilePath("app/runtime/models/" + QFileInfo(trimmed).fileName())};
     for (const QString& candidate : candidates) {
-        if (QFileInfo::exists(candidate)) return candidate;
+        if (QFileInfo::exists(candidate))
+            return candidate;
     }
     return QString();
 }
@@ -71,14 +77,17 @@ QString modelRegistryPath() {
     QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         const QString registry = runtimeModelArtifactPath(projectRoot, "app/runtime/models/model_registry.json");
-        if (!registry.isEmpty()) return registry;
+        if (!registry.isEmpty())
+            return registry;
         return QDir(projectRoot).absoluteFilePath("app/runtime/models/model_registry.json");
     }
     QDir dir(QCoreApplication::applicationDirPath());
     for (int i = 0; i < 8; ++i) {
         QString candidate = dir.filePath("models/model_registry.json");
-        if (QFileInfo(candidate).exists()) return candidate;
-        if (!dir.cdUp()) break;
+        if (QFileInfo(candidate).exists())
+            return candidate;
+        if (!dir.cdUp())
+            break;
     }
     return QDir(QCoreApplication::applicationDirPath()).absoluteFilePath("models/model_registry.json");
 }
@@ -110,7 +119,8 @@ QJsonObject temporaryStaticModelRegistry() {
     promotedTarget["target_display_label"] = "Hits";
     promotedTarget["waste_class_id"] = "0";
     promoted["target_policy"] = promotedTarget;
-    promoted["limitations"] = QJsonArray{"Sequence validation remains provisional by policy for public claims.", "Public model/data release approvals remain separate."};
+    promoted["limitations"] = QJsonArray{"Sequence validation remains provisional by policy for public claims.",
+                                         "Public model/data release approvals remain separate."};
     promoted["blockers"] = QJsonArray{};
     entries.append(promoted);
 
@@ -127,7 +137,8 @@ QJsonObject temporaryStaticModelRegistry() {
     backup["metadata_status"] = "Legacy schema";
     backup["validation_status"] = "Legacy backup packaged as active default";
     backup["promotion_status"] = "Packaged active default";
-    backup["promotion_record_path"] = "open-visual-droplet-sorter-suite/docs/worker-reports/2026-04-30-actual-model-promotion-execution.md";
+    backup["promotion_record_path"] =
+        "open-visual-droplet-sorter-suite/docs/worker-reports/2026-04-30-actual-model-promotion-execution.md";
     backup["classes"] = QJsonArray{"Empty", "Single", "MoreThanTwo"};
     QJsonObject backupDisplayLabels;
     backupDisplayLabels["Empty"] = "Empty";
@@ -138,7 +149,8 @@ QJsonObject temporaryStaticModelRegistry() {
     backupTarget["target_class_id"] = "Single";
     backupTarget["target_display_label"] = "Single";
     backup["target_policy"] = backupTarget;
-    backup["limitations"] = QJsonArray{"Legacy three-class runtime retained as the packaged active default for this internal release."};
+    backup["limitations"] =
+        QJsonArray{"Legacy three-class runtime retained as the packaged active default for this internal release."};
     backup["blockers"] = QJsonArray{};
     entries.append(backup);
 
@@ -152,25 +164,29 @@ QJsonObject temporaryStaticModelRegistry() {
 
 QJsonObject loadModelRegistry(QString* loadedPath, QString* loadWarning) {
     const QString path = modelRegistryPath();
-    if (loadedPath) *loadedPath = path;
+    if (loadedPath)
+        *loadedPath = path;
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        if (loadWarning) *loadWarning = "Model registry file not readable; using temporary static fallback: " + path;
+        if (loadWarning)
+            *loadWarning = "Model registry file not readable; using temporary static fallback: " + path;
         return temporaryStaticModelRegistry();
     }
     QJsonParseError parseError;
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
-        if (loadWarning) *loadWarning = "Model registry file invalid; using temporary static fallback: " + parseError.errorString();
+        if (loadWarning)
+            *loadWarning = "Model registry file invalid; using temporary static fallback: " + parseError.errorString();
         return temporaryStaticModelRegistry();
     }
     QJsonObject registry = doc.object();
-    if (registry.value("schema_version").toString() != "model-registry-v1" ||
-        !registry.value("entries").isArray()) {
-        if (loadWarning) *loadWarning = "Model registry schema missing/unsupported; using temporary static fallback.";
+    if (registry.value("schema_version").toString() != "model-registry-v1" || !registry.value("entries").isArray()) {
+        if (loadWarning)
+            *loadWarning = "Model registry schema missing/unsupported; using temporary static fallback.";
         return temporaryStaticModelRegistry();
     }
-    if (loadWarning) loadWarning->clear();
+    if (loadWarning)
+        loadWarning->clear();
     return registry;
 }
 
@@ -184,7 +200,8 @@ QString registryNestedString(const QJsonObject& entry, const QString& objectKey,
 
 QString runtimePathFromRegistryPath(const QString& path) {
     QString trimmed = path.trimmed();
-    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute()) return trimmed;
+    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute())
+        return trimmed;
     QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         QString absolute = runtimeModelArtifactPath(projectRoot, trimmed);
@@ -197,7 +214,8 @@ QString runtimePathFromRegistryPath(const QString& path) {
 
 QString registryEntrySummary(const QJsonObject& entry, const QString& registryPath, const QString& warning) {
     QStringList lines;
-    if (!warning.isEmpty()) lines << "Registry warning: " + warning;
+    if (!warning.isEmpty())
+        lines << "Registry warning: " + warning;
     lines << "Registry source: " + registryPath;
     lines << "Model: " + registryString(entry, "registry_entry_id");
     lines << "State: " + registryString(entry, "state");
@@ -216,45 +234,55 @@ QString registryEntrySummary(const QJsonObject& entry, const QString& registryPa
         classLines << QString("%1 %2").arg(classId, display);
     }
     lines << "Classes: " + classLines.join(" / ");
-    lines << "Target policy: canonical class id " +
-        registryNestedString(entry, "target_policy", "target_class_id") +
-        ", displayed as " + registryNestedString(entry, "target_policy", "target_display_label");
+    lines << "Target policy: canonical class id " + registryNestedString(entry, "target_policy", "target_class_id") +
+                 ", displayed as " + registryNestedString(entry, "target_policy", "target_display_label");
     lines << "Validation: " + registryString(entry, "validation_status");
     lines << "Promotion record: " + registryString(entry, "promotion_record_path");
 
     QStringList limitations;
-    for (const auto& value : entry.value("limitations").toArray()) limitations << value.toString();
-    if (!limitations.isEmpty()) lines << "Limitations: " + limitations.join("; ");
+    for (const auto& value : entry.value("limitations").toArray())
+        limitations << value.toString();
+    if (!limitations.isEmpty())
+        lines << "Limitations: " + limitations.join("; ");
 
     QStringList blockerTexts;
     for (const auto& value : entry.value("blockers").toArray()) {
         QJsonObject blocker = value.toObject();
         QString text = blocker.value("blocker").toString();
         QString action = blocker.value("required_next_action").toString();
-        if (!action.isEmpty()) text += " - " + action;
-        if (!text.trimmed().isEmpty()) blockerTexts << text;
+        if (!action.isEmpty())
+            text += " - " + action;
+        if (!text.trimmed().isEmpty())
+            blockerTexts << text;
     }
-    if (!blockerTexts.isEmpty()) lines << "Blockers: " + blockerTexts.join("; ");
+    if (!blockerTexts.isEmpty())
+        lines << "Blockers: " + blockerTexts.join("; ");
     return lines.join("\n");
 }
 
 QString resolvePackagedPathFromRegistryPath(const QString& registryPath) {
     const QString trimmed = registryPath.trimmed();
-    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute()) return trimmed;
+    if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute())
+        return trimmed;
     const QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         const QString resolved = runtimeModelArtifactPath(projectRoot, trimmed);
-        if (!resolved.isEmpty()) return resolved;
+        if (!resolved.isEmpty())
+            return resolved;
         const QString direct = QDir(projectRoot).absoluteFilePath(trimmed);
-        if (QFileInfo::exists(direct)) return direct;
+        if (QFileInfo::exists(direct))
+            return direct;
     }
     QDir probe(QCoreApplication::applicationDirPath());
     for (int i = 0; i < 8; ++i) {
         const QString candidate = probe.absoluteFilePath(trimmed);
-        if (QFileInfo::exists(candidate)) return candidate;
+        if (QFileInfo::exists(candidate))
+            return candidate;
         const QString modelsCandidate = probe.absoluteFilePath("models/" + QFileInfo(trimmed).fileName());
-        if (QFileInfo::exists(modelsCandidate)) return modelsCandidate;
-        if (!probe.cdUp()) break;
+        if (QFileInfo::exists(modelsCandidate))
+            return modelsCandidate;
+        if (!probe.cdUp())
+            break;
     }
     return trimmed;
 }
@@ -297,8 +325,7 @@ DefaultWorkspacePaths ensureDefaultWorkspaceAssets(const QJsonArray& registryEnt
     if (!projectRoot.isEmpty()) {
         const QStringList candidates = {
             QDir(projectRoot).absoluteFilePath("internal-release/datasets/prepared/droplet_binary_2026-04-30"),
-            QDir(projectRoot).absoluteFilePath("datasets/prepared/droplet_binary_2026-04-30")
-        };
+            QDir(projectRoot).absoluteFilePath("datasets/prepared/droplet_binary_2026-04-30")};
         for (const auto& candidate : candidates) {
             if (QFileInfo(candidate).isDir()) {
                 sourceDataset = candidate;

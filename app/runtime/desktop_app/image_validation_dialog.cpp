@@ -25,13 +25,9 @@
 
 #include "object_names.h"
 
-ImageValidationDialog::ImageValidationDialog(QWidget* parent,
-                                             const QString& initialPython,
-                                             const QString& initialModel,
-                                             const QString& initialMetadata,
-                                             const QString& initialDataset,
-                                             const QString& initialOutput,
-                                             const QString& trainerPythonPath)
+ImageValidationDialog::ImageValidationDialog(QWidget* parent, const QString& initialPython, const QString& initialModel,
+                                             const QString& initialMetadata, const QString& initialDataset,
+                                             const QString& initialOutput, const QString& trainerPythonPath)
     : QDialog(parent), pythonPath(trainerPythonPath) {
     setWindowTitle("Image Validation");
     resize(920, 700);
@@ -103,7 +99,8 @@ ImageValidationDialog::ImageValidationDialog(QWidget* parent,
     buttons->addWidget(openSummaryButton);
     buttons->addWidget(openOutputButton);
 
-    auto* note = new QLabel("Sequence validation remains unavailable here: runner-wrapped replay is not implemented, and existing artifact comparison is internal/provisional only.");
+    auto* note = new QLabel("Sequence validation remains unavailable here: runner-wrapped replay is not implemented, "
+                            "and existing artifact comparison is internal/provisional only.");
     note->setWordWrap(true);
     note->setStyleSheet("color:#6b4f00;");
 
@@ -134,11 +131,13 @@ ImageValidationDialog::ImageValidationDialog(QWidget* parent,
     QObject::connect(startButton, &QPushButton::clicked, [this]() { startValidation(); });
     QObject::connect(cancelButton, &QPushButton::clicked, [this]() { cancelValidation(); });
     QObject::connect(openSummaryButton, &QPushButton::clicked, [this]() {
-        if (!summaryPath.isEmpty()) QDesktopServices::openUrl(QUrl::fromLocalFile(summaryPath));
+        if (!summaryPath.isEmpty())
+            QDesktopServices::openUrl(QUrl::fromLocalFile(summaryPath));
     });
     QObject::connect(openOutputButton, &QPushButton::clicked, [this]() {
         QString path = outputEdit->text().trimmed();
-        if (!path.isEmpty()) QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()));
+        if (!path.isEmpty())
+            QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(path).absoluteFilePath()));
     });
 
     loadSettings();
@@ -150,12 +149,8 @@ ImageValidationDialog::~ImageValidationDialog() {
     stopProcess(1000);
 }
 
-void ImageValidationDialog::addPathRow(QGridLayout* layout,
-                                       int row,
-                                       const QString& label,
-                                       QLineEdit* edit,
-                                       bool directory,
-                                       const QString& dialogTitle) {
+void ImageValidationDialog::addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit,
+                                       bool directory, const QString& dialogTitle) {
     auto* browse = new QPushButton("Browse");
     layout->addWidget(new QLabel(label), row, 0);
     layout->addWidget(edit, row, 1);
@@ -168,21 +163,26 @@ void ImageValidationDialog::addPathRow(QGridLayout* layout,
         } else {
             selected = QFileDialog::getOpenFileName(this, dialogTitle, current);
         }
-        if (!selected.isEmpty()) edit->setText(QDir::toNativeSeparators(selected));
+        if (!selected.isEmpty())
+            edit->setText(QDir::toNativeSeparators(selected));
     });
 }
 
 QStringList ImageValidationDialog::commandArguments() const {
-    QStringList args = {
-        "-m", "droplet_trainer",
-        "validate-images",
-        "--model", modelEdit->text().trimmed(),
-        "--metadata", metadataEdit->text().trimmed(),
-        "--dataset", datasetEdit->text().trimmed(),
-        "--output", outputEdit->text().trimmed(),
-        "--device", deviceCombo->currentText(),
-        "--json"
-    };
+    QStringList args = {"-m",
+                        "droplet_trainer",
+                        "validate-images",
+                        "--model",
+                        modelEdit->text().trimmed(),
+                        "--metadata",
+                        metadataEdit->text().trimmed(),
+                        "--dataset",
+                        datasetEdit->text().trimmed(),
+                        "--output",
+                        outputEdit->text().trimmed(),
+                        "--device",
+                        deviceCombo->currentText(),
+                        "--json"};
     if (schemaCombo->currentIndex() == 1) {
         args << "--legacy-schema";
     } else if (schemaCombo->currentIndex() == 2) {
@@ -193,13 +193,20 @@ QStringList ImageValidationDialog::commandArguments() const {
 
 QString ImageValidationDialog::missingInputs() const {
     QStringList missing;
-    if (pythonEdit->text().trimmed().isEmpty()) missing << "Python executable";
-    if (!QFileInfo(modelEdit->text().trimmed()).isFile()) missing << "model file";
-    if (!QFileInfo(metadataEdit->text().trimmed()).isFile()) missing << "metadata file";
-    if (!QFileInfo(datasetEdit->text().trimmed()).isDir()) missing << "dataset folder";
-    if (outputEdit->text().trimmed().isEmpty()) missing << "output folder";
-    if (schemaCombo->currentIndex() == 2 && classesEdit->text().trimmed().isEmpty()) missing << "custom class list";
-    if (!pythonPath.isEmpty() && !QFileInfo(pythonPath).isDir()) missing << "training/python module path";
+    if (pythonEdit->text().trimmed().isEmpty())
+        missing << "Python executable";
+    if (!QFileInfo(modelEdit->text().trimmed()).isFile())
+        missing << "model file";
+    if (!QFileInfo(metadataEdit->text().trimmed()).isFile())
+        missing << "metadata file";
+    if (!QFileInfo(datasetEdit->text().trimmed()).isDir())
+        missing << "dataset folder";
+    if (outputEdit->text().trimmed().isEmpty())
+        missing << "output folder";
+    if (schemaCombo->currentIndex() == 2 && classesEdit->text().trimmed().isEmpty())
+        missing << "custom class list";
+    if (!pythonPath.isEmpty() && !QFileInfo(pythonPath).isDir())
+        missing << "training/python module path";
     return missing.join(", ");
 }
 
@@ -237,7 +244,8 @@ void ImageValidationDialog::loadSettings() {
     outputEdit->setText(settings.value("validator/outputFolder", outputEdit->text()).toString());
     const QString device = settings.value("validator/device", deviceCombo->currentText()).toString();
     int index = deviceCombo->findText(device);
-    if (index >= 0) deviceCombo->setCurrentIndex(index);
+    if (index >= 0)
+        deviceCombo->setCurrentIndex(index);
     schemaCombo->setCurrentIndex(settings.value("validator/schemaMode", 0).toInt());
     classesEdit->setText(settings.value("validator/classes", classesEdit->text()).toString());
 }
@@ -275,12 +283,10 @@ void ImageValidationDialog::startValidation() {
     }
     process->setProcessEnvironment(env);
     process->setProcessChannelMode(QProcess::SeparateChannels);
-    QObject::connect(process.get(), &QProcess::readyReadStandardOutput, this, [this]() {
-        appendLog(QString::fromUtf8(process->readAllStandardOutput()));
-    });
-    QObject::connect(process.get(), &QProcess::readyReadStandardError, this, [this]() {
-        appendLog(QString::fromUtf8(process->readAllStandardError()));
-    });
+    QObject::connect(process.get(), &QProcess::readyReadStandardOutput, this,
+                     [this]() { appendLog(QString::fromUtf8(process->readAllStandardOutput())); });
+    QObject::connect(process.get(), &QProcess::readyReadStandardError, this,
+                     [this]() { appendLog(QString::fromUtf8(process->readAllStandardError())); });
     QObject::connect(process.get(), &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         Q_UNUSED(error);
         terminalStatus = "Failed to start validator: " + process->errorString();
@@ -288,24 +294,24 @@ void ImageValidationDialog::startValidation() {
         appendLog("PROCESS ERROR: " + process->errorString() + "\n");
         updatePreviewAndGate();
     });
-    QObject::connect(process.get(), QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                     this, [this](int exitCode, QProcess::ExitStatus exitStatus) {
-        finishValidation(exitCode, exitStatus);
-    });
+    QObject::connect(process.get(), QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+                     [this](int exitCode, QProcess::ExitStatus exitStatus) { finishValidation(exitCode, exitStatus); });
     canceled = false;
     process->start(pythonEdit->text().trimmed(), commandArguments());
     updatePreviewAndGate();
 }
 
 void ImageValidationDialog::cancelValidation() {
-    if (!process || process->state() == QProcess::NotRunning) return;
+    if (!process || process->state() == QProcess::NotRunning)
+        return;
     canceled = true;
     statusLabel->setText("Canceling image validation...");
     stopProcess(2500);
 }
 
 void ImageValidationDialog::stopProcess(int timeoutMs) {
-    if (!process || process->state() == QProcess::NotRunning) return;
+    if (!process || process->state() == QProcess::NotRunning)
+        return;
     process->terminate();
     if (!process->waitForFinished(timeoutMs)) {
         process->kill();
@@ -337,7 +343,8 @@ void ImageValidationDialog::finishValidation(int exitCode, QProcess::ExitStatus 
 }
 
 void ImageValidationDialog::appendLog(const QString& text) {
-    if (text.isEmpty()) return;
+    if (text.isEmpty())
+        return;
     logText->moveCursor(QTextCursor::End);
     logText->insertPlainText(text);
     logText->moveCursor(QTextCursor::End);
@@ -375,7 +382,8 @@ bool ImageValidationDialog::loadSummaryArtifacts() {
             }
         }
     }
-    artifactLabel->setText(QString("Artifacts: %1\nSummary status: %2%3\nExpected CSVs: predictions.csv, confusion_matrix.csv, class_metrics.csv, failure_cases.csv")
+    artifactLabel->setText(QString("Artifacts: %1\nSummary status: %2%3\nExpected CSVs: predictions.csv, "
+                                   "confusion_matrix.csv, class_metrics.csv, failure_cases.csv")
                                .arg(summaryPath, status, metrics));
     openSummaryButton->setEnabled(true);
     openOutputButton->setEnabled(true);

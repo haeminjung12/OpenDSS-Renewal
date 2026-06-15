@@ -25,7 +25,7 @@ struct EventResult {
 };
 
 class EventDetector {
-public:
+  public:
     explicit EventDetector(const EventDetectorConfig& cfg);
 
     bool buildBackground(const std::vector<cv::Mat>& frames, std::string& err);
@@ -34,7 +34,7 @@ public:
 
     EventResult detect(const cv::Mat& gray8, bool includeMask);
 
-private:
+  private:
     EventDetectorConfig cfg_;
     cv::Mat background_;
 };

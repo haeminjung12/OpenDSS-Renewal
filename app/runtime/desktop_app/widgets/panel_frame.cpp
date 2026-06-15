@@ -4,13 +4,10 @@
 #include <QSizePolicy>
 #include <QVBoxLayout>
 
-PanelFrame::PanelFrame(QWidget* parent)
-    : PanelFrame(QString(), parent) {}
+PanelFrame::PanelFrame(QWidget* parent) : PanelFrame(QString(), parent) {}
 
 PanelFrame::PanelFrame(const QString& title, QWidget* parent)
-    : QFrame(parent),
-      titleLabel_(new QLabel(title, this)),
-      body_(new QWidget(this)),
+    : QFrame(parent), titleLabel_(new QLabel(title, this)), body_(new QWidget(this)),
       bodyLayout_(new QVBoxLayout(body_)) {
     setObjectName(QStringLiteral("PanelFrame"));
     setFrameShape(QFrame::StyledPanel);

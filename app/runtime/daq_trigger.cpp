@@ -37,9 +37,12 @@ constexpr double kAbsoluteMinSampleRate = 2.0;
 constexpr int kMaxRateClampAttempts = 24;
 
 std::string trimCopy(const std::string& value) {
-    const auto first = std::find_if_not(value.begin(), value.end(), [](unsigned char ch) { return std::isspace(ch) != 0; });
-    const auto last = std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) { return std::isspace(ch) != 0; }).base();
-    if (first >= last) return {};
+    const auto first =
+        std::find_if_not(value.begin(), value.end(), [](unsigned char ch) { return std::isspace(ch) != 0; });
+    const auto last =
+        std::find_if_not(value.rbegin(), value.rend(), [](unsigned char ch) { return std::isspace(ch) != 0; }).base();
+    if (first >= last)
+        return {};
     return std::string(first, last);
 }
 
@@ -49,13 +52,15 @@ std::vector<std::string> splitCsvList(const std::string& value) {
     std::string item;
     while (std::getline(stream, item, ',')) {
         item = trimCopy(item);
-        if (!item.empty()) parts.push_back(item);
+        if (!item.empty())
+            parts.push_back(item);
     }
     return parts;
 }
 
 #ifdef HAVE_NIDAQMX
-std::string queryDaqString(int32 (*queryFn)(const char[], char[], uInt32), const std::string& deviceName, std::string& err, const char* label) {
+std::string queryDaqString(int32 (*queryFn)(const char[], char[], uInt32), const std::string& deviceName,
+                           std::string& err, const char* label) {
     char buffer[8192] = {};
     const int32 status = queryFn(deviceName.c_str(), buffer, static_cast<uInt32>(sizeof(buffer)));
     if (DAQmxFailed(status)) {
@@ -65,7 +70,8 @@ std::string queryDaqString(int32 (*queryFn)(const char[], char[], uInt32), const
     return std::string(buffer);
 }
 
-double queryDaqFloat64(int32 (*queryFn)(const char[], float64*), const std::string& deviceName, std::string& err, const char* label) {
+double queryDaqFloat64(int32 (*queryFn)(const char[], float64*), const std::string& deviceName, std::string& err,
+                       const char* label) {
     float64 value = 0.0;
     const int32 status = queryFn(deviceName.c_str(), &value);
     if (DAQmxFailed(status)) {
@@ -81,7 +87,7 @@ std::string deviceNameFromPhysicalChannel(const std::string& channel) {
     const std::size_t slash = trimmed.find('/');
     return slash == std::string::npos ? trimmed : trimmed.substr(0, slash);
 }
-}
+} // namespace
 
 std::string DaqDeviceInfo::preferredChannel() const {
     return aoChannels.empty() ? std::string() : aoChannels.front();
@@ -103,26 +109,23 @@ std::vector<DaqDeviceInfo> discoverDaqDevices(std::string& err) {
         info.name = deviceName;
 
         std::string productErr;
-        info.productType = trimCopy(queryDaqString(DAQmxGetDevProductType,
-                                                   deviceName,
-                                                   productErr,
-                                                   "DAQmxGetDevProductType failed"));
-        if (!productErr.empty() && err.empty()) err = productErr;
+        info.productType =
+            trimCopy(queryDaqString(DAQmxGetDevProductType, deviceName, productErr, "DAQmxGetDevProductType failed"));
+        if (!productErr.empty() && err.empty())
+            err = productErr;
 
         std::string channelsErr;
-        const std::string aoChannelText = queryDaqString(DAQmxGetDevAOPhysicalChans,
-                                                         deviceName,
-                                                         channelsErr,
-                                                         "DAQmxGetDevAOPhysicalChans failed");
+        const std::string aoChannelText =
+            queryDaqString(DAQmxGetDevAOPhysicalChans, deviceName, channelsErr, "DAQmxGetDevAOPhysicalChans failed");
         info.aoChannels = splitCsvList(aoChannelText);
-        if (!channelsErr.empty() && err.empty()) err = channelsErr;
+        if (!channelsErr.empty() && err.empty())
+            err = channelsErr;
 
         devices.push_back(std::move(info));
     }
 
-    std::sort(devices.begin(), devices.end(), [](const DaqDeviceInfo& left, const DaqDeviceInfo& right) {
-        return left.name < right.name;
-    });
+    std::sort(devices.begin(), devices.end(),
+              [](const DaqDeviceInfo& left, const DaqDeviceInfo& right) { return left.name < right.name; });
     return devices;
 #else
     err = "NI-DAQmx not available at build time";
@@ -133,9 +136,11 @@ std::vector<DaqDeviceInfo> discoverDaqDevices(std::string& err) {
 DaqTrigger::DaqTrigger()
     : ready_(false)
 #ifdef HAVE_NIDAQMX
-    , task_(nullptr)
+      ,
+      task_(nullptr)
 #endif
-{}
+{
+}
 
 DaqTrigger::~DaqTrigger() {
     shutdown();
@@ -178,8 +183,8 @@ bool DaqTrigger::init(const DaqConfig& cfg, std::string& err) {
             err = formatDaqError("DAQmxCreateTask failed", error);
             return false;
         }
-        error = DAQmxCreateAOVoltageChan(task, cfg_.channel.c_str(), "", cfg_.rangeMin, cfg_.rangeMax,
-                                         DAQmx_Val_Volts, nullptr);
+        error = DAQmxCreateAOVoltageChan(task, cfg_.channel.c_str(), "", cfg_.rangeMin, cfg_.rangeMax, DAQmx_Val_Volts,
+                                         nullptr);
         if (DAQmxFailed(error)) {
             err = formatDaqError("DAQmxCreateAOVoltageChan failed", error);
             DAQmxClearTask(task);
@@ -193,10 +198,8 @@ bool DaqTrigger::init(const DaqConfig& cfg, std::string& err) {
         std::string rateErr;
         const std::string deviceName = deviceNameFromPhysicalChannel(cfg_.channel);
         if (!deviceName.empty()) {
-            const double deviceMaxRate = queryDaqFloat64(DAQmxGetDevAOMaxRate,
-                                                         deviceName,
-                                                         rateErr,
-                                                         "DAQmxGetDevAOMaxRate failed");
+            const double deviceMaxRate =
+                queryDaqFloat64(DAQmxGetDevAOMaxRate, deviceName, rateErr, "DAQmxGetDevAOMaxRate failed");
             if (rateErr.empty() && deviceMaxRate > 0.0) {
                 sampleRate = std::min(sampleRate, deviceMaxRate);
             }
@@ -207,7 +210,8 @@ bool DaqTrigger::init(const DaqConfig& cfg, std::string& err) {
         std::string lastTimingErr;
         bool timingConfigured = false;
 
-        for (int attempt = 0; attempt < kMaxRateClampAttempts && workingSampleRate >= kAbsoluteMinSampleRate; ++attempt) {
+        for (int attempt = 0; attempt < kMaxRateClampAttempts && workingSampleRate >= kAbsoluteMinSampleRate;
+             ++attempt) {
             const int samples = std::max(2, static_cast<int>(std::lround(durationSec * workingSampleRate)));
 
             waveform_.assign(samples, 0.0);
@@ -217,7 +221,8 @@ bool DaqTrigger::init(const DaqConfig& cfg, std::string& err) {
                 waveform_[i] = amplitude * std::sin(omega * t);
             }
 
-            error = DAQmxCfgSampClkTiming(task, "", workingSampleRate, DAQmx_Val_Rising, DAQmx_Val_FiniteSamps, samples);
+            error =
+                DAQmxCfgSampClkTiming(task, "", workingSampleRate, DAQmx_Val_Rising, DAQmx_Val_FiniteSamps, samples);
             if (!DAQmxFailed(error)) {
                 error = DAQmxCfgOutputBuffer(task, static_cast<uInt32>(samples));
                 if (!DAQmxFailed(error)) {
@@ -235,7 +240,8 @@ bool DaqTrigger::init(const DaqConfig& cfg, std::string& err) {
             sampleRate_ = 0.0;
             samples_ = 0;
             const double nextRate = std::floor(workingSampleRate * 0.5);
-            if (nextRate >= workingSampleRate) break;
+            if (nextRate >= workingSampleRate)
+                break;
             workingSampleRate = std::max(kAbsoluteMinSampleRate, nextRate);
         }
 
@@ -305,8 +311,8 @@ bool DaqTrigger::fire(std::string& err) {
         DAQmxStopTask(task);
 
         int32 written = 0;
-        int32 error = DAQmxWriteAnalogF64(task, samples_, 1, 10.0, DAQmx_Val_GroupByChannel,
-                                          waveform_.data(), &written, nullptr);
+        int32 error =
+            DAQmxWriteAnalogF64(task, samples_, 1, 10.0, DAQmx_Val_GroupByChannel, waveform_.data(), &written, nullptr);
         if (DAQmxFailed(error)) {
             err = formatDaqError("DAQmxWriteAnalogF64 failed", error);
             return false;

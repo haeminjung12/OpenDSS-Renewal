@@ -14,22 +14,14 @@ class QPlainTextEdit;
 class QPushButton;
 
 class ImageValidationDialog : public QDialog {
-public:
-    ImageValidationDialog(QWidget* parent,
-                          const QString& initialPython,
-                          const QString& initialModel,
-                          const QString& initialMetadata,
-                          const QString& initialDataset,
-                          const QString& initialOutput,
+  public:
+    ImageValidationDialog(QWidget* parent, const QString& initialPython, const QString& initialModel,
+                          const QString& initialMetadata, const QString& initialDataset, const QString& initialOutput,
                           const QString& trainerPythonPath);
     ~ImageValidationDialog() override;
 
-private:
-    void addPathRow(QGridLayout* layout,
-                    int row,
-                    const QString& label,
-                    QLineEdit* edit,
-                    bool directory,
+  private:
+    void addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit, bool directory,
                     const QString& dialogTitle);
     QStringList commandArguments() const;
     QString missingInputs() const;

@@ -18,14 +18,16 @@ struct DaqDeviceInfo {
     std::string productType;
     std::vector<std::string> aoChannels;
 
-    bool isCompatible() const { return !aoChannels.empty(); }
+    bool isCompatible() const {
+        return !aoChannels.empty();
+    }
     std::string preferredChannel() const;
 };
 
 std::vector<DaqDeviceInfo> discoverDaqDevices(std::string& err);
 
 class DaqTrigger {
-public:
+  public:
     DaqTrigger();
     ~DaqTrigger();
     DaqTrigger(const DaqTrigger&) = delete;
@@ -38,7 +40,7 @@ public:
     bool fire(std::string& err);
     bool isReady() const;
 
-private:
+  private:
     DaqConfig cfg_;
     bool ready_;
 

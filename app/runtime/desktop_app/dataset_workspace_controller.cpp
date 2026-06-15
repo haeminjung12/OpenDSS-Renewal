@@ -43,7 +43,8 @@ void DatasetWorkspaceController::openDatasetLabelerPath(const QString& preferred
     if (!activeDatasetLabelerDialog_.isNull()) {
         activeDatasetLabelerDialog_->close();
     }
-    auto* dialog = new DatasetLabelerDialog(deps_.window, QFileInfo(initialDataset).exists() ? initialDataset : QString());
+    auto* dialog =
+        new DatasetLabelerDialog(deps_.window, QFileInfo(initialDataset).exists() ? initialDataset : QString());
     dialog->setAttribute(Qt::WA_DeleteOnClose, true);
     activeDatasetLabelerDialog_ = dialog;
     QObject::connect(qApp, &QCoreApplication::aboutToQuit, dialog, &QDialog::close);
@@ -67,10 +68,9 @@ void DatasetWorkspaceController::appendTrainerLog(const QString& text) {
 
 void DatasetWorkspaceController::saveTrainerSettings() const {
     if (!deps_.trainerPythonEdit || !deps_.trainerDatasetEdit || !deps_.trainerOutputEdit ||
-        !deps_.trainerArchitectureCombo || !deps_.trainerPretrainedImageNetBtn ||
-        !deps_.trainerEpochsSpin || !deps_.trainerBatchSpin || !deps_.trainerLrSpin ||
-        !deps_.trainerFlipCheck || !deps_.trainerRotationCheck || !deps_.trainerColorJitterCheck ||
-        !deps_.trainerRandomCropCheck || !deps_.trainerSchedulerCombo) {
+        !deps_.trainerArchitectureCombo || !deps_.trainerPretrainedImageNetBtn || !deps_.trainerEpochsSpin ||
+        !deps_.trainerBatchSpin || !deps_.trainerLrSpin || !deps_.trainerFlipCheck || !deps_.trainerRotationCheck ||
+        !deps_.trainerColorJitterCheck || !deps_.trainerRandomCropCheck || !deps_.trainerSchedulerCombo) {
         return;
     }
 
@@ -91,17 +91,24 @@ void DatasetWorkspaceController::saveTrainerSettings() const {
 }
 
 void DatasetWorkspaceController::setTrainerBusy(bool busy, bool trainerCommandWasTraining) const {
-    if (deps_.trainerEnvCheckBtn) deps_.trainerEnvCheckBtn->setEnabled(!busy);
-    if (deps_.trainerConfigurePathBtn) deps_.trainerConfigurePathBtn->setEnabled(!busy);
-    if (deps_.trainerPythonBrowseBtn) deps_.trainerPythonBrowseBtn->setEnabled(!busy);
-    if (deps_.trainerDatasetBrowseBtn) deps_.trainerDatasetBrowseBtn->setEnabled(!busy);
-    if (deps_.trainerOutputBrowseBtn) deps_.trainerOutputBrowseBtn->setEnabled(!busy);
+    if (deps_.trainerEnvCheckBtn)
+        deps_.trainerEnvCheckBtn->setEnabled(!busy);
+    if (deps_.trainerConfigurePathBtn)
+        deps_.trainerConfigurePathBtn->setEnabled(!busy);
+    if (deps_.trainerPythonBrowseBtn)
+        deps_.trainerPythonBrowseBtn->setEnabled(!busy);
+    if (deps_.trainerDatasetBrowseBtn)
+        deps_.trainerDatasetBrowseBtn->setEnabled(!busy);
+    if (deps_.trainerOutputBrowseBtn)
+        deps_.trainerOutputBrowseBtn->setEnabled(!busy);
     if (deps_.trainerStartTrainingBtn) {
         deps_.trainerStartTrainingBtn->setEnabled(!busy);
         deps_.trainerStartTrainingBtn->setText(busy && trainerCommandWasTraining ? "Training..." : "Start Training");
     }
-    if (deps_.trainerDryRunBtn) deps_.trainerDryRunBtn->setEnabled(!busy);
-    if (deps_.trainerCancelBtn) deps_.trainerCancelBtn->setEnabled(busy);
+    if (deps_.trainerDryRunBtn)
+        deps_.trainerDryRunBtn->setEnabled(!busy);
+    if (deps_.trainerCancelBtn)
+        deps_.trainerCancelBtn->setEnabled(busy);
     if (deps_.trainerProgressBar) {
         deps_.trainerProgressBar->setRange(busy ? 0 : 0, busy ? 0 : 100);
         deps_.trainerProgressBar->setValue(0);
@@ -165,14 +172,16 @@ QStringList DatasetWorkspaceController::trainerTrainArgs(bool dryRun) const {
         return {};
     }
 
-    QStringList args = {
-        "-m", "droplet_trainer",
-        "train",
-        "--dataset", deps_.trainerDatasetEdit->text().trimmed(),
-        "--output", deps_.trainerOutputEdit->text().trimmed(),
-        "--config", trainingConfigPath(),
-        "--jsonl"
-    };
+    QStringList args = {"-m",
+                        "droplet_trainer",
+                        "train",
+                        "--dataset",
+                        deps_.trainerDatasetEdit->text().trimmed(),
+                        "--output",
+                        deps_.trainerOutputEdit->text().trimmed(),
+                        "--config",
+                        trainingConfigPath(),
+                        "--jsonl"};
     if (dryRun) {
         args << "--dry-run";
     }
@@ -194,15 +203,16 @@ QString DatasetWorkspaceController::quoteTrainerArg(QString arg) {
 
 void DatasetWorkspaceController::loadTrainerSettings() const {
     if (!deps_.trainerPythonEdit || !deps_.trainerDatasetEdit || !deps_.trainerOutputEdit ||
-        !deps_.trainerArchitectureCombo || !deps_.trainerPretrainedImageNetBtn ||
-        !deps_.trainerPretrainedNoneBtn || !deps_.trainerEpochsSpin || !deps_.trainerBatchSpin ||
-        !deps_.trainerLrSpin || !deps_.trainerFlipCheck || !deps_.trainerRotationCheck ||
-        !deps_.trainerColorJitterCheck || !deps_.trainerRandomCropCheck || !deps_.trainerSchedulerCombo) {
+        !deps_.trainerArchitectureCombo || !deps_.trainerPretrainedImageNetBtn || !deps_.trainerPretrainedNoneBtn ||
+        !deps_.trainerEpochsSpin || !deps_.trainerBatchSpin || !deps_.trainerLrSpin || !deps_.trainerFlipCheck ||
+        !deps_.trainerRotationCheck || !deps_.trainerColorJitterCheck || !deps_.trainerRandomCropCheck ||
+        !deps_.trainerSchedulerCombo) {
         return;
     }
 
     QSettings settings;
-    deps_.trainerPythonEdit->setText(settings.value("settings/pythonTrainer", deps_.trainerPythonEdit->text()).toString());
+    deps_.trainerPythonEdit->setText(
+        settings.value("settings/pythonTrainer", deps_.trainerPythonEdit->text()).toString());
     if (QFileInfo(deps_.defaultTrainerDataset).isDir()) {
         deps_.trainerDatasetEdit->setText(
             settings.value("settings/datasetsRoot", QDir::toNativeSeparators(deps_.defaultTrainerDataset)).toString());
@@ -258,11 +268,9 @@ void DatasetWorkspaceController::wireDatasetActions() {
 void DatasetWorkspaceController::wireTrainerPathButtons() {
     if (deps_.trainerPythonBrowseBtn && deps_.trainerPythonEdit) {
         connect(deps_.trainerPythonBrowseBtn, &QPushButton::clicked, this, [this]() {
-            const QString file = QFileDialog::getOpenFileName(
-                deps_.window,
-                "Select Python executable",
-                deps_.trainerPythonEdit->text(),
-                "Python executable (python.exe python);;All files (*.*)");
+            const QString file =
+                QFileDialog::getOpenFileName(deps_.window, "Select Python executable", deps_.trainerPythonEdit->text(),
+                                             "Python executable (python.exe python);;All files (*.*)");
             if (!file.isEmpty()) {
                 deps_.trainerPythonEdit->setText(QDir::toNativeSeparators(file));
             }
@@ -270,10 +278,8 @@ void DatasetWorkspaceController::wireTrainerPathButtons() {
     }
     if (deps_.trainerDatasetBrowseBtn && deps_.trainerDatasetEdit) {
         connect(deps_.trainerDatasetBrowseBtn, &QPushButton::clicked, this, [this]() {
-            const QString dir = QFileDialog::getExistingDirectory(
-                deps_.window,
-                "Select dataset directory",
-                deps_.trainerDatasetEdit->text());
+            const QString dir = QFileDialog::getExistingDirectory(deps_.window, "Select dataset directory",
+                                                                  deps_.trainerDatasetEdit->text());
             if (!dir.isEmpty()) {
                 deps_.trainerDatasetEdit->setText(QDir::toNativeSeparators(dir));
             }
@@ -281,10 +287,8 @@ void DatasetWorkspaceController::wireTrainerPathButtons() {
     }
     if (deps_.trainerOutputBrowseBtn && deps_.trainerOutputEdit) {
         connect(deps_.trainerOutputBrowseBtn, &QPushButton::clicked, this, [this]() {
-            const QString dir = QFileDialog::getExistingDirectory(
-                deps_.window,
-                "Select training output directory",
-                deps_.trainerOutputEdit->text());
+            const QString dir = QFileDialog::getExistingDirectory(deps_.window, "Select training output directory",
+                                                                  deps_.trainerOutputEdit->text());
             if (!dir.isEmpty()) {
                 deps_.trainerOutputEdit->setText(QDir::toNativeSeparators(dir));
             }

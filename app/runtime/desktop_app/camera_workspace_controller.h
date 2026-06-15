@@ -34,7 +34,7 @@ struct AppState;
 class CameraWorkspaceController : public QObject {
     Q_OBJECT
 
-public:
+  public:
     using LogCallback = std::function<void(const QString&)>;
 
     struct Dependencies {
@@ -94,7 +94,7 @@ public:
     bool initializeCamera();
     void shutdownCameraThread(QThread& cameraThread);
 
-private:
+  private:
     void wireCameraWorker();
     void wireControls();
     void rebuildLut();

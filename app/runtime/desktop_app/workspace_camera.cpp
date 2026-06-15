@@ -27,9 +27,7 @@ QHBoxLayout* makeCameraRow(int spacing = 8) {
     return row;
 }
 
-QWidget* makeCameraSegmentedControl(const QString& objectName,
-                                    const QStringList& labels,
-                                    int checkedIndex = 0) {
+QWidget* makeCameraSegmentedControl(const QString& objectName, const QStringList& labels, int checkedIndex = 0) {
     auto* frame = new QFrame;
     nameWidget(frame, objectName.toUtf8().constData());
     frame->setProperty("panel", true);
@@ -58,8 +56,7 @@ QWidget* makeCameraSegmentedControl(const QString& objectName,
     return frame;
 }
 
-void relaxHorizontalSize(QWidget* widget,
-                         QSizePolicy::Policy horizontalPolicy = QSizePolicy::Ignored) {
+void relaxHorizontalSize(QWidget* widget, QSizePolicy::Policy horizontalPolicy = QSizePolicy::Ignored) {
     if (!widget) {
         return;
     }
@@ -69,9 +66,7 @@ void relaxHorizontalSize(QWidget* widget,
     widget->setSizePolicy(policy);
 }
 
-QWidget* makeCameraFieldGroup(const QString& labelText,
-                              QWidget* field,
-                              const char* objectName = nullptr) {
+QWidget* makeCameraFieldGroup(const QString& labelText, QWidget* field, const char* objectName = nullptr) {
     auto* group = new QWidget;
     if (objectName && *objectName) {
         nameWidget(group, objectName);
@@ -93,7 +88,7 @@ QWidget* makeCameraFieldGroup(const QString& labelText,
 }
 
 class CameraResponsiveGrid : public QWidget {
-public:
+  public:
     struct Item {
         QWidget* widget = nullptr;
         int span = 1;
@@ -118,13 +113,13 @@ public:
         relayout();
     }
 
-protected:
+  protected:
     void resizeEvent(QResizeEvent* event) override {
         QWidget::resizeEvent(event);
         relayout();
     }
 
-private:
+  private:
     void relayout() {
         if (!layout_) {
             return;
@@ -185,7 +180,7 @@ CameraSection makeCameraSection(const QString& title, const char* objectName) {
 }
 
 class CameraLutRangeBar : public QWidget {
-public:
+  public:
     CameraLutRangeBar(QSlider* minSlider, QSlider* maxSlider, QWidget* parent = nullptr)
         : QWidget(parent), minSlider_(minSlider), maxSlider_(maxSlider) {
         setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
@@ -201,7 +196,7 @@ public:
         }
     }
 
-protected:
+  protected:
     void paintEvent(QPaintEvent* event) override {
         QWidget::paintEvent(event);
 
@@ -215,8 +210,7 @@ protected:
 
         const qreal minPos = valueToPosition(minimumValue());
         const qreal maxPos = valueToPosition(maximumValue());
-        const QRectF activeTrack(QPointF(minPos, track.top()),
-                                 QPointF(maxPos, track.bottom()));
+        const QRectF activeTrack(QPointF(minPos, track.top()), QPointF(maxPos, track.bottom()));
         painter.setBrush(QColor("#5BC0FF"));
         painter.drawRoundedRect(activeTrack.normalized(), 3.0, 3.0);
 
@@ -243,12 +237,8 @@ protected:
         event->accept();
     }
 
-private:
-    enum class DragHandle {
-        None,
-        Min,
-        Max
-    };
+  private:
+    enum class DragHandle { None, Min, Max };
 
     QRectF trackRect() const {
         constexpr qreal sidePadding = 8.0;
@@ -323,14 +313,10 @@ private:
     DragHandle activeHandle_ = DragHandle::None;
 };
 
-}  // namespace
+} // namespace
 
-QString refreshCameraFormatOptions(QComboBox* presetCombo,
-                                   QComboBox* bitsCombo,
-                                   QComboBox* readoutCombo,
-                                   QSpinBox* customWidthSpin,
-                                   QSpinBox* customHeightSpin,
-                                   QDoubleSpinBox* exposureSpin,
+QString refreshCameraFormatOptions(QComboBox* presetCombo, QComboBox* bitsCombo, QComboBox* readoutCombo,
+                                   QSpinBox* customWidthSpin, QSpinBox* customHeightSpin, QDoubleSpinBox* exposureSpin,
                                    const QVariantMap& options) {
     const QVariantList presets = options.value(QStringLiteral("presets")).toList();
     const QVariantList bitDepths = options.value(QStringLiteral("bitDepths")).toList();
@@ -342,9 +328,8 @@ QString refreshCameraFormatOptions(QComboBox* presetCombo,
     const double currentExposureMs = options.value(QStringLiteral("currentExposureMs")).toDouble();
     const QSize previousPreset = presetCombo->currentData().toSize();
     const QString previousPresetText = presetCombo->currentText();
-    const int previousBits = bitsCombo->currentData().isValid()
-        ? bitsCombo->currentData().toInt()
-        : bitsCombo->currentText().toInt();
+    const int previousBits =
+        bitsCombo->currentData().isValid() ? bitsCombo->currentData().toInt() : bitsCombo->currentText().toInt();
     const int previousReadout = readoutCombo->currentData().toInt();
 
     if (!presets.isEmpty()) {
@@ -444,9 +429,7 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
 
     auto cameraLutSection = makeCameraSection("LUT & Display", "CameraLutDisplayPanel");
     auto* lutModeLabel = makeCameraFormLabel("LUT mode");
-    auto* lutModeControl = makeCameraSegmentedControl(
-        "CameraLutModeSegmentedControl",
-        {"Auto", "Manual", "Off"});
+    auto* lutModeControl = makeCameraSegmentedControl("CameraLutModeSegmentedControl", {"Auto", "Manual", "Off"});
     cameraLutSection.body->addWidget(lutModeLabel);
     cameraLutSection.body->addWidget(lutModeControl);
 
@@ -487,9 +470,8 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     relaxHorizontalSize(cameraCaptureInfoCheck, QSizePolicy::Preferred);
     cameraRecordingSection.body->addWidget(cameraCaptureInfoCheck);
     cameraRecordingSection.body->addWidget(makeCameraFormLabel("File format"));
-    cameraRecordingSection.body->addWidget(makeCameraSegmentedControl(
-        "CameraRecordingFormatSegmentedControl",
-        {"TIFF", "RAW"}));
+    cameraRecordingSection.body->addWidget(
+        makeCameraSegmentedControl("CameraRecordingFormatSegmentedControl", {"TIFF", "RAW"}));
     auto* recordingButtonRow = new QGridLayout;
     recordingButtonRow->setContentsMargins(0, 0, 0, 0);
     recordingButtonRow->setHorizontalSpacing(8);
@@ -521,4 +503,4 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     return cameraControlsStack;
 }
 
-}  // namespace desktop_app::workspace
+} // namespace desktop_app::workspace

@@ -73,18 +73,18 @@
 #include "zoom_image_view.h"
 #include "../dataset_capture_session.h"
 
-
 namespace {
 
 class MainWindowCloseFilter : public QObject {
-public:
+  public:
     explicit MainWindowCloseFilter(QObject* parent = nullptr) : QObject(parent) {}
 
-protected:
+  protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
         if (event && event->type() == QEvent::Close) {
             for (QWidget* widget : QApplication::topLevelWidgets()) {
-                if (!widget || widget == watched || !widget->isVisible()) continue;
+                if (!widget || widget == watched || !widget->isVisible())
+                    continue;
                 if (qobject_cast<QDialog*>(widget)) {
                     widget->close();
                 }
@@ -96,7 +96,7 @@ protected:
 };
 
 class HeaderChipClickFilter : public QObject {
-public:
+  public:
     HeaderChipClickFilter(std::function<void()> onClick, QObject* parent)
         : QObject(parent), onClick_(std::move(onClick)) {}
 
@@ -111,29 +111,22 @@ public:
         return QObject::eventFilter(watched, event);
     }
 
-private:
+  private:
     std::function<void()> onClick_;
 };
 
 class WheelEventForwarder : public QObject {
-public:
-    explicit WheelEventForwarder(QWidget* target, QObject* parent = nullptr)
-        : QObject(parent), target_(target) {}
+  public:
+    explicit WheelEventForwarder(QWidget* target, QObject* parent = nullptr) : QObject(parent), target_(target) {}
 
-protected:
+  protected:
     bool eventFilter(QObject* watched, QEvent* event) override {
         if (event && event->type() == QEvent::Wheel && target_ && target_->isVisible()) {
             auto* wheelEvent = static_cast<QWheelEvent*>(event);
             const QPointF targetPos = target_->mapFromGlobal(wheelEvent->globalPosition().toPoint());
-            QWheelEvent forwardedEvent(targetPos,
-                                       wheelEvent->globalPosition(),
-                                       wheelEvent->pixelDelta(),
-                                       wheelEvent->angleDelta(),
-                                       wheelEvent->buttons(),
-                                       wheelEvent->modifiers(),
-                                       wheelEvent->phase(),
-                                       wheelEvent->inverted(),
-                                       wheelEvent->source(),
+            QWheelEvent forwardedEvent(targetPos, wheelEvent->globalPosition(), wheelEvent->pixelDelta(),
+                                       wheelEvent->angleDelta(), wheelEvent->buttons(), wheelEvent->modifiers(),
+                                       wheelEvent->phase(), wheelEvent->inverted(), wheelEvent->source(),
                                        wheelEvent->pointingDevice());
             QCoreApplication::sendEvent(target_, &forwardedEvent);
             if (forwardedEvent.isAccepted()) {
@@ -144,7 +137,7 @@ protected:
         return QObject::eventFilter(watched, event);
     }
 
-private:
+  private:
     QWidget* target_ = nullptr;
 };
 
@@ -154,11 +147,9 @@ constexpr const char* kRuntimeSettingsSchemaVersionKey = "runtime/v1/schemaVersi
 QMutex liveEventMutex;
 SequenceEventTracker liveEventTracker;
 
-
 } // namespace
 
-MainWindow::MainWindow(const AppContext& context, QWidget* parent)
-    : QMainWindow(parent), context_(context) {
+MainWindow::MainWindow(const AppContext& context, QWidget* parent) : QMainWindow(parent), context_(context) {
     nameWidget(this, "MainWindow");
     setWindowTitle("Open Visual Droplet Sorter Suite");
     setWindowIcon(QIcon(":/branding/opendss-icon-512.png"));
@@ -171,13 +162,9 @@ const AppContext& MainWindow::appContext() const {
     return context_;
 }
 
-int MainWindow::runSetupAndEventLoop(QApplication& app,
-                                     QSettings& runtimeSettings,
-                                     desktop_app::AppState& appState,
-                                     const QJsonArray& registryEntries,
-                                     const QString& registryFilePath,
-                                     const QString& registryLoadWarning,
-                                     QSplashScreen& splash,
+int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettings, desktop_app::AppState& appState,
+                                     const QJsonArray& registryEntries, const QString& registryFilePath,
+                                     const QString& registryLoadWarning, QSplashScreen& splash,
                                      QElapsedTimer& splashTimer) {
     const AppOptions& options = context_.options;
     const DefaultWorkspacePaths& defaultWorkspacePaths = context_.paths.defaultWorkspacePaths;
@@ -249,11 +236,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     nameWidget(applyBtn, "CameraApplySettingsButton");
     nameWidget(viewerBtn, "OpenViewerButton");
 
-    auto addDisabledAction = [](QMenu* menu, const QString& text, const char* objectName, const QString& statusTip = QString()) {
+    auto addDisabledAction = [](QMenu* menu, const QString& text, const char* objectName,
+                                const QString& statusTip = QString()) {
         QAction* action = menu->addAction(text);
         nameAction(action, objectName);
         action->setEnabled(false);
-        if (!statusTip.isEmpty()) action->setStatusTip(statusTip);
+        if (!statusTip.isEmpty())
+            action->setStatusTip(statusTip);
         return action;
     };
 
@@ -261,11 +250,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto openViewerAction = fileMenu->addAction("Open &Viewer");
     auto openOutputAction = fileMenu->addAction("Open Current &Output Folder");
     fileMenu->addSeparator();
-    addDisabledAction(fileMenu, "New Project", "FileNewProjectAction", "Project files are not wired in this shell step.");
-    addDisabledAction(fileMenu, "Open Project", "FileOpenProjectAction", "Project files are not wired in this shell step.");
-    addDisabledAction(fileMenu, "Recent Projects", "FileRecentProjectsAction", "Project files are not wired in this shell step.");
+    addDisabledAction(fileMenu, "New Project", "FileNewProjectAction",
+                      "Project files are not wired in this shell step.");
+    addDisabledAction(fileMenu, "Open Project", "FileOpenProjectAction",
+                      "Project files are not wired in this shell step.");
+    addDisabledAction(fileMenu, "Recent Projects", "FileRecentProjectsAction",
+                      "Project files are not wired in this shell step.");
     addDisabledAction(fileMenu, "Save Session", "FileSaveSessionAction", "Session packaging is a future workflow.");
-    addDisabledAction(fileMenu, "Export Support Bundle", "FileExportSupportBundleAction", "Support bundle export is a future workflow.");
+    addDisabledAction(fileMenu, "Export Support Bundle", "FileExportSupportBundleAction",
+                      "Support bundle export is a future workflow.");
     fileMenu->addSeparator();
     auto exitAction = fileMenu->addAction("E&xit");
 
@@ -274,42 +267,56 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto startPreviewAction = cameraMenu->addAction("Start Preview");
     auto stopPreviewAction = cameraMenu->addAction("Stop Preview");
     auto captureStillAction = cameraMenu->addAction("Capture Still");
-    addDisabledAction(cameraMenu, "Camera Presets", "CameraPresetsAction", "Camera preset management is not wired in this shell step.");
+    addDisabledAction(cameraMenu, "Camera Presets", "CameraPresetsAction",
+                      "Camera preset management is not wired in this shell step.");
 
     auto datasetMenu = this->menuBar()->addMenu("&Dataset");
-    addDisabledAction(datasetMenu, "New Dataset", "DatasetNewDatasetAction", "Dataset workflows are placeholder-only in this shell step.");
+    addDisabledAction(datasetMenu, "New Dataset", "DatasetNewDatasetAction",
+                      "Dataset workflows are placeholder-only in this shell step.");
     auto datasetOpenAction = datasetMenu->addAction("Open Dataset");
     datasetOpenAction->setStatusTip("Open the Dataset Builder review workspace.");
     auto datasetBuildAction = datasetMenu->addAction("Build Dataset");
     datasetBuildAction->setStatusTip("Open collected crops for Dataset Builder manual review.");
-    addDisabledAction(datasetMenu, "Import Images", "DatasetImportImagesAction", "Dataset workflows are placeholder-only in this shell step.");
+    addDisabledAction(datasetMenu, "Import Images", "DatasetImportImagesAction",
+                      "Dataset workflows are placeholder-only in this shell step.");
     auto datasetCaptureFromCameraAction = datasetMenu->addAction("Capture From Camera");
     nameAction(datasetCaptureFromCameraAction, "DatasetCaptureFromCameraAction");
-    datasetCaptureFromCameraAction->setStatusTip("Start a live Dataset Builder capture session from the camera stream.");
+    datasetCaptureFromCameraAction->setStatusTip(
+        "Start a live Dataset Builder capture session from the camera stream.");
     auto datasetLabelDatasetAction = datasetMenu->addAction("Label Dataset");
-    datasetLabelDatasetAction->setStatusTip("Open the Dataset Builder review workspace. Builder manifests can save reviewed labels.");
+    datasetLabelDatasetAction->setStatusTip(
+        "Open the Dataset Builder review workspace. Builder manifests can save reviewed labels.");
     auto datasetReadinessAction = datasetMenu->addAction("Readiness Check");
 
     auto trainingMenu = this->menuBar()->addMenu("&Training");
     auto trainingEnvironmentSettingsAction = trainingMenu->addAction("Training Environment Settings");
     auto trainingValidateEnvironmentAction = trainingMenu->addAction("Validate Environment");
-    auto trainingNewRunAction = addDisabledAction(trainingMenu, "New Training Run", "TrainingNewRunAction", "Full GUI-launched training is intentionally unavailable in this readiness prototype.");
-    addDisabledAction(trainingMenu, "Open Training Output", "TrainingOpenOutputAction", "Trainer outputs are not wired in this shell step.");
+    auto trainingNewRunAction =
+        addDisabledAction(trainingMenu, "New Training Run", "TrainingNewRunAction",
+                          "Full GUI-launched training is intentionally unavailable in this readiness prototype.");
+    addDisabledAction(trainingMenu, "Open Training Output", "TrainingOpenOutputAction",
+                      "Trainer outputs are not wired in this shell step.");
 
     auto validationMenu = this->menuBar()->addMenu("&Validation");
     auto imageValidationAction = validationMenu->addAction("Image Validation");
     imageValidationAction->setStatusTip("Launch image-level ONNX validation through the external Python validator.");
     auto modelManagerAction = validationMenu->addAction("Model Manager");
     modelManagerAction->setStatusTip("Open the read-only model registry and promotion gate view.");
-    auto sequenceValidationAction = addDisabledAction(validationMenu, "Sequence Validation", "ValidationSequenceValidationAction", "Runner-wrapped sequence validation is not available; artifact comparison remains internal/provisional.");
-    addDisabledAction(validationMenu, "Compare Models", "ValidationCompareModelsAction", "Model comparison is not wired in this shell step.");
-    addDisabledAction(validationMenu, "Export Validation Report", "ValidationExportReportAction", "Validation reports are not wired in this shell step.");
+    auto sequenceValidationAction = addDisabledAction(
+        validationMenu, "Sequence Validation", "ValidationSequenceValidationAction",
+        "Runner-wrapped sequence validation is not available; artifact comparison remains internal/provisional.");
+    addDisabledAction(validationMenu, "Compare Models", "ValidationCompareModelsAction",
+                      "Model comparison is not wired in this shell step.");
+    addDisabledAction(validationMenu, "Export Validation Report", "ValidationExportReportAction",
+                      "Validation reports are not wired in this shell step.");
 
     auto sortingMenu = this->menuBar()->addMenu("&Sorting");
     auto startSortingAction = sortingMenu->addAction("Start Sorting");
     auto stopSortingAction = sortingMenu->addAction("Stop Sorting");
-    auto triggerDisabledAction = addDisabledAction(sortingMenu, "Trigger Disabled", "SortingTriggerDisabledAction", "DAQ trigger output is disabled until manually armed.");
-    auto armTriggerAction = addDisabledAction(sortingMenu, "Arm Trigger", "SortingArmTriggerAction", "Trigger arming is not introduced in this declutter pass.");
+    auto triggerDisabledAction = addDisabledAction(sortingMenu, "Trigger Disabled", "SortingTriggerDisabledAction",
+                                                   "DAQ trigger output is disabled until manually armed.");
+    auto armTriggerAction = addDisabledAction(sortingMenu, "Arm Trigger", "SortingArmTriggerAction",
+                                              "Trigger arming is not introduced in this declutter pass.");
     auto manualTriggerAction = sortingMenu->addAction("Manual Trigger");
     auto openRunFolderAction = sortingMenu->addAction("Open Run Folder");
 
@@ -320,14 +327,19 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto resetLayoutAction = viewMenu->addAction("Reset Layout");
 
     auto settingsMenu = this->menuBar()->addMenu("&Settings");
-    addDisabledAction(settingsMenu, "Preferences", "SettingsPreferencesAction", "Preferences are placeholder-only in this shell step.");
-    addDisabledAction(settingsMenu, "Paths", "SettingsPathsAction", "Path settings are still controlled by the existing runtime fields.");
-    addDisabledAction(settingsMenu, "Hardware Configuration", "SettingsHardwareConfigurationAction", "Hardware settings are still controlled by the existing runtime fields.");
+    addDisabledAction(settingsMenu, "Preferences", "SettingsPreferencesAction",
+                      "Preferences are placeholder-only in this shell step.");
+    addDisabledAction(settingsMenu, "Paths", "SettingsPathsAction",
+                      "Path settings are still controlled by the existing runtime fields.");
+    addDisabledAction(settingsMenu, "Hardware Configuration", "SettingsHardwareConfigurationAction",
+                      "Hardware settings are still controlled by the existing runtime fields.");
 
     auto toolsMenu = this->menuBar()->addMenu("&Tools");
     auto systemDiagnosticsAction = toolsMenu->addAction("System Diagnostics");
-    addDisabledAction(toolsMenu, "Model Artifact Verification", "ToolsModelArtifactVerificationAction", "Model verification is not wired in this shell step.");
-    addDisabledAction(toolsMenu, "Dataset Manifest Verification", "ToolsDatasetManifestVerificationAction", "Dataset verification is not wired in this shell step.");
+    addDisabledAction(toolsMenu, "Model Artifact Verification", "ToolsModelArtifactVerificationAction",
+                      "Model verification is not wired in this shell step.");
+    addDisabledAction(toolsMenu, "Dataset Manifest Verification", "ToolsDatasetManifestVerificationAction",
+                      "Dataset verification is not wired in this shell step.");
 
     auto helpMenu = this->menuBar()->addMenu("&Help");
     auto aboutAction = helpMenu->addAction("&About");
@@ -426,9 +438,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     nameAction(crosshairAction, "DisplayCrosshairAction");
     nameAction(calibrationAction, "DisplayCalibrationAction");
     nameAction(clearOverlayAction, "DisplayClearOverlayAction");
-    for (auto* action : {copyFrameAction, copyDocumentAction, fitAction, oneToOneAction,
-                         zoomInAction, zoomOutAction, imageRegionAction, overlayAction,
-                         crosshairAction, calibrationAction, clearOverlayAction}) {
+    for (auto* action : {copyFrameAction, copyDocumentAction, fitAction, oneToOneAction, zoomInAction, zoomOutAction,
+                         imageRegionAction, overlayAction, crosshairAction, calibrationAction, clearOverlayAction}) {
         action->setStatusTip("Display shell control; runtime behavior is unchanged in this alignment step.");
     }
     fitAction->setStatusTip("Fit the live image inside the available viewer area.");
@@ -441,27 +452,27 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
 
     // Settings controls
     auto presetCombo = new QComboBox;
-    presetCombo->addItem("2304 x 2304", QVariant::fromValue(QSize(2304,2304)));
-    presetCombo->addItem("2304 x 1152", QVariant::fromValue(QSize(2304,1152)));
-    presetCombo->addItem("2304 x 576", QVariant::fromValue(QSize(2304,576)));
-    presetCombo->addItem("2304 x 288", QVariant::fromValue(QSize(2304,288)));
-    presetCombo->addItem("2304 x 144", QVariant::fromValue(QSize(2304,144)));
-    presetCombo->addItem("2304 x 72", QVariant::fromValue(QSize(2304,72)));
-    presetCombo->addItem("2304 x 36", QVariant::fromValue(QSize(2304,36)));
-    presetCombo->addItem("2304 x 16", QVariant::fromValue(QSize(2304,16)));
-    presetCombo->addItem("2304 x 8", QVariant::fromValue(QSize(2304,8)));
-    presetCombo->addItem("2304 x 4", QVariant::fromValue(QSize(2304,4)));
-    presetCombo->addItem("1152 x 1152", QVariant::fromValue(QSize(1152,1152)));
-    presetCombo->addItem("1152 x 576", QVariant::fromValue(QSize(1152,576)));
-    presetCombo->addItem("1152 x 288", QVariant::fromValue(QSize(1152,288)));
-    presetCombo->addItem("1152 x 144", QVariant::fromValue(QSize(1152,144)));
-    presetCombo->addItem("576 x 576", QVariant::fromValue(QSize(576,576)));
-    presetCombo->addItem("576 x 288", QVariant::fromValue(QSize(576,288)));
-    presetCombo->addItem("576 x 144", QVariant::fromValue(QSize(576,144)));
-    presetCombo->addItem("288 x 288", QVariant::fromValue(QSize(288,288)));
-    presetCombo->addItem("288 x 144", QVariant::fromValue(QSize(288,144)));
-    presetCombo->addItem("144 x 144", QVariant::fromValue(QSize(144,144)));
-    presetCombo->addItem("Custom", QVariant::fromValue(QSize(-1,-1)));
+    presetCombo->addItem("2304 x 2304", QVariant::fromValue(QSize(2304, 2304)));
+    presetCombo->addItem("2304 x 1152", QVariant::fromValue(QSize(2304, 1152)));
+    presetCombo->addItem("2304 x 576", QVariant::fromValue(QSize(2304, 576)));
+    presetCombo->addItem("2304 x 288", QVariant::fromValue(QSize(2304, 288)));
+    presetCombo->addItem("2304 x 144", QVariant::fromValue(QSize(2304, 144)));
+    presetCombo->addItem("2304 x 72", QVariant::fromValue(QSize(2304, 72)));
+    presetCombo->addItem("2304 x 36", QVariant::fromValue(QSize(2304, 36)));
+    presetCombo->addItem("2304 x 16", QVariant::fromValue(QSize(2304, 16)));
+    presetCombo->addItem("2304 x 8", QVariant::fromValue(QSize(2304, 8)));
+    presetCombo->addItem("2304 x 4", QVariant::fromValue(QSize(2304, 4)));
+    presetCombo->addItem("1152 x 1152", QVariant::fromValue(QSize(1152, 1152)));
+    presetCombo->addItem("1152 x 576", QVariant::fromValue(QSize(1152, 576)));
+    presetCombo->addItem("1152 x 288", QVariant::fromValue(QSize(1152, 288)));
+    presetCombo->addItem("1152 x 144", QVariant::fromValue(QSize(1152, 144)));
+    presetCombo->addItem("576 x 576", QVariant::fromValue(QSize(576, 576)));
+    presetCombo->addItem("576 x 288", QVariant::fromValue(QSize(576, 288)));
+    presetCombo->addItem("576 x 144", QVariant::fromValue(QSize(576, 144)));
+    presetCombo->addItem("288 x 288", QVariant::fromValue(QSize(288, 288)));
+    presetCombo->addItem("288 x 144", QVariant::fromValue(QSize(288, 144)));
+    presetCombo->addItem("144 x 144", QVariant::fromValue(QSize(144, 144)));
+    presetCombo->addItem("Custom", QVariant::fromValue(QSize(-1, -1)));
 
     auto customWidthSpin = new QSpinBox;
     customWidthSpin->setRange(1, 4096);
@@ -469,17 +480,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto customHeightSpin = new QSpinBox;
     customHeightSpin->setRange(1, 4096);
     customHeightSpin->setValue(2304);
-    presetCombo->addItem("512 x 128", QVariant::fromValue(QSize(512,128)));
-    presetCombo->addItem("512 x 64", QVariant::fromValue(QSize(512,64)));
-    presetCombo->addItem("256 x 64", QVariant::fromValue(QSize(256,64)));
-    presetCombo->addItem("256 x 32", QVariant::fromValue(QSize(256,32)));
+    presetCombo->addItem("512 x 128", QVariant::fromValue(QSize(512, 128)));
+    presetCombo->addItem("512 x 64", QVariant::fromValue(QSize(512, 64)));
+    presetCombo->addItem("256 x 64", QVariant::fromValue(QSize(256, 64)));
+    presetCombo->addItem("256 x 32", QVariant::fromValue(QSize(256, 32)));
 
     auto binCombo = new QComboBox;
-    binCombo->addItems({"1","2","4"});
+    binCombo->addItems({"1", "2", "4"});
     binCombo->setCurrentIndex(0);
 
     auto bitsCombo = new QComboBox;
-    bitsCombo->addItems({"8","12","16"});
+    bitsCombo->addItems({"8", "12", "16"});
     bitsCombo->setCurrentIndex(0); // default 8-bit
 
     auto lutMinSpin = new QSpinBox;
@@ -536,24 +547,24 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto controlLayout = new QVBoxLayout;
 
     auto grid = new QGridLayout;
-    grid->addWidget(new QLabel("Preset"),0,0);
-    grid->addWidget(presetCombo,0,1);
-    grid->addWidget(new QLabel("Custom W/H"),1,0);
+    grid->addWidget(new QLabel("Preset"), 0, 0);
+    grid->addWidget(presetCombo, 0, 1);
+    grid->addWidget(new QLabel("Custom W/H"), 1, 0);
     auto customLayout = new QHBoxLayout;
     customLayout->addWidget(customWidthSpin);
     customLayout->addWidget(customHeightSpin);
-    grid->addLayout(customLayout,1,1);
-    grid->addWidget(new QLabel("Binning"),2,0);
-    grid->addWidget(binCombo,2,1);
-    grid->addWidget(new QLabel("Bits"),5,0);
-    grid->addWidget(bitsCombo,5,1);
-    grid->addWidget(new QLabel("Exposure (ms)"),6,0);
-    grid->addWidget(exposureSpin,6,1);
-    grid->addWidget(new QLabel("Readout speed"),7,0);
-    grid->addWidget(readoutCombo,7,1);
-    grid->addWidget(new QLabel("Display every Nth frame"),8,0);
-    grid->addWidget(displayEverySpin,8,1);
-    grid->addWidget(logCheck,9,0,1,2);
+    grid->addLayout(customLayout, 1, 1);
+    grid->addWidget(new QLabel("Binning"), 2, 0);
+    grid->addWidget(binCombo, 2, 1);
+    grid->addWidget(new QLabel("Bits"), 5, 0);
+    grid->addWidget(bitsCombo, 5, 1);
+    grid->addWidget(new QLabel("Exposure (ms)"), 6, 0);
+    grid->addWidget(exposureSpin, 6, 1);
+    grid->addWidget(new QLabel("Readout speed"), 7, 0);
+    grid->addWidget(readoutCombo, 7, 1);
+    grid->addWidget(new QLabel("Display every Nth frame"), 8, 0);
+    grid->addWidget(displayEverySpin, 8, 1);
+    grid->addWidget(logCheck, 9, 0, 1, 2);
     // Pipeline defaults (fast event detection)
     FastEventConfig pipelineDetectCfg;
     pipelineDetectCfg.bgFrames = 100;
@@ -792,7 +803,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     detectLayout->addWidget(gapFireSpin, detRow++, 1);
     auto detectWidget = new QWidget;
     detectWidget->setLayout(detectLayout);
-    std::function<void()> scheduleDetectorApply = [](){};
+    std::function<void()> scheduleDetectorApply = []() {};
 
     auto statsEventsLabel = new QLabel("Events: 0");
     auto statsClassLabel = new QLabel("Classes:\n(none)");
@@ -871,7 +882,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     trainerCancelBtn->setEnabled(false);
     auto trainerStartTrainingBtn = new QPushButton("Start Training");
     auto trainerDryRunBtn = new QPushButton("Dry Run");
-    auto trainerStatusLabel = new QLabel("Trainer idle. Validate the Python environment or run a dry run before training.");
+    auto trainerStatusLabel =
+        new QLabel("Trainer idle. Validate the Python environment or run a dry run before training.");
     trainerStatusLabel->setWordWrap(true);
     trainerStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     auto trainerResultText = new QPlainTextEdit;
@@ -1133,7 +1145,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto trainerDockProxy = new QWidget;
     auto trainerDockProxyLayout = new QVBoxLayout;
     trainerDockProxyLayout->setContentsMargins(12, 12, 12, 12);
-    auto trainerDockProxyLabel = new QLabel("Trainer readiness now opens in the main Trainer workspace. Training launch remains disabled.");
+    auto trainerDockProxyLabel =
+        new QLabel("Trainer readiness now opens in the main Trainer workspace. Training launch remains disabled.");
     trainerDockProxyLabel->setWordWrap(true);
     auto trainerDockProxyButton = new QPushButton("Open Trainer Workspace");
     nameWidget(trainerDockProxyButton, "TrainerDockOpenWorkspaceButton");
@@ -1301,7 +1314,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto blockersGroup = new QGroupBox("Blockers");
     nameWidget(blockersGroup, "BlockersGroup");
     auto blockersLayout = new QVBoxLayout;
-    auto blockersLabel = new QLabel("Camera, model, and DAQ readiness appear here when startup or run actions are blocked.");
+    auto blockersLabel =
+        new QLabel("Camera, model, and DAQ readiness appear here when startup or run actions are blocked.");
     blockersLabel->setWordWrap(true);
     blockersLayout->addWidget(blockersLabel);
     blockersGroup->setLayout(blockersLayout);
@@ -1477,13 +1491,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto liveDetectionBox = new QFrame;
     nameWidget(liveDetectionBox, "LiveViewerDetectionBox");
     liveDetectionBox->setFixedSize(92, 92);
-    liveDetectionBox->setStyleSheet("QFrame#LiveViewerDetectionBox{border:2px solid rgba(20,184,166,0.95);background:rgba(20,184,166,0.07);border-radius:2px;}");
+    liveDetectionBox->setStyleSheet("QFrame#LiveViewerDetectionBox{border:2px solid "
+                                    "rgba(20,184,166,0.95);background:rgba(20,184,166,0.07);border-radius:2px;}");
     auto liveDetectionBoxLayout = new QVBoxLayout;
     liveDetectionBoxLayout->setContentsMargins(4, 4, 4, 4);
     auto liveDetectionLabel = new QLabel("SINGLE 0.94");
     nameWidget(liveDetectionLabel, "LiveViewerDetectionLabel");
     liveDetectionLabel->setAlignment(Qt::AlignCenter);
-    liveDetectionLabel->setStyleSheet("background:rgba(2,6,23,0.82);color:#CCFBF1;font-size:10px;font-weight:700;padding:2px 4px;border-radius:2px;");
+    liveDetectionLabel->setStyleSheet(
+        "background:rgba(2,6,23,0.82);color:#CCFBF1;font-size:10px;font-weight:700;padding:2px 4px;border-radius:2px;");
     liveDetectionBoxLayout->addWidget(liveDetectionLabel, 0, Qt::AlignTop | Qt::AlignHCenter);
     liveDetectionBoxLayout->addStretch(1);
     liveDetectionBox->setLayout(liveDetectionBoxLayout);
@@ -1564,7 +1580,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         spin->setRange(min, max);
         spin->setValue(source->value());
         QObject::connect(spin, qOverload<int>(&QSpinBox::valueChanged), [=, &scheduleDetectorApply](int value) {
-            if (source->value() != value) source->setValue(value);
+            if (source->value() != value)
+                source->setValue(value);
             scheduleDetectorApply();
         });
         QObject::connect(source, qOverload<int>(&QSpinBox::valueChanged), spin, &QSpinBox::setValue);
@@ -1576,10 +1593,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         spin->setDecimals(decimals);
         spin->setSingleStep(step);
         spin->setValue(source->value());
-        QObject::connect(spin, qOverload<double>(&QDoubleSpinBox::valueChanged), [=, &scheduleDetectorApply](double value) {
-            if (!qFuzzyCompare(source->value() + 1.0, value + 1.0)) source->setValue(value);
-            scheduleDetectorApply();
-        });
+        QObject::connect(spin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         [=, &scheduleDetectorApply](double value) {
+                             if (!qFuzzyCompare(source->value() + 1.0, value + 1.0))
+                                 source->setValue(value);
+                             scheduleDetectorApply();
+                         });
         QObject::connect(source, qOverload<double>(&QDoubleSpinBox::valueChanged), spin, &QDoubleSpinBox::setValue);
         return spin;
     };
@@ -1592,17 +1611,35 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         return spin;
     };
     addLiveDetectorSpin("BG frames", makeLinkedIntSpin(bgFramesSpin, 1, 10000), "LiveDetectorBgFramesSpinBox");
-    addLiveDetectorSpin("Diff threshold", makeLinkedIntSpin(diffThreshSpin, 0, 255), "LiveDetectorDiffThresholdSpinBox");
+    addLiveDetectorSpin("Diff threshold", makeLinkedIntSpin(diffThreshSpin, 0, 255),
+                        "LiveDetectorDiffThresholdSpinBox");
     addLiveDetectorSpin("Min area", makeLinkedDoubleSpin(minAreaSpin, -1.0, 1e9, 1, 1.0), "LiveDetectorMinAreaSpinBox");
-    addLiveDetectorSpin("Max area", makeLinkedDoubleSpin(maxAreaFracSpin, 0.0, 1.0, 4, 0.001), "LiveDetectorMaxAreaSpinBox");
+    addLiveDetectorSpin("Max area", makeLinkedDoubleSpin(maxAreaFracSpin, 0.0, 1.0, 4, 0.001),
+                        "LiveDetectorMaxAreaSpinBox");
     addLiveDetectorSpin("Blur radius", makeLinkedIntSpin(blurRadiusSpin, 0, 25), "LiveDetectorBlurRadiusSpinBox");
-    addLiveDetectorSpin("Erode iterations", makeUnavailableSpin(0, "Current runtime exposes one morph radius, not separate erode iterations."), "LiveDetectorErodeIterationsSpinBox");
-    addLiveDetectorSpin("Dilate iterations", makeUnavailableSpin(morphRadiusSpin->value(), "Current runtime exposes one morph radius, not separate dilate iterations."), "LiveDetectorDilateIterationsSpinBox");
-    addLiveDetectorSpin("Min contour points", makeLinkedIntSpin(minBboxSpin, 1, 10000), "LiveDetectorMinContourPointsSpinBox");
-    addLiveDetectorSpin("Aspect ratio min", makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."), "LiveDetectorAspectRatioMinSpinBox");
-    addLiveDetectorSpin("Aspect ratio max", makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."), "LiveDetectorAspectRatioMaxSpinBox");
-    addLiveDetectorSpin("Velocity min", makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."), "LiveDetectorVelocityMinSpinBox");
-    addLiveDetectorSpin("Velocity max", makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."), "LiveDetectorVelocityMaxSpinBox");
+    addLiveDetectorSpin(
+        "Erode iterations",
+        makeUnavailableSpin(0, "Current runtime exposes one morph radius, not separate erode iterations."),
+        "LiveDetectorErodeIterationsSpinBox");
+    addLiveDetectorSpin(
+        "Dilate iterations",
+        makeUnavailableSpin(morphRadiusSpin->value(),
+                            "Current runtime exposes one morph radius, not separate dilate iterations."),
+        "LiveDetectorDilateIterationsSpinBox");
+    addLiveDetectorSpin("Min contour points", makeLinkedIntSpin(minBboxSpin, 1, 10000),
+                        "LiveDetectorMinContourPointsSpinBox");
+    addLiveDetectorSpin("Aspect ratio min",
+                        makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."),
+                        "LiveDetectorAspectRatioMinSpinBox");
+    addLiveDetectorSpin("Aspect ratio max",
+                        makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."),
+                        "LiveDetectorAspectRatioMaxSpinBox");
+    addLiveDetectorSpin("Velocity min",
+                        makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."),
+                        "LiveDetectorVelocityMinSpinBox");
+    addLiveDetectorSpin("Velocity max",
+                        makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."),
+                        "LiveDetectorVelocityMaxSpinBox");
     liveDetectorDrawerLayout->addLayout(liveDetectorGrid);
     liveDetectorDrawerLayout->addStretch(1);
     liveDetectorDrawer->setLayout(liveDetectorDrawerLayout);
@@ -1713,26 +1750,25 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
     updateLiveRunStartStopVisibility();
 
-    std::function<void()> updateForceTriggerState = [](){};
+    std::function<void()> updateForceTriggerState = []() {};
     updateForceTriggerState = [&]() {
-        const bool waveformValid = !daqChannelEdit->text().trimmed().isEmpty()
-            && amplitudeSpin->value() > 0.0
-            && freqSpin->value() > 0.0
-            && durationSpin->value() > 0.0;
+        const bool waveformValid = !daqChannelEdit->text().trimmed().isEmpty() && amplitudeSpin->value() > 0.0 &&
+                                   freqSpin->value() > 0.0 && durationSpin->value() > 0.0;
         appState.daqWaveformValid = waveformValid;
-        const bool canFire = appState.triggerArmed
-            && appState.daqAvailable
-            && !appState.daqDisabled
-            && !appState.daqFault
-            && waveformValid;
+        const bool canFire = appState.triggerArmed && appState.daqAvailable && !appState.daqDisabled &&
+                             !appState.daqFault && waveformValid;
         QStringList blockers;
-        if (!appState.triggerArmed) blockers << "trigger is safe";
-        if (!appState.daqAvailable || appState.daqDisabled) blockers << "DAQ is not available";
-        if (appState.daqFault) blockers << (appState.daqFaultText.isEmpty() ? QStringLiteral("DAQ fault is active") : appState.daqFaultText);
-        if (!waveformValid) blockers << "waveform settings are incomplete";
-        const QString tip = canFire
-            ? QStringLiteral("Fire the full configured waveform from Settings.")
-            : QStringLiteral("Force Trigger disabled: %1.").arg(blockers.join("; "));
+        if (!appState.triggerArmed)
+            blockers << "trigger is safe";
+        if (!appState.daqAvailable || appState.daqDisabled)
+            blockers << "DAQ is not available";
+        if (appState.daqFault)
+            blockers << (appState.daqFaultText.isEmpty() ? QStringLiteral("DAQ fault is active")
+                                                         : appState.daqFaultText);
+        if (!waveformValid)
+            blockers << "waveform settings are incomplete";
+        const QString tip = canFire ? QStringLiteral("Fire the full configured waveform from Settings.")
+                                    : QStringLiteral("Force Trigger disabled: %1.").arg(blockers.join("; "));
         liveForceTriggerBtn->setEnabled(canFire);
         liveForceTriggerBtn->setToolTip(tip);
         manualTriggerAction->setEnabled(canFire);
@@ -1741,10 +1777,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             QSignalBlocker blocker(triggerSafeBtn);
             triggerSafeBtn->setChecked(appState.triggerArmed);
         }
-        triggerSafeBtn->setText(appState.triggerArmed ? QStringLiteral("Trigger Armed") : QStringLiteral("Trigger Safe"));
-        triggerSafeBtn->setToolTip(appState.triggerArmed
-            ? QStringLiteral("Click to safe the trigger.")
-            : QStringLiteral("Click to arm the trigger. Force Trigger still requires valid DAQ and waveform settings."));
+        triggerSafeBtn->setText(appState.triggerArmed ? QStringLiteral("Trigger Armed")
+                                                      : QStringLiteral("Trigger Safe"));
+        triggerSafeBtn->setToolTip(
+            appState.triggerArmed
+                ? QStringLiteral("Click to safe the trigger.")
+                : QStringLiteral(
+                      "Click to arm the trigger. Force Trigger still requires valid DAQ and waveform settings."));
     };
     updateForceTriggerState();
 
@@ -2027,10 +2066,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     setGateCell(0, 2, "docs/worker-reports/2026-04-30-actual-model-promotion-execution.md");
     setGateCell(1, 0, "Metadata");
     setGateCell(1, 1, "Pass for current helper");
-    setGateCell(1, 2, "app/runtime/models/metadata.json; SHA-256 fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f");
+    setGateCell(
+        1, 2,
+        "app/runtime/models/metadata.json; SHA-256 fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f");
     setGateCell(2, 0, "Sidecar");
     setGateCell(2, 1, "Pass");
-    setGateCell(2, 2, "app/runtime/models/model.onnx.data; SHA-256 2e3727b593fee4f155caf67eb18a7b3a2b73ebb3655a1a6ab33b74c25a02ebd4");
+    setGateCell(
+        2, 2,
+        "app/runtime/models/model.onnx.data; SHA-256 2e3727b593fee4f155caf67eb18a7b3a2b73ebb3655a1a6ab33b74c25a02ebd4");
     setGateCell(3, 0, "Image validation");
     setGateCell(3, 1, "Internal pass");
     setGateCell(3, 2, "docs/worker-reports/2026-04-30-post-promotion-validation-execution.md");
@@ -2039,7 +2082,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     setGateCell(4, 2, "Policy keeps sequence validation provisional until separately promoted");
     setGateCell(5, 0, "Hardware trigger");
     setGateCell(5, 1, "Pass - Wave 19/20");
-    setGateCell(5, 2, "docs/worker-reports/2026-04-30-ni-class-driven-trigger-validation.md; docs/worker-reports/2026-04-30-ni-scope-observation-confirmation.md");
+    setGateCell(5, 2,
+                "docs/worker-reports/2026-04-30-ni-class-driven-trigger-validation.md; "
+                "docs/worker-reports/2026-04-30-ni-scope-observation-confirmation.md");
     setGateCell(6, 0, "Internal promotion");
     setGateCell(6, 1, "Completed - Wave 23");
     setGateCell(6, 2, "Installed default artifacts match authorized promoted candidate hashes");
@@ -2064,7 +2109,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
     setBlockerCell(0, 0, "Sequence validation remains provisional");
     setBlockerCell(0, 1, "Human domain review");
-    setBlockerCell(0, 2, "docs/validation/internal-fixtures/first-sequence-candidate-20260226_163405_BEST_SO_FAR/sequence_ground_truth_user_review_support_wave12.md");
+    setBlockerCell(0, 2,
+                   "docs/validation/internal-fixtures/first-sequence-candidate-20260226_163405_BEST_SO_FAR/"
+                   "sequence_ground_truth_user_review_support_wave12.md");
     setBlockerCell(0, 3, "Keep sequence claims provisional until a separate policy decision promotes them");
     setBlockerCell(1, 0, "Runtime trigger-target policy");
     setBlockerCell(1, 1, "Runtime/product decision");
@@ -2095,7 +2142,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     openModelMetadataButton->setEnabled(false);
     compareModelsButton->setEnabled(false);
     promoteModelButton->setEnabled(false);
-    promoteModelButton->setToolTip("Disabled: the default runtime already matches the promoted candidate; this read-only view does not support destructive re-promotion. Sequence and public release items remain separately tracked.");
+    promoteModelButton->setToolTip(
+        "Disabled: the default runtime already matches the promoted candidate; this read-only view does not support "
+        "destructive re-promotion. Sequence and public release items remain separately tracked.");
     modelActionLayout->addWidget(verifyModelArtifactsButton);
     modelActionLayout->addWidget(openModelMetadataButton);
     modelActionLayout->addWidget(compareModelsButton);
@@ -2244,13 +2293,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto liveModelMenu = new QMenu(openLiveModelManagerBtn);
     auto* liveSelectModelAction = liveModelMenu->addAction("Select model");
     QObject::connect(liveSelectModelAction, &QAction::triggered, modelManagerAction, &QAction::trigger);
-    liveModelMenu->addAction("Open Model workspace", [=]() {
-        workspaceStack->setCurrentWidget(modelWorkspacePage);
-    });
+    liveModelMenu->addAction("Open Model workspace", [=]() { workspaceStack->setCurrentWidget(modelWorkspacePage); });
     openLiveModelManagerBtn->setMenu(liveModelMenu);
-    QObject::connect(liveConfigureSettingsBtn, &QPushButton::clicked, [=]() {
-        workspaceStack->setCurrentWidget(settingsWorkspacePage);
-    });
+    QObject::connect(liveConfigureSettingsBtn, &QPushButton::clicked,
+                     [=]() { workspaceStack->setCurrentWidget(settingsWorkspacePage); });
 
     auto headerProductLabel = new QLabel("OpenDSS");
     nameWidget(headerProductLabel, "OpenDssHeaderProductTitle");
@@ -2318,10 +2364,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
     updateThemeToggleButton();
     QObject::connect(themeToggleButton, &QToolButton::clicked, [&]() {
-        currentThemeMode = themeToggleButton->isChecked()
-            ? desktop_app::theme::ThemeMode::Light
-            : desktop_app::theme::ThemeMode::Dark;
-        runtimeSettings.setValue("shell/theme", currentThemeMode == desktop_app::theme::ThemeMode::Light ? "light" : "dark");
+        currentThemeMode =
+            themeToggleButton->isChecked() ? desktop_app::theme::ThemeMode::Light : desktop_app::theme::ThemeMode::Dark;
+        runtimeSettings.setValue("shell/theme",
+                                 currentThemeMode == desktop_app::theme::ThemeMode::Light ? "light" : "dark");
         applyShellTheme();
         updateThemeToggleButton();
     });
@@ -2333,8 +2379,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     shellHeaderLayout->setSpacing(8);
     auto headerLogoLabel = new QLabel;
     nameWidget(headerLogoLabel, "OpenDssHeaderLogo");
-    headerLogoLabel->setPixmap(QPixmap(":/branding/opendss-icon-512.png").scaled(
-        QSize(24, 24), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    headerLogoLabel->setPixmap(QPixmap(":/branding/opendss-icon-512.png")
+                                   .scaled(QSize(24, 24), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     headerLogoLabel->setFixedSize(26, 26);
     headerLogoLabel->setAlignment(Qt::AlignCenter);
     shellHeaderLayout->addWidget(headerLogoLabel);
@@ -2394,8 +2440,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     railLogo->setAlignment(Qt::AlignCenter);
     railLogo->setFixedSize(36, 36);
     railLogo->setText(QString());
-    railLogo->setPixmap(QPixmap(":/branding/opendss-icon-512.png").scaled(
-        QSize(26, 26), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+    railLogo->setPixmap(QPixmap(":/branding/opendss-icon-512.png")
+                            .scaled(QSize(26, 26), Qt::KeepAspectRatio, Qt::SmoothTransformation));
     navLayout->addWidget(railLogo, 0, Qt::AlignHCenter);
     navLayout->addSpacing(8);
     auto navGroup = new QButtonGroup(this);
@@ -2430,9 +2476,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto wireHeaderChipNavigation = [&](QLabel* chip, QPushButton* destination, const QString& tooltip) {
         chip->setCursor(Qt::PointingHandCursor);
         chip->setToolTip(tooltip);
-        chip->installEventFilter(new HeaderChipClickFilter([destination]() {
-            if (destination) destination->click();
-        }, chip));
+        chip->installEventFilter(new HeaderChipClickFilter(
+            [destination]() {
+                if (destination)
+                    destination->click();
+            },
+            chip));
     };
     wireHeaderChipNavigation(headerStatusText, liveNavButton, "Open Live View");
     wireHeaderChipNavigation(headerCameraChip, liveNavButton, "Open Live View");
@@ -2506,7 +2555,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     nameWidget(logDockText, "LogsTextEdit");
     logDockText->setObjectName("LogsText");
     logDockText->setReadOnly(true);
-    logDockText->setPlainText("Session log: " + logPath + "\n\nLive log streaming remains handled by session_log.txt in this shell step.");
+    logDockText->setPlainText("Session log: " + logPath +
+                              "\n\nLive log streaming remains handled by session_log.txt in this shell step.");
     logDock->setWidget(logDockText);
     logDock->setMinimumHeight(36);
     this->addDockWidget(Qt::BottomDockWidgetArea, logDock);
@@ -2515,14 +2565,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
 
     auto diagnosticsDock = new QDockWidget("System Diagnostics", this);
     diagnosticsDock->setObjectName("SystemDiagnosticsDock");
-    auto diagnosticsLabel = new QLabel(
-        "Application: shell loaded\n"
-        "Camera/DCAM: checked by existing startup path\n"
-        "Model: loaded through existing Pipeline controls\n"
-        "DAQ: configured in Devices > DAQ / Trigger\n"
-        "Python trainer: readiness checks available in Trainer tab\n"
-        "Image validator: launch available in Validation > Image Validation\n"
-        "Training launch, runner-wrapped sequence validation, and Model Promotion: disabled placeholders");
+    auto diagnosticsLabel =
+        new QLabel("Application: shell loaded\n"
+                   "Camera/DCAM: checked by existing startup path\n"
+                   "Model: loaded through existing Pipeline controls\n"
+                   "DAQ: configured in Devices > DAQ / Trigger\n"
+                   "Python trainer: readiness checks available in Trainer tab\n"
+                   "Image validator: launch available in Validation > Image Validation\n"
+                   "Training launch, runner-wrapped sequence validation, and Model Promotion: disabled placeholders");
     nameWidget(diagnosticsLabel, "SystemDiagnosticsLabel");
     diagnosticsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     diagnosticsLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
@@ -2552,11 +2602,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     this->statusBar()->hide();
 
     auto setHeaderChipText = [](QLabel* label, const QString& text, int maximumWidth = 220) {
-        if (!label) return;
+        if (!label)
+            return;
         const int horizontalPadding = 28;
         const int textWidth = qMax(24, maximumWidth - horizontalPadding);
         const QString visibleText = label->fontMetrics().elidedText(text, Qt::ElideRight, textWidth);
-        const int targetWidth = qMin(maximumWidth, label->fontMetrics().horizontalAdvance(visibleText) + horizontalPadding);
+        const int targetWidth =
+            qMin(maximumWidth, label->fontMetrics().horizontalAdvance(visibleText) + horizontalPadding);
         label->setMinimumWidth(qMax(72, targetWidth));
         label->setToolTip(text);
         label->setText(visibleText);
@@ -2571,48 +2623,67 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
     auto titleCaseStatus = [](QString text) {
         text = text.simplified();
-        if (text.isEmpty()) return text;
+        if (text.isEmpty())
+            return text;
         text[0] = text[0].toUpper();
         return text;
     };
     auto runHeaderText = [&](const QString& runText, const QString& statusText) {
         const QString run = statusValue(runText, "Run").toLower();
-        if (run.contains("live view")) return QStringLiteral("Live View");
-        if (run.contains("capture")) return QStringLiteral("Camera capture");
-        if (run.contains("viewer-only")) return QStringLiteral("Camera viewer-only");
-        if (run == QStringLiteral("idle")) return QStringLiteral("Idle");
+        if (run.contains("live view"))
+            return QStringLiteral("Live View");
+        if (run.contains("capture"))
+            return QStringLiteral("Camera capture");
+        if (run.contains("viewer-only"))
+            return QStringLiteral("Camera viewer-only");
+        if (run == QStringLiteral("idle"))
+            return QStringLiteral("Idle");
         const QString simplifiedStatus = statusText.simplified();
         return simplifiedStatus.isEmpty() ? QStringLiteral("Idle") : simplifiedStatus;
     };
     auto cameraHeaderText = [&](const QString& cameraText, const QString& runText) {
         const QString camera = statusValue(cameraText, "Camera").toLower();
         const QString run = statusValue(runText, "Run").toLower();
-        if (run.contains("viewer-only") || camera.contains("unavailable")) return QStringLiteral("Camera viewer-only");
-        if (camera.contains("mock acquiring")) return QStringLiteral("Camera mock acquiring");
-        if (camera.contains("acquiring")) return QStringLiteral("Camera acquiring");
-        if (camera.contains("mock")) return QStringLiteral("Camera mock");
-        if (camera.contains("connected")) return QStringLiteral("Camera connected");
-        if (camera.contains("error")) return QStringLiteral("Camera error");
+        if (run.contains("viewer-only") || camera.contains("unavailable"))
+            return QStringLiteral("Camera viewer-only");
+        if (camera.contains("mock acquiring"))
+            return QStringLiteral("Camera mock acquiring");
+        if (camera.contains("acquiring"))
+            return QStringLiteral("Camera acquiring");
+        if (camera.contains("mock"))
+            return QStringLiteral("Camera mock");
+        if (camera.contains("connected"))
+            return QStringLiteral("Camera connected");
+        if (camera.contains("error"))
+            return QStringLiteral("Camera error");
         return QStringLiteral("Camera startup");
     };
     auto modelHeaderText = [&](const QString& modelText) {
         const QString model = statusValue(modelText, "Model").toLower();
-        if (model.contains("loaded")) return QStringLiteral("Model SqueezeNet");
-        if (model.contains("error")) return QStringLiteral("Model error");
+        if (model.contains("loaded"))
+            return QStringLiteral("Model SqueezeNet");
+        if (model.contains("error"))
+            return QStringLiteral("Model error");
         return QStringLiteral("Model not loaded");
     };
     auto daqHeaderText = [&](const QString& daqText) {
         const QString daq = statusValue(daqText, "DAQ").toLower();
-        if (daq.contains("disabled") || daq.contains("unavailable")) return QStringLiteral("DAQ unavailable");
-        if (daq.contains("available")) return QStringLiteral("DAQ available");
+        if (daq.contains("disabled") || daq.contains("unavailable"))
+            return QStringLiteral("DAQ unavailable");
+        if (daq.contains("available"))
+            return QStringLiteral("DAQ available");
         return QStringLiteral("DAQ unchecked");
     };
     auto triggerHeaderText = [&](const QString& triggerText) {
         const QString trigger = triggerText.simplified().toLower();
-        if (options.noDaq || trigger.contains("disabled") || trigger.contains("safe")) return QStringLiteral("Trigger safe");
-        if (trigger.contains("queued")) return QStringLiteral("Trigger queued");
-        if (trigger.contains("sent")) return QStringLiteral("Trigger sent");
-        if (trigger.contains("failed")) return QStringLiteral("Trigger failed");
+        if (options.noDaq || trigger.contains("disabled") || trigger.contains("safe"))
+            return QStringLiteral("Trigger safe");
+        if (trigger.contains("queued"))
+            return QStringLiteral("Trigger queued");
+        if (trigger.contains("sent"))
+            return QStringLiteral("Trigger sent");
+        if (trigger.contains("failed"))
+            return QStringLiteral("Trigger failed");
         return titleCaseStatus(triggerText);
     };
 
@@ -2640,14 +2711,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         setHeaderChipText(headerCameraChip, cameraHeaderText(cameraStatusItem->text(), runStatusItem->text()), 170);
         setHeaderChipText(headerModelChip, modelHeaderText(modelStatusItem->text()), 160);
         setHeaderChipText(headerDaqChip, daqHeaderText(daqStatusItem->text()), 145);
-        setHeaderChipText(headerTriggerChip, appState.triggerArmed ? QStringLiteral("Trigger armed") : QStringLiteral("Trigger safe"), 145);
+        setHeaderChipText(headerTriggerChip,
+                          appState.triggerArmed ? QStringLiteral("Trigger armed") : QStringLiteral("Trigger safe"),
+                          145);
         shellHeaderLayout->invalidate();
-        headerDaqChip->setProperty("chipTone", (daqStatusItem->text().contains("disabled") || daqStatusItem->text().contains("unavailable")) ? "disabled" :
-            (daqStatusItem->text().contains("available") ? "running" : "warn"));
-        headerModelChip->setProperty("chipTone", modelStatusItem->text().contains("loaded") ? "running" :
-            (modelStatusItem->text().contains("error") ? "error" : "warn"));
-        headerCameraChip->setProperty("chipTone", cameraStatusItem->text().contains("connected") || cameraStatusItem->text().contains("acquiring") ? "running" :
-            (cameraStatusItem->text().contains("error") ? "error" : "warn"));
+        headerDaqChip->setProperty(
+            "chipTone", (daqStatusItem->text().contains("disabled") || daqStatusItem->text().contains("unavailable"))
+                            ? "disabled"
+                            : (daqStatusItem->text().contains("available") ? "running" : "warn"));
+        headerModelChip->setProperty("chipTone", modelStatusItem->text().contains("loaded")
+                                                     ? "running"
+                                                     : (modelStatusItem->text().contains("error") ? "error" : "warn"));
+        headerCameraChip->setProperty(
+            "chipTone", cameraStatusItem->text().contains("connected") || cameraStatusItem->text().contains("acquiring")
+                            ? "running"
+                            : (cameraStatusItem->text().contains("error") ? "error" : "warn"));
         headerTriggerChip->setProperty("chipTone", appState.triggerArmed ? "warn" : "running");
         headerCameraChip->style()->unpolish(headerCameraChip);
         headerCameraChip->style()->polish(headerCameraChip);
@@ -2666,27 +2744,27 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         eventsMetricLabel->setText(firstNumber(statsEventsLabel->text(), "0"));
         hitsMetricLabel->setText(firstNumber(statsHitLabel->text(), "0"));
         wasteMetricLabel->setText(statsHitLabel->text().contains("Waste")
-            ? firstNumber(statsHitLabel->text().section("Waste", 1), "0")
-            : "0");
+                                      ? firstNumber(statsHitLabel->text().section("Waste", 1), "0")
+                                      : "0");
         trigMetricLabel->setText(pipelineEnableCheck->isChecked() ? "live" : "--");
         lastDecisionValue->setText(statsLastLabel->text().contains("--") ? "--" : statsLastLabel->text().simplified());
     });
     shellStatusMirrorTimer->start();
 
-    QObject::connect(fitAction, &QAction::triggered, [&](){
+    QObject::connect(fitAction, &QAction::triggered, [&]() {
         imageView->fitToView();
         cameraImageView->fitToView();
         this->statusBar()->showMessage("Preview images fit to view");
     });
-    QObject::connect(oneToOneAction, &QAction::triggered, [=](){
+    QObject::connect(oneToOneAction, &QAction::triggered, [=]() {
         imageView->resetScale();
         cameraImageView->resetScale();
     });
-    QObject::connect(zoomInAction, &QAction::triggered, [=](){
+    QObject::connect(zoomInAction, &QAction::triggered, [=]() {
         imageView->zoomBySteps(1);
         cameraImageView->zoomBySteps(1);
     });
-    QObject::connect(zoomOutAction, &QAction::triggered, [=](){
+    QObject::connect(zoomOutAction, &QAction::triggered, [=]() {
         imageView->zoomBySteps(-1);
         cameraImageView->zoomBySteps(-1);
     });
@@ -2708,13 +2786,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     QObject::connect(manualTriggerAction, &QAction::triggered, liveForceTriggerBtn, &QPushButton::click);
     QObject::connect(liveForceTriggerBtn, &QPushButton::clicked, [&]() {
         updateForceTriggerState();
-        if (!liveForceTriggerBtn->isEnabled()) return;
+        if (!liveForceTriggerBtn->isEnabled())
+            return;
         labviewTestBtn->click();
     });
     QObject::connect(liveSnapshotBtn, &QPushButton::clicked, captureBtn, &QPushButton::click);
     QObject::connect(liveDetectorTuningBtn, &QPushButton::clicked, [&]() {
         liveDetectorDrawerOverlay->setVisible(!liveDetectorDrawerOverlay->isVisible());
-        if (liveDetectorDrawerOverlay->isVisible()) liveDetectorDrawerOverlay->raise();
+        if (liveDetectorDrawerOverlay->isVisible())
+            liveDetectorDrawerOverlay->raise();
     });
     QObject::connect(liveDetectorClose, &QToolButton::clicked, liveDetectorDrawerOverlay, &QWidget::hide);
     ReportsWorkspaceController::Dependencies reportsWorkspaceDeps;
@@ -2729,7 +2809,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     reportsWorkspaceDeps.statusLabel = statusLabel;
     reportsWorkspaceDeps.statusBar = this->statusBar();
     ReportsWorkspaceController reportsWorkspaceController(reportsWorkspaceDeps, this);
-    QObject::connect(resetLayoutAction, &QAction::triggered, [&](){
+    QObject::connect(resetLayoutAction, &QAction::triggered, [&]() {
         this->addDockWidget(Qt::LeftDockWidgetArea, operationDock);
         this->addDockWidget(Qt::BottomDockWidgetArea, logDock);
         this->addDockWidget(Qt::BottomDockWidgetArea, diagnosticsDock);
@@ -2743,23 +2823,25 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
     });
     QObject::connect(exitAction, &QAction::triggered, this, &QWidget::close);
-    QObject::connect(aboutAction, &QAction::triggered, [&](){
-        QMessageBox::about(this,
-                           "About Open Visual Droplet Sorter Suite",
+    QObject::connect(aboutAction, &QAction::triggered, [&]() {
+        QMessageBox::about(this, "About Open Visual Droplet Sorter Suite",
                            "Open Visual Droplet Sorter Suite\n\n"
                            "Qt shell preview around the existing Hamamatsu live-view and droplet pipeline controls.\n\n"
-                           "Image validation can be launched through the external Python validator. Trainer launch, runner-wrapped sequence validation, and model promotion remain disabled placeholders.");
+                           "Image validation can be launched through the external Python validator. Trainer launch, "
+                           "runner-wrapped sequence validation, and model promotion remain disabled placeholders.");
     });
 
     // Logging helper
     auto logLine = [&](const QString& msg) {
-        if (!logCheck->isChecked()) return;
+        if (!logCheck->isChecked())
+            return;
         logMessage(msg);
     };
 
-    auto buildRunOutputDir = [&](const QString& prefix)->QString {
+    auto buildRunOutputDir = [&](const QString& prefix) -> QString {
         QString base = outputEdit->text().trimmed();
-        if (base.isEmpty()) base = QCoreApplication::applicationDirPath();
+        if (base.isEmpty())
+            base = QCoreApplication::applicationDirPath();
         QDir baseDir(base);
         QString leaf = baseDir.dirName();
         if (leaf.startsWith("sequence_") || leaf.startsWith("live_") || leaf.startsWith("test_")) {
@@ -2774,9 +2856,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
     reportsWorkspaceController.refreshOpenRunAvailability();
 
-    auto buildDatasetBuilderDir = [&](QString* datasetIdOut)->QString {
+    auto buildDatasetBuilderDir = [&](QString* datasetIdOut) -> QString {
         QString base = outputEdit->text().trimmed();
-        if (base.isEmpty()) base = QCoreApplication::applicationDirPath();
+        if (base.isEmpty())
+            base = QCoreApplication::applicationDirPath();
         QDir baseDir(base);
         QString leaf = baseDir.dirName();
         if (leaf.startsWith("sequence_") || leaf.startsWith("live_") || leaf.startsWith("test_")) {
@@ -2785,65 +2868,73 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         QString shortId = QUuid::createUuid().toString(QUuid::Id128).left(6).toLower();
         QString stamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
         QString datasetId = QString("builder_%1_live_%2").arg(stamp, shortId);
-        if (datasetIdOut) *datasetIdOut = datasetId;
+        if (datasetIdOut)
+            *datasetIdOut = datasetId;
         QDir root(baseDir.filePath("datasets/builder"));
         root.mkpath(".");
         root.mkpath(datasetId);
         return root.filePath(datasetId);
     };
 
-    auto pickExistingPath = [](const QStringList& candidates)->QString {
+    auto pickExistingPath = [](const QStringList& candidates) -> QString {
         for (const auto& c : candidates) {
-            if (QFileInfo::exists(c)) return c;
+            if (QFileInfo::exists(c))
+                return c;
         }
         return candidates.isEmpty() ? QString() : candidates.first();
     };
 
     QString appDir = QCoreApplication::applicationDirPath();
-    auto findModelUpwards = [&](const QString& filename)->QString {
+    auto findModelUpwards = [&](const QString& filename) -> QString {
         QDir dir(appDir);
         for (int i = 0; i < 6; ++i) {
             QString candidate = dir.filePath("models/" + filename);
-            if (QFileInfo::exists(candidate)) return candidate;
-            if (!dir.cdUp()) break;
+            if (QFileInfo::exists(candidate))
+                return candidate;
+            if (!dir.cdUp())
+                break;
         }
         const QString projectRoot = findProjectRootFromApp();
         if (!projectRoot.isEmpty()) {
             const QString promotedArtifact = runtimeModelArtifactPath(projectRoot, "app/runtime/models/" + filename);
-            if (!promotedArtifact.isEmpty()) return promotedArtifact;
+            if (!promotedArtifact.isEmpty())
+                return promotedArtifact;
         }
         return QString();
     };
-    auto findOutputsRootUpwards = [&]()->QString {
+    auto findOutputsRootUpwards = [&]() -> QString {
         QDir dir(appDir);
         for (int i = 0; i < 8; ++i) {
             QString outputsDir = dir.filePath("outputs");
             if (QFileInfo(outputsDir).isDir()) {
                 return QDir(outputsDir).filePath("pipeline_output");
             }
-            if (!dir.cdUp()) break;
+            if (!dir.cdUp())
+                break;
         }
         return QString();
     };
-    auto findProjectRootUpwards = [&]()->QString {
+    auto findProjectRootUpwards = [&]() -> QString {
         QDir dir(appDir);
         for (int i = 0; i < 10; ++i) {
             if (QFileInfo(dir.filePath("training/python/droplet_trainer/__main__.py")).exists()) {
                 return dir.absolutePath();
             }
-            if (!dir.cdUp()) break;
+            if (!dir.cdUp())
+                break;
         }
         QDir cwd(QDir::currentPath());
         for (int i = 0; i < 10; ++i) {
             if (QFileInfo(cwd.filePath("training/python/droplet_trainer/__main__.py")).exists()) {
                 return cwd.absolutePath();
             }
-            if (!cwd.cdUp()) break;
+            if (!cwd.cdUp())
+                break;
         }
         return QString();
     };
     QString projectRoot = findProjectRootUpwards();
-    auto projectPath = [&](const QString& rel)->QString {
+    auto projectPath = [&](const QString& rel) -> QString {
         return projectRoot.isEmpty() ? QString() : QDir(projectRoot).absoluteFilePath(rel);
     };
     QString defaultTrainerOutput = defaultWorkspacePaths.runs;
@@ -2889,21 +2980,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     QProcess* trainerProcess = nullptr;
     bool trainerCommandWasTraining = false;
     bool trainerCommandWasDryRun = false;
-    auto appendTrainerLog = [datasetController](const QString& text) {
-        datasetController->appendTrainerLog(text);
-    };
+    auto appendTrainerLog = [datasetController](const QString& text) { datasetController->appendTrainerLog(text); };
     auto trainerCommandPreview = [datasetController](const QString& program, const QStringList& args) {
         return datasetController->trainerCommandPreview(program, args);
     };
-    auto saveTrainerSettings = [datasetController]() {
-        datasetController->saveTrainerSettings();
-    };
+    auto saveTrainerSettings = [datasetController]() { datasetController->saveTrainerSettings(); };
     auto setTrainerBusy = [datasetController, &trainerCommandWasTraining](bool busy) {
         datasetController->setTrainerBusy(busy, trainerCommandWasTraining);
     };
-    auto trainerTrainArgs = [datasetController](bool dryRun) {
-        return datasetController->trainerTrainArgs(dryRun);
-    };
+    auto trainerTrainArgs = [datasetController](bool dryRun) { return datasetController->trainerTrainArgs(dryRun); };
     auto startTrainerCommand = [&](const QString& label, const QStringList& args, bool isTraining, bool isDryRun) {
         if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
             trainerStatusLabel->setText("A trainer command is already running.");
@@ -2914,8 +2999,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             trainerStatusLabel->setText("Select a Python executable before running trainer commands.");
             return;
         }
-        if ((isTraining || isDryRun) && (trainerDatasetEdit->text().trimmed().isEmpty() || trainerOutputEdit->text().trimmed().isEmpty() || args.contains(QString()))) {
-            trainerStatusLabel->setText("Dataset, output directory, and generated config are required before training.");
+        if ((isTraining || isDryRun) && (trainerDatasetEdit->text().trimmed().isEmpty() ||
+                                         trainerOutputEdit->text().trimmed().isEmpty() || args.contains(QString()))) {
+            trainerStatusLabel->setText(
+                "Dataset, output directory, and generated config are required before training.");
             return;
         }
         saveTrainerSettings();
@@ -2933,14 +3020,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         QString trainingPython = projectPath("training/python");
         if (QFileInfo(trainingPython).isDir()) {
             QString existing = env.value("PYTHONPATH");
-            env.insert("PYTHONPATH", existing.isEmpty() ? trainingPython : trainingPython + QDir::listSeparator() + existing);
+            env.insert("PYTHONPATH",
+                       existing.isEmpty() ? trainingPython : trainingPython + QDir::listSeparator() + existing);
         }
         process->setProcessEnvironment(env);
         if (!projectRoot.isEmpty()) {
             process->setWorkingDirectory(projectRoot);
         }
         QObject::connect(process, &QProcess::readyReadStandardOutput, this, [&, process]() {
-            if (trainerProcess != process) return;
+            if (trainerProcess != process)
+                return;
             const QString chunk = QString::fromLocal8Bit(process->readAllStandardOutput());
             appendTrainerLog(chunk);
             int progressIndex = chunk.indexOf("\"percent\"");
@@ -2955,29 +3044,35 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             }
         });
         QObject::connect(process, &QProcess::readyReadStandardError, this, [&, process]() {
-            if (trainerProcess != process) return;
+            if (trainerProcess != process)
+                return;
             appendTrainerLog(QString::fromLocal8Bit(process->readAllStandardError()));
         });
-        QObject::connect(process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-                         this, [&, process](int exitCode, QProcess::ExitStatus exitStatus) {
-            if (trainerProcess != process) return;
-            const bool crashed = exitStatus == QProcess::CrashExit;
-            appendTrainerLog(QString("\nProcess finished: exit=%1%2\n").arg(exitCode).arg(crashed ? " crashed" : ""));
-            const bool ok = exitCode == 0 && !crashed;
-            if (trainerCommandWasDryRun) {
-                trainerStatusLabel->setText(ok ? "Dry run completed." : "Dry run failed. Review log output.");
-            } else if (trainerCommandWasTraining) {
-                trainerStatusLabel->setText(ok ? "Training completed." : "Training failed. Review log output.");
-            } else {
-                trainerStatusLabel->setText(ok ? "Python environment validated." : "Environment validation failed.");
-            }
-            pythonStatusItem->setText(ok ? "Python: ready" : "Python: issue");
-            setTrainerBusy(false);
-            trainerProcess = nullptr;
-            process->deleteLater();
-        });
+        QObject::connect(
+            process, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this,
+            [&, process](int exitCode, QProcess::ExitStatus exitStatus) {
+                if (trainerProcess != process)
+                    return;
+                const bool crashed = exitStatus == QProcess::CrashExit;
+                appendTrainerLog(
+                    QString("\nProcess finished: exit=%1%2\n").arg(exitCode).arg(crashed ? " crashed" : ""));
+                const bool ok = exitCode == 0 && !crashed;
+                if (trainerCommandWasDryRun) {
+                    trainerStatusLabel->setText(ok ? "Dry run completed." : "Dry run failed. Review log output.");
+                } else if (trainerCommandWasTraining) {
+                    trainerStatusLabel->setText(ok ? "Training completed." : "Training failed. Review log output.");
+                } else {
+                    trainerStatusLabel->setText(ok ? "Python environment validated."
+                                                   : "Environment validation failed.");
+                }
+                pythonStatusItem->setText(ok ? "Python: ready" : "Python: issue");
+                setTrainerBusy(false);
+                trainerProcess = nullptr;
+                process->deleteLater();
+            });
         QObject::connect(process, &QProcess::errorOccurred, this, [&, process](QProcess::ProcessError error) {
-            if (trainerProcess != process) return;
+            if (trainerProcess != process)
+                return;
             Q_UNUSED(error);
             trainerStatusLabel->setText("Failed to start trainer subprocess.");
             appendTrainerLog("Process error: " + process->errorString() + "\n");
@@ -2989,17 +3084,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         process->start(python, args);
     };
     QObject::connect(trainerEnvCheckBtn, &QPushButton::clicked, [&]() {
-        const QString code = "import sys, droplet_trainer; print('Python ' + sys.version.split()[0] + ' -- trainer available')";
+        const QString code =
+            "import sys, droplet_trainer; print('Python ' + sys.version.split()[0] + ' -- trainer available')";
         startTrainerCommand("Environment validation", {"-c", code}, false, false);
     });
-    QObject::connect(trainerDryRunBtn, &QPushButton::clicked, [&]() {
-        startTrainerCommand("Training dry run", trainerTrainArgs(true), false, true);
-    });
-    QObject::connect(trainerStartTrainingBtn, &QPushButton::clicked, [&]() {
-        startTrainerCommand("Training", trainerTrainArgs(false), true, false);
-    });
+    QObject::connect(trainerDryRunBtn, &QPushButton::clicked,
+                     [&]() { startTrainerCommand("Training dry run", trainerTrainArgs(true), false, true); });
+    QObject::connect(trainerStartTrainingBtn, &QPushButton::clicked,
+                     [&]() { startTrainerCommand("Training", trainerTrainArgs(false), true, false); });
     QObject::connect(trainerCancelBtn, &QPushButton::clicked, [&]() {
-        if (!trainerProcess || trainerProcess->state() == QProcess::NotRunning) return;
+        if (!trainerProcess || trainerProcess->state() == QProcess::NotRunning)
+            return;
         trainerStatusLabel->setText("Canceling trainer subprocess...");
         trainerProcess->terminate();
         QPointer<QProcess> processPtr(trainerProcess);
@@ -3044,24 +3139,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     QString defaultMetaAbs = QDir(appDir).absoluteFilePath(defaultMetaRel);
     QString defaultOnnxFromProject = findModelUpwards("pre_binary_promotion_backup.onnx");
     QString defaultMetaFromProject = findModelUpwards("pre_binary_promotion_backup_metadata.json");
-    QStringList onnxCandidates = {
-        defaultWorkspacePaths.activeModel,
-        defaultOnnxFromProject,
-        defaultOnnxAbs,
-        appDir + "/pre_binary_promotion_backup.onnx",
-        appDir + "/models/pre_binary_promotion_backup.onnx",
-        appDir + "/../models/pre_binary_promotion_backup.onnx",
-        appDir + "/../../models/pre_binary_promotion_backup.onnx"
-    };
-    QStringList metaCandidates = {
-        defaultWorkspacePaths.activeMetadata,
-        defaultMetaFromProject,
-        defaultMetaAbs,
-        appDir + "/pre_binary_promotion_backup_metadata.json",
-        appDir + "/models/pre_binary_promotion_backup_metadata.json",
-        appDir + "/../models/pre_binary_promotion_backup_metadata.json",
-        appDir + "/../../models/pre_binary_promotion_backup_metadata.json"
-    };
+    QStringList onnxCandidates = {defaultWorkspacePaths.activeModel,
+                                  defaultOnnxFromProject,
+                                  defaultOnnxAbs,
+                                  appDir + "/pre_binary_promotion_backup.onnx",
+                                  appDir + "/models/pre_binary_promotion_backup.onnx",
+                                  appDir + "/../models/pre_binary_promotion_backup.onnx",
+                                  appDir + "/../../models/pre_binary_promotion_backup.onnx"};
+    QStringList metaCandidates = {defaultWorkspacePaths.activeMetadata,
+                                  defaultMetaFromProject,
+                                  defaultMetaAbs,
+                                  appDir + "/pre_binary_promotion_backup_metadata.json",
+                                  appDir + "/models/pre_binary_promotion_backup_metadata.json",
+                                  appDir + "/../models/pre_binary_promotion_backup_metadata.json",
+                                  appDir + "/../../models/pre_binary_promotion_backup_metadata.json"};
     QString onnxPicked = pickExistingPath(onnxCandidates);
     if (onnxPicked.isEmpty()) {
         onnxPicked = defaultOnnxRel;
@@ -3090,17 +3181,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     constexpr int kLiveModelOnnxHashRole = Qt::UserRole + 8;
     constexpr int kLiveModelMetadataHashRole = Qt::UserRole + 9;
 
-    auto addLiveModelRow = [&](const QString& label,
-                               const QString& id,
-                               const QString& onnxPath,
-                               const QString& metadataPath,
-                               const QString& state,
-                               const QString& mode,
-                               const QString& targetClassId,
-                               const QString& summary,
-                               const QString& onnxSha256,
-                               const QString& metadataSha256,
-                               bool selectable) {
+    auto addLiveModelRow = [&](const QString& label, const QString& id, const QString& onnxPath,
+                               const QString& metadataPath, const QString& state, const QString& mode,
+                               const QString& targetClassId, const QString& summary, const QString& onnxSha256,
+                               const QString& metadataSha256, bool selectable) {
         liveModelCombo->addItem(label);
         const int index = liveModelCombo->count() - 1;
         liveModelCombo->setItemData(index, id, kLiveModelIdRole);
@@ -3128,39 +3212,27 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         const QString targetId = registryNestedString(entry, "target_policy", "target_class_id");
         const QString targetDisplay = registryNestedString(entry, "target_policy", "target_display_label");
         QString label = registryString(entry, "display_name");
-        if (label.isEmpty()) label = registryString(entry, "registry_entry_id");
+        if (label.isEmpty())
+            label = registryString(entry, "registry_entry_id");
         label += " - " + registryString(entry, "state");
         if (!targetId.isEmpty()) {
             label += " - " + (targetDisplay.isEmpty() ? targetId : QString("%1 (%2)").arg(targetDisplay, targetId));
         }
         const bool selectable = entry.value("selectable_for_normal_live_sorting").toBool(false) &&
-            registryString(entry, "live_use_mode") != "blocked";
-        addLiveModelRow(
-            label,
-            registryString(entry, "registry_entry_id"),
-            runtimePathFromRegistryPath(registryString(entry, "model_path")),
-            runtimePathFromRegistryPath(registryString(entry, "metadata_path")),
-            registryString(entry, "state"),
-            selectable ? registryString(entry, "live_use_mode") : "blocked",
-            targetId,
-            registryEntrySummary(entry, registryFilePath, registryLoadWarning),
-            registryString(entry, "model_sha256"),
-            registryString(entry, "metadata_sha256"),
-            selectable);
+                                registryString(entry, "live_use_mode") != "blocked";
+        addLiveModelRow(label, registryString(entry, "registry_entry_id"),
+                        runtimePathFromRegistryPath(registryString(entry, "model_path")),
+                        runtimePathFromRegistryPath(registryString(entry, "metadata_path")),
+                        registryString(entry, "state"), selectable ? registryString(entry, "live_use_mode") : "blocked",
+                        targetId, registryEntrySummary(entry, registryFilePath, registryLoadWarning),
+                        registryString(entry, "model_sha256"), registryString(entry, "metadata_sha256"), selectable);
     }
     if (liveModelCombo->count() == 0) {
-        addLiveModelRow(
-            "Temporary static fallback - promoted/current binary runtime - Hits (1)",
-            "run_20260429_221500_wsl2_binary_linuxmirror_onnx",
-            onnxPicked,
-            metaPicked,
-            "promoted_current",
-            "normal",
-            "1",
-            "Temporary static fallback row. Registry file was empty or unavailable.",
-            "34eec09f49ab4612a34e3a24ccf85eccc98516b388fbadbfb0736ecbf8fb1769",
-            "fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f",
-            true);
+        addLiveModelRow("Temporary static fallback - promoted/current binary runtime - Hits (1)",
+                        "run_20260429_221500_wsl2_binary_linuxmirror_onnx", onnxPicked, metaPicked, "promoted_current",
+                        "normal", "1", "Temporary static fallback row. Registry file was empty or unavailable.",
+                        "34eec09f49ab4612a34e3a24ccf85eccc98516b388fbadbfb0736ecbf8fb1769",
+                        "fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f", true);
     }
     int activeLiveModelIndex = 0;
     for (int i = 0; i < liveModelCombo->count(); ++i) {
@@ -3174,18 +3246,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     liveModelSummaryText->setPlainText(liveModelCombo->currentData(kLiveModelSummaryRole).toString());
 
     QString pendingTargetClassId = appState.targetClassId;
-    auto selectedTargetClassId = [&]()->QString {
-        if (!targetClassCombo) return QString();
+    auto selectedTargetClassId = [&]() -> QString {
+        if (!targetClassCombo)
+            return QString();
         QVariant data = targetClassCombo->currentData();
         QString classId = data.isValid() ? data.toString().trimmed() : QString();
-        if (!classId.isEmpty()) return classId;
+        if (!classId.isEmpty())
+            return classId;
         classId = targetClassCombo->currentText().trimmed();
         return classId.isEmpty() ? appState.targetClassId : classId;
     };
 
     auto setSelectedTargetClassId = [&](const QString& classId) {
         pendingTargetClassId = classId.trimmed();
-        if (pendingTargetClassId.isEmpty()) return;
+        if (pendingTargetClassId.isEmpty())
+            return;
         appState.targetClassId = pendingTargetClassId;
         for (int i = 0; i < targetClassCombo->count(); ++i) {
             if (targetClassCombo->itemData(i).toString() == pendingTargetClassId) {
@@ -3235,46 +3310,61 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
 
     auto restoreRuntimeSettings = [&]() {
-        if (!runtimeSettings.contains(kRuntimeSettingsSchemaVersionKey)) return;
+        if (!runtimeSettings.contains(kRuntimeSettingsSchemaVersionKey))
+            return;
         const int schemaVersion = runtimeSettings.value(kRuntimeSettingsSchemaVersionKey, 0).toInt();
-        if (schemaVersion < 1 || schemaVersion > kRuntimeSettingsSchemaVersion) return;
+        if (schemaVersion < 1 || schemaVersion > kRuntimeSettingsSchemaVersion)
+            return;
 
         onnxEdit->setText(runtimeSettings.value("runtime/v1/model/path", onnxEdit->text()).toString());
         metaEdit->setText(runtimeSettings.value("runtime/v1/model/metadataPath", metaEdit->text()).toString());
-        setSelectedTargetClassId(runtimeSettings.value("runtime/v1/model/targetClassId", pendingTargetClassId).toString());
+        setSelectedTargetClassId(
+            runtimeSettings.value("runtime/v1/model/targetClassId", pendingTargetClassId).toString());
         outputEdit->setText(runtimeSettings.value("runtime/v1/output/baseDir", outputEdit->text()).toString());
-        saveCropCheck->setChecked(runtimeSettings.value("runtime/v1/output/saveCrops", saveCropCheck->isChecked()).toBool());
-        saveOverlayCheck->setChecked(runtimeSettings.value("runtime/v1/output/saveOverlays", saveOverlayCheck->isChecked()).toBool());
+        saveCropCheck->setChecked(
+            runtimeSettings.value("runtime/v1/output/saveCrops", saveCropCheck->isChecked()).toBool());
+        saveOverlayCheck->setChecked(
+            runtimeSettings.value("runtime/v1/output/saveOverlays", saveOverlayCheck->isChecked()).toBool());
 
         setComboTextIfPresent(presetCombo, runtimeSettings.value("runtime/v1/camera/presetText").toString());
-        customWidthSpin->setValue(runtimeSettings.value("runtime/v1/camera/customWidth", customWidthSpin->value()).toInt());
-        customHeightSpin->setValue(runtimeSettings.value("runtime/v1/camera/customHeight", customHeightSpin->value()).toInt());
+        customWidthSpin->setValue(
+            runtimeSettings.value("runtime/v1/camera/customWidth", customWidthSpin->value()).toInt());
+        customHeightSpin->setValue(
+            runtimeSettings.value("runtime/v1/camera/customHeight", customHeightSpin->value()).toInt());
         setComboTextIfPresent(binCombo, runtimeSettings.value("runtime/v1/camera/binning").toString());
         setComboTextIfPresent(bitsCombo, runtimeSettings.value("runtime/v1/camera/bits").toString());
         exposureSpin->setValue(runtimeSettings.value("runtime/v1/camera/exposureMs", exposureSpin->value()).toDouble());
         setComboTextIfPresent(readoutCombo, runtimeSettings.value("runtime/v1/camera/readoutSpeed").toString());
-        displayEverySpin->setValue(runtimeSettings.value("runtime/v1/camera/displayEvery", displayEverySpin->value()).toInt());
+        displayEverySpin->setValue(
+            runtimeSettings.value("runtime/v1/camera/displayEvery", displayEverySpin->value()).toInt());
         lutMinSpin->setValue(runtimeSettings.value("runtime/v1/camera/lutMin", lutMinSpin->value()).toInt());
         lutMaxSpin->setValue(runtimeSettings.value("runtime/v1/camera/lutMax", lutMaxSpin->value()).toInt());
         savePathEdit->setText(runtimeSettings.value("runtime/v1/camera/savePath", savePathEdit->text()).toString());
 
         frameSkipSpin->setValue(runtimeSettings.value("runtime/v1/detector/frameSkip", frameSkipSpin->value()).toInt());
         bgFramesSpin->setValue(runtimeSettings.value("runtime/v1/detector/bgFrames", bgFramesSpin->value()).toInt());
-        bgUpdateSpin->setValue(runtimeSettings.value("runtime/v1/detector/bgUpdateFrames", bgUpdateSpin->value()).toInt());
-        resetFramesSpin->setValue(runtimeSettings.value("runtime/v1/detector/resetFrames", resetFramesSpin->value()).toInt());
+        bgUpdateSpin->setValue(
+            runtimeSettings.value("runtime/v1/detector/bgUpdateFrames", bgUpdateSpin->value()).toInt());
+        resetFramesSpin->setValue(
+            runtimeSettings.value("runtime/v1/detector/resetFrames", resetFramesSpin->value()).toInt());
         minAreaSpin->setValue(runtimeSettings.value("runtime/v1/detector/minArea", minAreaSpin->value()).toDouble());
-        minAreaFracSpin->setValue(runtimeSettings.value("runtime/v1/detector/minAreaFrac", minAreaFracSpin->value()).toDouble());
-        maxAreaFracSpin->setValue(runtimeSettings.value("runtime/v1/detector/maxAreaFrac", maxAreaFracSpin->value()).toDouble());
+        minAreaFracSpin->setValue(
+            runtimeSettings.value("runtime/v1/detector/minAreaFrac", minAreaFracSpin->value()).toDouble());
+        maxAreaFracSpin->setValue(
+            runtimeSettings.value("runtime/v1/detector/maxAreaFrac", maxAreaFracSpin->value()).toDouble());
         minBboxSpin->setValue(runtimeSettings.value("runtime/v1/detector/minBbox", minBboxSpin->value()).toInt());
         marginSpin->setValue(runtimeSettings.value("runtime/v1/detector/margin", marginSpin->value()).toInt());
-        diffThreshSpin->setValue(runtimeSettings.value("runtime/v1/detector/diffThresh", diffThreshSpin->value()).toInt());
-        blurRadiusSpin->setValue(runtimeSettings.value("runtime/v1/detector/blurRadius", blurRadiusSpin->value()).toInt());
-        morphRadiusSpin->setValue(runtimeSettings.value("runtime/v1/detector/morphRadius", morphRadiusSpin->value()).toInt());
+        diffThreshSpin->setValue(
+            runtimeSettings.value("runtime/v1/detector/diffThresh", diffThreshSpin->value()).toInt());
+        blurRadiusSpin->setValue(
+            runtimeSettings.value("runtime/v1/detector/blurRadius", blurRadiusSpin->value()).toInt());
+        morphRadiusSpin->setValue(
+            runtimeSettings.value("runtime/v1/detector/morphRadius", morphRadiusSpin->value()).toInt());
         scaleSpin->setValue(runtimeSettings.value("runtime/v1/detector/scale", scaleSpin->value()).toDouble());
         gapFireSpin->setValue(runtimeSettings.value("runtime/v1/detector/gapFireShift", gapFireSpin->value()).toInt());
     };
 
-    auto runtimeSettingsSnapshot = [&](const QString& runMode)->QJsonObject {
+    auto runtimeSettingsSnapshot = [&](const QString& runMode) -> QJsonObject {
         QJsonObject root;
         root["schema_version"] = kRuntimeSettingsSchemaVersion;
         root["run_mode"] = runMode;
@@ -3338,7 +3428,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
 
     auto writeRuntimeSettingsSnapshot = [&](const QString& runDir, const QString& runMode) {
-        if (runDir.trimmed().isEmpty()) return;
+        if (runDir.trimmed().isEmpty())
+            return;
         QDir dir(runDir);
         dir.mkpath(".");
         QFile file(dir.filePath("runtime_settings_snapshot.json"));
@@ -3349,14 +3440,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         file.write(QJsonDocument(runtimeSettingsSnapshot(runMode)).toJson(QJsonDocument::Indented));
     };
 
-    auto resolveAppRelative = [&](const QString& path)->QString {
-        if (path.isEmpty()) return path;
+    auto resolveAppRelative = [&](const QString& path) -> QString {
+        if (path.isEmpty())
+            return path;
         QFileInfo info(path);
-        if (info.isAbsolute()) return info.absoluteFilePath();
+        if (info.isAbsolute())
+            return info.absoluteFilePath();
         QString abs = QDir(appDir).absoluteFilePath(path);
-        if (QFileInfo::exists(abs)) return abs;
+        if (QFileInfo::exists(abs))
+            return abs;
         QString fallback = findModelUpwards(QFileInfo(path).fileName());
-        if (!fallback.isEmpty()) return fallback;
+        if (!fallback.isEmpty())
+            return fallback;
         return abs;
     };
 
@@ -3379,7 +3474,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             targetClassCombo->addItem(fallbackId, fallbackId);
             pendingTargetClassId = fallbackId;
             logMessage(QString("Target selector using legacy fallback class id '%1': %2")
-                .arg(fallbackId, QString::fromStdString(err)));
+                           .arg(fallbackId, QString::fromStdString(err)));
             return;
         }
 
@@ -3393,17 +3488,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         std::string resolvedClassId;
         std::string resolvedDisplayLabel;
         std::string resolveErr;
-        if (!ResolveTargetClassId(metadata,
-                                  requestedClassId.toStdString(),
-                                  std::string(),
-                                  resolvedClassId,
-                                  resolvedDisplayLabel,
-                                  resolveErr)) {
-            ResolveTargetClassId(metadata,
-                                 std::string(),
-                                 std::string(),
-                                 resolvedClassId,
-                                 resolvedDisplayLabel,
+        if (!ResolveTargetClassId(metadata, requestedClassId.toStdString(), std::string(), resolvedClassId,
+                                  resolvedDisplayLabel, resolveErr)) {
+            ResolveTargetClassId(metadata, std::string(), std::string(), resolvedClassId, resolvedDisplayLabel,
                                  resolveErr);
         }
 
@@ -3427,13 +3514,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         appState.activeModelId = liveModelCombo->currentData(kLiveModelIdRole).toString();
         liveModelSummaryText->setPlainText(summary);
         if (mode == "blocked") {
-            pipelineStatusLabel->setText("Live sorting blocked: selected model is not live-use eligible. Open Model Manager for gate evidence.");
+            pipelineStatusLabel->setText(
+                "Live sorting blocked: selected model is not live-use eligible. Open Model Manager for gate evidence.");
             return;
         }
         const QString onnxPath = liveModelCombo->currentData(kLiveModelOnnxRole).toString();
         const QString metadataPath = liveModelCombo->currentData(kLiveModelMetadataRole).toString();
         const QJsonObject packagedActiveEntry = activeRegistryEntry(registryEntries);
-        const bool selectedPackagedActive = appState.activeModelId == registryString(packagedActiveEntry, "registry_entry_id");
+        const bool selectedPackagedActive =
+            appState.activeModelId == registryString(packagedActiveEntry, "registry_entry_id");
         if (selectedPackagedActive && !defaultWorkspacePaths.activeModel.isEmpty()) {
             onnxEdit->setText(defaultWorkspacePaths.activeModel);
         } else if (!onnxPath.isEmpty()) {
@@ -3481,13 +3570,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     QString datasetCaptureDir;
     QString datasetCaptureManifestPath;
 
-    imageView->setZoomChanged([=](double zoom){
+    imageView->setZoomChanged([=](double zoom) {
         zoomStatusLabel->setText(QString("%1%").arg(static_cast<int>(std::lround(zoom * 100.0))));
         scaleStatusLabel->setText(QString("SF: %1 Px").arg(zoom, 0, 'f', 3));
     });
-    cameraImageView->setZoomChanged([=](double zoom){
-        Q_UNUSED(zoom);
-    });
+    cameraImageView->setZoomChanged([=](double zoom) { Q_UNUSED(zoom); });
 
     QThread cameraThread;
     cameraThread.setObjectName("CameraWorkerThread");
@@ -3597,9 +3684,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto repairRuntimeModelPaths = [&]() {
         auto rawPathExists = [&](const QString& path) {
             const QString trimmed = path.trimmed();
-            if (trimmed.isEmpty()) return false;
+            if (trimmed.isEmpty())
+                return false;
             QFileInfo info(trimmed);
-            if (info.isAbsolute()) return info.exists();
+            if (info.isAbsolute())
+                return info.exists();
             return QFileInfo(QDir(appDir).absoluteFilePath(trimmed)).exists();
         };
         if (rawPathExists(onnxEdit->text()) && rawPathExists(metaEdit->text())) {
@@ -3607,10 +3696,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
         const QString registryOnnx = liveModelCombo->currentData(kLiveModelOnnxRole).toString();
         const QString registryMeta = liveModelCombo->currentData(kLiveModelMetadataRole).toString();
-        if (!registryOnnx.isEmpty()) onnxEdit->setText(registryOnnx);
-        if (!registryMeta.isEmpty()) metaEdit->setText(registryMeta);
+        if (!registryOnnx.isEmpty())
+            onnxEdit->setText(registryOnnx);
+        if (!registryMeta.isEmpty())
+            metaEdit->setText(registryMeta);
         logMessage(QString("Runtime model paths repaired from selected registry entry: onnx=%1 meta=%2")
-            .arg(onnxEdit->text(), metaEdit->text()));
+                       .arg(onnxEdit->text(), metaEdit->text()));
     };
     repairRuntimeModelPaths();
     populateTargetClassSelector();
@@ -3618,7 +3709,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
 
     QPointer<ViewerWindow> viewerWindow;
     QPointer<StatsFigureWindow> statsFigureWindow;
-    QObject::connect(viewerBtn, &QPushButton::clicked, [&](){
+    QObject::connect(viewerBtn, &QPushButton::clicked, [&]() {
         if (viewerWindow) {
             viewerWindow->raise();
             viewerWindow->activateWindow();
@@ -3626,7 +3717,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
         viewerWindow = new ViewerWindow(nullptr);
         viewerWindow->setAttribute(Qt::WA_DeleteOnClose);
-        QObject::connect(viewerWindow, &QObject::destroyed, [&](){ viewerWindow = nullptr; });
+        QObject::connect(viewerWindow, &QObject::destroyed, [&]() { viewerWindow = nullptr; });
         viewerWindow->show();
     });
 
@@ -3641,59 +3732,55 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     QTimer saveInfoTimer;
     saveInfoTimer.setInterval(200);
 
-    QObject::connect(saveBrowseBtn, &QPushButton::clicked, [&](){
+    QObject::connect(saveBrowseBtn, &QPushButton::clicked, [&]() {
         QString dir = QFileDialog::getExistingDirectory(this, "Select save directory", savePathEdit->text());
-        if (!dir.isEmpty()) savePathEdit->setText(dir);
+        if (!dir.isEmpty())
+            savePathEdit->setText(dir);
     });
-    QObject::connect(saveOpenBtn, &QPushButton::clicked, [&](){
+    QObject::connect(saveOpenBtn, &QPushButton::clicked, [&]() {
         QString dir = savePathEdit->text();
-        if (dir.isEmpty()) dir = QCoreApplication::applicationDirPath();
+        if (dir.isEmpty())
+            dir = QCoreApplication::applicationDirPath();
         QDir().mkpath(dir);
         QDesktopServices::openUrl(QUrl::fromLocalFile(dir));
     });
 
-    QObject::connect(onnxBrowseBtn, &QPushButton::clicked, [&](){
-        QString file = QFileDialog::getOpenFileName(this, "Select ONNX model", onnxEdit->text(),
-                                                    "ONNX Model (*.onnx)");
+    QObject::connect(onnxBrowseBtn, &QPushButton::clicked, [&]() {
+        QString file = QFileDialog::getOpenFileName(this, "Select ONNX model", onnxEdit->text(), "ONNX Model (*.onnx)");
         if (!file.isEmpty()) {
             onnxEdit->setText(file);
             saveRuntimeSettings();
         }
     });
-    QObject::connect(metaBrowseBtn, &QPushButton::clicked, [&](){
-        QString file = QFileDialog::getOpenFileName(this, "Select metadata JSON", metaEdit->text(),
-                                                    "JSON (*.json)");
+    QObject::connect(metaBrowseBtn, &QPushButton::clicked, [&]() {
+        QString file = QFileDialog::getOpenFileName(this, "Select metadata JSON", metaEdit->text(), "JSON (*.json)");
         if (!file.isEmpty()) {
             metaEdit->setText(file);
             populateTargetClassSelector();
             saveRuntimeSettings();
         }
     });
-    QObject::connect(outputBrowseBtn, &QPushButton::clicked, [&](){
+    QObject::connect(outputBrowseBtn, &QPushButton::clicked, [&]() {
         QString dir = QFileDialog::getExistingDirectory(this, "Select output directory", outputEdit->text());
         if (!dir.isEmpty()) {
             outputEdit->setText(dir);
             saveRuntimeSettings();
         }
     });
-    QObject::connect(liveModelCombo, qOverload<int>(&QComboBox::currentIndexChanged), [&](){
-        applyLiveModelSelection();
-    });
-    QObject::connect(openLiveModelManagerBtn, &QPushButton::clicked, [&](){
-        operationalTabs->setCurrentWidget(modelManagerWidget);
-    });
-    QObject::connect(refreshLiveModelsBtn, &QPushButton::clicked, [&](){
-        applyLiveModelSelection();
-    });
+    QObject::connect(liveModelCombo, qOverload<int>(&QComboBox::currentIndexChanged),
+                     [&]() { applyLiveModelSelection(); });
+    QObject::connect(openLiveModelManagerBtn, &QPushButton::clicked,
+                     [&]() { operationalTabs->setCurrentWidget(modelManagerWidget); });
+    QObject::connect(refreshLiveModelsBtn, &QPushButton::clicked, [&]() { applyLiveModelSelection(); });
 
     auto connectRuntimeSettingsPersistence = [&]() {
         QObject::connect(onnxEdit, &QLineEdit::editingFinished, saveRuntimeSettings);
-        QObject::connect(metaEdit, &QLineEdit::editingFinished, [&](){
+        QObject::connect(metaEdit, &QLineEdit::editingFinished, [&]() {
             populateTargetClassSelector();
             saveRuntimeSettings();
         });
         QObject::connect(outputEdit, &QLineEdit::editingFinished, saveRuntimeSettings);
-        QObject::connect(targetClassCombo, qOverload<int>(&QComboBox::currentIndexChanged), [&](){
+        QObject::connect(targetClassCombo, qOverload<int>(&QComboBox::currentIndexChanged), [&]() {
             pendingTargetClassId = selectedTargetClassId();
             appState.targetClassId = pendingTargetClassId;
             saveRuntimeSettings();
@@ -3721,9 +3808,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         QObject::connect(bgFramesSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
         QObject::connect(bgUpdateSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
         QObject::connect(resetFramesSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
-        QObject::connect(minAreaSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), persistAndScheduleDetectorApply);
-        QObject::connect(minAreaFracSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), persistAndScheduleDetectorApply);
-        QObject::connect(maxAreaFracSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), persistAndScheduleDetectorApply);
+        QObject::connect(minAreaSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         persistAndScheduleDetectorApply);
+        QObject::connect(minAreaFracSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         persistAndScheduleDetectorApply);
+        QObject::connect(maxAreaFracSpin, qOverload<double>(&QDoubleSpinBox::valueChanged),
+                         persistAndScheduleDetectorApply);
         QObject::connect(minBboxSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
         QObject::connect(marginSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
         QObject::connect(diffThreshSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
@@ -3736,7 +3826,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     connectRuntimeSettingsPersistence();
     saveRuntimeSettings();
 
-    QObject::connect(pipelineEnableCheck, &QCheckBox::toggled, [&](bool enabled){
+    QObject::connect(pipelineEnableCheck, &QCheckBox::toggled, [&](bool enabled) {
         pipelineEnabled.store(enabled);
         updateForceTriggerState();
         updateLiveRunStartStopVisibility();
@@ -3769,16 +3859,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
 
     bool daqStartupStateLogged = false;
     auto logDaqStartupState = [&](const QString& stateText) {
-        if (daqStartupStateLogged) return;
+        if (daqStartupStateLogged)
+            return;
         daqStartupStateLogged = true;
         logMessage("DAQ startup state: " + stateText);
     };
 
-    auto loadPipeline = [&](bool enableAfter){
+    auto loadPipeline = [&](bool enableAfter) {
         logMessage("Pipeline init requested");
         settingsController->refreshDaqDeviceOptions(true);
         if (liveModelCombo->currentData(kLiveModelModeRole).toString() == "blocked") {
-            pipelineStatusLabel->setText("Live sorting blocked: selected model is not live-use eligible. Open Model Manager for gate evidence.");
+            pipelineStatusLabel->setText(
+                "Live sorting blocked: selected model is not live-use eligible. Open Model Manager for gate evidence.");
             logMessage("Pipeline init blocked by live model selection gate: " + liveModelCombo->currentText());
             return;
         }
@@ -3819,11 +3911,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         logMessage(QString("Pipeline init paths: onnx=%1 meta=%2").arg(onnxEdit->text(), metaEdit->text()));
         logMessage(QString("Pipeline init resolved paths: onnx=%1 meta=%2").arg(onnxResolved, metaResolved));
         logMessage(QString("DAQ config: channel=%1 range=[-10,10] amp=%2V freq=%3Hz duration=%4ms delay=%5ms")
-            .arg(daqChannelEdit->text().trimmed())
-            .arg(amplitudeSpin->value(), 0, 'f', 3)
-            .arg(freqSpin->value() * 1000.0, 0, 'f', 1)
-            .arg(durationSpin->value(), 0, 'f', 3)
-            .arg(delaySpin->value(), 0, 'f', 3));
+                       .arg(daqChannelEdit->text().trimmed())
+                       .arg(amplitudeSpin->value(), 0, 'f', 3)
+                       .arg(freqSpin->value() * 1000.0, 0, 'f', 1)
+                       .arg(durationSpin->value(), 0, 'f', 3)
+                       .arg(delaySpin->value(), 0, 'f', 3));
         if (!settingsController->discoveredDaqDevices().empty()) {
             logMessage(QString("DAQ discovery: %1").arg(settingsController->describeDiscoveredDaqDevices()));
         } else if (!settingsController->daqDiscoveryError().isEmpty()) {
@@ -3897,7 +3989,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
 
         if (!err.empty()) {
-            pipelineStatusLabel->setText(QString("Pipeline ready (DAQ off), target %1: %2").arg(resolvedTargetText, QString::fromStdString(err)));
+            pipelineStatusLabel->setText(QString("Pipeline ready (DAQ off), target %1: %2")
+                                             .arg(resolvedTargetText, QString::fromStdString(err)));
             modelStatusItem->setText("Model: loaded");
             daqStatusItem->setText("DAQ: unavailable");
             appState.daqAvailable = false;
@@ -3938,35 +4031,34 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         } else {
             settingsController->applyDaqAvailability(settingsController->probeDaqAvailability());
             if (!appState.daqAvailable) {
-                logDaqStartupState(daqStatusItem->text() + (appState.daqFaultText.isEmpty() ? QString() : QStringLiteral(": ") + appState.daqFaultText));
+                logDaqStartupState(daqStatusItem->text() + (appState.daqFaultText.isEmpty()
+                                                                ? QString()
+                                                                : QStringLiteral(": ") + appState.daqFaultText));
             }
         }
-        appState.daqWaveformValid = !cfg.daq.channel.empty() && cfg.daq.amplitude > 0.0 && cfg.daq.frequencyHz > 0.0 && cfg.daq.durationMs > 0.0;
+        appState.daqWaveformValid = !cfg.daq.channel.empty() && cfg.daq.amplitude > 0.0 && cfg.daq.frequencyHz > 0.0 &&
+                                    cfg.daq.durationMs > 0.0;
         appState.daqStatusText = daqStatusItem->text();
         settingsController->updateLabviewOutput();
         updateForceTriggerState();
     };
 
-    QObject::connect(&detectorTuningApplyTimer, &QTimer::timeout, [&](){
-        if (viewerOnly) return;
+    QObject::connect(&detectorTuningApplyTimer, &QTimer::timeout, [&]() {
+        if (viewerOnly)
+            return;
         bool enableAfter = pipelineEnableCheck->isChecked();
         loadPipeline(enableAfter);
         updateForceTriggerState();
     });
-    settingsController->setReloadPipelineCallback([&](bool enableAfter) {
-        loadPipeline(enableAfter);
-    });
+    settingsController->setReloadPipelineCallback([&](bool enableAfter) { loadPipeline(enableAfter); });
     settingsController->setUpdateForceTriggerCallback(updateForceTriggerState);
-    scheduleDetectorApply = [&](){
-        detectorTuningApplyTimer.start();
-    };
+    scheduleDetectorApply = [&]() { detectorTuningApplyTimer.start(); };
 
-    QObject::connect(loadPipelineBtn, &QPushButton::clicked, [&](){
-        loadPipeline(false);
-    });
+    QObject::connect(loadPipelineBtn, &QPushButton::clicked, [&]() { loadPipeline(false); });
 
-    QObject::connect(pipelineStartBtn, &QPushButton::clicked, [&](){
-        if (sequenceRunning.load()) return;
+    QObject::connect(pipelineStartBtn, &QPushButton::clicked, [&]() {
+        if (sequenceRunning.load())
+            return;
         bool ready = false;
         {
             QMutexLocker lock(&pipelineMutex);
@@ -4019,8 +4111,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         this->statusBar()->showMessage("Live View started");
     });
 
-    QObject::connect(pipelineStopBtn, &QPushButton::clicked, [&](){
-        if (sequenceRunning.load()) return;
+    QObject::connect(pipelineStopBtn, &QPushButton::clicked, [&]() {
+        if (sequenceRunning.load())
+            return;
         pipelineEnableCheck->setChecked(false);
         updateForceTriggerState();
         statusLabel->setText("Pipeline stopped.");
@@ -4034,7 +4127,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         std::string err;
         {
             QMutexLocker lock(&datasetCaptureMutex);
-            if (!datasetCaptureActive.load()) return;
+            if (!datasetCaptureActive.load())
+                return;
             datasetCaptureSession.setStopReason(reason.toStdString());
             if (!datasetCaptureSession.finalize(err)) {
                 logMessage(QString("Dataset Builder capture finalize failed: %1").arg(QString::fromStdString(err)));
@@ -4044,7 +4138,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
         datasetStartCaptureBtn->setEnabled(true);
         datasetStopCaptureBtn->setEnabled(false);
-        datasetCaptureStatusLabel->setText(QString("Dataset Builder capture stopped: %1\nManifest: %2").arg(reason, reviewPath));
+        datasetCaptureStatusLabel->setText(
+            QString("Dataset Builder capture stopped: %1\nManifest: %2").arg(reason, reviewPath));
         statusLabel->setText("Dataset Builder capture stopped. Review required before trainer handoff.");
         trainerDatasetEdit->setText(datasetCaptureDir);
         if (openReview && QFileInfo::exists(reviewPath)) {
@@ -4053,7 +4148,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     };
 
     auto startDatasetCapture = [&]() {
-        if (datasetCaptureActive.load()) return;
+        if (datasetCaptureActive.load())
+            return;
         DatasetCollectionMode mode = DatasetCollectionMode::Mixed;
         std::string modeText = datasetCaptureModeCombo->currentText().toStdString();
         std::string err;
@@ -4104,8 +4200,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         datasetStartCaptureBtn->setEnabled(false);
         datasetStopCaptureBtn->setEnabled(true);
         datasetCaptureStatusLabel->setText(QString("Dataset Builder capture active: 0 / %1 crops\n%2")
-            .arg(datasetBatchTargetSpin->value())
-            .arg(sessionDir));
+                                               .arg(datasetBatchTargetSpin->value())
+                                               .arg(sessionDir));
         trainerDatasetEdit->setText(sessionDir);
         statusLabel->setText("Dataset Builder capture active. Crops remain unreviewed until manual review.");
         logMessage("Dataset Builder live capture started: " + sessionDir);
@@ -4113,16 +4209,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
 
     QObject::connect(datasetStartCaptureBtn, &QPushButton::clicked, startDatasetCapture);
     QObject::connect(datasetCaptureFromCameraAction, &QAction::triggered, startDatasetCapture);
-    QObject::connect(datasetStopCaptureBtn, &QPushButton::clicked, [&]() {
-        stopDatasetCapture("cancelled", true);
-    });
+    QObject::connect(datasetStopCaptureBtn, &QPushButton::clicked, [&]() { stopDatasetCapture("cancelled", true); });
 
-    QObject::connect(labviewReconnectBtn, &QPushButton::clicked, [&](){
+    QObject::connect(labviewReconnectBtn, &QPushButton::clicked, [&]() {
         bool enableAfter = pipelineEnableCheck->isChecked();
         loadPipeline(enableAfter);
     });
 
-    QObject::connect(labviewTestBtn, &QPushButton::clicked, [&](){
+    QObject::connect(labviewTestBtn, &QPushButton::clicked, [&]() {
         if (options.noDaq) {
             statusLabel->setText("DAQ disabled for test mode.");
             daqStatusItem->setText("DAQ: disabled");
@@ -4155,7 +4249,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         statusLabel->setText("DAQ trigger queued...");
         QPointer<QWidget> windowPtr(this);
         QPointer<QLabel> statusLabelPtr(statusLabel);
-        backgroundTasks.launch("daq-force-trigger", [&, cfg, canUsePipeline, windowPtr, statusLabelPtr](const BackgroundTaskRegistry::StopFlag& stop){
+        backgroundTasks.launch("daq-force-trigger", [&, cfg, canUsePipeline, windowPtr,
+                                                     statusLabelPtr](const BackgroundTaskRegistry::StopFlag& stop) {
             std::string trigErr;
             bool ok = false;
             bool usedPipeline = false;
@@ -4177,38 +4272,43 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             if (stop->load() || windowPtr.isNull()) {
                 return;
             }
-            QMetaObject::invokeMethod(windowPtr, [&, ok, trigErr, statusLabelPtr](){
-                if (statusLabelPtr.isNull()) return;
-                if (ok) {
-                    statusLabelPtr->setText("DAQ trigger sent.");
-                    appState.daqAvailable = true;
-                    appState.daqDisabled = false;
-                    appState.daqFault = false;
-                    appState.daqStatusText = "DAQ: available";
-                    settingsController->setLabviewStatus("Connected", "#2ecc71");
-                    updateForceTriggerState();
-                } else {
-                    statusLabelPtr->setText("DAQ trigger failed: " + QString::fromStdString(trigErr));
-                    appState.daqAvailable = false;
-                    appState.daqFault = true;
-                    appState.daqStatusText = "DAQ: unavailable";
-                    appState.daqFaultText = QString::fromStdString(trigErr);
-                    settingsController->setLabviewStatus("Disconnected", "#c0392b");
-                    updateForceTriggerState();
-                    logMessage(QString("DAQ force trigger failed: %1").arg(QString::fromStdString(trigErr)));
-                }
-            }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(
+                windowPtr,
+                [&, ok, trigErr, statusLabelPtr]() {
+                    if (statusLabelPtr.isNull())
+                        return;
+                    if (ok) {
+                        statusLabelPtr->setText("DAQ trigger sent.");
+                        appState.daqAvailable = true;
+                        appState.daqDisabled = false;
+                        appState.daqFault = false;
+                        appState.daqStatusText = "DAQ: available";
+                        settingsController->setLabviewStatus("Connected", "#2ecc71");
+                        updateForceTriggerState();
+                    } else {
+                        statusLabelPtr->setText("DAQ trigger failed: " + QString::fromStdString(trigErr));
+                        appState.daqAvailable = false;
+                        appState.daqFault = true;
+                        appState.daqStatusText = "DAQ: unavailable";
+                        appState.daqFaultText = QString::fromStdString(trigErr);
+                        settingsController->setLabviewStatus("Disconnected", "#c0392b");
+                        updateForceTriggerState();
+                        logMessage(QString("DAQ force trigger failed: %1").arg(QString::fromStdString(trigErr)));
+                    }
+                },
+                Qt::QueuedConnection);
         });
     });
 
-    QObject::connect(captureBtn, &QPushButton::clicked, [&](){
+    QObject::connect(captureBtn, &QPushButton::clicked, [&]() {
         const QImage lastFrame = cameraController->lastFrame();
         if (lastFrame.isNull()) {
             statusLabel->setText("No frame to capture");
             return;
         }
         QString baseDir = savePathEdit->text();
-        if (baseDir.isEmpty()) baseDir = QCoreApplication::applicationDirPath();
+        if (baseDir.isEmpty())
+            baseDir = QCoreApplication::applicationDirPath();
         QDir dir(baseDir);
         dir.mkpath(".");
         QString fname = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz") + ".tiff";
@@ -4221,7 +4321,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
     });
 
-    auto startSaving = [&](){
+    auto startSaving = [&]() {
         if (saving.load()) {
             statusLabel->setText("Already saving to disk");
             return;
@@ -4242,8 +4342,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         saveInfoTimer.start();
     };
 
-    auto stopSaving = [&](){
-        if (!recording.load()) return;
+    auto stopSaving = [&]() {
+        if (!recording.load())
+            return;
         recording = false;
         saveStartBtn->setEnabled(true);
         saveStopBtn->setEnabled(false);
@@ -4260,7 +4361,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
 
         QString baseDir = savePathEdit->text();
-        if (baseDir.isEmpty()) baseDir = QCoreApplication::applicationDirPath();
+        if (baseDir.isEmpty())
+            baseDir = QCoreApplication::applicationDirPath();
         QDir dir(baseDir);
         dir.mkpath(".");
         QString sub = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
@@ -4295,9 +4397,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         QPointer<QDialog> savingDialogPtr(savingDialog);
         QPointer<QProgressBar> savingProgressPtr(savingProgress);
 
-        backgroundTasks.launch("capture-save-export",
-            [frames, outDir, logLine, statusLabelPtr, savingDialogPtr, savingProgressPtr, totalFrames, metaCopy, expMsCopy, recordStartStr, &saving]
-            (const BackgroundTaskRegistry::StopFlag& stop) {
+        backgroundTasks.launch("capture-save-export", [frames, outDir, logLine, statusLabelPtr, savingDialogPtr,
+                                                       savingProgressPtr, totalFrames, metaCopy, expMsCopy,
+                                                       recordStartStr,
+                                                       &saving](const BackgroundTaskRegistry::StopFlag& stop) {
             int width = std::max(6, static_cast<int>(std::ceil(std::log10(std::max<size_t>(1, frames->size())))));
             bool canceled = false;
             for (size_t i = 0; i < frames->size(); ++i) {
@@ -4311,11 +4414,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                 im.save(path, "TIFF");
                 if (!savingProgressPtr.isNull() && (i % 100 == 0 || i + 1 == frames->size())) {
                     int v = static_cast<int>(i + 1);
-                    QMetaObject::invokeMethod(savingProgressPtr, [savingProgressPtr, v](){
-                        if (!savingProgressPtr.isNull()) {
-                            savingProgressPtr->setValue(v);
-                        }
-                    }, Qt::QueuedConnection);
+                    QMetaObject::invokeMethod(
+                        savingProgressPtr,
+                        [savingProgressPtr, v]() {
+                            if (!savingProgressPtr.isNull()) {
+                                savingProgressPtr->setValue(v);
+                            }
+                        },
+                        Qt::QueuedConnection);
                 }
             }
             // Write metadata file
@@ -4333,22 +4439,27 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                 ts.flush();
                 infoFile.close();
             }
-            logLine(canceled
-                ? QString("Save canceled after partial export to %1").arg(outDir)
-                : QString("Saved %1 frames to %2").arg(frames->size()).arg(outDir));
+            logLine(canceled ? QString("Save canceled after partial export to %1").arg(outDir)
+                             : QString("Saved %1 frames to %2").arg(frames->size()).arg(outDir));
             if (!statusLabelPtr.isNull()) {
-                QMetaObject::invokeMethod(statusLabelPtr, [statusLabelPtr, canceled](){
-                    if (!statusLabelPtr.isNull()) {
-                        statusLabelPtr->setText(canceled ? "Save canceled" : "Save complete");
-                    }
-                }, Qt::QueuedConnection);
+                QMetaObject::invokeMethod(
+                    statusLabelPtr,
+                    [statusLabelPtr, canceled]() {
+                        if (!statusLabelPtr.isNull()) {
+                            statusLabelPtr->setText(canceled ? "Save canceled" : "Save complete");
+                        }
+                    },
+                    Qt::QueuedConnection);
             }
             if (!savingDialogPtr.isNull()) {
-                QMetaObject::invokeMethod(savingDialogPtr, [savingDialogPtr](){
-                    if (!savingDialogPtr.isNull()) {
-                        savingDialogPtr->hide();
-                    }
-                }, Qt::QueuedConnection);
+                QMetaObject::invokeMethod(
+                    savingDialogPtr,
+                    [savingDialogPtr]() {
+                        if (!savingDialogPtr.isNull()) {
+                            savingDialogPtr->hide();
+                        }
+                    },
+                    Qt::QueuedConnection);
             }
             saving = false;
         });
@@ -4357,40 +4468,44 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     QObject::connect(saveStartBtn, &QPushButton::clicked, startSaving);
     QObject::connect(saveStopBtn, &QPushButton::clicked, stopSaving);
 
-    QObject::connect(&saveInfoTimer, &QTimer::timeout, [&](){
-        if (!recording.load()) return;
+    QObject::connect(&saveInfoTimer, &QTimer::timeout, [&]() {
+        if (!recording.load())
+            return;
         double elapsed = recordTimer.isValid() ? recordTimer.elapsed() / 1000.0 : 0.0;
-        saveInfoLabel->setText(QString("Elapsed: %1 s\nFrames: %2")
-            .arg(elapsed,0,'f',1).arg(recordedFrames.load()));
+        saveInfoLabel->setText(QString("Elapsed: %1 s\nFrames: %2").arg(elapsed, 0, 'f', 1).arg(recordedFrames.load()));
     });
 
-    auto updatePipelineStatus = [&](const PipelineEvent& evt, int bgRemaining, bool pipelineReady){
-        QMetaObject::invokeMethod(pipelineStatusLabel, [pipelineStatusLabel, &pipelineEnabled, evt, bgRemaining, pipelineReady](){
-            if (!pipelineEnabled.load()) {
-                pipelineStatusLabel->setText("Pipeline: paused");
-                return;
-            }
-            if (!pipelineReady) {
-                pipelineStatusLabel->setText("Pipeline: not loaded");
-                return;
-            }
-            if (bgRemaining > 0) {
-                pipelineStatusLabel->setText(QString("Pipeline: warming (%1 frames)").arg(bgRemaining));
-                return;
-            }
-            if (evt.fired) {
-                pipelineStatusLabel->setText(QString("Event: %1 (score %2) area=%3")
-                    .arg(QString::fromStdString(evt.label))
-                    .arg(evt.score, 0, 'f', 3)
-                    .arg(evt.area, 0, 'f', 0));
-            } else {
-                pipelineStatusLabel->setText("Pipeline: running");
-            }
-        }, Qt::QueuedConnection);
+    auto updatePipelineStatus = [&](const PipelineEvent& evt, int bgRemaining, bool pipelineReady) {
+        QMetaObject::invokeMethod(
+            pipelineStatusLabel,
+            [pipelineStatusLabel, &pipelineEnabled, evt, bgRemaining, pipelineReady]() {
+                if (!pipelineEnabled.load()) {
+                    pipelineStatusLabel->setText("Pipeline: paused");
+                    return;
+                }
+                if (!pipelineReady) {
+                    pipelineStatusLabel->setText("Pipeline: not loaded");
+                    return;
+                }
+                if (bgRemaining > 0) {
+                    pipelineStatusLabel->setText(QString("Pipeline: warming (%1 frames)").arg(bgRemaining));
+                    return;
+                }
+                if (evt.fired) {
+                    pipelineStatusLabel->setText(QString("Event: %1 (score %2) area=%3")
+                                                     .arg(QString::fromStdString(evt.label))
+                                                     .arg(evt.score, 0, 'f', 3)
+                                                     .arg(evt.area, 0, 'f', 0));
+                } else {
+                    pipelineStatusLabel->setText("Pipeline: running");
+                }
+            },
+            Qt::QueuedConnection);
     };
 
-    auto buildClassText = [&](const QMap<QString, int>& counts)->QString {
-        if (counts.isEmpty()) return "Classes:\n(none)";
+    auto buildClassText = [&](const QMap<QString, int>& counts) -> QString {
+        if (counts.isEmpty())
+            return "Classes:\n(none)";
         QStringList order = {"Empty", "Single", "MoreThanTwo", ">2", "2"};
         QSet<QString> used;
         QString text = "Classes:";
@@ -4401,13 +4516,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             }
         }
         for (auto it = counts.begin(); it != counts.end(); ++it) {
-            if (used.contains(it.key())) continue;
+            if (used.contains(it.key()))
+                continue;
             text += QString("\n%1: %2").arg(it.key()).arg(it.value());
         }
         return text;
     };
 
-    auto makeStatsSnapshot = [&](const StatsTracker& s)->StatsSnapshot {
+    auto makeStatsSnapshot = [&](const StatsTracker& s) -> StatsSnapshot {
         StatsSnapshot snap;
         snap.totalEvents = s.totalEvents;
         snap.hitCount = s.hitCount;
@@ -4427,18 +4543,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         return snap;
     };
 
-    auto getStatsSnapshot = [&]()->StatsSnapshot {
+    auto getStatsSnapshot = [&]() -> StatsSnapshot {
         QMutexLocker lock(&statsMutex);
         return makeStatsSnapshot(stats);
     };
 
-    auto buildStatsFigures = [&](const StatsSnapshot& snap){
+    auto buildStatsFigures = [&](const StatsSnapshot& snap) {
         int hit = snap.hitCount;
         int waste = snap.wasteCount;
-        QImage hitWaste = renderPieChart("Hit vs Waste",
-                                         {"Hit", "Waste"},
-                                         {static_cast<double>(hit), static_cast<double>(waste)},
-                                         {QColor(46, 204, 113), QColor(192, 57, 43)});
+        QImage hitWaste =
+            renderPieChart("Hit vs Waste", {"Hit", "Waste"}, {static_cast<double>(hit), static_cast<double>(waste)},
+                           {QColor(46, 204, 113), QColor(192, 57, 43)});
 
         int empty = 0;
         int single = 0;
@@ -4456,17 +4571,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                 more += count;
             }
         }
-        QImage classImg = renderPieChart("Class Distribution",
-                                         {"0", "1", ">2"},
-                                         {static_cast<double>(empty),
-                                          static_cast<double>(single),
-                                          static_cast<double>(more)},
-                                         {QColor(52, 152, 219), QColor(241, 196, 15), QColor(155, 89, 182)});
+        QImage classImg =
+            renderPieChart("Class Distribution", {"0", "1", ">2"},
+                           {static_cast<double>(empty), static_cast<double>(single), static_cast<double>(more)},
+                           {QColor(52, 152, 219), QColor(241, 196, 15), QColor(155, 89, 182)});
         return std::pair<QImage, QImage>(hitWaste, classImg);
     };
 
-    auto saveStatsFigures = [&](const QString& outDir, const QString& prefix, const StatsSnapshot& snap)->bool {
-        if (outDir.isEmpty()) return false;
+    auto saveStatsFigures = [&](const QString& outDir, const QString& prefix, const StatsSnapshot& snap) -> bool {
+        if (outDir.isEmpty())
+            return false;
         auto figures = buildStatsFigures(snap);
         QDir out(outDir);
         out.mkpath(".");
@@ -4477,26 +4591,27 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         return ok1 && ok2;
     };
 
-    auto updateStatsFigureWindow = [&](const StatsSnapshot& snap){
-        if (!statsFigureWindow) return;
+    auto updateStatsFigureWindow = [&](const StatsSnapshot& snap) {
+        if (!statsFigureWindow)
+            return;
         auto figures = buildStatsFigures(snap);
         statsFigureWindow->setImages(figures.first, figures.second);
     };
 
-    auto applyStatsSnapshot = [&](const StatsSnapshot& snap){
-        QMetaObject::invokeMethod(statsEventsLabel, [=](){
-            statsEventsLabel->setText(QString("Events: %1  Active: %2")
-                .arg(snap.totalEvents)
-                .arg(snap.eventActive ? "Yes" : "No"));
-            statsHitLabel->setText(QString("Hits: %1\nWastes: %2")
-                .arg(snap.hitCount)
-                .arg(snap.wasteCount));
-            statsClassLabel->setText(snap.classText);
-            statsLastLabel->setText(snap.lastText);
-        }, Qt::QueuedConnection);
+    auto applyStatsSnapshot = [&](const StatsSnapshot& snap) {
+        QMetaObject::invokeMethod(
+            statsEventsLabel,
+            [=]() {
+                statsEventsLabel->setText(
+                    QString("Events: %1  Active: %2").arg(snap.totalEvents).arg(snap.eventActive ? "Yes" : "No"));
+                statsHitLabel->setText(QString("Hits: %1\nWastes: %2").arg(snap.hitCount).arg(snap.wasteCount));
+                statsClassLabel->setText(snap.classText);
+                statsLastLabel->setText(snap.lastText);
+            },
+            Qt::QueuedConnection);
     };
 
-    auto resetStats = [&](){
+    auto resetStats = [&]() {
         StatsSnapshot snap;
         {
             QMutexLocker lock(&statsMutex);
@@ -4506,18 +4621,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         applyStatsSnapshot(snap);
     };
 
-    auto showStatsFigures = [&](){
+    auto showStatsFigures = [&]() {
         StatsSnapshot snap = getStatsSnapshot();
         auto figures = buildStatsFigures(snap);
         if (!statsFigureWindow) {
             statsFigureWindow = new StatsFigureWindow(this);
             statsFigureWindow->setAttribute(Qt::WA_DeleteOnClose);
-            QObject::connect(statsFigureWindow, &QObject::destroyed, [&](){ statsFigureWindow = nullptr; });
-            QObject::connect(statsFigureWindow->saveButton(), &QPushButton::clicked, [&](){
+            QObject::connect(statsFigureWindow, &QObject::destroyed, [&]() { statsFigureWindow = nullptr; });
+            QObject::connect(statsFigureWindow->saveButton(), &QPushButton::clicked, [&]() {
                 QString outDir = outputEdit->text().trimmed();
-                if (outDir.isEmpty()) outDir = QCoreApplication::applicationDirPath();
+                if (outDir.isEmpty())
+                    outDir = QCoreApplication::applicationDirPath();
                 QString dir = QFileDialog::getExistingDirectory(statsFigureWindow, "Select output directory", outDir);
-                if (dir.isEmpty()) return;
+                if (dir.isEmpty())
+                    return;
                 QString prefix = QDateTime::currentDateTime().toString("stats_yyyyMMdd_hhmmss");
                 if (statsFigureWindow->saveImages(dir, prefix)) {
                     statusLabel->setText("Saved stats figures to " + dir);
@@ -4533,8 +4650,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         statsFigureWindow->activateWindow();
     };
 
-    auto endEventLocked = [&](StatsTracker& s, int decisionFrame){
-        if (!s.eventActive) return;
+    auto endEventLocked = [&](StatsTracker& s, int decisionFrame) {
+        if (!s.eventActive)
+            return;
         QString dir = "Unknown";
         if (s.hasCentroid) {
             double dy = s.cumulativeDy;
@@ -4580,8 +4698,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         s.cumulativeDy = 0.0;
     };
 
-    auto updateStatsFromEvent = [&](const PipelineEvent& evt, bool processed){
-        if (!processed) return;
+    auto updateStatsFromEvent = [&](const PipelineEvent& evt, bool processed) {
+        if (!processed)
+            return;
         StatsSnapshot snap;
         {
             QMutexLocker lock(&statsMutex);
@@ -4599,10 +4718,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                 stats.lastY = evt.centroid.y;
                 stats.minY = evt.centroid.y;
                 stats.maxY = evt.centroid.y;
-                if (evt.frameHeight > 0) stats.frameHeight = evt.frameHeight;
+                if (evt.frameHeight > 0)
+                    stats.frameHeight = evt.frameHeight;
                 stats.totalEvents++;
                 QString label = QString::fromStdString(evt.label);
-                if (label.isEmpty()) label = "(unclassified)";
+                if (label.isEmpty())
+                    label = "(unclassified)";
                 stats.currentLabel = label;
                 stats.classCounts[label] = stats.classCounts.value(label) + 1;
             } else if (evt.detected) {
@@ -4617,10 +4738,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                     stats.lastY = evt.centroid.y;
                     stats.minY = evt.centroid.y;
                     stats.maxY = evt.centroid.y;
-                    if (evt.frameHeight > 0) stats.frameHeight = evt.frameHeight;
+                    if (evt.frameHeight > 0)
+                        stats.frameHeight = evt.frameHeight;
                     stats.totalEvents++;
                     QString label = QString::fromStdString(evt.label);
-                    if (label.isEmpty()) label = "(unclassified)";
+                    if (label.isEmpty())
+                        label = "(unclassified)";
                     stats.currentLabel = label;
                     stats.classCounts[label] = stats.classCounts.value(label) + 1;
                 } else {
@@ -4630,7 +4753,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                     stats.lastY = evt.centroid.y;
                     stats.minY = std::min(stats.minY, static_cast<double>(evt.centroid.y));
                     stats.maxY = std::max(stats.maxY, static_cast<double>(evt.centroid.y));
-                    if (evt.frameHeight > 0) stats.frameHeight = evt.frameHeight;
+                    if (evt.frameHeight > 0)
+                        stats.frameHeight = evt.frameHeight;
                     stats.missCount = 0;
                 }
             } else if (stats.eventActive) {
@@ -4644,18 +4768,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         applyStatsSnapshot(snap);
     };
 
-    auto processPipelineFrame = [&](const QImage& img,
-                                    PipelineEvent& evt,
-                                    int& bgRemaining,
-                                    bool& pipelineReady,
-                                    double* procMsOut)->bool {
+    auto processPipelineFrame = [&](const QImage& img, PipelineEvent& evt, int& bgRemaining, bool& pipelineReady,
+                                    double* procMsOut) -> bool {
         bgRemaining = 0;
         pipelineReady = false;
-        if (!pipelineEnabled.load() || img.isNull()) return false;
+        if (!pipelineEnabled.load() || img.isNull())
+            return false;
 
         QImage lutImg = cameraController->applyLutToImage(img);
-        cv::Mat gray(lutImg.height(), lutImg.width(), CV_8UC1,
-                     const_cast<uchar*>(lutImg.bits()), lutImg.bytesPerLine());
+        cv::Mat gray(lutImg.height(), lutImg.width(), CV_8UC1, const_cast<uchar*>(lutImg.bits()),
+                     lutImg.bytesPerLine());
         cv::Mat grayCopy = gray.clone();
 
         auto t0 = std::chrono::steady_clock::now();
@@ -4678,7 +4800,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         return processed;
     };
 
-    auto currentModelLogFields = [&]()->RuntimeModelLogFields {
+    auto currentModelLogFields = [&]() -> RuntimeModelLogFields {
         RuntimeModelLogFields fields;
         fields.registryEntryId = liveModelCombo->currentData(kLiveModelIdRole).toString();
         fields.modelStateAtStart = liveModelCombo->currentData(kLiveModelStateRole).toString();
@@ -4688,7 +4810,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         return fields;
     };
 
-    startLiveLogging = [&](){
+    startLiveLogging = [&]() {
         QMutexLocker lock(&liveLogMutex);
         liveLog.clear();
         liveLogStart = QDateTime::currentDateTime();
@@ -4699,8 +4821,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         liveLogging.store(true);
     };
 
-    stopLiveLogging = [&](){
-        if (!liveLogging.exchange(false)) return;
+    stopLiveLogging = [&]() {
+        if (!liveLogging.exchange(false))
+            return;
         std::vector<LiveLogRecord> records;
         {
             QMutexLocker lock(&liveLogMutex);
@@ -4714,10 +4837,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
         StatsSnapshot snap = getStatsSnapshot();
         QString outDir = outputEdit->text().trimmed();
-        if (outDir.isEmpty()) outDir = QCoreApplication::applicationDirPath();
-        QString timestamp = liveLogStart.isValid()
-            ? liveLogStart.toString("yyyyMMdd_hhmmss")
-            : QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
+        if (outDir.isEmpty())
+            outDir = QCoreApplication::applicationDirPath();
+        QString timestamp = liveLogStart.isValid() ? liveLogStart.toString("yyyyMMdd_hhmmss")
+                                                   : QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
         QString prefix = "live_" + timestamp;
         QString logPath = writeLiveLogCsv(outDir, prefix, records);
         QString onnxResolved = resolveAppRelative(onnxEdit->text());
@@ -4780,9 +4903,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         liveSequenceLogMetadata.daqDurationMs = daqDuration;
         liveSequenceLogMetadata.daqDelayMs = daqDelay;
         QString seqLogPath = writeLiveSequenceLog(outDir, timestamp, records, liveSequenceLogMetadata);
-        QString trajPath = writeEventTrajectoryCsv(outDir,
-                                                   "sequence_event_trajectory_live_" + timestamp + ".csv",
-                                                   liveEvents);
+        QString trajPath =
+            writeEventTrajectoryCsv(outDir, "sequence_event_trajectory_live_" + timestamp + ".csv", liveEvents);
         SequenceSummaryMetadata liveSummaryMetadata;
         liveSummaryMetadata.targetLabel = targetLabel;
         liveSummaryMetadata.totalFrames = static_cast<int>(records.size());
@@ -4791,9 +4913,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         liveSummaryMetadata.onnxResolved = onnxResolved;
         liveSummaryMetadata.metadataResolved = metaResolved;
         liveSummaryMetadata.model = liveSequenceLogMetadata.model;
-        QString summaryPath = writeSequenceSummaryCsv(outDir,
-                                                      "sequence_summary_live_" + timestamp + ".csv",
-                                                      liveEvents,
+        QString summaryPath = writeSequenceSummaryCsv(outDir, "sequence_summary_live_" + timestamp + ".csv", liveEvents,
                                                       liveSummaryMetadata);
         saveStatsFigures(outDir, prefix, snap);
         updateStatsFigureWindow(snap);
@@ -4824,8 +4944,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     QObject::connect(statsResetBtn, &QPushButton::clicked, resetStats);
     QObject::connect(statsShowBtn, &QPushButton::clicked, showStatsFigures);
 
-    QObject::connect(seqStartBtn, &QPushButton::clicked, [&](){
-        if (sequenceRunning.load()) return;
+    QObject::connect(seqStartBtn, &QPushButton::clicked, [&]() {
+        if (sequenceRunning.load())
+            return;
         std::shared_ptr<std::vector<SequenceFrame>> frames;
         {
             QMutexLocker lock(&sequenceMutex);
@@ -4871,9 +4992,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         validatorWorkspaceController->setSequenceUiRunning(true);
 
         if (!viewerOnly) {
-            QMetaObject::invokeMethod(cameraWorker, [cameraWorker]() {
-                cameraWorker->stopCapture();
-            }, Qt::BlockingQueuedConnection);
+            QMetaObject::invokeMethod(
+                cameraWorker, [cameraWorker]() { cameraWorker->stopCapture(); }, Qt::BlockingQueuedConnection);
         }
         statusLabel->setText("Sequence test running.");
         if (pipeline.isReady()) {
@@ -4900,8 +5020,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss");
         QString logPath = out.filePath("sequence_test_log_" + timestamp + ".csv");
         seqLogLabel->setText("Log: " + logPath);
-        seqStatusLabel->setText(QString("Running %1 frames at %2 fps...")
-            .arg(frames->size()).arg(fps,0,'f',2));
+        seqStatusLabel->setText(QString("Running %1 frames at %2 fps...").arg(frames->size()).arg(fps, 0, 'f', 2));
 
         int displayEvery = std::max(1, displayEverySpin->value());
 
@@ -4961,16 +5080,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         sequenceSummaryMetadata.metadataResolved = metaResolved;
         sequenceSummaryMetadata.model = currentModelLogFields();
 
-        sequenceThread = std::thread([&, frames, fps, displayEvery, logPath, outDir, timestamp, sequenceLogMetadata, sequenceSummaryMetadata, resetFrames](){
+        sequenceThread = std::thread([&, frames, fps, displayEvery, logPath, outDir, timestamp, sequenceLogMetadata,
+                                      sequenceSummaryMetadata, resetFrames]() {
             SequenceLogWriter sequenceLogWriter;
             if (!sequenceLogWriter.open(logPath, sequenceLogMetadata)) {
                 validatorWorkspaceController->updateSequenceStatus("Failed to open sequence log.");
                 sequenceRunning.store(false);
-                QMetaObject::invokeMethod(this, [&, logPath](){
-                    validatorWorkspaceController->setSequenceUiRunning(false);
-                    statusLabel->setText("Sequence test failed (log open).");
-                    seqLogLabel->setText("Log: " + logPath);
-                }, Qt::QueuedConnection);
+                QMetaObject::invokeMethod(
+                    this,
+                    [&, logPath]() {
+                        validatorWorkspaceController->setSequenceUiRunning(false);
+                        statusLabel->setText("Sequence test failed (log open).");
+                        seqLogLabel->setText("Log: " + logPath);
+                    },
+                    Qt::QueuedConnection);
                 return;
             }
 
@@ -4982,11 +5105,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             std::chrono::duration<double> period(1.0 / fps);
 
             for (size_t i = 0; i < frames->size(); ++i) {
-                if (sequenceStop.load()) break;
+                if (sequenceStop.load())
+                    break;
                 auto target = start + period * static_cast<double>(i);
                 while (!sequenceStop.load()) {
                     auto now = clock::now();
-                    if (now >= target) break;
+                    if (now >= target)
+                        break;
                     auto remaining = target - now;
                     if (remaining > std::chrono::milliseconds(2)) {
                         std::this_thread::sleep_for(remaining - std::chrono::milliseconds(1));
@@ -4994,7 +5119,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                         std::this_thread::yield();
                     }
                 }
-                if (sequenceStop.load()) break;
+                if (sequenceStop.load())
+                    break;
 
                 const SequenceFrame& frame = frames->at(i);
                 double scheduledMs = std::chrono::duration<double, std::milli>(period * static_cast<double>(i)).count();
@@ -5031,13 +5157,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
 
                 if (displayEvery > 0 && (static_cast<int>(i) % displayEvery == 0)) {
                     QImage imgCopy = cameraController->applyLutToImage(frame.image);
-                    QMetaObject::invokeMethod(this, [&, imgCopy, meta, i, fps, frames](){
-                        imageView->setImage(imgCopy);
-                        cameraController->storeLastFrame(imgCopy, meta);
-                        statsLabel->setText(QString("Source: Sequence\nResolution: %1 x %2\nBits: %3\nFPS: %4\nFrame: %5 / %6")
-                            .arg(meta.width).arg(meta.height).arg(meta.bits)
-                            .arg(fps,0,'f',2).arg(i + 1).arg(frames->size()));
-                    }, Qt::QueuedConnection);
+                    QMetaObject::invokeMethod(
+                        this,
+                        [&, imgCopy, meta, i, fps, frames]() {
+                            imageView->setImage(imgCopy);
+                            cameraController->storeLastFrame(imgCopy, meta);
+                            statsLabel->setText(
+                                QString("Source: Sequence\nResolution: %1 x %2\nBits: %3\nFPS: %4\nFrame: %5 / %6")
+                                    .arg(meta.width)
+                                    .arg(meta.height)
+                                    .arg(meta.bits)
+                                    .arg(fps, 0, 'f', 2)
+                                    .arg(i + 1)
+                                    .arg(frames->size()));
+                        },
+                        Qt::QueuedConnection);
                 }
 
                 QString cropPath = QString::fromStdString(evt.cropPath);
@@ -5082,47 +5216,47 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             }
 
             tracker.finalize();
-            QString trajPath = writeEventTrajectoryCsv(outDir,
-                                                       "sequence_event_trajectory_" + timestamp + ".csv",
-                                                       tracker.events);
-            QString summaryPath = writeSequenceSummaryCsv(outDir,
-                                                          "sequence_summary_" + timestamp + ".csv",
-                                                          tracker.events,
-                                                          sequenceSummaryMetadata);
+            QString trajPath =
+                writeEventTrajectoryCsv(outDir, "sequence_event_trajectory_" + timestamp + ".csv", tracker.events);
+            QString summaryPath = writeSequenceSummaryCsv(outDir, "sequence_summary_" + timestamp + ".csv",
+                                                          tracker.events, sequenceSummaryMetadata);
 
             sequenceLogWriter.close();
 
             sequenceRunning.store(false);
-            QMetaObject::invokeMethod(this, [&, logPath, trajPath, summaryPath](){
-                validatorWorkspaceController->setSequenceUiRunning(false);
-                seqStatusLabel->setText("Sequence finished.");
-                statusLabel->setText("Sequence test finished.");
-                QString logText = "Log: " + logPath;
-                if (!trajPath.isEmpty()) {
-                    logText += "\nTrajectory: " + trajPath;
-                }
-                if (!summaryPath.isEmpty()) {
-                    logText += "\nSummary: " + summaryPath;
-                }
-                seqLogLabel->setText(logText);
-            }, Qt::QueuedConnection);
+            QMetaObject::invokeMethod(
+                this,
+                [&, logPath, trajPath, summaryPath]() {
+                    validatorWorkspaceController->setSequenceUiRunning(false);
+                    seqStatusLabel->setText("Sequence finished.");
+                    statusLabel->setText("Sequence test finished.");
+                    QString logText = "Log: " + logPath;
+                    if (!trajPath.isEmpty()) {
+                        logText += "\nTrajectory: " + trajPath;
+                    }
+                    if (!summaryPath.isEmpty()) {
+                        logText += "\nSummary: " + summaryPath;
+                    }
+                    seqLogLabel->setText(logText);
+                },
+                Qt::QueuedConnection);
         });
     });
 
-    cameraWorker->setRecordHook([saveMutex, saveBuffer, &recording, &recordedFrames,
-                           &pipelineEnabled, &sequenceRunning, &processPipelineFrame,
-                           &liveLogging, &liveLogMutex, &liveLog, &getStatsSnapshot, &liveLogStart,
-                           &datasetCaptureActive, &datasetCaptureMutex, &datasetCaptureSession,
-                           &datasetCaptureDir, &datasetCaptureManifestPath, datasetStartCaptureBtn,
-                           datasetStopCaptureBtn, datasetCaptureStatusLabel, statusLabel,
-                           trainerDatasetEdit, &openDatasetLabelerPath, this](const QImage& img, const FrameMeta& meta, double fps){
+    cameraWorker->setRecordHook([saveMutex, saveBuffer, &recording, &recordedFrames, &pipelineEnabled, &sequenceRunning,
+                                 &processPipelineFrame, &liveLogging, &liveLogMutex, &liveLog, &getStatsSnapshot,
+                                 &liveLogStart, &datasetCaptureActive, &datasetCaptureMutex, &datasetCaptureSession,
+                                 &datasetCaptureDir, &datasetCaptureManifestPath, datasetStartCaptureBtn,
+                                 datasetStopCaptureBtn, datasetCaptureStatusLabel, statusLabel, trainerDatasetEdit,
+                                 &openDatasetLabelerPath, this](const QImage& img, const FrameMeta& meta, double fps) {
         if (recording.load()) {
             QMutexLocker lk(saveMutex.get());
             saveBuffer->push_back(img.copy());
             recordedFrames++;
         }
 
-        if (sequenceRunning.load()) return;
+        if (sequenceRunning.load())
+            return;
 
         PipelineEvent evt;
         int bgRemaining = 0;
@@ -5170,57 +5304,70 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                 }
             }
             if (!addError.isEmpty()) {
-                QMetaObject::invokeMethod(this, [&, addError]() {
-                    datasetStartCaptureBtn->setEnabled(true);
-                    datasetStopCaptureBtn->setEnabled(false);
-                    datasetCaptureStatusLabel->setText("Dataset Builder capture stopped after error: " + addError);
-                    statusLabel->setText("Dataset Builder capture stopped after error.");
-                }, Qt::QueuedConnection);
-            } else {
-                QMetaObject::invokeMethod(this, [&, collected, target]() {
-                    datasetCaptureStatusLabel->setText(QString("Dataset Builder capture active: %1 / %2 crops\n%3")
-                        .arg(static_cast<qulonglong>(collected))
-                        .arg(static_cast<qulonglong>(target))
-                        .arg(datasetCaptureDir));
-                }, Qt::QueuedConnection);
-            }
-            if (reachedTarget) {
-                QMetaObject::invokeMethod(this, [&, collected]() {
-                    QMessageBox prompt(this);
-                    prompt.setWindowTitle("Dataset Builder Batch Target Reached");
-                    prompt.setText(QString("Dataset Builder collected %1 crops. Continue collecting or stop and review?").arg(static_cast<qulonglong>(collected)));
-                    QPushButton* continueButton = prompt.addButton("Continue Collecting", QMessageBox::AcceptRole);
-                    QPushButton* reviewButton = prompt.addButton("Stop and Review", QMessageBox::RejectRole);
-                    prompt.exec();
-                    bool continueCollecting = (prompt.clickedButton() == continueButton);
-                    {
-                        QMutexLocker captureLock(&datasetCaptureMutex);
-                        if (datasetCaptureActive.load()) {
-                            if (continueCollecting) {
-                                datasetCaptureSession.extendBatchTarget();
-                            } else {
-                                datasetCaptureSession.recordBatchPrompt("stop_for_review");
-                                datasetCaptureSession.setStopReason("user_stop_after_batch_prompt");
-                                std::string err;
-                                datasetCaptureSession.finalize(err);
-                                datasetCaptureActive.store(false);
-                            }
-                        }
-                    }
-                    if (continueCollecting) {
-                        datasetCaptureStatusLabel->setText(QString("Dataset Builder capture continuing to %1 crops\n%2")
-                            .arg(static_cast<qulonglong>(datasetCaptureSession.currentBatchTarget()))
-                            .arg(datasetCaptureDir));
-                    } else {
+                QMetaObject::invokeMethod(
+                    this,
+                    [&, addError]() {
                         datasetStartCaptureBtn->setEnabled(true);
                         datasetStopCaptureBtn->setEnabled(false);
-                        datasetCaptureStatusLabel->setText("Dataset Builder capture stopped for review.\nManifest: " + datasetCaptureManifestPath);
-                        trainerDatasetEdit->setText(datasetCaptureDir);
-                        if (QFileInfo::exists(datasetCaptureManifestPath)) {
-                            openDatasetLabelerPath(datasetCaptureManifestPath);
+                        datasetCaptureStatusLabel->setText("Dataset Builder capture stopped after error: " + addError);
+                        statusLabel->setText("Dataset Builder capture stopped after error.");
+                    },
+                    Qt::QueuedConnection);
+            } else {
+                QMetaObject::invokeMethod(
+                    this,
+                    [&, collected, target]() {
+                        datasetCaptureStatusLabel->setText(QString("Dataset Builder capture active: %1 / %2 crops\n%3")
+                                                               .arg(static_cast<qulonglong>(collected))
+                                                               .arg(static_cast<qulonglong>(target))
+                                                               .arg(datasetCaptureDir));
+                    },
+                    Qt::QueuedConnection);
+            }
+            if (reachedTarget) {
+                QMetaObject::invokeMethod(
+                    this,
+                    [&, collected]() {
+                        QMessageBox prompt(this);
+                        prompt.setWindowTitle("Dataset Builder Batch Target Reached");
+                        prompt.setText(
+                            QString("Dataset Builder collected %1 crops. Continue collecting or stop and review?")
+                                .arg(static_cast<qulonglong>(collected)));
+                        QPushButton* continueButton = prompt.addButton("Continue Collecting", QMessageBox::AcceptRole);
+                        QPushButton* reviewButton = prompt.addButton("Stop and Review", QMessageBox::RejectRole);
+                        prompt.exec();
+                        bool continueCollecting = (prompt.clickedButton() == continueButton);
+                        {
+                            QMutexLocker captureLock(&datasetCaptureMutex);
+                            if (datasetCaptureActive.load()) {
+                                if (continueCollecting) {
+                                    datasetCaptureSession.extendBatchTarget();
+                                } else {
+                                    datasetCaptureSession.recordBatchPrompt("stop_for_review");
+                                    datasetCaptureSession.setStopReason("user_stop_after_batch_prompt");
+                                    std::string err;
+                                    datasetCaptureSession.finalize(err);
+                                    datasetCaptureActive.store(false);
+                                }
+                            }
                         }
-                    }
-                }, Qt::BlockingQueuedConnection);
+                        if (continueCollecting) {
+                            datasetCaptureStatusLabel->setText(
+                                QString("Dataset Builder capture continuing to %1 crops\n%2")
+                                    .arg(static_cast<qulonglong>(datasetCaptureSession.currentBatchTarget()))
+                                    .arg(datasetCaptureDir));
+                        } else {
+                            datasetStartCaptureBtn->setEnabled(true);
+                            datasetStopCaptureBtn->setEnabled(false);
+                            datasetCaptureStatusLabel->setText(
+                                "Dataset Builder capture stopped for review.\nManifest: " + datasetCaptureManifestPath);
+                            trainerDatasetEdit->setText(datasetCaptureDir);
+                            if (QFileInfo::exists(datasetCaptureManifestPath)) {
+                                openDatasetLabelerPath(datasetCaptureManifestPath);
+                            }
+                        }
+                    },
+                    Qt::BlockingQueuedConnection);
             }
         }
 
@@ -5247,9 +5394,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
 
             LiveLogRecord rec;
             rec.wallTime = QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss.zzz");
-            rec.elapsedMs = liveLogStart.isValid()
-                ? liveLogStart.msecsTo(QDateTime::currentDateTime())
-                : 0;
+            rec.elapsedMs = liveLogStart.isValid() ? liveLogStart.msecsTo(QDateTime::currentDateTime()) : 0;
             rec.frameIndex = meta.frameIndex;
             rec.delivered = meta.delivered;
             rec.dropped = meta.dropped;
@@ -5288,12 +5433,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         }
     });
 
-    QObject::connect(cameraWorker, &CameraWorker::frameReady, this,
-                     [&](const QImage& img, FrameMeta meta, double fps){
-        cameraController->applyFrameToPreviewWorkspaces(img, meta, fps);
-    }, Qt::QueuedConnection);
+    QObject::connect(
+        cameraWorker, &CameraWorker::frameReady, this,
+        [&](const QImage& img, FrameMeta meta, double fps) {
+            cameraController->applyFrameToPreviewWorkspaces(img, meta, fps);
+        },
+        Qt::QueuedConnection);
 
-    QObject::connect(&app, &QApplication::aboutToQuit, [&](){
+    QObject::connect(&app, &QApplication::aboutToQuit, [&]() {
         backgroundTasks.requestStop();
         sequenceStop.store(true);
         recording.store(false);
@@ -5333,13 +5480,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
         logDaqStartupState("DAQ disabled by launch option.");
     }
     if (!hardwareFreeMode) {
-        QTimer::singleShot(0, [&](){
-            loadPipeline(false);
-        });
+        QTimer::singleShot(0, [&]() { loadPipeline(false); });
     }
     if (!options.datasetBuilderReviewPath.trimmed().isEmpty()) {
-        QTimer::singleShot(0, [&](){
-            logMessage("Opening Dataset Builder review manifest from command line: " + options.datasetBuilderReviewPath);
+        QTimer::singleShot(0, [&]() {
+            logMessage("Opening Dataset Builder review manifest from command line: " +
+                       options.datasetBuilderReviewPath);
             openDatasetLabelerPath(options.datasetBuilderReviewPath);
         });
     }
@@ -5364,11 +5510,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             mainSplitter->setSizes({qMax(760, this->width() - 336), 336});
             app.processEvents();
 
-            require(workspaceStack->currentWidget() == liveWorkspacePage, "Live View workspace opens as the active page");
-            require(liveNavButton && liveNavButton->toolTip() == "Live View", "Live navigation tooltip reads Live View");
+            require(workspaceStack->currentWidget() == liveWorkspacePage,
+                    "Live View workspace opens as the active page");
+            require(liveNavButton && liveNavButton->toolTip() == "Live View",
+                    "Live navigation tooltip reads Live View");
             require(headerTitleLabel && headerTitleLabel->text() == "/ Live View", "Header title reads / Live View");
-            require(headerStatusText && headerStatusText->text() == "Live View workspace", "Header status reads Live View workspace");
-            require(!liveNavButton->text().contains("Live Sorting"), "Live navigation label no longer shows Live Sorting");
+            require(headerStatusText && headerStatusText->text() == "Live View workspace",
+                    "Header status reads Live View workspace");
+            require(!liveNavButton->text().contains("Live Sorting"),
+                    "Live navigation label no longer shows Live Sorting");
             require(!headerTitleLabel->text().contains("Live Sorting"), "Header title no longer shows Live Sorting");
             require(!headerStatusText->text().contains("Live Sorting"), "Header status no longer shows Live Sorting");
 
@@ -5463,29 +5613,42 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             require(rightScroll->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff,
                     "Live View right-panel horizontal scrollbar remains disabled");
 
-            requireHorizontallyContained(cameraFormatPanelFrame, rightViewport, "CameraFormatSpeedPanelFrame fits within the viewport width");
-            requireHorizontallyContained(cameraLutPanelFrame, rightViewport, "CameraLutDisplayPanelFrame fits within the viewport width");
-            requireHorizontallyContained(cameraRecordingPanelFrame, rightViewport, "CameraRecordingPanelFrame fits within the viewport width");
-            requireContained(cameraPresetCombo, cameraFormatPanelFrame, "CameraPresetComboBox fits within Format & Speed");
+            requireHorizontallyContained(cameraFormatPanelFrame, rightViewport,
+                                         "CameraFormatSpeedPanelFrame fits within the viewport width");
+            requireHorizontallyContained(cameraLutPanelFrame, rightViewport,
+                                         "CameraLutDisplayPanelFrame fits within the viewport width");
+            requireHorizontallyContained(cameraRecordingPanelFrame, rightViewport,
+                                         "CameraRecordingPanelFrame fits within the viewport width");
+            requireContained(cameraPresetCombo, cameraFormatPanelFrame,
+                             "CameraPresetComboBox fits within Format & Speed");
             requireContained(cameraBitsCombo, cameraFormatPanelFrame, "CameraBitsComboBox fits within Format & Speed");
-            requireContained(cameraWidthSpin, cameraFormatPanelFrame, "CameraCustomWidthSpinBox fits within Format & Speed");
-            requireContained(cameraHeightSpin, cameraFormatPanelFrame, "CameraCustomHeightSpinBox fits within Format & Speed");
-            requireContained(cameraExposureSpin, cameraFormatPanelFrame, "CameraExposureSpinBox fits within Format & Speed");
-            requireContained(cameraReadoutCombo, cameraFormatPanelFrame, "CameraReadoutSpeedComboBox fits within Format & Speed");
-            requireContained(cameraBinningCombo, cameraFormatPanelFrame, "CameraBinningComboBox fits within Format & Speed");
+            requireContained(cameraWidthSpin, cameraFormatPanelFrame,
+                             "CameraCustomWidthSpinBox fits within Format & Speed");
+            requireContained(cameraHeightSpin, cameraFormatPanelFrame,
+                             "CameraCustomHeightSpinBox fits within Format & Speed");
+            requireContained(cameraExposureSpin, cameraFormatPanelFrame,
+                             "CameraExposureSpinBox fits within Format & Speed");
+            requireContained(cameraReadoutCombo, cameraFormatPanelFrame,
+                             "CameraReadoutSpeedComboBox fits within Format & Speed");
+            requireContained(cameraBinningCombo, cameraFormatPanelFrame,
+                             "CameraBinningComboBox fits within Format & Speed");
             require(cameraPresetCombo && cameraPresetCombo->width() >= cameraPresetCombo->sizeHint().width(),
                     "CameraPresetComboBox expands enough for the active preset text");
             require(cameraReadoutCombo && cameraReadoutCombo->width() >= cameraReadoutCombo->sizeHint().width(),
                     "CameraReadoutSpeedComboBox expands enough for the active readout text");
-            requireContained(cameraLutModeControl, cameraLutPanelFrame, "CameraLutModeSegmentedControl fits within LUT & Display");
+            requireContained(cameraLutModeControl, cameraLutPanelFrame,
+                             "CameraLutModeSegmentedControl fits within LUT & Display");
             requireContained(cameraLutMinSpin, cameraLutPanelFrame, "CameraLutMinSpinBox fits within LUT & Display");
             requireContained(cameraLutMaxSpin, cameraLutPanelFrame, "CameraLutMaxSpinBox fits within LUT & Display");
             requireContained(cameraLutRangeBar, cameraLutPanelFrame, "CameraLutRangeBar fits within LUT & Display");
-            requireContained(cameraDisplayEverySpin, cameraLutPanelFrame, "CameraDisplayEverySpinBox fits within LUT & Display");
+            requireContained(cameraDisplayEverySpin, cameraLutPanelFrame,
+                             "CameraDisplayEverySpinBox fits within LUT & Display");
             requireContained(savePathLineEdit, cameraRecordingPanelFrame, "SavePathEdit fits within Recording");
             requireContained(saveBrowseButton, cameraRecordingPanelFrame, "SaveBrowseButton fits within Recording");
-            requireContained(saveOpenFolderButton, cameraRecordingPanelFrame, "SaveOpenFolderButton fits within Recording");
-            requireContained(cameraRecordingFormatControl, cameraRecordingPanelFrame, "CameraRecordingFormatSegmentedControl fits within Recording");
+            requireContained(saveOpenFolderButton, cameraRecordingPanelFrame,
+                             "SaveOpenFolderButton fits within Recording");
+            requireContained(cameraRecordingFormatControl, cameraRecordingPanelFrame,
+                             "CameraRecordingFormatSegmentedControl fits within Recording");
             requireContained(saveStartButton, cameraRecordingPanelFrame, "SaveStartButton fits within Recording");
             requireContained(saveStopButton, cameraRecordingPanelFrame, "SaveStopButton fits within Recording");
 
@@ -5493,9 +5656,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             const QString shellCss = shellColors.shellBackground.name(QColor::HexRgb);
             const QString appCss = shellColors.appBackground.name(QColor::HexRgb);
             const QString styleSheet = this->styleSheet();
-            require(styleSheet.contains(shellCss, Qt::CaseInsensitive), QString("shell stylesheet contains neutral shell color %1").arg(shellCss));
-            require(shellCss.compare(QStringLiteral("#0B1F5E"), Qt::CaseInsensitive) != 0, "shell color is no longer dark blue");
-            require(shellCss.compare(appCss, Qt::CaseInsensitive) != 0, "shell color remains distinct from app background");
+            require(styleSheet.contains(shellCss, Qt::CaseInsensitive),
+                    QString("shell stylesheet contains neutral shell color %1").arg(shellCss));
+            require(shellCss.compare(QStringLiteral("#0B1F5E"), Qt::CaseInsensitive) != 0,
+                    "shell color is no longer dark blue");
+            require(shellCss.compare(appCss, Qt::CaseInsensitive) != 0,
+                    "shell color remains distinct from app background");
 
             lutMinSpin->setValue(32);
             lutMaxSpin->setValue(180);
@@ -5527,7 +5693,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             const QPixmap livePixmap = liveImageLabel ? liveImageLabel->pixmap(Qt::ReturnByValue) : QPixmap();
             require(liveImageLabel && !livePixmap.isNull(), "LiveImageLabel received a rendered frame");
             require(!liveViewerEmpty->isVisible(), "LiveViewerEmptyState hides after frame update");
-            require(liveHudResolution->text().contains("320 x 240"), "LiveViewerHudResolutionLabel updated from frame data");
+            require(liveHudResolution->text().contains("320 x 240"),
+                    "LiveViewerHudResolutionLabel updated from frame data");
             require(liveHudFps->text().contains("42"), "LiveViewerHudFpsLabel updated from frame data");
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
@@ -5578,19 +5745,25 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
             require(settingsHardwarePanel != nullptr, "Settings hardware panel exists");
             require(deviceCombo != nullptr, "DAQ device combo exists");
             require(channelEdit != nullptr, "DAQ channel edit exists");
-            require(deviceCombo && deviceCombo->objectName() == "DaqDeviceComboBox", "DAQ device combo uses the direct-lookup object name");
-            require(deviceCombo && channelEdit
-                    && deviceCombo->mapTo(settingsHardwarePanel, QPoint(0, 0)).y() < channelEdit->mapTo(settingsHardwarePanel, QPoint(0, 0)).y(),
+            require(deviceCombo && deviceCombo->objectName() == "DaqDeviceComboBox",
+                    "DAQ device combo uses the direct-lookup object name");
+            require(deviceCombo && channelEdit &&
+                        deviceCombo->mapTo(settingsHardwarePanel, QPoint(0, 0)).y() <
+                            channelEdit->mapTo(settingsHardwarePanel, QPoint(0, 0)).y(),
                     "DAQ device combo is above the DAQ channel field in Settings > Hardware");
 
             QStringList comboEntries;
             for (int i = 0; i < deviceCombo->count(); ++i) {
-                comboEntries << QStringLiteral("%1 => %2").arg(deviceCombo->itemText(i), deviceCombo->itemData(i).toString());
+                comboEntries
+                    << QStringLiteral("%1 => %2").arg(deviceCombo->itemText(i), deviceCombo->itemData(i).toString());
             }
             qInfo().noquote() << "VERIFY INFO: DAQ combo entries:" << comboEntries.join(" | ");
             qInfo().noquote() << "VERIFY INFO: Selected DAQ device:" << deviceCombo->currentData().toString();
             qInfo().noquote() << "VERIFY INFO: Selected DAQ channel:" << channelEdit->text().trimmed();
-            qInfo().noquote() << "VERIFY INFO: Discovered DAQ summary:" << (settingsController->describeDiscoveredDaqDevices().isEmpty() ? QStringLiteral("<none>") : settingsController->describeDiscoveredDaqDevices());
+            qInfo().noquote() << "VERIFY INFO: Discovered DAQ summary:"
+                              << (settingsController->describeDiscoveredDaqDevices().isEmpty()
+                                      ? QStringLiteral("<none>")
+                                      : settingsController->describeDiscoveredDaqDevices());
             if (!settingsController->daqDiscoveryError().isEmpty()) {
                 qInfo().noquote() << "VERIFY INFO: DAQ discovery status:" << settingsController->daqDiscoveryError();
             }
@@ -5622,7 +5795,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                 waitForUi(350);
                 QSettings settings;
                 const QString selectedDevice = deviceCombo->currentData().toString().trimmed();
-                require(settings.value("settings/daqSelectedDevice").toString().trimmed().compare(selectedDevice, Qt::CaseInsensitive) == 0,
+                require(settings.value("settings/daqSelectedDevice")
+                                .toString()
+                                .trimmed()
+                                .compare(selectedDevice, Qt::CaseInsensitive) == 0,
                         "Changing the DAQ combo persists the selected device in QSettings");
                 const DaqDeviceInfo* selectedInfo = nullptr;
                 for (const auto& device : settingsController->discoveredDaqDevices()) {
@@ -5655,7 +5831,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                         "Force Trigger stays gated during verification without arming or firing");
             } else if (deviceCombo->count() == 1) {
                 QSettings settings;
-                require(settings.value("settings/daqSelectedDevice").toString().trimmed().compare(deviceCombo->currentData().toString().trimmed(), Qt::CaseInsensitive) == 0,
+                require(settings.value("settings/daqSelectedDevice")
+                                .toString()
+                                .trimmed()
+                                .compare(deviceCombo->currentData().toString().trimmed(), Qt::CaseInsensitive) == 0,
                         "Single discovered DAQ selection is persisted in QSettings");
                 if (reconnectButton) {
                     reconnectButton->click();
@@ -5673,11 +5852,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
                 qInfo().noquote() << "VERIFY INFO: DAQ status-bar text:" << statusBarDaqWidget->text();
                 qInfo().noquote() << "VERIFY INFO: Header DAQ chip text:" << headerDaqChipWidget->text();
                 if (statusText.contains("unavailable")) {
-                    require(headerText.contains("unavailable"), "Header DAQ chip reports unavailable when DAQ status is unavailable");
+                    require(headerText.contains("unavailable"),
+                            "Header DAQ chip reports unavailable when DAQ status is unavailable");
                 } else if (statusText.contains("disabled")) {
-                    require(headerText.contains("unavailable"), "Header DAQ chip reports unavailable when DAQ status is disabled");
+                    require(headerText.contains("unavailable"),
+                            "Header DAQ chip reports unavailable when DAQ status is disabled");
                 } else if (statusText.contains("available")) {
-                    require(headerText.contains("available"), "Header DAQ chip reports available when DAQ status is available");
+                    require(headerText.contains("available"),
+                            "Header DAQ chip reports available when DAQ status is available");
                 } else {
                     require(headerText.contains("unavailable") || headerText.contains("unchecked"),
                             "Header DAQ chip remains coherent when DAQ status is unavailable");

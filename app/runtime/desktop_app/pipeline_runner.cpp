@@ -26,10 +26,9 @@ std::string sanitizeLabel(const std::string& label) {
     }
     return out;
 }
-}
+} // namespace
 
-PipelineRunner::~PipelineRunner() {
-}
+PipelineRunner::~PipelineRunner() {}
 
 std::string PipelineRunner::toLowerAscii(const std::string& s) {
     std::string out;
@@ -50,12 +49,18 @@ cv::Rect PipelineRunner::makeSquareRect(const cv::Rect& bbox, const cv::Size& si
     int cy = bbox.y + bbox.height / 2;
     int x = cx - side / 2;
     int y = cy - side / 2;
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
-    if (x + side > size.width) x = size.width - side;
-    if (y + side > size.height) y = size.height - side;
-    if (x < 0) x = 0;
-    if (y < 0) y = 0;
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
+    if (x + side > size.width)
+        x = size.width - side;
+    if (y + side > size.height)
+        y = size.height - side;
+    if (x < 0)
+        x = 0;
+    if (y < 0)
+        y = 0;
     return cv::Rect(x, y, side, side);
 }
 
@@ -70,12 +75,8 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
     if (!LoadMetadata(cfg_.metadataPath, meta_, err)) {
         return false;
     }
-    if (!ResolveTargetClassId(meta_,
-                              cfg_.targetClassId,
-                              cfg_.targetLabel,
-                              resolvedTargetClassId_,
-                              resolvedTargetDisplayLabel_,
-                              err)) {
+    if (!ResolveTargetClassId(meta_, cfg_.targetClassId, cfg_.targetLabel, resolvedTargetClassId_,
+                              resolvedTargetDisplayLabel_, err)) {
         return false;
     }
     cfg_.targetClassId = resolvedTargetClassId_;
@@ -116,7 +117,8 @@ bool PipelineRunner::isTriggerReady() const {
 }
 
 int PipelineRunner::backgroundFramesRemaining() const {
-    if (!detector_) return 0;
+    if (!detector_)
+        return 0;
     return detector_->backgroundFramesRemaining();
 }
 
@@ -147,8 +149,10 @@ std::string PipelineRunner::targetDisplayText() const {
 
 bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
     out = PipelineEvent{};
-    if (!ready_ || !detector_) return false;
-    if (gray8In.empty()) return false;
+    if (!ready_ || !detector_)
+        return false;
+    if (gray8In.empty())
+        return false;
 
     frameCounter_++;
     out.frameNumber = frameCounter_;
@@ -174,7 +178,8 @@ bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
     out.bbox = det.bbox;
     out.centroid = det.centroid;
 
-    if (!det.fired) return true;
+    if (!det.fired)
+        return true;
 
     cv::Rect bbox = det.bbox & cv::Rect(0, 0, gray8.cols, gray8.rows);
     cv::Rect squareRect = makeSquareRect(bbox, gray8.size());

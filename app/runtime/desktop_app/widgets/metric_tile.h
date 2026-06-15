@@ -11,9 +11,10 @@ class MetricTile : public QWidget {
     Q_PROPERTY(QString value READ value WRITE setValue)
     Q_PROPERTY(QString sublabel READ sublabel WRITE setSublabel)
 
-public:
+  public:
     explicit MetricTile(QWidget* parent = nullptr);
-    MetricTile(const QString& label, const QString& value, const QString& sublabel = QString(), QWidget* parent = nullptr);
+    MetricTile(const QString& label, const QString& value, const QString& sublabel = QString(),
+               QWidget* parent = nullptr);
 
     QString label() const;
     void setLabel(const QString& label);
@@ -24,7 +25,7 @@ public:
     QString sublabel() const;
     void setSublabel(const QString& sublabel);
 
-private:
+  private:
     void updateAccessibleLabel();
 
     QLabel* label_ = nullptr;

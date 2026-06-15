@@ -14,7 +14,8 @@
 namespace {
 #ifdef _WIN32
 std::wstring widenPath(const std::string& path) {
-    if (path.empty()) return std::wstring();
+    if (path.empty())
+        return std::wstring();
     int size = MultiByteToWideChar(CP_UTF8, 0, path.c_str(), -1, nullptr, 0);
     if (size <= 0) {
         return std::wstring(path.begin(), path.end());
@@ -26,8 +27,7 @@ std::wstring widenPath(const std::string& path) {
 #endif
 } // namespace
 
-OnnxClassifier::OnnxClassifier()
-    : ready_(false) {}
+OnnxClassifier::OnnxClassifier() : ready_(false) {}
 
 void OnnxClassifier::setupNormalizationLuts() {
     normMean_.assign(meta_.inputC, 0.0f);
@@ -51,9 +51,12 @@ bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, bo
         err = "invalid input_size in metadata";
         return false;
     }
-    if (meta_.inputC <= 0) meta_.inputC = 1;
-    if (meta_.mean.empty()) meta_.mean.assign(meta_.inputC, 0.0f);
-    if (meta_.std.empty()) meta_.std.assign(meta_.inputC, 1.0f);
+    if (meta_.inputC <= 0)
+        meta_.inputC = 1;
+    if (meta_.mean.empty())
+        meta_.mean.assign(meta_.inputC, 0.0f);
+    if (meta_.std.empty())
+        meta_.std.assign(meta_.inputC, 1.0f);
 
     env_ = std::make_unique<Ort::Env>(ORT_LOGGING_LEVEL_WARNING, "droplet");
     useCuda_ = false;
@@ -191,27 +194,20 @@ void OnnxClassifier::preprocess(const cv::Mat& input, std::vector<float>& out) c
 
 ClassificationResult OnnxClassifier::classify(const cv::Mat& input) const {
     ClassificationResult result;
-    if (!ready_ || !session_) return result;
+    if (!ready_ || !session_)
+        return result;
 
     preprocess(input, preprocessBuffer_);
     Ort::MemoryInfo memInfo = Ort::MemoryInfo::CreateCpu(OrtDeviceAllocator, OrtMemTypeCPU);
-    Ort::Value tensor = Ort::Value::CreateTensor<float>(
-        memInfo,
-        preprocessBuffer_.data(),
-        preprocessBuffer_.size(),
-        inputShape_.data(),
-        inputShape_.size());
+    Ort::Value tensor = Ort::Value::CreateTensor<float>(memInfo, preprocessBuffer_.data(), preprocessBuffer_.size(),
+                                                        inputShape_.data(), inputShape_.size());
 
     std::array<const char*, 1> inputNames = {inputName_.c_str()};
     std::array<const char*, 1> outputNames = {outputName_.c_str()};
 
-    auto outputs = session_->Run(Ort::RunOptions{nullptr},
-                                 inputNames.data(),
-                                 &tensor,
-                                 1,
-                                 outputNames.data(),
-                                 1);
-    if (outputs.empty()) return result;
+    auto outputs = session_->Run(Ort::RunOptions{nullptr}, inputNames.data(), &tensor, 1, outputNames.data(), 1);
+    if (outputs.empty())
+        return result;
 
     const auto& out = outputs[0];
     auto info = out.GetTensorTypeAndShapeInfo();

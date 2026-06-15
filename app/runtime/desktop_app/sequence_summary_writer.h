@@ -97,7 +97,7 @@ struct SequenceSummaryMetadata {
 };
 
 class SequenceLogWriter {
-public:
+  public:
     SequenceLogWriter() = default;
     SequenceLogWriter(const SequenceLogWriter&) = delete;
     SequenceLogWriter& operator=(const SequenceLogWriter&) = delete;
@@ -109,17 +109,15 @@ public:
     void flush();
     void close();
 
-private:
+  private:
     QFile file_;
     QTextStream stream_;
     bool open_ = false;
 };
 
-QString writeEventTrajectoryCsv(const QString& outDir,
-                                const QString& filename,
+QString writeEventTrajectoryCsv(const QString& outDir, const QString& filename,
                                 const std::vector<SequenceEventRecord>& events);
 
-QString writeSequenceSummaryCsv(const QString& outDir,
-                                const QString& filename,
+QString writeSequenceSummaryCsv(const QString& outDir, const QString& filename,
                                 const std::vector<SequenceEventRecord>& events,
                                 const SequenceSummaryMetadata& metadata);

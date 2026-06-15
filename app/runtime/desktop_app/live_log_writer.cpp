@@ -29,10 +29,9 @@ double averagePositiveFps(const std::vector<LiveLogRecord>& records) {
 
 } // namespace
 
-QString writeLiveLogCsv(const QString& outDir,
-                        const QString& prefix,
-                        const std::vector<LiveLogRecord>& records) {
-    if (outDir.isEmpty()) return QString();
+QString writeLiveLogCsv(const QString& outDir, const QString& prefix, const std::vector<LiveLogRecord>& records) {
+    if (outDir.isEmpty())
+        return QString();
     QDir out(outDir);
     out.mkpath(".");
     QString path = out.filePath(prefix + "_live_log.csv");
@@ -41,49 +40,32 @@ QString writeLiveLogCsv(const QString& outDir,
         return QString();
     }
     QTextStream ts(&logFile);
-    ts << "wall_time,frame_index,delivered,dropped,fps,cam_fps,proc_ms,processed,pipeline_enabled,pipeline_ready,bg_remaining,skip_reason,"
-          "detected,fired,area,bbox_x,bbox_y,bbox_w,bbox_h,crop_x,crop_y,crop_w,crop_h,crop_path,label,score,triggered,trigger_ok,"
+    ts << "wall_time,frame_index,delivered,dropped,fps,cam_fps,proc_ms,processed,pipeline_enabled,pipeline_ready,bg_"
+          "remaining,skip_reason,"
+          "detected,fired,area,bbox_x,bbox_y,bbox_w,bbox_h,crop_x,crop_y,crop_w,crop_h,crop_path,label,score,triggered,"
+          "trigger_ok,"
           "event_dir,decision_frame,decision_event_id,hit_count,waste_count\n";
     for (const auto& rec : records) {
-        ts << csvQuote(rec.wallTime) << ","
-           << rec.frameIndex << ","
-           << rec.delivered << ","
-           << rec.dropped << ","
-           << QString::number(rec.fps, 'f', 2) << ","
-           << QString::number(rec.camFps, 'f', 2) << ","
-           << QString::number(rec.procMs, 'f', 3) << ","
-           << (rec.processed ? "1" : "0") << ","
-           << (rec.pipelineEnabled ? "1" : "0") << ","
-           << (rec.pipelineReady ? "1" : "0") << ","
-           << rec.bgRemaining << ","
-           << csvQuote(rec.skipReason) << ","
-           << (rec.detected ? "1" : "0") << ","
-           << (rec.fired ? "1" : "0") << ","
-           << QString::number(rec.area, 'f', 1) << ","
-           << rec.bboxX << "," << rec.bboxY << "," << rec.bboxW << "," << rec.bboxH << ","
-           << rec.cropX << "," << rec.cropY << "," << rec.cropW << "," << rec.cropH << ","
-           << csvQuote(rec.cropPath) << ","
-           << csvQuote(rec.label) << ","
-           << QString::number(rec.score, 'f', 4) << ","
-           << (rec.triggered ? "1" : "0") << ","
-           << (rec.triggerOk ? "1" : "0") << ","
-           << csvQuote(rec.eventDir) << ","
-           << rec.decisionFrame << ","
-           << rec.decisionEventId << ","
-           << rec.hitCount << ","
-           << rec.wasteCount
-           << "\n";
+        ts << csvQuote(rec.wallTime) << "," << rec.frameIndex << "," << rec.delivered << "," << rec.dropped << ","
+           << QString::number(rec.fps, 'f', 2) << "," << QString::number(rec.camFps, 'f', 2) << ","
+           << QString::number(rec.procMs, 'f', 3) << "," << (rec.processed ? "1" : "0") << ","
+           << (rec.pipelineEnabled ? "1" : "0") << "," << (rec.pipelineReady ? "1" : "0") << "," << rec.bgRemaining
+           << "," << csvQuote(rec.skipReason) << "," << (rec.detected ? "1" : "0") << "," << (rec.fired ? "1" : "0")
+           << "," << QString::number(rec.area, 'f', 1) << "," << rec.bboxX << "," << rec.bboxY << "," << rec.bboxW
+           << "," << rec.bboxH << "," << rec.cropX << "," << rec.cropY << "," << rec.cropW << "," << rec.cropH << ","
+           << csvQuote(rec.cropPath) << "," << csvQuote(rec.label) << "," << QString::number(rec.score, 'f', 4) << ","
+           << (rec.triggered ? "1" : "0") << "," << (rec.triggerOk ? "1" : "0") << "," << csvQuote(rec.eventDir) << ","
+           << rec.decisionFrame << "," << rec.decisionEventId << "," << rec.hitCount << "," << rec.wasteCount << "\n";
     }
     ts.flush();
     logFile.close();
     return path;
 }
 
-QString writeLiveSequenceLog(const QString& outDir,
-                             const QString& timestamp,
-                             const std::vector<LiveLogRecord>& records,
+QString writeLiveSequenceLog(const QString& outDir, const QString& timestamp, const std::vector<LiveLogRecord>& records,
                              const SequenceLogMetadata& metadata) {
-    if (outDir.isEmpty()) return QString();
+    if (outDir.isEmpty())
+        return QString();
     QDir out(outDir);
     out.mkpath(".");
     QString logPath = out.filePath("sequence_test_log_live_" + timestamp + ".csv");

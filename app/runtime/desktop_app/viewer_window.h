@@ -13,10 +13,10 @@ class QSlider;
 class ZoomImageView;
 
 class ViewerWindow : public QWidget {
-public:
+  public:
     explicit ViewerWindow(QWidget* parent = nullptr);
 
-private:
+  private:
     void stepFrames(int delta);
     void loadRecentFolders();
     void updateRecentFolders(const QString& dirPath);

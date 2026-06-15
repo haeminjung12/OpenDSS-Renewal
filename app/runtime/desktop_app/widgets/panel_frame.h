@@ -9,7 +9,7 @@ class PanelFrame : public QFrame {
     Q_OBJECT
     Q_PROPERTY(QString title READ title WRITE setTitle)
 
-public:
+  public:
     explicit PanelFrame(QWidget* parent = nullptr);
     explicit PanelFrame(const QString& title, QWidget* parent = nullptr);
 
@@ -20,7 +20,7 @@ public:
     QBoxLayout* bodyLayout() const;
     void addWidget(QWidget* widget);
 
-private:
+  private:
     void updateTitleVisibility();
 
     class QLabel* titleLabel_ = nullptr;

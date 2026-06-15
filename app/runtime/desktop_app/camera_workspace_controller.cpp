@@ -167,16 +167,12 @@ void CameraWorkspaceController::applyFrameToPreviewWorkspaces(const QImage& imag
         lastMeta_ = meta;
     }
 
-    const QString resolutionText = QString("RES %1 x %2\nCAM %3")
-                                       .arg(meta.width)
-                                       .arg(meta.height)
-                                       .arg(meta.delivered > 0 ? "LIVE" : "IDLE");
+    const QString resolutionText =
+        QString("RES %1 x %2\nCAM %3").arg(meta.width).arg(meta.height).arg(meta.delivered > 0 ? "LIVE" : "IDLE");
     const double exposureMs = deps_.controls.exposureSpin ? deps_.controls.exposureSpin->value() : 0.0;
     const QString frameTimeText = QString("EXP %1 ms\nPROC -- ms").arg(exposureMs, 0, 'f', 3);
-    const QString fpsText = QString("FPS %1\nFRAME %2\nDROP %3")
-                                .arg(fps, 0, 'f', 1)
-                                .arg(meta.frameIndex)
-                                .arg(meta.dropped);
+    const QString fpsText =
+        QString("FPS %1\nFRAME %2\nDROP %3").arg(fps, 0, 'f', 1).arg(meta.frameIndex).arg(meta.dropped);
     if (deps_.liveHudResolution) {
         deps_.liveHudResolution->setText(resolutionText);
     }
@@ -196,7 +192,8 @@ void CameraWorkspaceController::applyFrameToPreviewWorkspaces(const QImage& imag
         deps_.cameraHudFps->setText(fpsText);
     }
     if (deps_.statsLabel) {
-        deps_.statsLabel->setText(QString("Resolution: %1 x %2\nBinning: %3\nBits: %4\nFPS: %5 (Cam: %6)\nFrame: %7\nDelivered: %8 Dropped: %9\nReadout: %10")
+        deps_.statsLabel->setText(QString("Resolution: %1 x %2\nBinning: %3\nBits: %4\nFPS: %5 (Cam: %6)\nFrame: "
+                                          "%7\nDelivered: %8 Dropped: %9\nReadout: %10")
                                       .arg(meta.width)
                                       .arg(meta.height)
                                       .arg(meta.binning, 0, 'f', 1)
@@ -246,11 +243,12 @@ bool CameraWorkspaceController::initializeCamera() {
     if (deps_.cameraStatusItem) {
         deps_.cameraStatusItem->setText("Camera: startup pending");
     }
-    QMetaObject::invokeMethod(deps_.cameraWorker,
-                              [worker = deps_.cameraWorker, bits = currentBits(), pixel = currentPixelType()]() {
-                                  worker->initAndOpen(bits, pixel);
-                              },
-                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(
+        deps_.cameraWorker,
+        [worker = deps_.cameraWorker, bits = currentBits(), pixel = currentPixelType()]() {
+            worker->initAndOpen(bits, pixel);
+        },
+        Qt::QueuedConnection);
     return true;
 }
 
@@ -260,12 +258,13 @@ void CameraWorkspaceController::shutdownCameraThread(QThread& cameraThread) {
     }
 
     auto shutdownAck = std::make_shared<QSemaphore>();
-    const bool queued = QMetaObject::invokeMethod(deps_.cameraWorker,
-                                                  [worker = deps_.cameraWorker, shutdownAck]() {
-                                                      worker->shutdown();
-                                                      shutdownAck->release();
-                                                  },
-                                                  Qt::QueuedConnection);
+    const bool queued = QMetaObject::invokeMethod(
+        deps_.cameraWorker,
+        [worker = deps_.cameraWorker, shutdownAck]() {
+            worker->shutdown();
+            shutdownAck->release();
+        },
+        Qt::QueuedConnection);
     if (queued && !shutdownAck->tryAcquire(1, 5000)) {
         systemLog("Timed out waiting for camera worker shutdown acknowledgement.");
     } else if (!queued) {
@@ -283,200 +282,199 @@ void CameraWorkspaceController::wireCameraWorker() {
         return;
     }
 
-    connect(deps_.cameraWorker, &CameraWorker::exposureLimitsReady, this,
-            [this](double minimumMs, double maximumMs, double currentMs) {
-                if (!deps_.controls.exposureSpin) {
-                    return;
-                }
-                deps_.controls.exposureSpin->setMinimum(minimumMs);
-                deps_.controls.exposureSpin->setMaximum(maximumMs);
-                deps_.controls.exposureSpin->setValue(currentMs);
-            },
-            Qt::QueuedConnection);
+    connect(
+        deps_.cameraWorker, &CameraWorker::exposureLimitsReady, this,
+        [this](double minimumMs, double maximumMs, double currentMs) {
+            if (!deps_.controls.exposureSpin) {
+                return;
+            }
+            deps_.controls.exposureSpin->setMinimum(minimumMs);
+            deps_.controls.exposureSpin->setMaximum(maximumMs);
+            deps_.controls.exposureSpin->setValue(currentMs);
+        },
+        Qt::QueuedConnection);
 
-    connect(deps_.cameraWorker, &CameraWorker::formatOptionsReady, this,
-            [this](const QVariantMap& options) {
-                const auto& controls = deps_.controls;
-                const QString summary = desktop_app::workspace::refreshCameraFormatOptions(controls.presetCombo,
-                                                                                            controls.bitsCombo,
-                                                                                            controls.readoutCombo,
-                                                                                            controls.customWidthSpin,
-                                                                                            controls.customHeightSpin,
-                                                                                            controls.exposureSpin,
-                                                                                            options);
-                updateLutRange(currentBits());
-                log(summary);
-            },
-            Qt::QueuedConnection);
+    connect(
+        deps_.cameraWorker, &CameraWorker::formatOptionsReady, this,
+        [this](const QVariantMap& options) {
+            const auto& controls = deps_.controls;
+            const QString summary = desktop_app::workspace::refreshCameraFormatOptions(
+                controls.presetCombo, controls.bitsCombo, controls.readoutCombo, controls.customWidthSpin,
+                controls.customHeightSpin, controls.exposureSpin, options);
+            updateLutRange(currentBits());
+            log(summary);
+        },
+        Qt::QueuedConnection);
 
-    connect(deps_.cameraWorker, &CameraWorker::readbackReady, this,
-            [this](const QString& text) {
-                log(text);
-            },
-            Qt::QueuedConnection);
+    connect(
+        deps_.cameraWorker, &CameraWorker::readbackReady, this, [this](const QString& text) { log(text); },
+        Qt::QueuedConnection);
 
-    connect(deps_.cameraWorker, &CameraWorker::initCompleted, this,
-            [this](const QString& error) {
-                if (!error.isEmpty()) {
-                    if (deps_.cameraOpened) {
-                        *deps_.cameraOpened = false;
-                    }
-                    if (deps_.statusLabel) {
-                        deps_.statusLabel->setText("Init error: " + error);
-                    }
-                    if (deps_.cameraStatusItem) {
-                        deps_.cameraStatusItem->setText("Camera: error");
-                    }
-                    showStatusMessage("Camera initialization failed");
-                    auto choice = QMessageBox::question(deps_.window,
-                                                        "Init failed",
-                                                        "Camera init failed:\n" + error + "\n\nLaunch viewer-only mode?",
-                                                        QMessageBox::Yes | QMessageBox::No,
-                                                        QMessageBox::Yes);
-                    if (choice == QMessageBox::Yes) {
-                        log("Init failed; switching to viewer-only mode.");
-                        setViewerOnly();
-                        return;
-                    }
-                    if (deps_.app) {
-                        QMetaObject::invokeMethod(deps_.app, "quit", Qt::QueuedConnection);
-                    }
-                    return;
-                }
+    connect(
+        deps_.cameraWorker, &CameraWorker::initCompleted, this,
+        [this](const QString& error) {
+            if (!error.isEmpty()) {
                 if (deps_.cameraOpened) {
-                    *deps_.cameraOpened = true;
+                    *deps_.cameraOpened = false;
                 }
                 if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Initialized.");
+                    deps_.statusLabel->setText("Init error: " + error);
                 }
                 if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText("Camera: connected");
+                    deps_.cameraStatusItem->setText("Camera: error");
                 }
-                showStatusMessage("Camera initialized");
-                if (deps_.controls.exposureSpin) {
-                    deps_.controls.exposureSpin->setValue(10.0);
-                }
-                autoApplyCamera_ = true;
-                log("Init success");
-            },
-            Qt::QueuedConnection);
-
-    connect(deps_.cameraWorker, &CameraWorker::reconnectCompleted, this,
-            [this](const QString& error) {
-                if (!error.isEmpty()) {
-                    if (deps_.cameraOpened) {
-                        *deps_.cameraOpened = false;
-                    }
-                    if (deps_.statusLabel) {
-                        deps_.statusLabel->setText("Reconnect error: " + error);
-                    }
-                    if (deps_.cameraStatusItem) {
-                        deps_.cameraStatusItem->setText("Camera: error");
-                    }
-                    showStatusMessage("Camera reconnect failed");
+                showStatusMessage("Camera initialization failed");
+                auto choice = QMessageBox::question(deps_.window, "Init failed",
+                                                    "Camera init failed:\n" + error + "\n\nLaunch viewer-only mode?",
+                                                    QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes);
+                if (choice == QMessageBox::Yes) {
+                    log("Init failed; switching to viewer-only mode.");
+                    setViewerOnly();
                     return;
                 }
+                if (deps_.app) {
+                    QMetaObject::invokeMethod(deps_.app, "quit", Qt::QueuedConnection);
+                }
+                return;
+            }
+            if (deps_.cameraOpened) {
+                *deps_.cameraOpened = true;
+            }
+            if (deps_.statusLabel) {
+                deps_.statusLabel->setText("Initialized.");
+            }
+            if (deps_.cameraStatusItem) {
+                deps_.cameraStatusItem->setText("Camera: connected");
+            }
+            showStatusMessage("Camera initialized");
+            if (deps_.controls.exposureSpin) {
+                deps_.controls.exposureSpin->setValue(10.0);
+            }
+            autoApplyCamera_ = true;
+            log("Init success");
+        },
+        Qt::QueuedConnection);
+
+    connect(
+        deps_.cameraWorker, &CameraWorker::reconnectCompleted, this,
+        [this](const QString& error) {
+            if (!error.isEmpty()) {
                 if (deps_.cameraOpened) {
-                    *deps_.cameraOpened = true;
+                    *deps_.cameraOpened = false;
                 }
                 if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Reconnected.");
+                    deps_.statusLabel->setText("Reconnect error: " + error);
                 }
                 if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText("Camera: connected");
+                    deps_.cameraStatusItem->setText("Camera: error");
                 }
-                showStatusMessage("Camera reconnected");
-            },
-            Qt::QueuedConnection);
+                showStatusMessage("Camera reconnect failed");
+                return;
+            }
+            if (deps_.cameraOpened) {
+                *deps_.cameraOpened = true;
+            }
+            if (deps_.statusLabel) {
+                deps_.statusLabel->setText("Reconnected.");
+            }
+            if (deps_.cameraStatusItem) {
+                deps_.cameraStatusItem->setText("Camera: connected");
+            }
+            showStatusMessage("Camera reconnected");
+        },
+        Qt::QueuedConnection);
 
-    connect(deps_.cameraWorker, &CameraWorker::startCompleted, this,
-            [this](const QString& error) {
-                if (!error.isEmpty()) {
-                    if (deps_.appState) {
-                        deps_.appState->cameraStreaming = false;
-                    }
-                    if (deps_.statusLabel) {
-                        deps_.statusLabel->setText("Start error: " + error);
-                    }
-                    if (deps_.cameraStatusItem) {
-                        deps_.cameraStatusItem->setText("Camera: error");
-                    }
-                    showStatusMessage("Capture start failed");
-                    return;
-                }
-                if (deps_.appState) {
-                    deps_.appState->cameraStreaming = true;
-                }
-                if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Capture started.");
-                }
-                if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText("Camera: acquiring");
-                }
-                if (deps_.runStatusItem) {
-                    deps_.runStatusItem->setText("Run: capture");
-                }
-                showStatusMessage("Capture started");
-                resetPipelineIfReady("Pipeline: warming (capture start)");
-            },
-            Qt::QueuedConnection);
-
-    connect(deps_.cameraWorker, &CameraWorker::stopCompleted, this,
-            [this]() {
+    connect(
+        deps_.cameraWorker, &CameraWorker::startCompleted, this,
+        [this](const QString& error) {
+            if (!error.isEmpty()) {
                 if (deps_.appState) {
                     deps_.appState->cameraStreaming = false;
                 }
                 if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Capture stopped.");
+                    deps_.statusLabel->setText("Start error: " + error);
                 }
                 if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText(deps_.cameraOpened && *deps_.cameraOpened ? "Camera: connected"
-                                                                                              : "Camera: unavailable");
+                    deps_.cameraStatusItem->setText("Camera: error");
                 }
-                if (deps_.pipelineEnabled && !deps_.pipelineEnabled->load() && deps_.runStatusItem) {
-                    deps_.runStatusItem->setText("Run: idle");
-                }
-                showStatusMessage("Capture stopped");
-                if (deps_.pipelineEnabled && deps_.pipelineEnabled->load() && deps_.pipelineStatusLabel) {
-                    deps_.pipelineStatusLabel->setText("Pipeline: paused");
-                }
-            },
-            Qt::QueuedConnection);
+                showStatusMessage("Capture start failed");
+                return;
+            }
+            if (deps_.appState) {
+                deps_.appState->cameraStreaming = true;
+            }
+            if (deps_.statusLabel) {
+                deps_.statusLabel->setText("Capture started.");
+            }
+            if (deps_.cameraStatusItem) {
+                deps_.cameraStatusItem->setText("Camera: acquiring");
+            }
+            if (deps_.runStatusItem) {
+                deps_.runStatusItem->setText("Run: capture");
+            }
+            showStatusMessage("Capture started");
+            resetPipelineIfReady("Pipeline: warming (capture start)");
+        },
+        Qt::QueuedConnection);
 
-    connect(deps_.cameraWorker, &CameraWorker::applyCompleted, this,
-            [this](const QString& error) {
-                if (!error.isEmpty()) {
-                    if (error.startsWith("WARN:")) {
-                        if (deps_.appState) {
-                            deps_.appState->cameraStreaming = true;
-                        }
-                        if (deps_.statusLabel) {
-                            deps_.statusLabel->setText("Applied with warnings: " + error.mid(5));
-                        }
-                        if (deps_.cameraStatusItem) {
-                            deps_.cameraStatusItem->setText("Camera: acquiring");
-                        }
-                    } else {
-                        if (deps_.appState) {
-                            deps_.appState->cameraStreaming = false;
-                        }
-                        if (deps_.statusLabel) {
-                            deps_.statusLabel->setText("Apply error: " + error);
-                        }
-                    }
-                } else {
+    connect(
+        deps_.cameraWorker, &CameraWorker::stopCompleted, this,
+        [this]() {
+            if (deps_.appState) {
+                deps_.appState->cameraStreaming = false;
+            }
+            if (deps_.statusLabel) {
+                deps_.statusLabel->setText("Capture stopped.");
+            }
+            if (deps_.cameraStatusItem) {
+                deps_.cameraStatusItem->setText(deps_.cameraOpened && *deps_.cameraOpened ? "Camera: connected"
+                                                                                          : "Camera: unavailable");
+            }
+            if (deps_.pipelineEnabled && !deps_.pipelineEnabled->load() && deps_.runStatusItem) {
+                deps_.runStatusItem->setText("Run: idle");
+            }
+            showStatusMessage("Capture stopped");
+            if (deps_.pipelineEnabled && deps_.pipelineEnabled->load() && deps_.pipelineStatusLabel) {
+                deps_.pipelineStatusLabel->setText("Pipeline: paused");
+            }
+        },
+        Qt::QueuedConnection);
+
+    connect(
+        deps_.cameraWorker, &CameraWorker::applyCompleted, this,
+        [this](const QString& error) {
+            if (!error.isEmpty()) {
+                if (error.startsWith("WARN:")) {
                     if (deps_.appState) {
                         deps_.appState->cameraStreaming = true;
                     }
                     if (deps_.statusLabel) {
-                        deps_.statusLabel->setText("Applied. Streaming");
+                        deps_.statusLabel->setText("Applied with warnings: " + error.mid(5));
                     }
                     if (deps_.cameraStatusItem) {
                         deps_.cameraStatusItem->setText("Camera: acquiring");
                     }
+                } else {
+                    if (deps_.appState) {
+                        deps_.appState->cameraStreaming = false;
+                    }
+                    if (deps_.statusLabel) {
+                        deps_.statusLabel->setText("Apply error: " + error);
+                    }
                 }
-            },
-            Qt::QueuedConnection);
+            } else {
+                if (deps_.appState) {
+                    deps_.appState->cameraStreaming = true;
+                }
+                if (deps_.statusLabel) {
+                    deps_.statusLabel->setText("Applied. Streaming");
+                }
+                if (deps_.cameraStatusItem) {
+                    deps_.cameraStatusItem->setText("Camera: acquiring");
+                }
+            }
+        },
+        Qt::QueuedConnection);
 }
 
 void CameraWorkspaceController::wireControls() {
@@ -510,11 +508,12 @@ void CameraWorkspaceController::wireControls() {
             if (deps_.statusLabel) {
                 deps_.statusLabel->setText("Reconnecting camera...");
             }
-            QMetaObject::invokeMethod(deps_.cameraWorker,
-                                      [worker = deps_.cameraWorker, bits = currentBits(), pixel = currentPixelType()]() {
-                                          worker->reconnect(bits, pixel);
-                                      },
-                                      Qt::QueuedConnection);
+            QMetaObject::invokeMethod(
+                deps_.cameraWorker,
+                [worker = deps_.cameraWorker, bits = currentBits(), pixel = currentPixelType()]() {
+                    worker->reconnect(bits, pixel);
+                },
+                Qt::QueuedConnection);
         });
     }
 
@@ -543,15 +542,14 @@ void CameraWorkspaceController::wireControls() {
             if (deps_.statusLabel) {
                 deps_.statusLabel->setText("Starting capture...");
             }
-            QMetaObject::invokeMethod(deps_.cameraWorker,
-                                      [worker = deps_.cameraWorker,
-                                       bits = currentBits(),
-                                       pixel = currentPixelType(),
-                                       displayEvery = deps_.controls.displayEverySpin ? deps_.controls.displayEverySpin->value() : 1]() {
-                                          worker->setDisplayEvery(displayEvery);
-                                          worker->startCapture(bits, pixel);
-                                      },
-                                      Qt::QueuedConnection);
+            QMetaObject::invokeMethod(
+                deps_.cameraWorker,
+                [worker = deps_.cameraWorker, bits = currentBits(), pixel = currentPixelType(),
+                 displayEvery = deps_.controls.displayEverySpin ? deps_.controls.displayEverySpin->value() : 1]() {
+                    worker->setDisplayEvery(displayEvery);
+                    worker->startCapture(bits, pixel);
+                },
+                Qt::QueuedConnection);
         });
     }
 
@@ -580,11 +578,8 @@ void CameraWorkspaceController::wireControls() {
             if (deps_.statusLabel) {
                 deps_.statusLabel->setText("Stopping capture...");
             }
-            QMetaObject::invokeMethod(deps_.cameraWorker,
-                                      [worker = deps_.cameraWorker]() {
-                                          worker->stopCapture();
-                                      },
-                                      Qt::QueuedConnection);
+            QMetaObject::invokeMethod(
+                deps_.cameraWorker, [worker = deps_.cameraWorker]() { worker->stopCapture(); }, Qt::QueuedConnection);
         });
     }
 
@@ -609,19 +604,16 @@ void CameraWorkspaceController::wireControls() {
     }
 
     if (controls.customWidthSpin) {
-        connect(controls.customWidthSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this]() {
-            scheduleApplySettings();
-        });
+        connect(controls.customWidthSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this]() { scheduleApplySettings(); });
     }
     if (controls.customHeightSpin) {
-        connect(controls.customHeightSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this]() {
-            scheduleApplySettings();
-        });
+        connect(controls.customHeightSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this]() { scheduleApplySettings(); });
     }
     if (controls.binCombo) {
-        connect(controls.binCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this]() {
-            scheduleApplySettings();
-        });
+        connect(controls.binCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [this]() { scheduleApplySettings(); });
     }
     if (controls.bitsCombo) {
         connect(controls.bitsCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this]() {
@@ -630,34 +622,26 @@ void CameraWorkspaceController::wireControls() {
         });
     }
     if (controls.lutMinSpin) {
-        connect(controls.lutMinSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value) {
-            setLutMin(value);
-        });
+        connect(controls.lutMinSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this](int value) { setLutMin(value); });
     }
     if (controls.lutMaxSpin) {
-        connect(controls.lutMaxSpin, qOverload<int>(&QSpinBox::valueChanged), this, [this](int value) {
-            setLutMax(value);
-        });
+        connect(controls.lutMaxSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+                [this](int value) { setLutMax(value); });
     }
     if (controls.lutMinSlider) {
-        connect(controls.lutMinSlider, &QSlider::valueChanged, this, [this](int value) {
-            setLutMin(value);
-        });
+        connect(controls.lutMinSlider, &QSlider::valueChanged, this, [this](int value) { setLutMin(value); });
     }
     if (controls.lutMaxSlider) {
-        connect(controls.lutMaxSlider, &QSlider::valueChanged, this, [this](int value) {
-            setLutMax(value);
-        });
+        connect(controls.lutMaxSlider, &QSlider::valueChanged, this, [this](int value) { setLutMax(value); });
     }
     if (controls.exposureSpin) {
-        connect(controls.exposureSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this, [this]() {
-            scheduleApplySettings();
-        });
+        connect(controls.exposureSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+                [this]() { scheduleApplySettings(); });
     }
     if (controls.readoutCombo) {
-        connect(controls.readoutCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this]() {
-            scheduleApplySettings();
-        });
+        connect(controls.readoutCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                [this]() { scheduleApplySettings(); });
     }
 }
 
@@ -792,14 +776,14 @@ void CameraWorkspaceController::applySettings() {
     if (deps_.statusLabel) {
         deps_.statusLabel->setText("Applying camera settings...");
     }
-    QMetaObject::invokeMethod(deps_.cameraWorker,
-                              [worker = deps_.cameraWorker,
-                               settings,
-                               displayEvery = controls.displayEverySpin ? controls.displayEverySpin->value() : 1]() {
-                                  worker->setDisplayEvery(displayEvery);
-                                  worker->applySettings(settings);
-                              },
-                              Qt::QueuedConnection);
+    QMetaObject::invokeMethod(
+        deps_.cameraWorker,
+        [worker = deps_.cameraWorker, settings,
+         displayEvery = controls.displayEverySpin ? controls.displayEverySpin->value() : 1]() {
+            worker->setDisplayEvery(displayEvery);
+            worker->applySettings(settings);
+        },
+        Qt::QueuedConnection);
     resetPipelineIfReady("Pipeline: warming (settings changed)");
 }
 

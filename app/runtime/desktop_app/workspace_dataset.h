@@ -15,4 +15,4 @@ struct DatasetWorkspaceControls {
 
 QWidget* buildDatasetWorkspace(const DatasetWorkspaceControls& controls);
 
-}  // namespace desktop_app::workspace
+} // namespace desktop_app::workspace

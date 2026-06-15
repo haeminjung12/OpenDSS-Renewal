@@ -14,7 +14,7 @@ struct ClassificationResult {
 };
 
 class OnnxClassifier {
-public:
+  public:
     OnnxClassifier();
 
     bool init(const std::string& modelPath, const Metadata& meta, bool preferCuda, std::string& err);
@@ -22,7 +22,7 @@ public:
     ClassificationResult classify(const cv::Mat& input) const;
     std::string executionProvider() const;
 
-private:
+  private:
     void preprocess(const cv::Mat& input, std::vector<float>& out) const;
     void setupNormalizationLuts();
 

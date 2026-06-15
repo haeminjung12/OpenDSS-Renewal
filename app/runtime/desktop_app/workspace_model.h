@@ -29,4 +29,4 @@ struct ModelWorkspaceControls {
 
 QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls);
 
-}  // namespace desktop_app::workspace
+} // namespace desktop_app::workspace

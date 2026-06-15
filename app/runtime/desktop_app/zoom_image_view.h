@@ -12,7 +12,7 @@ class QLabel;
 class QWheelEvent;
 
 class ZoomImageView : public QScrollArea {
-public:
+  public:
     explicit ZoomImageView(QWidget* parent = nullptr);
 
     void setZoomChanged(const std::function<void(double)>& cb);
@@ -22,10 +22,10 @@ public:
     void fitToView();
     void zoomBySteps(int steps);
 
-protected:
+  protected:
     void wheelEvent(QWheelEvent* ev) override;
 
-private:
+  private:
     double computeMaxScale() const;
     void updatePixmap();
 

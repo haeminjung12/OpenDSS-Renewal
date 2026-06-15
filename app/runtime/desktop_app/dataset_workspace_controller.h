@@ -23,7 +23,7 @@ class DatasetLabelerDialog;
 class DatasetWorkspaceController : public QObject {
     Q_OBJECT
 
-public:
+  public:
     struct Dependencies {
         QWidget* window = nullptr;
         QString defaultTrainerDataset;
@@ -69,7 +69,7 @@ public:
     QStringList trainerTrainArgs(bool dryRun) const;
     QString trainerCommandPreview(const QString& program, const QStringList& args) const;
 
-private:
+  private:
     static QString quoteTrainerArg(QString arg);
     void loadTrainerSettings() const;
     void wireDatasetActions();

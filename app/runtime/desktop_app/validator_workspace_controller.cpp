@@ -22,12 +22,18 @@ ValidatorWorkspaceController::ValidatorWorkspaceController(const Dependencies& d
 }
 
 void ValidatorWorkspaceController::setSequenceUiRunning(bool running) const {
-    if (deps_.seqStartBtn) deps_.seqStartBtn->setEnabled(!running);
-    if (deps_.seqStopBtn) deps_.seqStopBtn->setEnabled(running);
-    if (deps_.seqLoadBtn) deps_.seqLoadBtn->setEnabled(!running);
-    if (deps_.pipelineWidget) deps_.pipelineWidget->setEnabled(!running);
-    if (deps_.labviewWidget) deps_.labviewWidget->setEnabled(!running);
-    if (deps_.detectWidget) deps_.detectWidget->setEnabled(!running);
+    if (deps_.seqStartBtn)
+        deps_.seqStartBtn->setEnabled(!running);
+    if (deps_.seqStopBtn)
+        deps_.seqStopBtn->setEnabled(running);
+    if (deps_.seqLoadBtn)
+        deps_.seqLoadBtn->setEnabled(!running);
+    if (deps_.pipelineWidget)
+        deps_.pipelineWidget->setEnabled(!running);
+    if (deps_.labviewWidget)
+        deps_.labviewWidget->setEnabled(!running);
+    if (deps_.detectWidget)
+        deps_.detectWidget->setEnabled(!running);
     if (deps_.pipelineStartBtn && deps_.pipelineEnabled) {
         deps_.pipelineStartBtn->setEnabled(!running && !deps_.pipelineEnabled->load());
     }
@@ -35,15 +41,20 @@ void ValidatorWorkspaceController::setSequenceUiRunning(bool running) const {
         deps_.pipelineStopBtn->setEnabled(!running && deps_.pipelineEnabled->load());
     }
     if (deps_.viewerOnly && !*deps_.viewerOnly) {
-        if (deps_.startBtn) deps_.startBtn->setEnabled(!running);
-        if (deps_.stopBtn) deps_.stopBtn->setEnabled(!running);
-        if (deps_.reconnectBtn) deps_.reconnectBtn->setEnabled(!running);
-        if (deps_.applyBtn) deps_.applyBtn->setEnabled(!running);
+        if (deps_.startBtn)
+            deps_.startBtn->setEnabled(!running);
+        if (deps_.stopBtn)
+            deps_.stopBtn->setEnabled(!running);
+        if (deps_.reconnectBtn)
+            deps_.reconnectBtn->setEnabled(!running);
+        if (deps_.applyBtn)
+            deps_.applyBtn->setEnabled(!running);
     }
 }
 
 void ValidatorWorkspaceController::updateSequenceStatus(const QString& text) const {
-    if (!deps_.seqStatusLabel) return;
+    if (!deps_.seqStatusLabel)
+        return;
     QPointer<QLabel> label(deps_.seqStatusLabel);
     QMetaObject::invokeMethod(
         deps_.seqStatusLabel,
@@ -56,7 +67,8 @@ void ValidatorWorkspaceController::updateSequenceStatus(const QString& text) con
 }
 
 void ValidatorWorkspaceController::stopSequenceTest() {
-    if (!deps_.sequenceStop || !deps_.sequenceThread || !deps_.sequenceRunning) return;
+    if (!deps_.sequenceStop || !deps_.sequenceThread || !deps_.sequenceRunning)
+        return;
     deps_.sequenceStop->store(true);
     if (deps_.sequenceThread->joinable()) {
         deps_.sequenceThread->join();
@@ -64,8 +76,10 @@ void ValidatorWorkspaceController::stopSequenceTest() {
     if (deps_.sequenceRunning->load()) {
         deps_.sequenceRunning->store(false);
         setSequenceUiRunning(false);
-        if (deps_.seqStatusLabel) deps_.seqStatusLabel->setText("Sequence stopped.");
-        if (deps_.statusLabel) deps_.statusLabel->setText("Sequence test stopped.");
+        if (deps_.seqStatusLabel)
+            deps_.seqStatusLabel->setText("Sequence stopped.");
+        if (deps_.statusLabel)
+            deps_.statusLabel->setText("Sequence test stopped.");
     }
 }
 
@@ -92,29 +106,27 @@ QString ValidatorWorkspaceController::findPathUpwards(const QString& relativePat
     QDir dir(deps_.appDir);
     for (int i = 0; i < 10; ++i) {
         const QString candidate = dir.filePath(relativePath);
-        if (QFileInfo::exists(candidate)) return QFileInfo(candidate).absoluteFilePath();
-        if (!dir.cdUp()) break;
+        if (QFileInfo::exists(candidate))
+            return QFileInfo(candidate).absoluteFilePath();
+        if (!dir.cdUp())
+            break;
     }
     return QString();
 }
 
 void ValidatorWorkspaceController::openImageValidationDialog() {
-    if (!deps_.parentWindow || !deps_.onnxEdit || !deps_.metaEdit || !deps_.resolveAppRelative) return;
+    if (!deps_.parentWindow || !deps_.onnxEdit || !deps_.metaEdit || !deps_.resolveAppRelative)
+        return;
 
     QSettings settings;
     const QString trainerPythonPath = findPathUpwards("training/python");
-    const QString datasetPath =
-        settings.value("validator/imageDataset", deps_.preparedDatasetPath).toString();
-    const QString validationOutput =
-        settings.value("validator/outputFolder", defaultValidationOutput()).toString();
+    const QString datasetPath = settings.value("validator/imageDataset", deps_.preparedDatasetPath).toString();
+    const QString validationOutput = settings.value("validator/outputFolder", defaultValidationOutput()).toString();
 
-    ImageValidationDialog dialog(deps_.parentWindow,
-                                 settings.value("validator/pythonExecutable", "python").toString(),
+    ImageValidationDialog dialog(deps_.parentWindow, settings.value("validator/pythonExecutable", "python").toString(),
                                  deps_.resolveAppRelative(deps_.onnxEdit->text().trimmed()),
-                                 deps_.resolveAppRelative(deps_.metaEdit->text().trimmed()),
-                                 datasetPath,
-                                 validationOutput,
-                                 trainerPythonPath);
+                                 deps_.resolveAppRelative(deps_.metaEdit->text().trimmed()), datasetPath,
+                                 validationOutput, trainerPythonPath);
     dialog.exec();
     if (deps_.pythonStatusItem) {
         deps_.pythonStatusItem->setText("Python: validator configured");
@@ -122,18 +134,18 @@ void ValidatorWorkspaceController::openImageValidationDialog() {
 }
 
 void ValidatorWorkspaceController::wireValidatorAction() {
-    if (!deps_.imageValidationAction) return;
-    connect(deps_.imageValidationAction, &QAction::triggered, this, [this]() {
-        openImageValidationDialog();
-    });
+    if (!deps_.imageValidationAction)
+        return;
+    connect(deps_.imageValidationAction, &QAction::triggered, this, [this]() { openImageValidationDialog(); });
 }
 
 void ValidatorWorkspaceController::wireSequenceControls() {
     if (deps_.seqBrowseBtn && deps_.seqFolderEdit) {
         connect(deps_.seqBrowseBtn, &QPushButton::clicked, this, [this]() {
-            const QString dir =
-                QFileDialog::getExistingDirectory(deps_.parentWindow, "Select sequence folder", deps_.seqFolderEdit->text());
-            if (!dir.isEmpty()) deps_.seqFolderEdit->setText(dir);
+            const QString dir = QFileDialog::getExistingDirectory(deps_.parentWindow, "Select sequence folder",
+                                                                  deps_.seqFolderEdit->text());
+            if (!dir.isEmpty())
+                deps_.seqFolderEdit->setText(dir);
         });
     }
 
@@ -141,7 +153,8 @@ void ValidatorWorkspaceController::wireSequenceControls() {
         deps_.sequenceLoading && deps_.sequenceStop && deps_.sequenceMutex && deps_.sequenceFrames &&
         deps_.backgroundTasks) {
         connect(deps_.seqLoadBtn, &QPushButton::clicked, this, [this]() {
-            if (deps_.sequenceRunning->load() || deps_.sequenceLoading->load()) return;
+            if (deps_.sequenceRunning->load() || deps_.sequenceLoading->load())
+                return;
             deps_.sequenceStop->store(false);
 
             const QString dirPath = deps_.seqFolderEdit->text().trimmed();
@@ -158,7 +171,8 @@ void ValidatorWorkspaceController::wireSequenceControls() {
             }
 
             deps_.seqLoadBtn->setEnabled(false);
-            if (deps_.seqStartBtn) deps_.seqStartBtn->setEnabled(false);
+            if (deps_.seqStartBtn)
+                deps_.seqStartBtn->setEnabled(false);
             updateSequenceStatus(QString("Loading %1 frames...").arg(files.size()));
             deps_.sequenceLoading->store(true);
 
@@ -167,15 +181,15 @@ void ValidatorWorkspaceController::wireSequenceControls() {
             QPointer<QPushButton> seqStartBtnPtr(deps_.seqStartBtn);
 
             deps_.backgroundTasks->launch(
-                "sequence-load",
-                [this, dirPath, files, seqStatusLabelPtr, seqLoadBtnPtr, seqStartBtnPtr](
-                    const BackgroundTaskRegistry::StopFlag& stop) {
+                "sequence-load", [this, dirPath, files, seqStatusLabelPtr, seqLoadBtnPtr,
+                                  seqStartBtnPtr](const BackgroundTaskRegistry::StopFlag& stop) {
                     auto frames = std::make_shared<std::vector<SequenceFrame>>();
                     frames->reserve(files.size());
                     size_t totalBytes = 0;
                     int loaded = 0;
                     for (const QString& rel : files) {
-                        if (deps_.sequenceStop->load() || stop->load()) break;
+                        if (deps_.sequenceStop->load() || stop->load())
+                            break;
                         const QString absPath = QDir(dirPath).absoluteFilePath(rel);
                         QImageReader reader(absPath);
                         reader.setAutoTransform(true);
@@ -208,11 +222,9 @@ void ValidatorWorkspaceController::wireSequenceControls() {
                         *deps_.sequenceFrames = frames;
                     }
 
-                    const QString status = canceled
-                                               ? QString("Sequence load canceled.")
-                                               : QString("Loaded %1 frames (%2).")
-                                                     .arg(frames->size())
-                                                     .arg(formatBytes(totalBytes));
+                    const QString status =
+                        canceled ? QString("Sequence load canceled.")
+                                 : QString("Loaded %1 frames (%2).").arg(frames->size()).arg(formatBytes(totalBytes));
                     deps_.sequenceLoading->store(false);
                     if (!seqStatusLabelPtr.isNull()) {
                         QMetaObject::invokeMethod(
@@ -228,8 +240,10 @@ void ValidatorWorkspaceController::wireSequenceControls() {
                         QMetaObject::invokeMethod(
                             seqLoadBtnPtr,
                             [seqLoadBtnPtr, seqStartBtnPtr, canceled]() {
-                                if (!seqLoadBtnPtr.isNull()) seqLoadBtnPtr->setEnabled(true);
-                                if (!seqStartBtnPtr.isNull()) seqStartBtnPtr->setEnabled(!canceled);
+                                if (!seqLoadBtnPtr.isNull())
+                                    seqLoadBtnPtr->setEnabled(true);
+                                if (!seqStartBtnPtr.isNull())
+                                    seqStartBtnPtr->setEnabled(!canceled);
                             },
                             Qt::QueuedConnection);
                     }
@@ -238,8 +252,6 @@ void ValidatorWorkspaceController::wireSequenceControls() {
     }
 
     if (deps_.seqStopBtn) {
-        connect(deps_.seqStopBtn, &QPushButton::clicked, this, [this]() {
-            stopSequenceTest();
-        });
+        connect(deps_.seqStopBtn, &QPushButton::clicked, this, [this]() { stopSequenceTest(); });
     }
 }

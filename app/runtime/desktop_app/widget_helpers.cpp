@@ -72,8 +72,10 @@ QWidget* makeStatusRow(const QString& label, const QString& value, const QString
     layout->setSpacing(8);
     auto* dot = new QLabel("o");
     dot->setProperty("statusDot", true);
-    if (tone == "warn") dot->setStyleSheet("color:#F59E0B;");
-    if (tone == "error") dot->setStyleSheet("color:#EF4444;");
+    if (tone == "warn")
+        dot->setStyleSheet("color:#F59E0B;");
+    if (tone == "error")
+        dot->setStyleSheet("color:#EF4444;");
     auto* labelWidget = new QLabel(label);
     labelWidget->setProperty("mutedText", true);
     auto* valueWidget = new QLabel(value);
@@ -153,4 +155,4 @@ QLabel* makeMutedLabel(const QString& text) {
     return label;
 }
 
-}  // namespace desktop_app::ui
+} // namespace desktop_app::ui

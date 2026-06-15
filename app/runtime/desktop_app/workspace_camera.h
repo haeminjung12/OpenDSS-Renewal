@@ -40,12 +40,8 @@ struct CameraWorkspaceControls {
 };
 
 QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls);
-QString refreshCameraFormatOptions(QComboBox* presetCombo,
-                                   QComboBox* bitsCombo,
-                                   QComboBox* readoutCombo,
-                                   QSpinBox* customWidthSpin,
-                                   QSpinBox* customHeightSpin,
-                                   QDoubleSpinBox* exposureSpin,
+QString refreshCameraFormatOptions(QComboBox* presetCombo, QComboBox* bitsCombo, QComboBox* readoutCombo,
+                                   QSpinBox* customWidthSpin, QSpinBox* customHeightSpin, QDoubleSpinBox* exposureSpin,
                                    const QVariantMap& options);
 
-}  // namespace desktop_app::workspace
+} // namespace desktop_app::workspace

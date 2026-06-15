@@ -41,7 +41,7 @@ struct FrameData {
 };
 
 class DcamCamera {
-public:
+  public:
     DcamCamera();
     ~DcamCamera();
 
@@ -55,7 +55,7 @@ public:
     bool waitForFrame(int timeoutMs);
     bool getLatestFrame(FrameData& out);
 
-private:
+  private:
     std::string errText(const char* label, DCAMERR err) const;
 
     HDCAM hdcam_;

@@ -23,7 +23,7 @@ class BackgroundTaskRegistry;
 class ValidatorWorkspaceController : public QObject {
     Q_OBJECT
 
-public:
+  public:
     using ResolvePathCallback = std::function<QString(const QString&)>;
 
     struct Dependencies {
@@ -70,7 +70,7 @@ public:
     void updateSequenceStatus(const QString& text) const;
     void stopSequenceTest();
 
-private:
+  private:
     static QString formatBytes(size_t bytes);
     static QStringList collectSequenceFiles(const QString& dirPath);
 

@@ -9,7 +9,8 @@
 namespace {
 std::string readFile(const std::string& path) {
     std::ifstream in(path, std::ios::in | std::ios::binary);
-    if (!in) return {};
+    if (!in)
+        return {};
     std::ostringstream ss;
     ss << in.rdbuf();
     return ss.str();
@@ -21,11 +22,14 @@ size_t findKey(const std::string& s, const std::string& key) {
 }
 
 bool extractArraySpan(const std::string& s, size_t keyPos, size_t& outStart, size_t& outEnd) {
-    if (keyPos == std::string::npos) return false;
+    if (keyPos == std::string::npos)
+        return false;
     size_t start = s.find('[', keyPos);
-    if (start == std::string::npos) return false;
+    if (start == std::string::npos)
+        return false;
     size_t end = s.find(']', start);
-    if (end == std::string::npos) return false;
+    if (end == std::string::npos)
+        return false;
     outStart = start + 1;
     outEnd = end;
     return true;
@@ -33,12 +37,14 @@ bool extractArraySpan(const std::string& s, size_t keyPos, size_t& outStart, siz
 
 bool parseStringArray(const std::string& s, const std::string& key, std::vector<std::string>& out) {
     size_t start = 0, end = 0;
-    if (!extractArraySpan(s, findKey(s, key), start, end)) return false;
+    if (!extractArraySpan(s, findKey(s, key), start, end))
+        return false;
     out.clear();
     for (size_t i = start; i < end; ++i) {
         if (s[i] == '"') {
             size_t j = s.find('"', i + 1);
-            if (j == std::string::npos || j > end) break;
+            if (j == std::string::npos || j > end)
+                break;
             out.push_back(s.substr(i + 1, j - i - 1));
             i = j;
         }
@@ -48,15 +54,19 @@ bool parseStringArray(const std::string& s, const std::string& key, std::vector<
 
 bool parseNumberArray(const std::string& s, const std::string& key, std::vector<double>& out) {
     size_t start = 0, end = 0;
-    if (!extractArraySpan(s, findKey(s, key), start, end)) return false;
+    if (!extractArraySpan(s, findKey(s, key), start, end))
+        return false;
     out.clear();
     size_t i = start;
     while (i < end) {
-        while (i < end && (std::isspace(static_cast<unsigned char>(s[i])) || s[i] == ',')) ++i;
-        if (i >= end) break;
+        while (i < end && (std::isspace(static_cast<unsigned char>(s[i])) || s[i] == ','))
+            ++i;
+        if (i >= end)
+            break;
         char* next = nullptr;
         double v = std::strtod(&s[i], &next);
-        if (&s[i] == next) break;
+        if (&s[i] == next)
+            break;
         out.push_back(v);
         i = static_cast<size_t>(next - s.data());
     }
@@ -102,9 +112,11 @@ std::string unescapeJsonString(const std::string& input) {
 }
 
 bool findObjectSpan(const std::string& s, size_t keyPos, size_t& outStart, size_t& outEnd) {
-    if (keyPos == std::string::npos) return false;
+    if (keyPos == std::string::npos)
+        return false;
     size_t start = s.find('{', keyPos);
-    if (start == std::string::npos) return false;
+    if (start == std::string::npos)
+        return false;
     int depth = 0;
     bool inString = false;
     bool escaped = false;
@@ -136,27 +148,34 @@ bool findObjectSpan(const std::string& s, size_t keyPos, size_t& outStart, size_
     return false;
 }
 
-bool parseStringMap(const std::string& s,
-                    const std::string& key,
+bool parseStringMap(const std::string& s, const std::string& key,
                     std::vector<std::pair<std::string, std::string>>& out) {
     size_t start = 0, end = 0;
-    if (!findObjectSpan(s, findKey(s, key), start, end)) return false;
+    if (!findObjectSpan(s, findKey(s, key), start, end))
+        return false;
     out.clear();
     size_t i = start;
     while (i < end) {
-        while (i < end && s[i] != '"') ++i;
-        if (i >= end) break;
+        while (i < end && s[i] != '"')
+            ++i;
+        if (i >= end)
+            break;
         size_t keyEnd = s.find('"', i + 1);
-        if (keyEnd == std::string::npos || keyEnd > end) break;
+        if (keyEnd == std::string::npos || keyEnd > end)
+            break;
         std::string mapKey = unescapeJsonString(s.substr(i + 1, keyEnd - i - 1));
         i = keyEnd + 1;
         size_t colon = s.find(':', i);
-        if (colon == std::string::npos || colon > end) break;
+        if (colon == std::string::npos || colon > end)
+            break;
         i = colon + 1;
-        while (i < end && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
-        if (i >= end || s[i] != '"') break;
+        while (i < end && std::isspace(static_cast<unsigned char>(s[i])))
+            ++i;
+        if (i >= end || s[i] != '"')
+            break;
         size_t valueEnd = s.find('"', i + 1);
-        if (valueEnd == std::string::npos || valueEnd > end) break;
+        if (valueEnd == std::string::npos || valueEnd > end)
+            break;
         std::string mapValue = unescapeJsonString(s.substr(i + 1, valueEnd - i - 1));
         out.push_back({mapKey, mapValue});
         i = valueEnd + 1;
@@ -169,9 +188,7 @@ bool containsClassId(const Metadata& meta, const std::string& classId) {
 }
 
 bool isBinaryMetadata(const Metadata& meta) {
-    return meta.classes.size() == 2 &&
-           containsClassId(meta, "0") &&
-           containsClassId(meta, "1");
+    return meta.classes.size() == 2 && containsClassId(meta, "0") && containsClassId(meta, "1");
 }
 } // namespace
 
@@ -254,12 +271,8 @@ std::string FormatClassForDisplay(const std::string& classId, const std::string&
     return displayLabel + " (" + classId + ")";
 }
 
-bool ResolveTargetClassId(const Metadata& meta,
-                          const std::string& targetClassId,
-                          const std::string& targetLabel,
-                          std::string& resolvedClassId,
-                          std::string& resolvedDisplayLabel,
-                          std::string& err) {
+bool ResolveTargetClassId(const Metadata& meta, const std::string& targetClassId, const std::string& targetLabel,
+                          std::string& resolvedClassId, std::string& resolvedDisplayLabel, std::string& err) {
     resolvedClassId.clear();
     resolvedDisplayLabel.clear();
     err.clear();
@@ -282,8 +295,7 @@ bool ResolveTargetClassId(const Metadata& meta,
         for (size_t i = 0; i < meta.classes.size(); ++i) {
             const std::string& candidateId = meta.classes[i];
             std::string candidateDisplay = DisplayLabelForClassId(meta, candidateId);
-            if (toLowerAscii(candidateId) == labelLower ||
-                toLowerAscii(candidateDisplay) == labelLower ||
+            if (toLowerAscii(candidateId) == labelLower || toLowerAscii(candidateDisplay) == labelLower ||
                 toLowerAscii(FormatClassForDisplay(candidateId, candidateDisplay)) == labelLower) {
                 matches.push_back(candidateId);
             }

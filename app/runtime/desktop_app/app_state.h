@@ -20,4 +20,4 @@ struct AppState {
     QString daqFaultText;
 };
 
-}  // namespace desktop_app
+} // namespace desktop_app

@@ -77,8 +77,7 @@ bool sizeMatchesAttr(int value, const DCAMPROP_ATTR& attr) {
         return false;
     }
     if ((attr.attribute & DCAMPROP_ATTR_HASRANGE) != 0) {
-        if (value < static_cast<int>(std::ceil(attr.valuemin)) ||
-            value > static_cast<int>(std::floor(attr.valuemax))) {
+        if (value < static_cast<int>(std::ceil(attr.valuemin)) || value > static_cast<int>(std::floor(attr.valuemax))) {
             return false;
         }
     }
@@ -90,10 +89,9 @@ bool sizeMatchesAttr(int value, const DCAMPROP_ATTR& attr) {
     }
     return true;
 }
-}
+} // namespace
 
-CameraWorker::CameraWorker(QObject* parent)
-    : QObject(parent) {
+CameraWorker::CameraWorker(QObject* parent) : QObject(parent) {
     secondTimer_.start();
     emitTimer_.start();
 }
@@ -224,8 +222,7 @@ void CameraWorker::grabOnce() {
             secondTimer_.restart();
         }
         ++displayCounter_;
-        if (displayCounter_ >= displayEvery_ &&
-            emitTimer_.elapsed() - lastEmitMs_ >= kMinimumEmitIntervalMs) {
+        if (displayCounter_ >= displayEvery_ && emitTimer_.elapsed() - lastEmitMs_ >= kMinimumEmitIntervalMs) {
             displayCounter_ = 0;
             lastEmitMs_ = emitTimer_.elapsed();
             emit frameReady(image.copy(), meta, currentFps_);
@@ -279,27 +276,23 @@ void CameraWorker::emitFormatOptions() {
     dcamprop_getvalue(handle, DCAM_IDPROP_IMAGE_HEIGHT, &currentHeight);
     dcamprop_getvalue(handle, DCAM_IDPROP_EXPOSURETIME, &exposure);
 
-    const int maximumWidth = widthAttr.valuemax > 0.0
-        ? static_cast<int>(std::floor(widthAttr.valuemax))
-        : static_cast<int>(std::lround(currentWidth));
-    const int maximumHeight = heightAttr.valuemax > 0.0
-        ? static_cast<int>(std::floor(heightAttr.valuemax))
-        : static_cast<int>(std::lround(currentHeight));
+    const int maximumWidth = widthAttr.valuemax > 0.0 ? static_cast<int>(std::floor(widthAttr.valuemax))
+                                                      : static_cast<int>(std::lround(currentWidth));
+    const int maximumHeight = heightAttr.valuemax > 0.0 ? static_cast<int>(std::floor(heightAttr.valuemax))
+                                                        : static_cast<int>(std::lround(currentHeight));
 
     QVariantList presets;
-    appendUniquePreset(presets, static_cast<int>(std::lround(currentWidth)), static_cast<int>(std::lround(currentHeight)));
+    appendUniquePreset(presets, static_cast<int>(std::lround(currentWidth)),
+                       static_cast<int>(std::lround(currentHeight)));
     appendUniquePreset(presets, maximumWidth, maximumHeight);
     const QList<QSize> commonPresets = {
-        {2304, 2304}, {2304, 1152}, {2304, 576}, {2304, 288}, {2304, 144},
-        {2304, 72}, {2304, 36}, {2304, 16}, {2304, 8}, {2304, 4},
-        {1152, 1152}, {1152, 576}, {1152, 288}, {1152, 144},
-        {576, 576}, {576, 288}, {576, 144}, {512, 128}, {512, 64},
-        {288, 288}, {288, 144}, {256, 64}, {256, 32}, {144, 144},
+        {2304, 2304}, {2304, 1152}, {2304, 576},  {2304, 288}, {2304, 144}, {2304, 72},  {2304, 36}, {2304, 16},
+        {2304, 8},    {2304, 4},    {1152, 1152}, {1152, 576}, {1152, 288}, {1152, 144}, {576, 576}, {576, 288},
+        {576, 144},   {512, 128},   {512, 64},    {288, 288},  {288, 144},  {256, 64},   {256, 32},  {144, 144},
     };
     for (const QSize& size : commonPresets) {
         if (size.width() <= maximumWidth && size.height() <= maximumHeight &&
-            sizeMatchesAttr(size.width(), widthAttr) &&
-            sizeMatchesAttr(size.height(), heightAttr)) {
+            sizeMatchesAttr(size.width(), widthAttr) && sizeMatchesAttr(size.height(), heightAttr)) {
             appendUniquePreset(presets, size.width(), size.height());
         }
     }
@@ -307,8 +300,7 @@ void CameraWorker::emitFormatOptions() {
     QVariantList bitDepths;
     for (const int bits : {8, 10, 12, 14, 16}) {
         if (queryExactValue(handle, DCAM_IDPROP_BITSPERCHANNEL, bits)) {
-            appendUniqueOption(bitDepths,
-                               valueText(handle, DCAM_IDPROP_BITSPERCHANNEL, bits, QString::number(bits)),
+            appendUniqueOption(bitDepths, valueText(handle, DCAM_IDPROP_BITSPERCHANNEL, bits, QString::number(bits)),
                                bits);
         }
     }
@@ -362,17 +354,18 @@ void CameraWorker::emitReadback() {
     dcamprop_getvalue(handle, DCAM_IDPROP_EXPOSURETIME, &exposure);
     dcamprop_getvalue(handle, DCAM_IDPROP_BINNING_HORZ, &binH);
     dcamprop_getvalue(handle, DCAM_IDPROP_BINNING_VERT, &binV);
-    emit readbackReady(QString("Readback: w=%1 h=%2 bin=%3 binH=%4 binV=%5 bits=%6 pixType=%7 exp_ms=%8 camfps=%9 readout=%10")
-        .arg(width, 0, 'f', 0)
-        .arg(height, 0, 'f', 0)
-        .arg(binning, 0, 'f', 1)
-        .arg(binH, 0, 'f', 1)
-        .arg(binV, 0, 'f', 1)
-        .arg(bits, 0, 'f', 0)
-        .arg(pixelType, 0, 'f', 0)
-        .arg(exposure * 1000.0, 0, 'f', 3)
-        .arg(fps, 0, 'f', 1)
-        .arg(readout, 0, 'f', 0));
+    emit readbackReady(
+        QString("Readback: w=%1 h=%2 bin=%3 binH=%4 binV=%5 bits=%6 pixType=%7 exp_ms=%8 camfps=%9 readout=%10")
+            .arg(width, 0, 'f', 0)
+            .arg(height, 0, 'f', 0)
+            .arg(binning, 0, 'f', 1)
+            .arg(binH, 0, 'f', 1)
+            .arg(binV, 0, 'f', 1)
+            .arg(bits, 0, 'f', 0)
+            .arg(pixelType, 0, 'f', 0)
+            .arg(exposure * 1000.0, 0, 'f', 3)
+            .arg(fps, 0, 'f', 1)
+            .arg(readout, 0, 'f', 0));
 }
 
 void CameraWorker::applyDefaultCameraFormat(int bits, int pixelType) {

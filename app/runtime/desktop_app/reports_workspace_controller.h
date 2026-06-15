@@ -12,7 +12,7 @@ class QStatusBar;
 class ReportsWorkspaceController : public QObject {
     Q_OBJECT
 
-public:
+  public:
     struct Dependencies {
         QAction* openRunFolderAction = nullptr;
         QAction* openOutputAction = nullptr;
@@ -31,7 +31,7 @@ public:
     void setCurrentRunDir(const QString& runDir);
     void refreshOpenRunAvailability();
 
-private:
+  private:
     void updateOpenRunAvailability();
     void openCurrentRunFolder();
     void wireActions();

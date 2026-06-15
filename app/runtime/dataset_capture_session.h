@@ -6,17 +6,9 @@
 #include <string>
 #include <vector>
 
-enum class DatasetCollectionMode {
-    HitOnly,
-    WasteOnly,
-    Mixed
-};
+enum class DatasetCollectionMode { HitOnly, WasteOnly, Mixed };
 
-enum class DatasetBatchFullAction {
-    Stop,
-    Prompt,
-    Continue
-};
+enum class DatasetBatchFullAction { Stop, Prompt, Continue };
 
 struct DatasetCaptureConfig {
     std::filesystem::path sessionDir;
@@ -57,7 +49,7 @@ struct DatasetCropCandidate {
 };
 
 class DatasetCaptureSession {
-public:
+  public:
     bool start(const DatasetCaptureConfig& config, std::string& err);
     bool addCrop(const DatasetCropCandidate& candidate, std::string& err);
     void extendBatchTarget();
@@ -65,17 +57,29 @@ public:
     void setStopReason(const std::string& reason);
     bool finalize(std::string& err);
 
-    bool isStarted() const { return started_; }
-    bool targetReached() const { return started_ && collectedCount_ >= currentBatchTarget_; }
-    std::size_t collectedCount() const { return collectedCount_; }
-    std::size_t currentBatchTarget() const { return currentBatchTarget_; }
-    const std::filesystem::path& sessionDir() const { return config_.sessionDir; }
-    const std::string& stopReason() const { return batchStopReason_; }
+    bool isStarted() const {
+        return started_;
+    }
+    bool targetReached() const {
+        return started_ && collectedCount_ >= currentBatchTarget_;
+    }
+    std::size_t collectedCount() const {
+        return collectedCount_;
+    }
+    std::size_t currentBatchTarget() const {
+        return currentBatchTarget_;
+    }
+    const std::filesystem::path& sessionDir() const {
+        return config_.sessionDir;
+    }
+    const std::string& stopReason() const {
+        return batchStopReason_;
+    }
 
     static bool parseCollectionMode(const std::string& text, DatasetCollectionMode& mode);
     static std::string collectionModeToString(DatasetCollectionMode mode);
 
-private:
+  private:
     static std::string csvQuote(const std::string& value);
     static std::string jsonQuote(const std::string& value);
     static std::string nowIso8601();

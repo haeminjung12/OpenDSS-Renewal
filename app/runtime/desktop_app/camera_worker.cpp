@@ -316,28 +316,11 @@ void CameraWorker::emitFormatOptions() {
     QVariantList readoutSpeeds;
     double queriedReadout = DCAMPROP_READOUTSPEED__SLOWEST;
     if (!failed(dcamprop_queryvalue(handle, DCAM_IDPROP_READOUTSPEED, &queriedReadout))) {
-        appendUniqueOption(readoutSpeeds, QStringLiteral("Slowest"), static_cast<int>(std::lround(queriedReadout)));
+        appendUniqueOption(readoutSpeeds, QStringLiteral("Slow"), static_cast<int>(std::lround(queriedReadout)));
     }
     queriedReadout = DCAMPROP_READOUTSPEED__FASTEST;
     if (!failed(dcamprop_queryvalue(handle, DCAM_IDPROP_READOUTSPEED, &queriedReadout))) {
-        appendUniqueOption(readoutSpeeds, QStringLiteral("Fastest"), static_cast<int>(std::lround(queriedReadout)));
-    }
-
-    DCAMPROP_ATTR readoutAttr = {};
-    if (readPropertyAttr(handle, DCAM_IDPROP_READOUTSPEED, readoutAttr) &&
-        (readoutAttr.attribute & DCAMPROP_ATTR_HASRANGE) != 0) {
-        const int minReadout = static_cast<int>(std::ceil(readoutAttr.valuemin));
-        const int maxReadout = static_cast<int>(std::floor(readoutAttr.valuemax));
-        const int step = readoutAttr.valuestep > 0.0 ? static_cast<int>(std::lround(readoutAttr.valuestep)) : 1;
-        if (minReadout > 0 && maxReadout >= minReadout && maxReadout - minReadout <= 32 && step > 0) {
-            for (int value = minReadout; value <= maxReadout; value += step) {
-                if (queryExactValue(handle, DCAM_IDPROP_READOUTSPEED, value)) {
-                    appendUniqueOption(readoutSpeeds,
-                                       valueText(handle, DCAM_IDPROP_READOUTSPEED, value, QString::number(value)),
-                                       value);
-                }
-            }
-        }
+        appendUniqueOption(readoutSpeeds, QStringLiteral("Fast"), static_cast<int>(std::lround(queriedReadout)));
     }
 
     QVariantMap options;

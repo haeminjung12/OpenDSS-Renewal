@@ -507,8 +507,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     exposureSpin->setValue(10.0);
 
     auto readoutCombo = new QComboBox;
-    readoutCombo->addItem("Fastest", DCAMPROP_READOUTSPEED__FASTEST);
-    readoutCombo->addItem("Slowest", DCAMPROP_READOUTSPEED__SLOWEST);
+    readoutCombo->addItem("Fast", DCAMPROP_READOUTSPEED__FASTEST);
+    readoutCombo->addItem("Slow", DCAMPROP_READOUTSPEED__SLOWEST);
     readoutCombo->setCurrentIndex(0);
 
     auto logCheck = new QCheckBox("Enable logging (session_log.txt)");
@@ -1678,11 +1678,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     auto liveDetectorTuningBtn = new QPushButton("Tuning");
     nameWidget(liveDetectorTuningBtn, "LiveDetectorTuningButton");
     liveDetectorTuningBtn->setToolTip("Open detector tuning controls.");
-    for (auto* button : {pipelineStartBtn, pipelineStopBtn, triggerSafeBtn, liveForceTriggerBtn,
+    for (auto* button : {startBtn, pipelineStartBtn, pipelineStopBtn, triggerSafeBtn, liveForceTriggerBtn,
                          liveSnapshotBtn, liveOpenRunBtn, liveDetectorTuningBtn}) {
-        button->setMaximumHeight(36);
+        button->setFixedHeight(34);
         button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
     }
+    startBtn->setText("Start Camera");
+    startBtn->setMinimumWidth(138);
+    startBtn->setMaximumWidth(150);
     pipelineStartBtn->setMaximumWidth(150);
     pipelineStopBtn->setMaximumWidth(138);
     triggerSafeBtn->setMaximumWidth(128);
@@ -1690,6 +1693,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app,
     liveSnapshotBtn->setMaximumWidth(110);
     liveOpenRunBtn->setMaximumWidth(108);
     liveDetectorTuningBtn->setMaximumWidth(96);
+    liveRunLayout->addWidget(startBtn);
     liveRunLayout->addWidget(pipelineStartBtn);
     liveRunLayout->addWidget(pipelineStopBtn);
     liveRunLayout->addSpacing(4);

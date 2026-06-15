@@ -430,7 +430,7 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
         controls.presetCombo->setMinimumContentsLength(QStringLiteral("2304 x 2304").size());
     }
     if (controls.readoutCombo) {
-        controls.readoutCombo->setMinimumContentsLength(QStringLiteral("Slowest").size());
+        controls.readoutCombo->setMinimumContentsLength(QStringLiteral("Fast").size());
     }
     auto* cameraFormatGrid = new CameraResponsiveGrid(190);
     cameraFormatGrid->addItem(makeCameraFieldGroup("Preset", controls.presetCombo));

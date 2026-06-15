@@ -236,14 +236,17 @@ QString shellStyleSheet(ThemeMode mode) {
     % "QPushButton:hover, QToolButton:hover { background: " % cssColor(buttonHover) % "; border-color: " % cssColor(c.brandRoyal) % "; }\n"
     % "QPushButton:disabled, QToolButton:disabled { color: " % cssColor(c.textDisabled)
     % "; background: " % cssColor(c.statusDisabledBg) % "; border-color: " % cssColor(c.borderSubtle) % "; }\n"
+    % "QPushButton#CameraStartButton { background: " % cssColor(c.statusInfo)
+    % "; border-color: " % cssColor(c.statusInfo) % "; color: " % cssColor(c.onBrand)
+    % "; min-width: 138px; font-weight: 650; }\n"
     % "QPushButton#PipelineStartButton { background: " % cssColor(c.brandAqua)
     % "; border-color: " % cssColor(c.brandAqua) % "; color: " % cssColor(c.onBrand)
-    % "; min-height: 38px; min-width: 138px; font-weight: 650; }\n"
+    % "; min-width: 138px; font-weight: 650; }\n"
     % "QPushButton#PipelineStopButton { background: " % cssColor(c.statusError)
     % "; border-color: " % cssColor(c.statusError) % "; color: " % cssColor(c.onBrand)
-    % "; min-height: 38px; min-width: 118px; font-weight: 650; }\n"
+    % "; min-width: 118px; font-weight: 650; }\n"
     % "QPushButton#LiveTriggerSafeButton { background: " % cssColor(c.elevatedSurface)
-    % "; border-color: " % cssColor(c.borderDefault) % "; color: " % cssColor(c.textDefault) % "; min-height: 38px; }\n"
+    % "; border-color: " % cssColor(c.borderDefault) % "; color: " % cssColor(c.textDefault) % "; }\n"
     % "QPushButton[primaryAction=\"true\"] { background: " % cssColor(c.brandRoyal)
     % "; border-color: " % cssColor(c.brandRoyal) % "; color: " % cssColor(c.onBrand)
     % "; font-weight: 650; }\n"

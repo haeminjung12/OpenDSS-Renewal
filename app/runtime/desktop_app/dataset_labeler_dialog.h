@@ -65,7 +65,14 @@ class DatasetLabelerDialog : public QDialog {
     void updateNavigationButtons();
     bool reviewShortcutAllowed() const;
     int selectedManifestIndex() const;
+    QVector<int> selectedManifestIndexes() const;
     BrowserRow rowDataForVisibleRow(int visibleRow) const;
+    BrowserRow browserRowFromBuilderItem(int manifestIndex, const QJsonObject& item) const;
+    int visibleRowForManifestIndex(int manifestIndex) const;
+    void updateVisibleBrowserRow(int visibleRow, const BrowserRow& rowData);
+    void refreshBrowserRowFromManifestItem(int manifestIndex, const QJsonObject& item);
+    void selectManifestIndexes(const QVector<int>& manifestIndexes);
+    void refreshBuilderReviewSummary();
     void updateReviewControls();
     void acceptAutoLabel();
     void applyReviewLabel(const QString& label, bool advance);

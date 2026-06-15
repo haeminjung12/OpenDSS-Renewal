@@ -410,16 +410,27 @@ class DatasetWorkspaceWidget final : public QWidget {
     }
 
     void browseForDataset() {
-        QFileDialog dialog(this, "Select dataset manifest or folder");
+        QFileDialog dialog(this, "Select dataset manifest or folder", datasetRoot_);
+        dialog.setOption(QFileDialog::DontUseNativeDialog, true);
         dialog.setFileMode(QFileDialog::ExistingFile);
         dialog.setNameFilter("Dataset manifests (*.json);;All files (*.*)");
-        if (dialog.exec() == QDialog::Accepted && !dialog.selectedFiles().isEmpty()) {
-            loadDatasetPath(dialog.selectedFiles().first());
-            return;
+
+        QString selectedDatasetPath;
+        if (auto* buttonBox = dialog.findChild<QDialogButtonBox*>()) {
+            auto* openFolderButton = buttonBox->addButton("Open Folder", QDialogButtonBox::ActionRole);
+            connect(openFolderButton, &QPushButton::clicked, &dialog, [&dialog, &selectedDatasetPath]() {
+                selectedDatasetPath = dialog.directory().absolutePath();
+                static_cast<QDialog*>(&dialog)->done(QDialog::Accepted);
+            });
         }
-        const QString folder = QFileDialog::getExistingDirectory(this, "Select dataset folder", datasetRoot_);
-        if (!folder.isEmpty())
-            loadDatasetPath(folder);
+
+        if (dialog.exec() != QDialog::Accepted)
+            return;
+
+        if (selectedDatasetPath.isEmpty() && !dialog.selectedFiles().isEmpty())
+            selectedDatasetPath = dialog.selectedFiles().first();
+        if (!selectedDatasetPath.isEmpty())
+            loadDatasetPath(selectedDatasetPath);
     }
 
     void openManifestFolder() {

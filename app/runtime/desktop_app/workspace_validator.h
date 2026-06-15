@@ -10,6 +10,10 @@ namespace desktop_app::workspace {
 struct ValidatorWorkspaceControls {
     QString modelPath;
     QString metadataPath;
+    QString pythonExecutable;
+    QString datasetPath;
+    QString outputPath;
+    QString trainerPythonPath;
     QAction* imageValidationAction = nullptr;
 };
 

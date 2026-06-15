@@ -427,12 +427,6 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     cameraFormatGrid->addItem(makeCameraFieldGroup("Binning", controls.binCombo));
     cameraFormatSection.body->addWidget(cameraFormatGrid);
 
-    auto cameraLutSection = makeCameraSection("LUT & Display", "CameraLutDisplayPanel");
-    auto* lutModeLabel = makeCameraFormLabel("LUT mode");
-    auto* lutModeControl = makeCameraSegmentedControl("CameraLutModeSegmentedControl", {"Auto", "Manual", "Off"});
-    cameraLutSection.body->addWidget(lutModeLabel);
-    cameraLutSection.body->addWidget(lutModeControl);
-
     auto* cameraLutGrid = new CameraResponsiveGrid(136);
     cameraLutGrid->addItem(makeCameraFieldGroup("Black", controls.lutMinSpin));
     cameraLutGrid->addItem(makeCameraFieldGroup("White", controls.lutMaxSpin));
@@ -440,13 +434,12 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     nameWidget(cameraLutRangeBar, "CameraLutRangeBar");
     relaxHorizontalSize(cameraLutRangeBar, QSizePolicy::Expanding);
     cameraLutGrid->addItem(cameraLutRangeBar, 2);
-    cameraLutGrid->addItem(makeCameraFieldGroup("Display every Nth frame", controls.displayEverySpin), 2);
-    cameraLutSection.body->addWidget(cameraLutGrid);
+    cameraFormatSection.body->addWidget(cameraLutGrid);
     if (controls.lutRangeLabel) {
         controls.lutRangeLabel->setWordWrap(true);
         relaxHorizontalSize(controls.lutRangeLabel, QSizePolicy::Preferred);
     }
-    cameraLutSection.body->addWidget(controls.lutRangeLabel);
+    cameraFormatSection.body->addWidget(controls.lutRangeLabel);
 
     auto cameraRecordingSection = makeCameraSection("Recording", "CameraRecordingPanel");
     cameraRecordingSection.body->addWidget(makeCameraFormLabel("Output folder"));
@@ -496,7 +489,6 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     cameraControlsLayout->setContentsMargins(0, 0, 2, 0);
     cameraControlsLayout->setSpacing(12);
     cameraControlsLayout->addWidget(cameraFormatSection.section);
-    cameraControlsLayout->addWidget(cameraLutSection.section);
     cameraControlsLayout->addWidget(cameraRecordingSection.section);
     cameraControlsLayout->addStretch(1);
     cameraControlsStack->setLayout(cameraControlsLayout);

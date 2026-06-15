@@ -12,15 +12,18 @@
 #include <QHeaderView>
 #include <QHBoxLayout>
 #include <QImageReader>
+#include <QItemSelectionModel>
 #include <QJsonArray>
 #include <QJsonParseError>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QModelIndex>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QShortcut>
 #include <QSplitter>
+#include <QSet>
 #include <QTableWidget>
 #include <QTableWidgetItem>
 #include <QTextEdit>
@@ -86,7 +89,7 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     browserTable->horizontalHeader()->setStretchLastSection(true);
     browserTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     browserTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    browserTable->setSelectionMode(QAbstractItemView::SingleSelection);
+    browserTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     classBalanceTable = new QTableWidget(0, 6);
     classBalanceTable->setHorizontalHeaderLabels(
         {"Label", "Reviewed", "Trainer Eligible", "Auto", "Warning", "Policy"});
@@ -406,17 +409,7 @@ void DatasetLabelerDialog::loadBuilderManifest(const QJsonObject& root, QStringL
         const QString reviewState = item.value("review_state").toString("unreviewed");
         const bool eligible = item.value("trainer_eligible").toBool(false);
         const double confidence = item.value("auto_label_confidence").toDouble(-1.0);
-        QStringList warnings;
-        if (reviewState == "unreviewed")
-            warnings << "needs review";
-        if (reviewedLabel == "exclude" && item.value("exclude_reason").toString().isEmpty())
-            warnings << "missing exclude reason";
-        if (eligible && reviewedLabel != "hit" && reviewedLabel != "waste")
-            warnings << "eligible label invalid";
-        if ((reviewState == "confirmed" || reviewState == "relabeled") && !eligible)
-            warnings << "reviewed class not trainer-eligible";
         if (confidence >= 0.0 && confidence < 0.80) {
-            warnings << "low confidence";
             lowConfidenceCount++;
         }
         autoCounts[autoLabel]++;
@@ -427,13 +420,7 @@ void DatasetLabelerDialog::loadBuilderManifest(const QJsonObject& root, QStringL
         if (eligible)
             eligibleCounts[reviewedLabel]++;
         if (i < maxRows) {
-            browserRows.push_back({i, item.value("image_id").toString(QString("item_%1").arg(i + 1)),
-                                   item.value("crop_path").toString(item.value("path").toString()), autoLabel,
-                                   item.value("auto_label_source").toString("--"), reviewedLabel, reviewState,
-                                   eligible ? "yes" : "no", warnings.join("; "),
-                                   confidence >= 0.0 ? QString::number(confidence, 'f', 3) : QString("--"),
-                                   item.value("source_frame_path").toString(), item.value("notes").toString(),
-                                   item.value("exclude_reason").toString()});
+            browserRows.push_back(browserRowFromBuilderItem(i, item));
         }
     }
     report << QString("Builder manifest items: %1; displayed rows: %2").arg(items.size()).arg(maxRows);
@@ -772,6 +759,34 @@ int DatasetLabelerDialog::selectedManifestIndex() const {
     return browserTable->item(row, 0)->data(Qt::UserRole).toInt();
 }
 
+QVector<int> DatasetLabelerDialog::selectedManifestIndexes() const {
+    QVector<int> indexes;
+    if (!browserTable)
+        return indexes;
+
+    QSet<int> seen;
+    QList<int> selectedRows;
+    if (browserTable->selectionModel()) {
+        const QModelIndexList rows = browserTable->selectionModel()->selectedRows(0);
+        for (const QModelIndex& rowIndex : rows)
+            selectedRows.append(rowIndex.row());
+    }
+    if (selectedRows.isEmpty() && browserTable->currentRow() >= 0)
+        selectedRows.append(browserTable->currentRow());
+    std::sort(selectedRows.begin(), selectedRows.end());
+
+    for (const int row : selectedRows) {
+        if (row < 0 || !browserTable->item(row, 0))
+            continue;
+        const int manifestIndex = browserTable->item(row, 0)->data(Qt::UserRole).toInt();
+        if (manifestIndex >= 0 && !seen.contains(manifestIndex)) {
+            seen.insert(manifestIndex);
+            indexes.push_back(manifestIndex);
+        }
+    }
+    return indexes;
+}
+
 DatasetLabelerDialog::BrowserRow DatasetLabelerDialog::rowDataForVisibleRow(int visibleRow) const {
     if (visibleRow < 0 || !browserTable || !browserTable->item(visibleRow, 0))
         return {};
@@ -783,8 +798,124 @@ DatasetLabelerDialog::BrowserRow DatasetLabelerDialog::rowDataForVisibleRow(int 
     return {};
 }
 
+DatasetLabelerDialog::BrowserRow DatasetLabelerDialog::browserRowFromBuilderItem(int manifestIndex,
+                                                                                 const QJsonObject& item) const {
+    const QString autoLabel = normalizedLabel(item.value("auto_label").toString("unknown"));
+    const QString reviewedLabel = normalizedLabel(item.value("reviewed_label").toString());
+    const QString reviewState = item.value("review_state").toString("unreviewed");
+    const bool eligible = item.value("trainer_eligible").toBool(false);
+    const double confidence = item.value("auto_label_confidence").toDouble(-1.0);
+    QStringList warnings;
+    if (reviewState == "unreviewed")
+        warnings << "needs review";
+    if (reviewedLabel == "exclude" && item.value("exclude_reason").toString().isEmpty())
+        warnings << "missing exclude reason";
+    if (eligible && reviewedLabel != "hit" && reviewedLabel != "waste")
+        warnings << "eligible label invalid";
+    if ((reviewState == "confirmed" || reviewState == "relabeled") && !eligible)
+        warnings << "reviewed class not trainer-eligible";
+    if (confidence >= 0.0 && confidence < 0.80)
+        warnings << "low confidence";
+
+    return {manifestIndex,
+            item.value("image_id").toString(QString("item_%1").arg(manifestIndex + 1)),
+            item.value("crop_path").toString(item.value("path").toString()),
+            autoLabel,
+            item.value("auto_label_source").toString("--"),
+            reviewedLabel,
+            reviewState,
+            eligible ? "yes" : "no",
+            warnings.join("; "),
+            confidence >= 0.0 ? QString::number(confidence, 'f', 3) : QString("--"),
+            item.value("source_frame_path").toString(),
+            item.value("notes").toString(),
+            item.value("exclude_reason").toString()};
+}
+
+int DatasetLabelerDialog::visibleRowForManifestIndex(int manifestIndex) const {
+    if (!browserTable || manifestIndex < 0)
+        return -1;
+    for (int row = 0; row < browserTable->rowCount(); ++row) {
+        if (browserTable->item(row, 0) && browserTable->item(row, 0)->data(Qt::UserRole).toInt() == manifestIndex)
+            return row;
+    }
+    return -1;
+}
+
+void DatasetLabelerDialog::updateVisibleBrowserRow(int visibleRow, const BrowserRow& rowData) {
+    if (!browserTable || visibleRow < 0 || visibleRow >= browserTable->rowCount())
+        return;
+    const QStringList values = {rowData.imageId,     rowData.cropPath, rowData.autoLabel, rowData.reviewedLabel,
+                                rowData.reviewState, rowData.eligible, rowData.warnings};
+    for (int col = 0; col < values.size(); ++col) {
+        if (!browserTable->item(visibleRow, col))
+            browserTable->setItem(visibleRow, col, new QTableWidgetItem);
+        browserTable->item(visibleRow, col)->setText(values.at(col));
+    }
+    browserTable->item(visibleRow, 0)->setData(Qt::UserRole, rowData.manifestIndex);
+}
+
+void DatasetLabelerDialog::refreshBrowserRowFromManifestItem(int manifestIndex, const QJsonObject& item) {
+    const BrowserRow rowData = browserRowFromBuilderItem(manifestIndex, item);
+    for (BrowserRow& row : browserRows) {
+        if (row.manifestIndex == manifestIndex) {
+            row = rowData;
+            break;
+        }
+    }
+    updateVisibleBrowserRow(visibleRowForManifestIndex(manifestIndex), rowData);
+}
+
+void DatasetLabelerDialog::selectManifestIndexes(const QVector<int>& manifestIndexes) {
+    if (!browserTable)
+        return;
+    browserTable->clearSelection();
+    int firstVisibleRow = -1;
+    for (const int manifestIndex : manifestIndexes) {
+        const int row = visibleRowForManifestIndex(manifestIndex);
+        if (row < 0)
+            continue;
+        if (firstVisibleRow < 0)
+            firstVisibleRow = row;
+        for (int col = 0; col < browserTable->columnCount(); ++col) {
+            if (browserTable->item(row, col))
+                browserTable->item(row, col)->setSelected(true);
+        }
+    }
+    if (firstVisibleRow >= 0) {
+        browserTable->setCurrentCell(firstVisibleRow, 0);
+        browserTable->scrollToItem(browserTable->item(firstVisibleRow, 0), QAbstractItemView::PositionAtCenter);
+    }
+}
+
+void DatasetLabelerDialog::refreshBuilderReviewSummary() {
+    if (!isBuilderManifest || !manifestDoc.isObject())
+        return;
+
+    QMap<QString, int> autoCounts;
+    QMap<QString, int> reviewedCounts;
+    QMap<QString, int> eligibleCounts;
+    const QJsonArray items = manifestDoc.object().value("items").toArray();
+    for (const QJsonValue& value : items) {
+        const QJsonObject item = value.toObject();
+        const QString autoLabel = normalizedLabel(item.value("auto_label").toString("unknown"));
+        const QString reviewedLabel = normalizedLabel(item.value("reviewed_label").toString());
+        const QString reviewState = item.value("review_state").toString("unreviewed");
+        const bool eligible = item.value("trainer_eligible").toBool(false);
+        autoCounts[autoLabel]++;
+        if (reviewState == "unreviewed")
+            reviewedCounts["unreviewed"]++;
+        else
+            reviewedCounts[reviewedLabel.isEmpty() ? "--" : reviewedLabel]++;
+        if (eligible)
+            eligibleCounts[reviewedLabel]++;
+    }
+    populateBuilderBalanceTable(autoCounts, reviewedCounts, eligibleCounts, items.size());
+    updateBannerFromBuilderCounts(reviewedCounts, eligibleCounts, items.size());
+}
+
 void DatasetLabelerDialog::updateReviewControls() {
-    const bool canReview = isBuilderManifest && selectedManifestIndex() >= 0;
+    const bool canReview = isBuilderManifest && !selectedManifestIndexes().isEmpty();
     for (auto* button : {hitButton, wasteButton, excludeButton, acceptButton, saveButton}) {
         if (button)
             button->setEnabled(canReview);
@@ -805,49 +936,101 @@ void DatasetLabelerDialog::updateReviewControls() {
 }
 
 void DatasetLabelerDialog::acceptAutoLabel() {
-    const int index = selectedManifestIndex();
-    if (index < 0)
+    const QVector<int> indexes = selectedManifestIndexes();
+    if (indexes.isEmpty())
         return;
-    const QJsonArray items = manifestDoc.object().value("items").toArray();
-    if (index >= items.size())
+    QJsonArray items = manifestDoc.object().value("items").toArray();
+    QVector<int> hitWasteIndexes;
+    for (const int index : indexes) {
+        if (index < 0 || index >= items.size())
+            continue;
+        const QString autoLabel = normalizedLabel(items.at(index).toObject().value("auto_label").toString());
+        if (autoLabel == "hit" || autoLabel == "waste")
+            hitWasteIndexes.push_back(index);
+    }
+    if (hitWasteIndexes.isEmpty())
         return;
-    const QString autoLabel = normalizedLabel(items.at(index).toObject().value("auto_label").toString());
-    if (autoLabel == "hit" || autoLabel == "waste")
-        applyReviewLabel(autoLabel, true);
+
+    QJsonObject root = manifestDoc.object();
+    const QString reviewedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    bool needsFilterRefresh = false;
+    for (const int index : hitWasteIndexes) {
+        QJsonObject item = items.at(index).toObject();
+        undoStack.push_back({index, item});
+        const QString autoLabel = normalizedLabel(item.value("auto_label").toString());
+        item["reviewed_label"] = autoLabel;
+        item["reviewed_at"] = reviewedAt;
+        item["review_state"] = "confirmed";
+        item["trainer_eligible"] = true;
+        item["notes"] = notesEdit ? notesEdit->toPlainText().trimmed() : QString();
+        item.remove("exclude_reason");
+        items.replace(index, item);
+        const BrowserRow rowData = browserRowFromBuilderItem(index, item);
+        needsFilterRefresh = needsFilterRefresh || !rowMatchesFilter(rowData);
+    }
+    root["items"] = items;
+    root["updated_at"] = reviewedAt;
+    manifestDoc = QJsonDocument(root);
+    for (const int index : hitWasteIndexes)
+        refreshBrowserRowFromManifestItem(index, items.at(index).toObject());
+    refreshBuilderReviewSummary();
+    if (needsFilterRefresh)
+        applyBrowserFilter();
+    else
+        selectManifestIndexes(hitWasteIndexes);
+    saveManifestAndLabels(false);
+    if (hitWasteIndexes.size() == 1)
+        selectRelativeRow(1);
 }
 
 void DatasetLabelerDialog::applyReviewLabel(const QString& label, bool advance) {
     if (!isBuilderManifest)
         return;
-    const int index = selectedManifestIndex();
-    if (index < 0)
+    const QVector<int> indexes = selectedManifestIndexes();
+    if (indexes.isEmpty())
         return;
     QJsonObject root = manifestDoc.object();
     QJsonArray items = root.value("items").toArray();
-    if (index >= items.size())
-        return;
-    QJsonObject item = items.at(index).toObject();
-    undoStack.push_back({index, item});
     const QString normalized = normalizedLabel(label);
-    const QString autoLabel = normalizedLabel(item.value("auto_label").toString());
-    item["reviewed_label"] = normalized;
-    item["reviewed_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    item["review_state"] = normalized == "exclude" ? "excluded" : (normalized == autoLabel ? "confirmed" : "relabeled");
-    item["trainer_eligible"] = (normalized == "hit" || normalized == "waste");
-    item["notes"] = notesEdit ? notesEdit->toPlainText().trimmed() : QString();
-    if (normalized == "exclude") {
-        item["exclude_reason"] = excludeReasonCombo ? excludeReasonCombo->currentText() : QString("other");
-    } else {
-        item.remove("exclude_reason");
+    const QString reviewedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    bool needsFilterRefresh = false;
+    QVector<int> changedIndexes;
+    for (const int index : indexes) {
+        if (index < 0 || index >= items.size())
+            continue;
+        QJsonObject item = items.at(index).toObject();
+        undoStack.push_back({index, item});
+        const QString autoLabel = normalizedLabel(item.value("auto_label").toString());
+        item["reviewed_label"] = normalized;
+        item["reviewed_at"] = reviewedAt;
+        item["review_state"] =
+            normalized == "exclude" ? "excluded" : (normalized == autoLabel ? "confirmed" : "relabeled");
+        item["trainer_eligible"] = (normalized == "hit" || normalized == "waste");
+        item["notes"] = notesEdit ? notesEdit->toPlainText().trimmed() : QString();
+        if (normalized == "exclude") {
+            item["exclude_reason"] = excludeReasonCombo ? excludeReasonCombo->currentText() : QString("other");
+        } else {
+            item.remove("exclude_reason");
+        }
+        items.replace(index, item);
+        changedIndexes.push_back(index);
+        const BrowserRow rowData = browserRowFromBuilderItem(index, item);
+        needsFilterRefresh = needsFilterRefresh || !rowMatchesFilter(rowData);
     }
-    items.replace(index, item);
+    if (changedIndexes.isEmpty())
+        return;
     root["items"] = items;
-    root["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    root["updated_at"] = reviewedAt;
     manifestDoc = QJsonDocument(root);
-    rebuildRowsFromCurrentManifest();
-    applyBrowserFilter();
+    for (const int index : changedIndexes)
+        refreshBrowserRowFromManifestItem(index, items.at(index).toObject());
+    refreshBuilderReviewSummary();
+    if (needsFilterRefresh)
+        applyBrowserFilter();
+    else
+        selectManifestIndexes(changedIndexes);
     saveManifestAndLabels(false);
-    if (advance)
+    if (advance && changedIndexes.size() == 1)
         selectRelativeRow(1);
 }
 

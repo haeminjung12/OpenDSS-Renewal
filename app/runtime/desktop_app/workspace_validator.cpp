@@ -5,34 +5,10 @@
 
 #include "object_names.h"
 #include "widget_helpers.h"
+#include "image_validation_dialog.h"
 
 namespace desktop_app::workspace {
 namespace {
-
-QWidget* makeValidatorField(const QString& label, const QString& value, const QString& objectName) {
-    auto* wrapper = new QWidget;
-    auto* layout = new QVBoxLayout;
-    layout->setContentsMargins(0, 0, 0, 0);
-    layout->setSpacing(4);
-    auto* fieldLabel = new QLabel(label);
-    fieldLabel->setProperty("metricLabel", true);
-    auto* row = new QHBoxLayout;
-    row->setContentsMargins(0, 0, 0, 0);
-    row->setSpacing(6);
-    auto* edit = new QLineEdit(value);
-    edit->setReadOnly(true);
-    edit->setMinimumWidth(0);
-    nameWidget(edit, objectName.toLatin1().constData());
-    auto* browse = new QPushButton("Browse");
-    browse->setEnabled(false);
-    browse->setToolTip("Use the Image Validation dialog to change validator paths.");
-    row->addWidget(edit, 1);
-    row->addWidget(browse, 0);
-    layout->addWidget(fieldLabel);
-    layout->addLayout(row);
-    wrapper->setLayout(layout);
-    return wrapper;
-}
 
 QFrame* makeValidatorMetric(const QString& label, const QString& value, const QString& sub = QString()) {
     auto* frame = new QFrame;
@@ -113,54 +89,12 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     auto validatorImagePanel = makePanel("Image Validation", "External Python validator");
     validatorImagePanel->setObjectName("ValidatorImageValidationPanel");
     auto validatorImageBody = makePanelBody(validatorImagePanel);
-    validatorImageBody->addWidget(
-        makeValidatorField("Model artifact", controls.modelPath, "ValidatorWorkspaceModelEdit"));
-    validatorImageBody->addWidget(
-        makeValidatorField("Model metadata", controls.metadataPath, "ValidatorWorkspaceMetadataEdit"));
-    validatorImageBody->addWidget(
-        makeValidatorField("Test set", "datasets/prepared/droplet_binary_2026-04-30", "ValidatorWorkspaceDatasetEdit"));
-    validatorImageBody->addWidget(
-        makeValidatorField("Output folder", "outputs/validation_gui_image", "ValidatorWorkspaceOutputEdit"));
-    auto validatorActionRow = new QHBoxLayout;
-    validatorActionRow->setSpacing(8);
-    auto validatorOpenBtn = new QPushButton("Run Image Validation");
-    auto validatorCancelBtn = new QPushButton("Cancel");
-    auto validatorSummaryBtn = new QPushButton("Open Summary");
-    auto validatorOutputBtn = new QPushButton("Open Output Folder");
-    nameWidget(validatorOpenBtn, "ValidatorWorkspaceOpenImageValidationButton");
-    nameWidget(validatorCancelBtn, "ValidatorWorkspaceCancelButton");
-    nameWidget(validatorSummaryBtn, "ValidatorWorkspaceOpenSummaryButton");
-    nameWidget(validatorOutputBtn, "ValidatorWorkspaceOpenOutputButton");
-    validatorOpenBtn->setProperty("primaryAction", true);
-    validatorCancelBtn->setEnabled(false);
-    validatorSummaryBtn->setEnabled(false);
-    validatorOutputBtn->setEnabled(false);
-    validatorCancelBtn->setToolTip("Cancellation is available inside the running Image Validation dialog.");
-    validatorSummaryBtn->setToolTip("Enabled by the Image Validation dialog after a successful run.");
-    validatorOutputBtn->setToolTip("Enabled by the Image Validation dialog after a successful run.");
-    validatorActionRow->addWidget(validatorOpenBtn);
-    validatorActionRow->addWidget(validatorCancelBtn);
-    validatorActionRow->addStretch(1);
-    validatorActionRow->addWidget(validatorSummaryBtn);
-    validatorActionRow->addWidget(validatorOutputBtn);
-    validatorImageBody->addLayout(validatorActionRow);
-    auto validatorProgress = new QProgressBar;
-    nameWidget(validatorProgress, "ValidatorWorkspaceProgressBar");
-    validatorProgress->setRange(0, 100);
-    validatorProgress->setValue(0);
-    validatorProgress->setTextVisible(false);
-    validatorImageBody->addWidget(validatorProgress);
-    auto validatorStatusRow = new QHBoxLayout;
-    auto validatorStatusLabel = new QLabel("Idle - image validation opens in the existing dialog");
-    auto validatorEtaLabel = new QLabel("No active subprocess");
-    nameWidget(validatorStatusLabel, "ValidatorWorkspaceStatusLabel");
-    nameWidget(validatorEtaLabel, "ValidatorWorkspaceEtaLabel");
-    validatorStatusLabel->setProperty("mutedText", true);
-    validatorEtaLabel->setProperty("mutedText", true);
-    validatorStatusRow->addWidget(validatorStatusLabel);
-    validatorStatusRow->addStretch(1);
-    validatorStatusRow->addWidget(validatorEtaLabel);
-    validatorImageBody->addLayout(validatorStatusRow);
+    auto* validatorImageWidget =
+        new ImageValidationWidget(validatorImagePanel, controls.pythonExecutable, controls.modelPath,
+                                  controls.metadataPath, controls.datasetPath, controls.outputPath,
+                                  controls.trainerPythonPath, ImageValidationWidget::ObjectNameMode::Workspace);
+    nameWidget(validatorImageWidget, "ValidatorWorkspaceImageValidationWidget");
+    validatorImageBody->addWidget(validatorImageWidget);
 
     auto validatorSequenceNote =
         new QLabel("Sequence validation remains disabled: runner-wrapped replay is not available in this workspace, "
@@ -252,16 +186,9 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorSampleGrid->setLayout(validatorSampleLayout);
     validatorMisclassifiedBody->addWidget(validatorSampleGrid);
 
-    auto validatorLogPanel = makePanel("Validator log");
+    auto validatorLogPanel = makePanel("Validator notes");
     validatorLogPanel->setObjectName("ValidatorLogPanel");
     auto validatorLogBody = makePanelBody(validatorLogPanel);
-    auto validatorLog = new QPlainTextEdit;
-    nameWidget(validatorLog, "ValidatorWorkspaceLogTextEdit");
-    validatorLog->setReadOnly(true);
-    validatorLog->setMaximumHeight(170);
-    validatorLog->setPlainText("Idle. Run Image Validation opens the existing validator dialog, where stdout/stderr "
-                               "streaming and cancellation are preserved.");
-    validatorLogBody->addWidget(validatorLog);
     auto validatorSequenceButton = new QPushButton("Sequence Validation");
     nameWidget(validatorSequenceButton, "ValidatorWorkspaceSequenceValidationButton");
     validatorSequenceButton->setEnabled(false);
@@ -284,7 +211,6 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
         const QJsonObject summary = loadSummaryArtifact(summaryPath, &parseDiagnostic);
         if (!parseDiagnostic.isEmpty()) {
             validatorSummaryDiagnostic->setText("Validation summary parse diagnostic: " + parseDiagnostic);
-            validatorSummaryBtn->setEnabled(false);
         } else if (!summary.isEmpty()) {
             const QString status = summary.value("status").toString("unknown");
             const QJsonObject metrics = summary.value("metrics").toObject();
@@ -297,13 +223,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     } else {
         validatorSummaryDiagnostic->setText("Validation summary diagnostics: summary path was not found in settings.");
     }
-    if (!parseDiagnostic.isEmpty()) {
-        validatorLog->appendPlainText("Validation summary parse diagnostic: " + parseDiagnostic);
-    }
-
-    if (controls.imageValidationAction) {
-        QObject::connect(validatorOpenBtn, &QPushButton::clicked, controls.imageValidationAction, &QAction::trigger);
-    }
+    Q_UNUSED(controls.imageValidationAction);
 
     return validatorWorkspacePage;
 }

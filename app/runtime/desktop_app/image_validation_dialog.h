@@ -3,6 +3,7 @@
 #include <QDialog>
 #include <QProcess>
 #include <QString>
+#include <QWidget>
 
 #include <memory>
 
@@ -13,12 +14,15 @@ class QLineEdit;
 class QPlainTextEdit;
 class QPushButton;
 
-class ImageValidationDialog : public QDialog {
+class ImageValidationWidget : public QWidget {
   public:
-    ImageValidationDialog(QWidget* parent, const QString& initialPython, const QString& initialModel,
+    enum class ObjectNameMode { Dialog, Workspace };
+
+    ImageValidationWidget(QWidget* parent, const QString& initialPython, const QString& initialModel,
                           const QString& initialMetadata, const QString& initialDataset, const QString& initialOutput,
-                          const QString& trainerPythonPath);
-    ~ImageValidationDialog() override;
+                          const QString& trainerPythonPath,
+                          ObjectNameMode objectNameMode = ObjectNameMode::Dialog);
+    ~ImageValidationWidget() override;
 
   private:
     void addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit, bool directory,
@@ -56,4 +60,12 @@ class ImageValidationDialog : public QDialog {
     QString summaryPath;
     QString terminalStatus;
     bool canceled = false;
+};
+
+class ImageValidationDialog : public QDialog {
+  public:
+    ImageValidationDialog(QWidget* parent, const QString& initialPython, const QString& initialModel,
+                          const QString& initialMetadata, const QString& initialDataset, const QString& initialOutput,
+                          const QString& trainerPythonPath);
+    ~ImageValidationDialog() override;
 };

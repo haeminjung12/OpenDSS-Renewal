@@ -40,6 +40,7 @@ CameraWorkspaceController::CameraWorkspaceController(const Dependencies& depende
 
     wireCameraWorker();
     wireControls();
+    updateCameraActionState();
 }
 
 int CameraWorkspaceController::currentBits() const {
@@ -388,12 +389,13 @@ void CameraWorkspaceController::wireCameraWorker() {
         deps_.cameraWorker, &CameraWorker::startCompleted, this,
         [this](const QString& error) {
             if (!error.isEmpty()) {
-                if (deps_.appState) {
-                    deps_.appState->cameraStreaming = false;
-                }
-                if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Start error: " + error);
-                }
+            if (deps_.appState) {
+                deps_.appState->cameraStreaming = false;
+            }
+            updateCameraActionState();
+            if (deps_.statusLabel) {
+                deps_.statusLabel->setText("Start error: " + error);
+            }
                 if (deps_.cameraStatusItem) {
                     deps_.cameraStatusItem->setText("Camera: error");
                 }
@@ -403,6 +405,7 @@ void CameraWorkspaceController::wireCameraWorker() {
             if (deps_.appState) {
                 deps_.appState->cameraStreaming = true;
             }
+            updateCameraActionState();
             if (deps_.statusLabel) {
                 deps_.statusLabel->setText("Capture started.");
             }
@@ -423,6 +426,7 @@ void CameraWorkspaceController::wireCameraWorker() {
             if (deps_.appState) {
                 deps_.appState->cameraStreaming = false;
             }
+            updateCameraActionState();
             if (deps_.statusLabel) {
                 deps_.statusLabel->setText("Capture stopped.");
             }
@@ -448,6 +452,7 @@ void CameraWorkspaceController::wireCameraWorker() {
                     if (deps_.appState) {
                         deps_.appState->cameraStreaming = true;
                     }
+                    updateCameraActionState();
                     if (deps_.statusLabel) {
                         deps_.statusLabel->setText("Applied with warnings: " + error.mid(5));
                     }
@@ -458,6 +463,7 @@ void CameraWorkspaceController::wireCameraWorker() {
                     if (deps_.appState) {
                         deps_.appState->cameraStreaming = false;
                     }
+                    updateCameraActionState();
                     if (deps_.statusLabel) {
                         deps_.statusLabel->setText("Apply error: " + error);
                     }
@@ -466,6 +472,7 @@ void CameraWorkspaceController::wireCameraWorker() {
                 if (deps_.appState) {
                     deps_.appState->cameraStreaming = true;
                 }
+                updateCameraActionState();
                 if (deps_.statusLabel) {
                     deps_.statusLabel->setText("Applied. Streaming");
                 }
@@ -522,34 +529,43 @@ void CameraWorkspaceController::wireControls() {
             if (deps_.viewerOnly && *deps_.viewerOnly) {
                 return;
             }
+            const bool stopRequested = deps_.appState && deps_.appState->cameraStreaming;
             if (deps_.hardwareFreeMode) {
                 if (deps_.appState) {
-                    deps_.appState->cameraStreaming = true;
+                    deps_.appState->cameraStreaming = !stopRequested;
                 }
                 if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Mock preview started.");
+                    deps_.statusLabel->setText(stopRequested ? "Mock preview stopped." : "Mock preview started.");
                 }
                 if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText("Camera: mock acquiring");
+                    deps_.cameraStatusItem->setText(stopRequested ? "Camera: mock" : "Camera: mock acquiring");
                 }
-                if (deps_.runStatusItem) {
+                if (deps_.runStatusItem && !stopRequested) {
                     deps_.runStatusItem->setText("Run: capture");
+                } else if (deps_.pipelineEnabled && !deps_.pipelineEnabled->load() && deps_.runStatusItem) {
+                    deps_.runStatusItem->setText("Run: idle");
                 }
-                showStatusMessage("Mock preview started");
-                log("Mock preview started.");
+                updateCameraActionState();
+                showStatusMessage(stopRequested ? "Mock preview stopped" : "Mock preview started");
+                log(stopRequested ? "Mock preview stopped." : "Mock preview started.");
                 return;
             }
             if (deps_.statusLabel) {
-                deps_.statusLabel->setText("Starting capture...");
+                deps_.statusLabel->setText(stopRequested ? "Stopping capture..." : "Starting capture...");
             }
-            QMetaObject::invokeMethod(
-                deps_.cameraWorker,
-                [worker = deps_.cameraWorker, bits = currentBits(), pixel = currentPixelType(),
-                 displayEvery = deps_.controls.displayEverySpin ? deps_.controls.displayEverySpin->value() : 1]() {
-                    worker->setDisplayEvery(displayEvery);
-                    worker->startCapture(bits, pixel);
-                },
-                Qt::QueuedConnection);
+            if (stopRequested) {
+                QMetaObject::invokeMethod(deps_.cameraWorker, [worker = deps_.cameraWorker]() { worker->stopCapture(); },
+                                          Qt::QueuedConnection);
+            } else {
+                QMetaObject::invokeMethod(
+                    deps_.cameraWorker,
+                    [worker = deps_.cameraWorker, bits = currentBits(), pixel = currentPixelType(),
+                     displayEvery = deps_.controls.displayEverySpin ? deps_.controls.displayEverySpin->value() : 1]() {
+                        worker->setDisplayEvery(displayEvery);
+                        worker->startCapture(bits, pixel);
+                    },
+                    Qt::QueuedConnection);
+            }
         });
     }
 
@@ -562,6 +578,7 @@ void CameraWorkspaceController::wireControls() {
                 if (deps_.appState) {
                     deps_.appState->cameraStreaming = false;
                 }
+                updateCameraActionState();
                 if (deps_.statusLabel) {
                     deps_.statusLabel->setText("Mock preview stopped.");
                 }
@@ -807,6 +824,7 @@ void CameraWorkspaceController::setViewerOnly() {
     if (deps_.appState) {
         deps_.appState->cameraStreaming = false;
     }
+    updateCameraActionState();
     if (deps_.statusLabel) {
         deps_.statusLabel->setText("Viewer-only mode (camera init failed).");
     }
@@ -843,6 +861,7 @@ void CameraWorkspaceController::setHardwareFreeMode() {
         deps_.appState->daqFault = deps_.options && !deps_.options->noDaq && !deps_.daqBuildEnabled;
         deps_.appState->daqStatusText = deps_.initialDaqStatusText;
     }
+    updateCameraActionState();
     const bool mockCamera = deps_.options && deps_.options->mockCamera;
     if (deps_.statusLabel) {
         deps_.statusLabel->setText(mockCamera ? "Test mode: mock camera active."
@@ -865,6 +884,16 @@ void CameraWorkspaceController::setHardwareFreeMode() {
     }
     showStatusMessage("Hardware-free test mode");
     log("Hardware-free GUI test mode active; startup camera prompts suppressed.");
+}
+
+void CameraWorkspaceController::updateCameraActionState() {
+    if (!deps_.startButton) {
+        return;
+    }
+    const bool streaming = deps_.appState && deps_.appState->cameraStreaming;
+    deps_.startButton->setText(streaming ? QStringLiteral("Stop Camera") : QStringLiteral("Start Camera"));
+    deps_.startButton->setToolTip(streaming ? QStringLiteral("Stop camera acquisition.")
+                                            : QStringLiteral("Start camera acquisition."));
 }
 
 void CameraWorkspaceController::resetPipelineIfReady(const QString& statusText) {

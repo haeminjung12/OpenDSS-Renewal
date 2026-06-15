@@ -562,8 +562,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     grid->addWidget(exposureSpin, 6, 1);
     grid->addWidget(new QLabel("Readout speed"), 7, 0);
     grid->addWidget(readoutCombo, 7, 1);
-    grid->addWidget(new QLabel("Display every Nth frame"), 8, 0);
-    grid->addWidget(displayEverySpin, 8, 1);
     grid->addWidget(logCheck, 9, 0, 1, 2);
     // Pipeline defaults (fast event detection)
     FastEventConfig pipelineDetectCfg;
@@ -2237,9 +2235,59 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerWorkspaceLayout->addWidget(trainerWidget, 1);
     trainerWorkspacePage->setLayout(trainerWorkspaceLayout);
 
+    auto validatorResolveAppRelative = [](const QString& path) -> QString {
+        if (path.isEmpty())
+            return path;
+        QFileInfo info(path);
+        if (info.isAbsolute())
+            return info.absoluteFilePath();
+        QDir dir(QCoreApplication::applicationDirPath());
+        for (int i = 0; i < 10; ++i) {
+            const QString candidate = dir.filePath(path);
+            if (QFileInfo::exists(candidate))
+                return QFileInfo(candidate).absoluteFilePath();
+            const QString modelCandidate = dir.filePath("models/" + QFileInfo(path).fileName());
+            if (QFileInfo::exists(modelCandidate))
+                return QFileInfo(modelCandidate).absoluteFilePath();
+            if (!dir.cdUp())
+                break;
+        }
+        return QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(path);
+    };
+    auto validatorTrainerPythonPath = []() -> QString {
+        QDir dir(QCoreApplication::applicationDirPath());
+        for (int i = 0; i < 10; ++i) {
+            const QString candidate = dir.filePath("training/python");
+            if (QFileInfo(candidate).isDir())
+                return QFileInfo(candidate).absoluteFilePath();
+            if (!dir.cdUp())
+                break;
+        }
+        QDir cwd(QDir::currentPath());
+        for (int i = 0; i < 10; ++i) {
+            const QString candidate = cwd.filePath("training/python");
+            if (QFileInfo(candidate).isDir())
+                return QFileInfo(candidate).absoluteFilePath();
+            if (!cwd.cdUp())
+                break;
+        }
+        return QString();
+    };
+
     desktop_app::workspace::ValidatorWorkspaceControls validatorWorkspaceControls;
-    validatorWorkspaceControls.modelPath = onnxEdit->text().trimmed();
-    validatorWorkspaceControls.metadataPath = metaEdit->text().trimmed();
+    validatorWorkspaceControls.modelPath = validatorResolveAppRelative(onnxEdit->text().trimmed());
+    validatorWorkspaceControls.metadataPath = validatorResolveAppRelative(metaEdit->text().trimmed());
+    validatorWorkspaceControls.pythonExecutable =
+        runtimeSettings.value("validator/pythonExecutable", "python").toString();
+    validatorWorkspaceControls.datasetPath =
+        runtimeSettings.value("validator/imageDataset", defaultWorkspacePaths.preparedDataset).toString();
+    validatorWorkspaceControls.outputPath =
+        runtimeSettings
+            .value("validator/outputFolder",
+                   QDir(defaultWorkspacePaths.runs)
+                       .filePath("validation_gui_image_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")))
+            .toString();
+    validatorWorkspaceControls.trainerPythonPath = validatorTrainerPythonPath();
     validatorWorkspaceControls.imageValidationAction = imageValidationAction;
     auto validatorWorkspacePage = desktop_app::workspace::buildValidatorWorkspace(validatorWorkspaceControls);
 
@@ -2248,9 +2296,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     reportsWorkspaceControls.hardwareFreeMode = hardwareFreeMode;
     reportsWorkspaceControls.viewerOnly = viewerOnly;
     reportsWorkspaceControls.noDaq = options.noDaq;
+    reportsWorkspaceControls.outputRoot = defaultWorkspacePaths.runs;
     reportsWorkspaceControls.showLogsAction = showLogsAction;
     reportsWorkspaceControls.showDiagnosticsAction = showDiagnosticsAction;
     reportsWorkspaceControls.openRunFolderAction = openRunFolderAction;
+    reportsWorkspaceControls.outputRootEdit = outputEdit;
     auto reportsWorkspacePage = desktop_app::workspace::buildReportsWorkspace(reportsWorkspaceControls);
 
     desktop_app::workspace::SettingsWorkspaceControls settingsWorkspaceControls;
@@ -5551,6 +5601,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* cameraLutMinSpin = this->findChild<QSpinBox*>("CameraLutMinSpinBox");
             auto* cameraLutMaxSpin = this->findChild<QSpinBox*>("CameraLutMaxSpinBox");
             auto* cameraDisplayEverySpin = this->findChild<QSpinBox*>("CameraDisplayEverySpinBox");
+            auto* cameraStartButton = this->findChild<QPushButton*>("CameraStartButton");
+            auto* pipelineStartButton = this->findChild<QPushButton*>("PipelineStartButton");
+            auto* pipelineStopButton = this->findChild<QPushButton*>("PipelineStopButton");
             auto* savePathLineEdit = this->findChild<QLineEdit*>("SavePathEdit");
             auto* saveBrowseButton = this->findChild<QPushButton*>("SaveBrowseButton");
             auto* saveOpenFolderButton = this->findChild<QPushButton*>("SaveOpenFolderButton");
@@ -5589,9 +5642,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(cameraFormatPanel != nullptr, "CameraFormatSpeedPanel exists");
             require(cameraFormatPanel && cameraFormatPanel->isVisibleTo(this), "CameraFormatSpeedPanel is visible");
             require(cameraFormatPanelFrame != nullptr, "CameraFormatSpeedPanelFrame exists");
-            require(cameraLutPanel != nullptr, "CameraLutDisplayPanel exists");
-            require(cameraLutPanel && cameraLutPanel->isVisibleTo(this), "CameraLutDisplayPanel is visible");
-            require(cameraLutPanelFrame != nullptr, "CameraLutDisplayPanelFrame exists");
+            require(cameraLutPanel == nullptr, "CameraLutDisplayPanel is absent");
+            require(cameraLutPanelFrame == nullptr, "CameraLutDisplayPanelFrame is absent");
             require(cameraRecordingPanel != nullptr, "CameraRecordingPanel exists");
             require(cameraRecordingPanel && cameraRecordingPanel->isVisibleTo(this), "CameraRecordingPanel is visible");
             require(cameraRecordingPanelFrame != nullptr, "CameraRecordingPanelFrame exists");
@@ -5605,6 +5657,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(cameraBinVSpin == nullptr, "CameraBinVSpinBox is absent");
             require(cameraLutMinSlider == nullptr, "CameraLutMinSlider is absent from the visible workspace tree");
             require(cameraLutMaxSlider == nullptr, "CameraLutMaxSlider is absent from the visible workspace tree");
+            require(cameraLutModeControl == nullptr, "CameraLutModeSegmentedControl is absent");
+            require(cameraDisplayEverySpin == nullptr, "CameraDisplayEverySpinBox is absent from the visible workspace tree");
+            require(cameraStartButton && cameraStartButton->text() == "Start Camera",
+                    "Camera action starts as Start Camera");
+            require(pipelineStartButton && pipelineStartButton->isVisibleTo(this),
+                    "Sorting action starts as Start Sorting");
+            require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
+                    "Stop Sorting action starts hidden until sorting is active");
             require(navRailFrame != nullptr, "OpenDssNavigationRail exists");
             require(headerFrame != nullptr, "OpenDssHeader exists");
             require(statusStripFrame != nullptr, "OpenDssStatusStrip exists");
@@ -5615,8 +5675,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
             requireHorizontallyContained(cameraFormatPanelFrame, rightViewport,
                                          "CameraFormatSpeedPanelFrame fits within the viewport width");
-            requireHorizontallyContained(cameraLutPanelFrame, rightViewport,
-                                         "CameraLutDisplayPanelFrame fits within the viewport width");
             requireHorizontallyContained(cameraRecordingPanelFrame, rightViewport,
                                          "CameraRecordingPanelFrame fits within the viewport width");
             requireContained(cameraPresetCombo, cameraFormatPanelFrame,
@@ -5636,13 +5694,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "CameraPresetComboBox expands enough for the active preset text");
             require(cameraReadoutCombo && cameraReadoutCombo->width() >= cameraReadoutCombo->sizeHint().width(),
                     "CameraReadoutSpeedComboBox expands enough for the active readout text");
-            requireContained(cameraLutModeControl, cameraLutPanelFrame,
-                             "CameraLutModeSegmentedControl fits within LUT & Display");
-            requireContained(cameraLutMinSpin, cameraLutPanelFrame, "CameraLutMinSpinBox fits within LUT & Display");
-            requireContained(cameraLutMaxSpin, cameraLutPanelFrame, "CameraLutMaxSpinBox fits within LUT & Display");
-            requireContained(cameraLutRangeBar, cameraLutPanelFrame, "CameraLutRangeBar fits within LUT & Display");
-            requireContained(cameraDisplayEverySpin, cameraLutPanelFrame,
-                             "CameraDisplayEverySpinBox fits within LUT & Display");
+            requireContained(cameraLutMinSpin, cameraFormatPanelFrame, "CameraLutMinSpinBox fits within Format & Speed");
+            requireContained(cameraLutMaxSpin, cameraFormatPanelFrame, "CameraLutMaxSpinBox fits within Format & Speed");
+            requireContained(cameraLutRangeBar, cameraFormatPanelFrame, "CameraLutRangeBar fits within Format & Speed");
             requireContained(savePathLineEdit, cameraRecordingPanelFrame, "SavePathEdit fits within Recording");
             requireContained(saveBrowseButton, cameraRecordingPanelFrame, "SaveBrowseButton fits within Recording");
             requireContained(saveOpenFolderButton, cameraRecordingPanelFrame,

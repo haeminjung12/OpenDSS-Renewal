@@ -104,6 +104,7 @@ class CameraWorkspaceController : public QObject {
     void scheduleApplySettings();
     void setViewerOnly();
     void setHardwareFreeMode();
+    void updateCameraActionState();
     void resetPipelineIfReady(const QString& statusText);
     void showStatusMessage(const QString& message);
     void log(const QString& message);

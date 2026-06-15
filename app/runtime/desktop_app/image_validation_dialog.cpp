@@ -25,14 +25,11 @@
 
 #include "object_names.h"
 
-ImageValidationDialog::ImageValidationDialog(QWidget* parent, const QString& initialPython, const QString& initialModel,
+ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& initialPython, const QString& initialModel,
                                              const QString& initialMetadata, const QString& initialDataset,
-                                             const QString& initialOutput, const QString& trainerPythonPath)
-    : QDialog(parent), pythonPath(trainerPythonPath) {
-    setWindowTitle("Image Validation");
-    resize(920, 700);
-    setMinimumSize(760, 540);
-
+                                             const QString& initialOutput, const QString& trainerPythonPath,
+                                             ObjectNameMode objectNameMode)
+    : QWidget(parent), pythonPath(trainerPythonPath) {
     pythonEdit = new QLineEdit(initialPython.isEmpty() ? "python" : initialPython);
     modelEdit = new QLineEdit(initialModel);
     metadataEdit = new QLineEdit(initialMetadata);
@@ -44,14 +41,15 @@ ImageValidationDialog::ImageValidationDialog(QWidget* parent, const QString& ini
     schemaCombo->addItems({"default binary 0,1", "legacy Empty,Single,MoreThanTwo", "custom classes"});
     classesEdit = new QLineEdit("0,1");
 
-    nameWidget(pythonEdit, "ValidatorPythonExecutableEdit");
-    nameWidget(modelEdit, "ValidatorModelEdit");
-    nameWidget(metadataEdit, "ValidatorMetadataEdit");
-    nameWidget(datasetEdit, "ValidatorDatasetEdit");
-    nameWidget(outputEdit, "ValidatorOutputEdit");
-    nameWidget(deviceCombo, "ValidatorDeviceComboBox");
-    nameWidget(schemaCombo, "ValidatorClassSchemaComboBox");
-    nameWidget(classesEdit, "ValidatorClassesEdit");
+    const bool workspaceNames = objectNameMode == ObjectNameMode::Workspace;
+    nameWidget(pythonEdit, workspaceNames ? "ValidatorWorkspacePythonExecutableEdit" : "ValidatorPythonExecutableEdit");
+    nameWidget(modelEdit, workspaceNames ? "ValidatorWorkspaceModelEdit" : "ValidatorModelEdit");
+    nameWidget(metadataEdit, workspaceNames ? "ValidatorWorkspaceMetadataEdit" : "ValidatorMetadataEdit");
+    nameWidget(datasetEdit, workspaceNames ? "ValidatorWorkspaceDatasetEdit" : "ValidatorDatasetEdit");
+    nameWidget(outputEdit, workspaceNames ? "ValidatorWorkspaceOutputEdit" : "ValidatorOutputEdit");
+    nameWidget(deviceCombo, workspaceNames ? "ValidatorWorkspaceDeviceComboBox" : "ValidatorDeviceComboBox");
+    nameWidget(schemaCombo, workspaceNames ? "ValidatorWorkspaceClassSchemaComboBox" : "ValidatorClassSchemaComboBox");
+    nameWidget(classesEdit, workspaceNames ? "ValidatorWorkspaceClassesEdit" : "ValidatorClassesEdit");
 
     auto* form = new QGridLayout;
     addPathRow(form, 0, "Python", pythonEdit, false, "Python executable");
@@ -67,18 +65,18 @@ ImageValidationDialog::ImageValidationDialog(QWidget* parent, const QString& ini
 
     statusLabel = new QLabel("Idle");
     statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    nameWidget(statusLabel, "ValidatorStatusLabel");
+    nameWidget(statusLabel, workspaceNames ? "ValidatorWorkspaceStatusLabel" : "ValidatorStatusLabel");
     commandPreview = new QPlainTextEdit;
     commandPreview->setReadOnly(true);
     commandPreview->setMaximumHeight(90);
-    nameWidget(commandPreview, "ValidatorCommandPreview");
+    nameWidget(commandPreview, workspaceNames ? "ValidatorWorkspaceCommandPreview" : "ValidatorCommandPreview");
     logText = new QPlainTextEdit;
     logText->setReadOnly(true);
-    nameWidget(logText, "ValidatorLogTextEdit");
+    nameWidget(logText, workspaceNames ? "ValidatorWorkspaceLogTextEdit" : "ValidatorLogTextEdit");
     artifactLabel = new QLabel("Artifacts: not available");
     artifactLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     artifactLabel->setWordWrap(true);
-    nameWidget(artifactLabel, "ValidatorArtifactLabel");
+    nameWidget(artifactLabel, workspaceNames ? "ValidatorWorkspaceArtifactLabel" : "ValidatorArtifactLabel");
 
     startButton = new QPushButton("Run Image Validation");
     cancelButton = new QPushButton("Cancel");
@@ -87,10 +85,10 @@ ImageValidationDialog::ImageValidationDialog(QWidget* parent, const QString& ini
     cancelButton->setEnabled(false);
     openSummaryButton->setEnabled(false);
     openOutputButton->setEnabled(false);
-    nameWidget(startButton, "ValidatorRunImageButton");
-    nameWidget(cancelButton, "ValidatorCancelButton");
-    nameWidget(openSummaryButton, "ValidatorOpenSummaryButton");
-    nameWidget(openOutputButton, "ValidatorOpenOutputButton");
+    nameWidget(startButton, workspaceNames ? "ValidatorWorkspaceOpenImageValidationButton" : "ValidatorRunImageButton");
+    nameWidget(cancelButton, workspaceNames ? "ValidatorWorkspaceCancelButton" : "ValidatorCancelButton");
+    nameWidget(openSummaryButton, workspaceNames ? "ValidatorWorkspaceOpenSummaryButton" : "ValidatorOpenSummaryButton");
+    nameWidget(openOutputButton, workspaceNames ? "ValidatorWorkspaceOpenOutputButton" : "ValidatorOpenOutputButton");
 
     auto* buttons = new QHBoxLayout;
     buttons->addWidget(startButton);
@@ -145,11 +143,11 @@ ImageValidationDialog::ImageValidationDialog(QWidget* parent, const QString& ini
     updatePreviewAndGate();
 }
 
-ImageValidationDialog::~ImageValidationDialog() {
+ImageValidationWidget::~ImageValidationWidget() {
     stopProcess(1000);
 }
 
-void ImageValidationDialog::addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit,
+void ImageValidationWidget::addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit,
                                        bool directory, const QString& dialogTitle) {
     auto* browse = new QPushButton("Browse");
     layout->addWidget(new QLabel(label), row, 0);
@@ -168,7 +166,7 @@ void ImageValidationDialog::addPathRow(QGridLayout* layout, int row, const QStri
     });
 }
 
-QStringList ImageValidationDialog::commandArguments() const {
+QStringList ImageValidationWidget::commandArguments() const {
     QStringList args = {"-m",
                         "droplet_trainer",
                         "validate-images",
@@ -191,7 +189,7 @@ QStringList ImageValidationDialog::commandArguments() const {
     return args;
 }
 
-QString ImageValidationDialog::missingInputs() const {
+QString ImageValidationWidget::missingInputs() const {
     QStringList missing;
     if (pythonEdit->text().trimmed().isEmpty())
         missing << "Python executable";
@@ -210,7 +208,7 @@ QString ImageValidationDialog::missingInputs() const {
     return missing.join(", ");
 }
 
-void ImageValidationDialog::updatePreviewAndGate() {
+void ImageValidationWidget::updatePreviewAndGate() {
     QString preview = pythonEdit->text().trimmed();
     for (const QString& arg : commandArguments()) {
         QString quoted = arg;
@@ -237,7 +235,7 @@ void ImageValidationDialog::updatePreviewAndGate() {
     }
 }
 
-void ImageValidationDialog::loadSettings() {
+void ImageValidationWidget::loadSettings() {
     QSettings settings;
     pythonEdit->setText(settings.value("validator/pythonExecutable", pythonEdit->text()).toString());
     datasetEdit->setText(settings.value("validator/imageDataset", datasetEdit->text()).toString());
@@ -250,7 +248,7 @@ void ImageValidationDialog::loadSettings() {
     classesEdit->setText(settings.value("validator/classes", classesEdit->text()).toString());
 }
 
-void ImageValidationDialog::saveSettings() const {
+void ImageValidationWidget::saveSettings() const {
     QSettings settings;
     settings.setValue("validator/pythonExecutable", pythonEdit->text().trimmed());
     settings.setValue("validator/imageDataset", datasetEdit->text().trimmed());
@@ -260,7 +258,7 @@ void ImageValidationDialog::saveSettings() const {
     settings.setValue("validator/classes", classesEdit->text().trimmed());
 }
 
-void ImageValidationDialog::startValidation() {
+void ImageValidationWidget::startValidation() {
     const QString missing = missingInputs();
     if (!missing.isEmpty()) {
         statusLabel->setText("Blocked: missing " + missing);
@@ -301,7 +299,7 @@ void ImageValidationDialog::startValidation() {
     updatePreviewAndGate();
 }
 
-void ImageValidationDialog::cancelValidation() {
+void ImageValidationWidget::cancelValidation() {
     if (!process || process->state() == QProcess::NotRunning)
         return;
     canceled = true;
@@ -309,7 +307,7 @@ void ImageValidationDialog::cancelValidation() {
     stopProcess(2500);
 }
 
-void ImageValidationDialog::stopProcess(int timeoutMs) {
+void ImageValidationWidget::stopProcess(int timeoutMs) {
     if (!process || process->state() == QProcess::NotRunning)
         return;
     process->terminate();
@@ -319,7 +317,7 @@ void ImageValidationDialog::stopProcess(int timeoutMs) {
     }
 }
 
-void ImageValidationDialog::finishValidation(int exitCode, QProcess::ExitStatus exitStatus) {
+void ImageValidationWidget::finishValidation(int exitCode, QProcess::ExitStatus exitStatus) {
     appendLog(QString::fromUtf8(process->readAllStandardOutput()));
     appendLog(QString::fromUtf8(process->readAllStandardError()));
     const bool crashed = exitStatus == QProcess::CrashExit;
@@ -342,7 +340,7 @@ void ImageValidationDialog::finishValidation(int exitCode, QProcess::ExitStatus 
     updatePreviewAndGate();
 }
 
-void ImageValidationDialog::appendLog(const QString& text) {
+void ImageValidationWidget::appendLog(const QString& text) {
     if (text.isEmpty())
         return;
     logText->moveCursor(QTextCursor::End);
@@ -350,7 +348,7 @@ void ImageValidationDialog::appendLog(const QString& text) {
     logText->moveCursor(QTextCursor::End);
 }
 
-bool ImageValidationDialog::loadSummaryArtifacts() {
+bool ImageValidationWidget::loadSummaryArtifacts() {
     QString discovered = QDir(outputEdit->text().trimmed()).filePath("image_validation/validation_summary.json");
     if (!QFileInfo::exists(discovered)) {
         QRegularExpression re("\"summary_path\"\\s*:\\s*\"([^\"]+)\"");
@@ -389,3 +387,20 @@ bool ImageValidationDialog::loadSummaryArtifacts() {
     openOutputButton->setEnabled(true);
     return true;
 }
+
+ImageValidationDialog::ImageValidationDialog(QWidget* parent, const QString& initialPython, const QString& initialModel,
+                                             const QString& initialMetadata, const QString& initialDataset,
+                                             const QString& initialOutput, const QString& trainerPythonPath)
+    : QDialog(parent) {
+    setWindowTitle("Image Validation");
+    resize(920, 700);
+    setMinimumSize(760, 540);
+
+    auto* layout = new QVBoxLayout;
+    layout->setContentsMargins(10, 10, 10, 10);
+    layout->addWidget(new ImageValidationWidget(this, initialPython, initialModel, initialMetadata, initialDataset,
+                                                initialOutput, trainerPythonPath));
+    setLayout(layout);
+}
+
+ImageValidationDialog::~ImageValidationDialog() = default;

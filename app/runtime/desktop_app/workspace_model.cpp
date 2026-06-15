@@ -461,17 +461,11 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     modelRegistryBody->addWidget(modelRegistryList, 1);
     auto modelRegistryActions = new QHBoxLayout;
     modelRegistryActions->setContentsMargins(12, 0, 12, 12);
-    auto modelFocusBtn = new QPushButton("Manager");
     auto modelValidateBtn = new QPushButton("Validate");
-    nameWidget(modelFocusBtn, "ModelWorkspaceOpenModelManagerButton");
     nameWidget(modelValidateBtn, "ModelWorkspaceValidateButton");
-    modelRegistryActions->addWidget(modelFocusBtn);
     modelRegistryActions->addWidget(modelValidateBtn);
     modelRegistryBody->addLayout(modelRegistryActions);
 
-    if (controls.modelManagerAction) {
-        QObject::connect(modelFocusBtn, &QPushButton::clicked, controls.modelManagerAction, &QAction::trigger);
-    }
     if (controls.imageValidationAction) {
         QObject::connect(modelValidateBtn, &QPushButton::clicked, controls.imageValidationAction, &QAction::trigger);
     }

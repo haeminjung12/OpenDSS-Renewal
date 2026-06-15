@@ -59,7 +59,6 @@
 #include "sequence_summary_writer.h"
 #include "camera_workspace_controller.h"
 #include "dataset_workspace_controller.h"
-#include "model_workspace_controller.h"
 #include "reports_workspace_controller.h"
 #include "settings_workspace_controller.h"
 #include "validator_workspace_controller.h"
@@ -300,8 +299,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto validationMenu = this->menuBar()->addMenu("&Validation");
     auto imageValidationAction = validationMenu->addAction("Image Validation");
     imageValidationAction->setStatusTip("Launch image-level ONNX validation through the external Python validator.");
-    auto modelManagerAction = validationMenu->addAction("Model Manager");
-    modelManagerAction->setStatusTip("Open the read-only model registry and promotion gate view.");
     auto sequenceValidationAction = addDisabledAction(
         validationMenu, "Sequence Validation", "ValidationSequenceValidationAction",
         "Runner-wrapped sequence validation is not available; artifact comparison remains internal/provisional.");
@@ -351,7 +348,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameObject(trainingMenu, "TrainingMenu");
     nameObject(validationMenu, "ValidationMenu");
     nameAction(imageValidationAction, "ValidationImageValidationAction");
-    nameAction(modelManagerAction, "ValidationModelManagerAction");
     nameAction(sequenceValidationAction, "ValidationSequenceValidationAction");
     nameObject(sortingMenu, "SortingMenu");
     nameObject(viewMenu, "ViewMenu");
@@ -827,11 +823,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     statsWidget->setLayout(statsLayout);
 
     auto seqFolderEdit = new QLineEdit;
-    seqFolderEdit->setPlaceholderText("Select sequence folder...");
-    auto seqBrowseBtn = new QPushButton("...");
+    seqFolderEdit->setPlaceholderText("Select recorded sequence folder...");
+    auto seqBrowseBtn = new QPushButton("Browse");
     auto seqLoadBtn = new QPushButton("Load into memory");
-    auto seqStartBtn = new QPushButton("Start Test");
-    auto seqStopBtn = new QPushButton("Stop");
+    auto seqStartBtn = new QPushButton("Run Recorded Sequence");
+    auto seqStopBtn = new QPushButton("Stop Replay");
     seqStartBtn->setEnabled(false);
     seqStopBtn->setEnabled(false);
 
@@ -857,6 +853,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     seqLayout->addWidget(seqStopBtn, seqRow++, 3);
     seqLayout->addWidget(seqStatusLabel, seqRow++, 0, 1, 4);
     seqLayout->addWidget(seqLogLabel, seqRow++, 0, 1, 4);
+    seqLayout->setColumnStretch(1, 1);
+    seqLayout->setColumnStretch(2, 1);
     auto seqWidget = new QWidget;
     seqWidget->setLayout(seqLayout);
 
@@ -1953,14 +1951,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     leftDevicesLayout->addStretch(1);
     leftDevicesTab->setLayout(leftDevicesLayout);
 
-    auto leftSequenceTab = new QWidget;
-    nameWidget(leftSequenceTab, "OperationalSequenceTab");
-    auto leftSequenceLayout = new QVBoxLayout;
-    leftSequenceLayout->setContentsMargins(8, 8, 8, 8);
-    leftSequenceLayout->addWidget(seqWidget);
-    leftSequenceLayout->addStretch(1);
-    leftSequenceTab->setLayout(leftSequenceLayout);
-
     auto leftAnalysisTab = new QWidget;
     nameWidget(leftAnalysisTab, "OperationalAnalysisTab");
     auto leftAnalysisLayout = new QVBoxLayout;
@@ -1987,185 +1977,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     leftAnalysisLayout->addStretch(1);
     leftAnalysisTab->setLayout(leftAnalysisLayout);
 
-    auto modelManagerWidget = new QWidget;
-    nameWidget(modelManagerWidget, "modelManagerScreen");
-    auto modelManagerLayout = new QVBoxLayout;
-    modelManagerLayout->setContentsMargins(8, 8, 8, 8);
-    modelManagerLayout->setSpacing(8);
-
-    auto modelRegistryTable = new QTableWidget(registryEntries.size(), 6);
-    nameWidget(modelRegistryTable, "modelRegistryTable");
-    modelRegistryTable->setHorizontalHeaderLabels({"Model", "State", "Metadata", "Validation", "Promotion", "Path"});
-    modelRegistryTable->verticalHeader()->setVisible(false);
-    modelRegistryTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    modelRegistryTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-    modelRegistryTable->setSelectionMode(QAbstractItemView::SingleSelection);
-    modelRegistryTable->setAlternatingRowColors(true);
-    modelRegistryTable->setMinimumHeight(118);
-    modelRegistryTable->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-    auto setRegistryCell = [&](int row, int column, const QString& text) {
-        auto* item = new QTableWidgetItem(text);
-        item->setToolTip(text);
-        modelRegistryTable->setItem(row, column, item);
-    };
-    for (int i = 0; i < registryEntries.size(); ++i) {
-        QJsonObject entry = registryEntries.at(i).toObject();
-        setRegistryCell(i, 0, registryString(entry, "registry_entry_id"));
-        setRegistryCell(i, 1, registryString(entry, "state") + " / " + registryString(entry, "live_use_mode"));
-        setRegistryCell(i, 2, registryString(entry, "metadata_status"));
-        setRegistryCell(i, 3, registryString(entry, "validation_status"));
-        setRegistryCell(i, 4, registryString(entry, "promotion_status"));
-        setRegistryCell(i, 5, registryString(entry, "model_path"));
-        if (!entry.value("selectable_for_normal_live_sorting").toBool(false)) {
-            for (int column = 0; column < modelRegistryTable->columnCount(); ++column) {
-                if (auto* item = modelRegistryTable->item(i, column)) {
-                    item->setForeground(QBrush(QColor(Qt::gray)));
-                }
-            }
-        }
-    }
-    modelRegistryTable->resizeColumnsToContents();
-    modelRegistryTable->horizontalHeader()->setStretchLastSection(true);
-    modelManagerLayout->addWidget(modelRegistryTable);
-
-    auto modelManagerSplitter = new QSplitter(Qt::Horizontal);
-    nameWidget(modelManagerSplitter, "modelManagerSplitter");
-
-    auto modelDetailsPanel = new QGroupBox("Selected Model Details");
-    nameWidget(modelDetailsPanel, "modelDetailsPanel");
-    auto modelDetailsLayout = new QVBoxLayout;
-    auto modelDetailsText = new QTextEdit;
-    nameWidget(modelDetailsText, "modelDetailsText");
-    modelDetailsText->setReadOnly(true);
-    modelDetailsText->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    modelDetailsLayout->addWidget(modelDetailsText);
-    modelDetailsPanel->setLayout(modelDetailsLayout);
-    modelRegistryTable->selectRow(0);
-
-    auto modelGatePanel = new QWidget;
-    nameWidget(modelGatePanel, "modelGatePanel");
-    auto modelGateLayout = new QVBoxLayout;
-    modelGateLayout->setContentsMargins(0, 0, 0, 0);
-
-    auto modelGateChecklist = new QTableWidget(8, 3);
-    nameWidget(modelGateChecklist, "modelGateChecklist");
-    modelGateChecklist->setHorizontalHeaderLabels({"Gate", "Status", "Evidence"});
-    modelGateChecklist->verticalHeader()->setVisible(false);
-    modelGateChecklist->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    modelGateChecklist->setSelectionMode(QAbstractItemView::NoSelection);
-    modelGateChecklist->setAlternatingRowColors(true);
-    auto setGateCell = [&](int row, int column, const QString& text) {
-        auto* item = new QTableWidgetItem(text);
-        item->setToolTip(text);
-        modelGateChecklist->setItem(row, column, item);
-    };
-    setGateCell(0, 0, "Default runtime install");
-    setGateCell(0, 1, "Pass - hashes match promoted candidate");
-    setGateCell(0, 2, "docs/worker-reports/2026-04-30-actual-model-promotion-execution.md");
-    setGateCell(1, 0, "Metadata");
-    setGateCell(1, 1, "Pass for current helper");
-    setGateCell(
-        1, 2,
-        "app/runtime/models/metadata.json; SHA-256 fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f");
-    setGateCell(2, 0, "Sidecar");
-    setGateCell(2, 1, "Pass");
-    setGateCell(
-        2, 2,
-        "app/runtime/models/model.onnx.data; SHA-256 2e3727b593fee4f155caf67eb18a7b3a2b73ebb3655a1a6ab33b74c25a02ebd4");
-    setGateCell(3, 0, "Image validation");
-    setGateCell(3, 1, "Internal pass");
-    setGateCell(3, 2, "docs/worker-reports/2026-04-30-post-promotion-validation-execution.md");
-    setGateCell(4, 0, "Sequence validation");
-    setGateCell(4, 1, "Provisional");
-    setGateCell(4, 2, "Policy keeps sequence validation provisional until separately promoted");
-    setGateCell(5, 0, "Hardware trigger");
-    setGateCell(5, 1, "Pass - Wave 19/20");
-    setGateCell(5, 2,
-                "docs/worker-reports/2026-04-30-ni-class-driven-trigger-validation.md; "
-                "docs/worker-reports/2026-04-30-ni-scope-observation-confirmation.md");
-    setGateCell(6, 0, "Internal promotion");
-    setGateCell(6, 1, "Completed - Wave 23");
-    setGateCell(6, 2, "Installed default artifacts match authorized promoted candidate hashes");
-    setGateCell(7, 0, "Public release policy");
-    setGateCell(7, 1, "Separate blocker");
-    setGateCell(7, 2, "Public release/data approvals remain separate from internal promoted runtime state");
-    modelGateChecklist->resizeColumnsToContents();
-    modelGateChecklist->horizontalHeader()->setStretchLastSection(true);
-    modelGateLayout->addWidget(modelGateChecklist);
-
-    auto promotionBlockersList = new QTableWidget(4, 4);
-    nameWidget(promotionBlockersList, "promotionBlockersList");
-    promotionBlockersList->setHorizontalHeaderLabels({"Blocker", "Owner/type", "Evidence", "Required next action"});
-    promotionBlockersList->verticalHeader()->setVisible(false);
-    promotionBlockersList->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    promotionBlockersList->setSelectionMode(QAbstractItemView::NoSelection);
-    promotionBlockersList->setAlternatingRowColors(true);
-    auto setBlockerCell = [&](int row, int column, const QString& text) {
-        auto* item = new QTableWidgetItem(text);
-        item->setToolTip(text);
-        promotionBlockersList->setItem(row, column, item);
-    };
-    setBlockerCell(0, 0, "Sequence validation remains provisional");
-    setBlockerCell(0, 1, "Human domain review");
-    setBlockerCell(0, 2,
-                   "docs/validation/internal-fixtures/first-sequence-candidate-20260226_163405_BEST_SO_FAR/"
-                   "sequence_ground_truth_user_review_support_wave12.md");
-    setBlockerCell(0, 3, "Keep sequence claims provisional until a separate policy decision promotes them");
-    setBlockerCell(1, 0, "Runtime trigger-target policy");
-    setBlockerCell(1, 1, "Runtime/product decision");
-    setBlockerCell(1, 2, "docs/contracts/runtime-trigger-target-policy.md");
-    setBlockerCell(1, 3, "Continue using canonical class id 1 for Hits");
-    setBlockerCell(2, 0, "Public model/data release policy");
-    setBlockerCell(2, 1, "Release/data policy");
-    setBlockerCell(2, 2, "docs/worker-reports/2026-04-30-public-release-gap-audit.md");
-    setBlockerCell(2, 3, "Resolve redistribution and public-claim approvals before public release");
-    setBlockerCell(3, 0, "Public claim wording");
-    setBlockerCell(3, 1, "Release communications");
-    setBlockerCell(3, 2, "docs/qa/candidate-promotion-readiness-checklist.md");
-    setBlockerCell(3, 3, "Keep public release claims separate from internal promoted runtime state");
-    promotionBlockersList->resizeColumnsToContents();
-    promotionBlockersList->horizontalHeader()->setStretchLastSection(true);
-    modelGateLayout->addWidget(promotionBlockersList);
-
-    auto modelActionLayout = new QHBoxLayout;
-    auto verifyModelArtifactsButton = new QPushButton("Verify Artifacts");
-    auto openModelMetadataButton = new QPushButton("Open Metadata");
-    auto compareModelsButton = new QPushButton("Compare Models");
-    auto promoteModelButton = new QPushButton("Promote Model");
-    nameWidget(verifyModelArtifactsButton, "verifyModelArtifactsButton");
-    nameWidget(openModelMetadataButton, "openModelMetadataButton");
-    nameWidget(compareModelsButton, "compareModelsButton");
-    nameWidget(promoteModelButton, "promoteModelButton");
-    verifyModelArtifactsButton->setEnabled(false);
-    openModelMetadataButton->setEnabled(false);
-    compareModelsButton->setEnabled(false);
-    promoteModelButton->setEnabled(false);
-    promoteModelButton->setToolTip(
-        "Disabled: the default runtime already matches the promoted candidate; this read-only view does not support "
-        "destructive re-promotion. Sequence and public release items remain separately tracked.");
-    modelActionLayout->addWidget(verifyModelArtifactsButton);
-    modelActionLayout->addWidget(openModelMetadataButton);
-    modelActionLayout->addWidget(compareModelsButton);
-    modelActionLayout->addWidget(promoteModelButton);
-    modelGateLayout->addLayout(modelActionLayout);
-    modelGatePanel->setLayout(modelGateLayout);
-
-    modelManagerSplitter->addWidget(modelDetailsPanel);
-    modelManagerSplitter->addWidget(modelGatePanel);
-    modelManagerSplitter->setStretchFactor(0, 1);
-    modelManagerSplitter->setStretchFactor(1, 2);
-    modelManagerLayout->addWidget(modelManagerSplitter, 1);
-    modelManagerWidget->setLayout(modelManagerLayout);
-
     auto operationalTabs = new QTabWidget;
     operationalTabs->setObjectName("OperationalTabs");
     operationalTabs->setAccessibleName("OperationalTabs");
     operationalTabs->addTab(leftCaptureTab, "Capture");
     operationalTabs->addTab(leftDevicesTab, "Devices");
-    operationalTabs->addTab(leftSequenceTab, "Sequence");
     operationalTabs->addTab(leftAnalysisTab, "Analysis");
     operationalTabs->addTab(trainerDockProxy, "Trainer");
-    operationalTabs->addTab(modelManagerWidget, "Model Manager");
 
     auto operationDock = new QDockWidget("Capture", this);
     operationDock->setObjectName("OperationalDock");
@@ -2174,18 +1992,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     operationDock->setMinimumWidth(260);
     this->addDockWidget(Qt::LeftDockWidgetArea, operationDock);
     operationDock->hide();
-
-    ModelWorkspaceController::Dependencies modelWorkspaceControllerDeps;
-    modelWorkspaceControllerDeps.registryEntries = &registryEntries;
-    modelWorkspaceControllerDeps.registryFilePath = registryFilePath;
-    modelWorkspaceControllerDeps.registryLoadWarning = registryLoadWarning;
-    modelWorkspaceControllerDeps.modelRegistryTable = modelRegistryTable;
-    modelWorkspaceControllerDeps.modelDetailsText = modelDetailsText;
-    modelWorkspaceControllerDeps.modelManagerAction = modelManagerAction;
-    modelWorkspaceControllerDeps.operationDock = operationDock;
-    modelWorkspaceControllerDeps.operationalTabs = operationalTabs;
-    modelWorkspaceControllerDeps.modelManagerWidget = modelManagerWidget;
-    new ModelWorkspaceController(modelWorkspaceControllerDeps, this);
 
     desktop_app::workspace::CameraWorkspaceControls cameraWorkspaceControls;
     cameraWorkspaceControls.presetCombo = presetCombo;
@@ -2207,6 +2013,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     cameraWorkspaceControls.saveStartButton = saveStartBtn;
     cameraWorkspaceControls.saveStopButton = saveStopBtn;
     cameraWorkspaceControls.saveInfoLabel = saveInfoLabel;
+    cameraWorkspaceControls.sequenceWidget = seqWidget;
+    cameraWorkspaceControls.sequenceFolderEdit = seqFolderEdit;
+    cameraWorkspaceControls.sequenceBrowseButton = seqBrowseBtn;
+    cameraWorkspaceControls.sequenceLoadButton = seqLoadBtn;
+    cameraWorkspaceControls.sequenceStartButton = seqStartBtn;
+    cameraWorkspaceControls.sequenceStopButton = seqStopBtn;
+    cameraWorkspaceControls.sequenceFpsSpin = seqFpsSpin;
+    cameraWorkspaceControls.sequenceStatusLabel = seqStatusLabel;
+    cameraWorkspaceControls.sequenceLogLabel = seqLogLabel;
     auto cameraControlsStack = desktop_app::workspace::buildCameraControlsStack(cameraWorkspaceControls);
     rightStackLayout->insertWidget(2, cameraControlsStack);
 
@@ -2215,7 +2030,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     modelWorkspaceControls.registryFilePath = registryFilePath;
     modelWorkspaceControls.registryLoadWarning = registryLoadWarning;
     modelWorkspaceControls.targetClassCombo = targetClassCombo;
-    modelWorkspaceControls.modelManagerAction = modelManagerAction;
     modelWorkspaceControls.imageValidationAction = imageValidationAction;
     modelWorkspaceControls.appState = &appState;
     auto modelWorkspacePage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
@@ -2341,8 +2155,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     workspaceStack->addWidget(settingsWorkspacePage);
     workspaceStack->setCurrentWidget(liveWorkspacePage);
     auto liveModelMenu = new QMenu(openLiveModelManagerBtn);
-    auto* liveSelectModelAction = liveModelMenu->addAction("Select model");
-    QObject::connect(liveSelectModelAction, &QAction::triggered, modelManagerAction, &QAction::trigger);
     liveModelMenu->addAction("Open Model workspace", [=]() { workspaceStack->setCurrentWidget(modelWorkspacePage); });
     openLiveModelManagerBtn->setMenu(liveModelMenu);
     QObject::connect(liveConfigureSettingsBtn, &QPushButton::clicked,
@@ -3819,8 +3631,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     });
     QObject::connect(liveModelCombo, qOverload<int>(&QComboBox::currentIndexChanged),
                      [&]() { applyLiveModelSelection(); });
-    QObject::connect(openLiveModelManagerBtn, &QPushButton::clicked,
-                     [&]() { operationalTabs->setCurrentWidget(modelManagerWidget); });
     QObject::connect(refreshLiveModelsBtn, &QPushButton::clicked, [&]() { applyLiveModelSelection(); });
 
     auto connectRuntimeSettingsPersistence = [&]() {
@@ -5580,6 +5390,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* cameraLutPanelFrame = this->findChild<QWidget*>("CameraLutDisplayPanelFrame");
             auto* cameraRecordingPanel = this->findChild<QWidget*>("CameraRecordingPanel");
             auto* cameraRecordingPanelFrame = this->findChild<QWidget*>("CameraRecordingPanelFrame");
+            auto* cameraSequencePanel = this->findChild<QWidget*>("CameraSequenceTestPanel");
+            auto* cameraSequencePanelFrame = this->findChild<QWidget*>("CameraSequenceTestPanelFrame");
+            auto* sequenceTestWidget = this->findChild<QWidget*>("SequenceTestTab");
+            auto* operationalSequenceTab = this->findChild<QWidget*>("OperationalSequenceTab");
             auto* cameraAdvancedPanel = this->findChild<QWidget*>("CameraAdvancedFrameStatsPanel");
             auto* cameraLutRangeBar = this->findChild<QWidget*>("CameraLutRangeBar");
             auto* cameraNavButton = this->findChild<QPushButton*>("NavCameraButton");
@@ -5610,6 +5424,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* cameraRecordingFormatControl = this->findChild<QWidget*>("CameraRecordingFormatSegmentedControl");
             auto* saveStartButton = this->findChild<QPushButton*>("SaveStartButton");
             auto* saveStopButton = this->findChild<QPushButton*>("SaveStopButton");
+            auto* sequenceFolderEdit = this->findChild<QLineEdit*>("SequenceFolderEdit");
+            auto* sequenceBrowseButton = this->findChild<QPushButton*>("SequenceBrowseButton");
+            auto* sequenceLoadButton = this->findChild<QPushButton*>("SequenceLoadButton");
+            auto* sequenceStartButton = this->findChild<QPushButton*>("SequenceStartTestButton");
+            auto* sequenceStopButton = this->findChild<QPushButton*>("SequenceStopButton");
+            auto* sequenceFpsSpin = this->findChild<QDoubleSpinBox*>("SequenceFpsSpinBox");
+            auto* sequenceStatusLabel = this->findChild<QLabel*>("SequenceStatusLabel");
+            auto* sequenceLogLabel = this->findChild<QLabel*>("SequenceLogLabel");
             auto* navRailFrame = this->findChild<QFrame*>("OpenDssNavigationRail");
             auto* headerFrame = this->findChild<QFrame*>("OpenDssHeader");
             auto* statusStripFrame = this->findChild<QFrame*>("OpenDssStatusStrip");
@@ -5647,6 +5469,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(cameraRecordingPanel != nullptr, "CameraRecordingPanel exists");
             require(cameraRecordingPanel && cameraRecordingPanel->isVisibleTo(this), "CameraRecordingPanel is visible");
             require(cameraRecordingPanelFrame != nullptr, "CameraRecordingPanelFrame exists");
+            require(cameraSequencePanel != nullptr, "CameraSequenceTestPanel exists");
+            require(cameraSequencePanel && cameraSequencePanel->isVisibleTo(this), "CameraSequenceTestPanel is visible");
+            require(cameraSequencePanelFrame != nullptr, "CameraSequenceTestPanelFrame exists");
+            require(sequenceTestWidget && cameraSequencePanelFrame && cameraSequencePanelFrame->isAncestorOf(sequenceTestWidget),
+                    "SequenceTestTab controls are parented inside the Live Sequence Test section");
+            require(operationalSequenceTab == nullptr, "Operational Sequence tab is absent after moving controls to Live");
             require(cameraLutRangeBar != nullptr, "CameraLutRangeBar exists");
             require(cameraLutRangeBar && cameraLutRangeBar->isVisibleTo(this), "CameraLutRangeBar is visible");
             require(cameraAdvancedPanel == nullptr, "CameraAdvancedFrameStatsPanel is absent");
@@ -5705,6 +5533,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                              "CameraRecordingFormatSegmentedControl fits within Recording");
             requireContained(saveStartButton, cameraRecordingPanelFrame, "SaveStartButton fits within Recording");
             requireContained(saveStopButton, cameraRecordingPanelFrame, "SaveStopButton fits within Recording");
+            requireHorizontallyContained(cameraSequencePanelFrame, rightViewport,
+                                         "CameraSequenceTestPanelFrame fits within the viewport width");
+            requireContained(sequenceFolderEdit, cameraSequencePanelFrame, "SequenceFolderEdit fits within Sequence Test");
+            requireContained(sequenceBrowseButton, cameraSequencePanelFrame,
+                             "SequenceBrowseButton fits within Sequence Test");
+            requireContained(sequenceLoadButton, cameraSequencePanelFrame, "SequenceLoadButton fits within Sequence Test");
+            requireContained(sequenceStartButton, cameraSequencePanelFrame,
+                             "SequenceStartTestButton fits within Sequence Test");
+            requireContained(sequenceStopButton, cameraSequencePanelFrame, "SequenceStopButton fits within Sequence Test");
+            requireContained(sequenceFpsSpin, cameraSequencePanelFrame, "SequenceFpsSpinBox fits within Sequence Test");
+            requireContained(sequenceStatusLabel, cameraSequencePanelFrame,
+                             "SequenceStatusLabel fits within Sequence Test");
+            requireContained(sequenceLogLabel, cameraSequencePanelFrame, "SequenceLogLabel fits within Sequence Test");
+            require(sequenceStartButton && sequenceStartButton->text().contains("Recorded Sequence"),
+                    "Sequence run button makes recorded-sequence simulation explicit");
+            require(sequenceStartButton && !sequenceStartButton->isEnabled(),
+                    "Sequence run button remains disabled until a sequence is loaded");
 
             const auto shellColors = desktop_app::theme::colors(currentThemeMode);
             const QString shellCss = shellColors.shellBackground.name(QColor::HexRgb);

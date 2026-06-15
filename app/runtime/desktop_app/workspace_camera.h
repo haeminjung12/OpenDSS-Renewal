@@ -37,6 +37,16 @@ struct CameraWorkspaceControls {
     QPushButton* saveStartButton = nullptr;
     QPushButton* saveStopButton = nullptr;
     QLabel* saveInfoLabel = nullptr;
+
+    QWidget* sequenceWidget = nullptr;
+    QLineEdit* sequenceFolderEdit = nullptr;
+    QPushButton* sequenceBrowseButton = nullptr;
+    QPushButton* sequenceLoadButton = nullptr;
+    QPushButton* sequenceStartButton = nullptr;
+    QPushButton* sequenceStopButton = nullptr;
+    QDoubleSpinBox* sequenceFpsSpin = nullptr;
+    QLabel* sequenceStatusLabel = nullptr;
+    QLabel* sequenceLogLabel = nullptr;
 };
 
 QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls);

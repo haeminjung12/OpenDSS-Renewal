@@ -20,7 +20,6 @@ struct ModelWorkspaceControls {
     QString registryLoadWarning;
 
     QComboBox* targetClassCombo = nullptr;
-    QAction* modelManagerAction = nullptr;
     QAction* imageValidationAction = nullptr;
     QStackedWidget* workspaceStack = nullptr;
     QWidget* validatorWorkspace = nullptr;

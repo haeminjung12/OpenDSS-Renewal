@@ -93,8 +93,6 @@ add_executable(desktop_app
   camera_workspace_controller.h
   dataset_workspace_controller.cpp
   dataset_workspace_controller.h
-  model_workspace_controller.cpp
-  model_workspace_controller.h
   reports_workspace_controller.cpp
   reports_workspace_controller.h
   settings_workspace_controller.cpp

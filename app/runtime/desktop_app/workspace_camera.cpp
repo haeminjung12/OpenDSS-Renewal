@@ -482,6 +482,26 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     }
     cameraRecordingSection.body->addWidget(controls.saveInfoLabel);
 
+    auto cameraSequenceSection = makeCameraSection("Sequence Test", "CameraSequenceTestPanel");
+    if (controls.sequenceWidget) {
+        relaxHorizontalSize(controls.sequenceWidget, QSizePolicy::Expanding);
+        relaxHorizontalSize(controls.sequenceFolderEdit, QSizePolicy::Expanding);
+        relaxHorizontalSize(controls.sequenceBrowseButton, QSizePolicy::Fixed);
+        relaxHorizontalSize(controls.sequenceLoadButton, QSizePolicy::Expanding);
+        relaxHorizontalSize(controls.sequenceStartButton, QSizePolicy::Expanding);
+        relaxHorizontalSize(controls.sequenceStopButton, QSizePolicy::Expanding);
+        relaxHorizontalSize(controls.sequenceFpsSpin, QSizePolicy::Expanding);
+        if (controls.sequenceStatusLabel) {
+            controls.sequenceStatusLabel->setWordWrap(true);
+            relaxHorizontalSize(controls.sequenceStatusLabel, QSizePolicy::Preferred);
+        }
+        if (controls.sequenceLogLabel) {
+            controls.sequenceLogLabel->setWordWrap(true);
+            relaxHorizontalSize(controls.sequenceLogLabel, QSizePolicy::Preferred);
+        }
+        cameraSequenceSection.body->addWidget(controls.sequenceWidget);
+    }
+
     auto cameraControlsStack = new QWidget;
     nameWidget(cameraControlsStack, "CameraControlsStack");
     relaxHorizontalSize(cameraControlsStack, QSizePolicy::Ignored);
@@ -490,6 +510,7 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     cameraControlsLayout->setSpacing(12);
     cameraControlsLayout->addWidget(cameraFormatSection.section);
     cameraControlsLayout->addWidget(cameraRecordingSection.section);
+    cameraControlsLayout->addWidget(cameraSequenceSection.section);
     cameraControlsLayout->addStretch(1);
     cameraControlsStack->setLayout(cameraControlsLayout);
     return cameraControlsStack;

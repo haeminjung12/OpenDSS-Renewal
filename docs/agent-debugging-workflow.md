@@ -56,10 +56,11 @@ grepai status
 grepai search "<concept>" --json --compact
 ```
 
-Then read only the likely files or line ranges:
+Then inspect only the likely file and nearby match context:
 
 ```powershell
-rtk read app/runtime/desktop_app/main_window.cpp --lines 4400:4560
+rtk grep -n "<nearby-symbol>" app/runtime/desktop_app/main_window.cpp -A 40 -B 20
+rtk read -n -m 160 app/runtime/desktop_app/app_types.h
 ```
 
 Avoid whole-file reads of `main_window.cpp` unless there is no narrower option.

@@ -15,7 +15,7 @@ For ordinary bug fixes, prefer the sparse debug workspace. It contains the activ
 2. If the bug location is unclear, use `grepai status` and `grepai search "<concept>" --json --compact` before broad grep.
 3. Use RTK-native repo commands: `rtk read`, `rtk grep`, `rtk find`, `rtk diff`, `rtk test`, and `rtk git ...`.
 4. Read at most 3 likely source files before forming a bug hypothesis.
-5. Prefer line-targeted reads over whole-file reads, especially for `app/runtime/desktop_app/main_window.cpp`.
+5. Prefer `rtk grep` with line numbers/context before whole-file reads, especially for `app/runtime/desktop_app/main_window.cpp`.
 6. Fix one bug per branch or commit.
 7. Keep packaging, trainer/exporter, old wave history, and archived workspaces out of ordinary runtime bug fixes.
 8. Do not fire DAQ output unless the user explicitly approves the exact action.

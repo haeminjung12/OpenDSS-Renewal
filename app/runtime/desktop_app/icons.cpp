@@ -91,10 +91,6 @@ QIcon makeBrandIcon(const QString& key, const QColor& fg, const QColor& accent, 
         painter.setPen(accentPen);
         painter.drawLine(QPointF(11, 15), QPointF(15, 11));
         painter.drawLine(QPointF(17, 21), QPointF(21, 17));
-    } else if (key == "overlay") {
-        painter.drawRoundedRect(QRectF(9, 10, 13, 9), 2, 2);
-        painter.setPen(accentPen);
-        painter.drawRoundedRect(QRectF(12, 14, 13, 9), 2, 2);
     } else if (key == "crosshair") {
         painter.drawEllipse(QPointF(16, 16), 7, 7);
         painter.setPen(accentPen);

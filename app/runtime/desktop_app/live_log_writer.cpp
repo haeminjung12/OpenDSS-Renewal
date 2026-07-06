@@ -44,7 +44,8 @@ QString writeLiveLogCsv(const QString& outDir, const QString& prefix, const std:
           "remaining,skip_reason,"
           "detected,fired,area,bbox_x,bbox_y,bbox_w,bbox_h,crop_x,crop_y,crop_w,crop_h,crop_path,label,score,triggered,"
           "trigger_ok,"
-          "event_dir,decision_frame,decision_event_id,hit_count,waste_count\n";
+          "event_dir,decision_frame,decision_event_id,hit_count,waste_count,classified_hit_count,"
+          "classified_waste_count,went_to_hit_count,went_to_waste_count\n";
     for (const auto& rec : records) {
         ts << csvQuote(rec.wallTime) << "," << rec.frameIndex << "," << rec.delivered << "," << rec.dropped << ","
            << QString::number(rec.fps, 'f', 2) << "," << QString::number(rec.camFps, 'f', 2) << ","
@@ -55,7 +56,9 @@ QString writeLiveLogCsv(const QString& outDir, const QString& prefix, const std:
            << "," << rec.bboxH << "," << rec.cropX << "," << rec.cropY << "," << rec.cropW << "," << rec.cropH << ","
            << csvQuote(rec.cropPath) << "," << csvQuote(rec.label) << "," << QString::number(rec.score, 'f', 4) << ","
            << (rec.triggered ? "1" : "0") << "," << (rec.triggerOk ? "1" : "0") << "," << csvQuote(rec.eventDir) << ","
-           << rec.decisionFrame << "," << rec.decisionEventId << "," << rec.hitCount << "," << rec.wasteCount << "\n";
+           << rec.decisionFrame << "," << rec.decisionEventId << "," << rec.hitCount << "," << rec.wasteCount << ","
+           << rec.classifiedHitCount << "," << rec.classifiedWasteCount << "," << rec.wentToHitCount << ","
+           << rec.wentToWasteCount << "\n";
     }
     ts.flush();
     logFile.close();

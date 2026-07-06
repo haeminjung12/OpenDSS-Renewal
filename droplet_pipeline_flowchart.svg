@@ -1,0 +1,87 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="720" viewBox="0 0 1600 720" role="img" aria-labelledby="title desc">
+  <title id="title">Droplet Detection and Classification Pipeline</title>
+  <desc id="desc">Flowchart showing camera frame, background subtraction, thresholding and morphology, contour blob filtering, droplet crop, ONNX CNN classification, trigger decision, centroid tracking, and hit waste trajectory decision.</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="9" markerHeight="9" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#1f2937"/>
+    </marker>
+    <style>
+      .title { font: 700 34px Arial, Helvetica, sans-serif; fill: #111827; }
+      .box { fill: #ffffff; stroke: #2563eb; stroke-width: 3; rx: 10; }
+      .branch { fill: #f8fafc; stroke: #0f766e; stroke-width: 3; rx: 10; }
+      .text { font: 600 22px Arial, Helvetica, sans-serif; fill: #111827; text-anchor: middle; dominant-baseline: middle; }
+      .small { font: 600 20px Arial, Helvetica, sans-serif; fill: #111827; text-anchor: middle; dominant-baseline: middle; }
+      .arrow { stroke: #1f2937; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .label { font: 600 18px Arial, Helvetica, sans-serif; fill: #374151; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="720" fill="#ffffff"/>
+  <text x="800" y="62" class="title" text-anchor="middle">Droplet Detection and Classification Pipeline</text>
+
+  <g transform="translate(40 150)">
+    <rect class="box" x="0" y="0" width="180" height="100"/>
+    <text class="text" x="90" y="50">Camera frame</text>
+  </g>
+
+  <g transform="translate(250 150)">
+    <rect class="box" x="0" y="0" width="220" height="100"/>
+    <text class="small" x="110" y="38">Background</text>
+    <text class="small" x="110" y="66">subtraction</text>
+  </g>
+
+  <g transform="translate(540 150)">
+    <rect class="box" x="0" y="0" width="250" height="100"/>
+    <text class="small" x="125" y="34">Thresholding +</text>
+    <text class="small" x="125" y="63">blur/morphology</text>
+  </g>
+
+  <g transform="translate(860 150)">
+    <rect class="box" x="0" y="0" width="230" height="100"/>
+    <text class="small" x="115" y="36">Contour/blob</text>
+    <text class="small" x="115" y="65">filtering</text>
+  </g>
+
+  <g transform="translate(1160 150)">
+    <rect class="box" x="0" y="0" width="190" height="100"/>
+    <text class="small" x="95" y="36">Droplet crop</text>
+    <text class="small" x="95" y="65">(64 x 64)</text>
+  </g>
+
+  <g transform="translate(1400 150)">
+    <rect class="box" x="0" y="0" width="170" height="100"/>
+    <text class="small" x="85" y="34">ONNX CNN</text>
+    <text class="small" x="85" y="63">classification</text>
+  </g>
+
+  <g transform="translate(1400 330)">
+    <rect class="box" x="0" y="0" width="170" height="90"/>
+    <text class="small" x="85" y="33">Trigger</text>
+    <text class="small" x="85" y="59">decision</text>
+  </g>
+
+  <g transform="translate(880 450)">
+    <rect class="branch" x="0" y="0" width="260" height="96"/>
+    <text class="small" x="130" y="34">Centroid tracking</text>
+    <text class="small" x="130" y="62">during event</text>
+  </g>
+
+  <g transform="translate(1220 450)">
+    <rect class="branch" x="0" y="0" width="270" height="96"/>
+    <text class="small" x="135" y="34">Hit/Waste</text>
+    <text class="small" x="135" y="62">trajectory decision</text>
+  </g>
+
+  <path class="arrow" d="M 220 200 H 250"/>
+  <path class="arrow" d="M 470 200 H 540"/>
+  <path class="arrow" d="M 790 200 H 860"/>
+  <path class="arrow" d="M 1090 200 H 1160"/>
+  <path class="arrow" d="M 1350 200 H 1400"/>
+  <path class="arrow" d="M 1485 250 V 330"/>
+
+  <path class="arrow" d="M 975 250 V 400 C 975 425 1005 425 1005 450"/>
+  <path class="arrow" d="M 1140 498 H 1220"/>
+
+  <text class="label" x="1260" y="128">Classification path</text>
+  <text class="label" x="1165" y="585">Trajectory path</text>
+</svg>

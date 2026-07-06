@@ -33,8 +33,10 @@ struct AppOptions {
 struct StatsTracker {
     QMap<QString, int> classCounts;
     int totalEvents = 0;
-    int hitCount = 0;
-    int wasteCount = 0;
+    int classifiedHitCount = 0;
+    int classifiedWasteCount = 0;
+    int wentToHitCount = 0;
+    int wentToWasteCount = 0;
     bool eventActive = false;
     int missCount = 0;
     int currentEventId = 0;
@@ -55,8 +57,10 @@ struct StatsTracker {
 
 struct StatsSnapshot {
     int totalEvents = 0;
-    int hitCount = 0;
-    int wasteCount = 0;
+    int classifiedHitCount = 0;
+    int classifiedWasteCount = 0;
+    int wentToHitCount = 0;
+    int wentToWasteCount = 0;
     bool eventActive = false;
     QString classText;
     QString lastText;
@@ -82,10 +86,10 @@ inline QString decideEventDirection(double cumulativeDy, double lastY, int frame
     bool movedDown = cumulativeDy > threshold;
     bool hasFrame = (frameHeight > 0);
     double mid = hasFrame ? frameHeight * 0.5 : 0.0;
-    if (movedUp && (!hasFrame || lastY < mid)) {
+    if (movedUp) {
         return "Waste";
     }
-    if (movedDown && (!hasFrame || lastY >= mid)) {
+    if (movedDown) {
         return "Hit";
     }
     if (hasFrame) {
@@ -301,4 +305,8 @@ struct LiveLogRecord {
     int decisionEventId = 0;
     int hitCount = 0;
     int wasteCount = 0;
+    int classifiedHitCount = 0;
+    int classifiedWasteCount = 0;
+    int wentToHitCount = 0;
+    int wentToWasteCount = 0;
 };

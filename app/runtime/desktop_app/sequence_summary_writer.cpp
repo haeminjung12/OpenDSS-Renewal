@@ -159,8 +159,10 @@ QString writeSequenceSummaryCsv(const QString& outDir, const QString& filename,
     QString targetLower = target.toLower();
     const QString unclassifiedLower = normalizeEventLabel(QString()).toLower();
     QMap<QString, int> classCounts;
-    int hitCount = 0;
-    int wasteCount = 0;
+    int wentToHitCount = 0;
+    int wentToWasteCount = 0;
+    int classifiedHitCount = 0;
+    int classifiedWasteCount = 0;
     int truePositive = 0;
     int trueNegative = 0;
     int falsePositive = 0;
@@ -180,9 +182,14 @@ QString writeSequenceSummaryCsv(const QString& outDir, const QString& filename,
         bool isHit = (rec.decisionDir == "Hit");
         bool isWaste = (rec.decisionDir == "Waste");
         if (isHit)
-            hitCount++;
+            wentToHitCount++;
         if (isWaste)
-            wasteCount++;
+            wentToWasteCount++;
+        if (isTarget) {
+            classifiedHitCount++;
+        } else {
+            classifiedWasteCount++;
+        }
         if (isTarget) {
             if (isHit) {
                 truePositive++;
@@ -205,10 +212,10 @@ QString writeSequenceSummaryCsv(const QString& outDir, const QString& filename,
         (truePositive + falseNegative) > 0 ? static_cast<double>(truePositive) / (truePositive + falseNegative) : 0.0;
 
     ts << "metric,value\n";
-    ts << "summary_schema,sequence_summary.motion_alignment.v2\n";
+    ts << "summary_schema,sequence_summary.classified_and_went_to.v3\n";
     ts << "summary_note,"
        << csvQuote(
-              "Counts compare the runtime target label to motion Hit/Waste decisions; this is not sequence accuracy.")
+              "Classified counts use the runtime target label; went-to counts use motion Hit/Waste channel decisions.")
        << "\n";
     ts << "sequence_folder," << csvQuote(metadata.sequenceFolder) << "\n";
     ts << "output_dir," << csvQuote(metadata.outputDir) << "\n";
@@ -225,8 +232,12 @@ QString writeSequenceSummaryCsv(const QString& outDir, const QString& filename,
     ts << "frames_total," << metadata.totalFrames << "\n";
     ts << "events_detected," << events.size() << "\n";
     ts << "events_considered_fired_classified," << consideredEvents << "\n";
-    ts << "motion_hit_count," << hitCount << "\n";
-    ts << "motion_waste_count," << wasteCount << "\n";
+    ts << "classified_hit_count," << classifiedHitCount << "\n";
+    ts << "classified_waste_count," << classifiedWasteCount << "\n";
+    ts << "went_to_hit_count," << wentToHitCount << "\n";
+    ts << "went_to_waste_count," << wentToWasteCount << "\n";
+    ts << "motion_hit_count," << wentToHitCount << "\n";
+    ts << "motion_waste_count," << wentToWasteCount << "\n";
     ts << "target_motion_hit_count," << truePositive << "\n";
     ts << "target_motion_waste_count," << falseNegative << "\n";
     ts << "non_target_motion_waste_count," << trueNegative << "\n";

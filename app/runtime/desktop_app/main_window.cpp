@@ -415,14 +415,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     displayStrip->addSeparator();
     auto imageRegionAction = displayStrip->addAction("Image Region");
     imageRegionAction->setCheckable(true);
-    auto overlayAction = displayStrip->addAction("Overlay");
-    overlayAction->setCheckable(true);
-    overlayAction->setChecked(true);
     auto crosshairAction = displayStrip->addAction("Crosshair");
     crosshairAction->setCheckable(true);
     displayStrip->addSeparator();
     auto calibrationAction = displayStrip->addAction("Calibration");
-    auto clearOverlayAction = displayStrip->addAction("Clear");
     nameAction(copyFrameAction, "DisplayCopyFrameAction");
     nameAction(copyDocumentAction, "DisplayCopyDocumentAction");
     nameAction(fitAction, "DisplayFitAction");
@@ -430,16 +426,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameAction(zoomInAction, "DisplayZoomInAction");
     nameAction(zoomOutAction, "DisplayZoomOutAction");
     nameAction(imageRegionAction, "DisplayImageRegionAction");
-    nameAction(overlayAction, "DisplayOverlayAction");
     nameAction(crosshairAction, "DisplayCrosshairAction");
     nameAction(calibrationAction, "DisplayCalibrationAction");
-    nameAction(clearOverlayAction, "DisplayClearOverlayAction");
     for (auto* action : {copyFrameAction, copyDocumentAction, fitAction, oneToOneAction, zoomInAction, zoomOutAction,
-                         imageRegionAction, overlayAction, crosshairAction, calibrationAction, clearOverlayAction}) {
+                         imageRegionAction, crosshairAction, calibrationAction}) {
         action->setStatusTip("Display shell control; runtime behavior is unchanged in this alignment step.");
     }
     fitAction->setStatusTip("Fit the live image inside the available viewer area.");
-    overlayAction->setStatusTip("Show or hide the Live detection overlay.");
     crosshairAction->setStatusTip("Show or hide the Live center crosshair.");
     this->addToolBarBreak(Qt::TopToolBarArea);
     this->addToolBar(Qt::TopToolBarArea, displayStrip);
@@ -801,7 +794,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto statsEventsLabel = new QLabel("Events: 0");
     auto statsClassLabel = new QLabel("Classes:\n(none)");
-    auto statsHitLabel = new QLabel("Hits: 0\nWastes: 0");
+    auto statsHitLabel = new QLabel("Classified Hit: 0\nClassified Waste: 0\nWent to Hit: 0\nWent to Waste: 0");
     auto statsLastLabel = new QLabel("Last event: --");
     statsEventsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     statsClassLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -1419,18 +1412,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return button;
     };
     auto liveFitTool = addViewerTool("Fit to View: fit the live image inside the viewer.", "fit");
-    auto liveOverlayTool = addViewerTool("Overlay: show or hide the detection overlay.", "overlay", true);
     auto liveCrosshairTool = addViewerTool("Crosshair: show or hide the center reticle.", "crosshair", false);
     liveCrosshairTool->setCheckable(true);
     nameWidget(liveFitTool, "LiveViewerFitButton");
-    nameWidget(liveOverlayTool, "LiveViewerOverlayToggle");
     nameWidget(liveCrosshairTool, "LiveViewerCrosshairToggle");
     liveFitTool->setAccessibleName("Live Fit to View");
-    liveOverlayTool->setAccessibleName("Live Overlay");
     liveCrosshairTool->setAccessibleName("Live Crosshair");
     QObject::connect(liveFitTool, &QToolButton::clicked, fitAction, &QAction::trigger);
-    QObject::connect(liveOverlayTool, &QToolButton::toggled, overlayAction, &QAction::setChecked);
-    QObject::connect(overlayAction, &QAction::toggled, liveOverlayTool, &QToolButton::setChecked);
     liveHudToolbar->setLayout(liveHudToolbarLayout);
     liveHudTop->addWidget(liveHudResolution);
     liveHudTop->addWidget(liveHudFrameTime);
@@ -1473,36 +1461,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         widget->installEventFilter(liveViewerWheelForwarder);
     }
     liveViewerStackLayout->addWidget(liveViewerOverlay);
-
-    auto liveDetectionOverlay = new QWidget;
-    nameWidget(liveDetectionOverlay, "LiveViewerDetectionOverlay");
-    liveDetectionOverlay->setAttribute(Qt::WA_TransparentForMouseEvents);
-    liveDetectionOverlay->setVisible(liveOverlayTool->isChecked());
-    auto liveDetectionOverlayLayout = new QGridLayout;
-    liveDetectionOverlayLayout->setContentsMargins(0, 0, 0, 0);
-    liveDetectionOverlayLayout->setRowStretch(0, 3);
-    liveDetectionOverlayLayout->setRowStretch(2, 4);
-    liveDetectionOverlayLayout->setColumnStretch(0, 3);
-    liveDetectionOverlayLayout->setColumnStretch(2, 4);
-    auto liveDetectionBox = new QFrame;
-    nameWidget(liveDetectionBox, "LiveViewerDetectionBox");
-    liveDetectionBox->setFixedSize(92, 92);
-    liveDetectionBox->setStyleSheet("QFrame#LiveViewerDetectionBox{border:2px solid "
-                                    "rgba(20,184,166,0.95);background:rgba(20,184,166,0.07);border-radius:2px;}");
-    auto liveDetectionBoxLayout = new QVBoxLayout;
-    liveDetectionBoxLayout->setContentsMargins(4, 4, 4, 4);
-    auto liveDetectionLabel = new QLabel("SINGLE 0.94");
-    nameWidget(liveDetectionLabel, "LiveViewerDetectionLabel");
-    liveDetectionLabel->setAlignment(Qt::AlignCenter);
-    liveDetectionLabel->setStyleSheet(
-        "background:rgba(2,6,23,0.82);color:#CCFBF1;font-size:10px;font-weight:700;padding:2px 4px;border-radius:2px;");
-    liveDetectionBoxLayout->addWidget(liveDetectionLabel, 0, Qt::AlignTop | Qt::AlignHCenter);
-    liveDetectionBoxLayout->addStretch(1);
-    liveDetectionBox->setLayout(liveDetectionBoxLayout);
-    liveDetectionOverlayLayout->addWidget(liveDetectionBox, 1, 1, Qt::AlignCenter);
-    liveDetectionOverlay->setLayout(liveDetectionOverlayLayout);
-    liveViewerStackLayout->addWidget(liveDetectionOverlay);
-    QObject::connect(overlayAction, &QAction::toggled, liveDetectionOverlay, &QWidget::setVisible);
 
     auto liveCrosshairOverlay = new QWidget;
     nameWidget(liveCrosshairOverlay, "LiveViewerCrosshairOverlay");
@@ -1784,12 +1742,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     updateForceTriggerState();
 
     auto eventsMetricLabel = new QLabel("0");
-    auto hitsMetricLabel = new QLabel("0");
-    auto wasteMetricLabel = new QLabel("0");
+    auto classifiedHitMetricLabel = new QLabel("0");
+    auto classifiedWasteMetricLabel = new QLabel("0");
+    auto wentToHitMetricLabel = new QLabel("0");
+    auto wentToWasteMetricLabel = new QLabel("0");
     auto trigMetricLabel = new QLabel("--");
     nameWidget(eventsMetricLabel, "LiveRunEventsMetricLabel");
-    nameWidget(hitsMetricLabel, "LiveRunHitsMetricLabel");
-    nameWidget(wasteMetricLabel, "LiveRunWasteMetricLabel");
+    nameWidget(classifiedHitMetricLabel, "LiveRunClassifiedHitMetricLabel");
+    nameWidget(classifiedWasteMetricLabel, "LiveRunClassifiedWasteMetricLabel");
+    nameWidget(wentToHitMetricLabel, "LiveRunWentToHitMetricLabel");
+    nameWidget(wentToWasteMetricLabel, "LiveRunWentToWasteMetricLabel");
     nameWidget(trigMetricLabel, "LiveRunTriggerRateMetricLabel");
 
     auto runPanel = makePanel("Run");
@@ -1799,9 +1761,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     metricGrid->setContentsMargins(0, 0, 0, 0);
     metricGrid->setSpacing(1);
     metricGrid->addWidget(makeMetric("Events", eventsMetricLabel), 0, 0);
-    metricGrid->addWidget(makeMetric("Hits", hitsMetricLabel), 0, 1);
-    metricGrid->addWidget(makeMetric("Waste", wasteMetricLabel), 1, 0);
-    metricGrid->addWidget(makeMetric("Trig/s", trigMetricLabel), 1, 1);
+    metricGrid->addWidget(makeMetric("Classified Hit", classifiedHitMetricLabel), 0, 1);
+    metricGrid->addWidget(makeMetric("Classified Waste", classifiedWasteMetricLabel), 1, 0);
+    metricGrid->addWidget(makeMetric("Went to Hit", wentToHitMetricLabel), 1, 1);
+    metricGrid->addWidget(makeMetric("Went to Waste", wentToWasteMetricLabel), 2, 0);
+    metricGrid->addWidget(makeMetric("Trig/s", trigMetricLabel), 2, 1);
     runBody->addLayout(metricGrid);
     auto lastDecisionCard = new QFrame;
     nameWidget(lastDecisionCard, "LiveLastDecisionCard");
@@ -1955,11 +1919,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(leftAnalysisTab, "OperationalAnalysisTab");
     auto leftAnalysisLayout = new QVBoxLayout;
     leftAnalysisLayout->setContentsMargins(8, 8, 8, 8);
-    auto leftOverlayCheck = new QCheckBox("View Overlay");
-    nameWidget(leftOverlayCheck, "AnalysisOverlayCheckBox");
-    leftOverlayCheck->setChecked(true);
     leftAnalysisLayout->addWidget(pipelineWidget);
-    leftAnalysisLayout->addWidget(leftOverlayCheck);
     auto detectorGroup = makeCollapsedGroup("Detector", detectWidget);
     nameWidget(detectorGroup, "DetectorGroup");
     if (auto* detectorToggle = detectorGroup->findChild<QToolButton*>()) {
@@ -2599,15 +2559,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         headerTriggerChip->style()->polish(headerTriggerChip);
 
         const QRegularExpression intRe("(\\d+)");
-        auto firstNumber = [&](const QString& text, const QString& fallback) {
-            auto match = intRe.match(text);
+        auto firstNumberAfter = [&](const QString& text, const QString& marker, const QString& fallback) {
+            const int markerIndex = text.indexOf(marker);
+            if (markerIndex < 0)
+                return fallback;
+            auto match = intRe.match(text, markerIndex + marker.size());
             return match.hasMatch() ? match.captured(1) : fallback;
         };
-        eventsMetricLabel->setText(firstNumber(statsEventsLabel->text(), "0"));
-        hitsMetricLabel->setText(firstNumber(statsHitLabel->text(), "0"));
-        wasteMetricLabel->setText(statsHitLabel->text().contains("Waste")
-                                      ? firstNumber(statsHitLabel->text().section("Waste", 1), "0")
-                                      : "0");
+        eventsMetricLabel->setText(firstNumberAfter(statsEventsLabel->text(), "Events:", "0"));
+        classifiedHitMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Classified Hit:", "0"));
+        classifiedWasteMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Classified Waste:", "0"));
+        wentToHitMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Went to Hit:", "0"));
+        wentToWasteMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Went to Waste:", "0"));
         trigMetricLabel->setText(pipelineEnableCheck->isChecked() ? "live" : "--");
         lastDecisionValue->setText(statsLastLabel->text().contains("--") ? "--" : statsLastLabel->text().simplified());
     });
@@ -2630,8 +2593,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         imageView->zoomBySteps(-1);
         cameraImageView->zoomBySteps(-1);
     });
-    QObject::connect(overlayAction, &QAction::toggled, leftOverlayCheck, &QCheckBox::setChecked);
-    QObject::connect(leftOverlayCheck, &QCheckBox::toggled, overlayAction, &QAction::setChecked);
     QObject::connect(leftLoadBtn, &QPushButton::clicked, viewerBtn, &QPushButton::click);
     QObject::connect(leftReconnectBtn, &QPushButton::clicked, reconnectBtn, &QPushButton::click);
     QObject::connect(openViewerAction, &QAction::triggered, viewerBtn, &QPushButton::click);
@@ -4386,8 +4347,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto makeStatsSnapshot = [&](const StatsTracker& s) -> StatsSnapshot {
         StatsSnapshot snap;
         snap.totalEvents = s.totalEvents;
-        snap.hitCount = s.hitCount;
-        snap.wasteCount = s.wasteCount;
+        snap.classifiedHitCount = s.classifiedHitCount;
+        snap.classifiedWasteCount = s.classifiedWasteCount;
+        snap.wentToHitCount = s.wentToHitCount;
+        snap.wentToWasteCount = s.wentToWasteCount;
         snap.eventActive = s.eventActive;
         snap.classText = buildClassText(s.classCounts);
         snap.classCounts = s.classCounts;
@@ -4409,11 +4372,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
 
     auto buildStatsFigures = [&](const StatsSnapshot& snap) {
-        int hit = snap.hitCount;
-        int waste = snap.wasteCount;
-        QImage hitWaste =
-            renderPieChart("Hit vs Waste", {"Hit", "Waste"}, {static_cast<double>(hit), static_cast<double>(waste)},
-                           {QColor(46, 204, 113), QColor(192, 57, 43)});
+        int hit = snap.wentToHitCount;
+        int waste = snap.wentToWasteCount;
+        QImage hitWaste = renderPieChart("Went to Hit vs Waste", {"Went to Hit", "Went to Waste"},
+                                         {static_cast<double>(hit), static_cast<double>(waste)},
+                                         {QColor(46, 204, 113), QColor(192, 57, 43)});
 
         int empty = 0;
         int single = 0;
@@ -4464,7 +4427,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             [=]() {
                 statsEventsLabel->setText(
                     QString("Events: %1  Active: %2").arg(snap.totalEvents).arg(snap.eventActive ? "Yes" : "No"));
-                statsHitLabel->setText(QString("Hits: %1\nWastes: %2").arg(snap.hitCount).arg(snap.wasteCount));
+                statsHitLabel->setText(QString("Classified Hit: %1\nClassified Waste: %2\nWent to Hit: %3\nWent to "
+                                               "Waste: %4")
+                                           .arg(snap.classifiedHitCount)
+                                           .arg(snap.classifiedWasteCount)
+                                           .arg(snap.wentToHitCount)
+                                           .arg(snap.wentToWasteCount));
                 statsClassLabel->setText(snap.classText);
                 statsLastLabel->setText(snap.lastText);
             },
@@ -4513,39 +4481,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto endEventLocked = [&](StatsTracker& s, int decisionFrame) {
         if (!s.eventActive)
             return;
-        QString dir = "Unknown";
-        if (s.hasCentroid) {
-            double dy = s.cumulativeDy;
-            double threshold = 2.0;
-            if (s.frameHeight > 0) {
-                threshold = std::max(threshold, s.frameHeight * 0.02);
-            }
-            bool movedUp = dy < -threshold;
-            bool movedDown = dy > threshold;
-            bool hasFrame = (s.frameHeight > 0);
-            double mid = hasFrame ? s.frameHeight * 0.5 : 0.0;
-
-            if (movedUp && (!hasFrame || s.lastY < mid)) {
-                s.wasteCount++;
-                dir = "Waste";
-            } else if (movedDown && (!hasFrame || s.lastY >= mid)) {
-                s.hitCount++;
-                dir = "Hit";
-            } else if (hasFrame) {
-                if (s.lastY < mid) {
-                    s.wasteCount++;
-                    dir = "Waste";
-                } else {
-                    s.hitCount++;
-                    dir = "Hit";
-                }
-            } else if (dy < 0.0) {
-                s.wasteCount++;
-                dir = "Waste";
-            } else {
-                s.hitCount++;
-                dir = "Hit";
-            }
+        QString dir = decideEventDirection(s.cumulativeDy, s.lastY, s.frameHeight, s.hasCentroid);
+        if (dir == "Waste") {
+            s.wentToWasteCount++;
+        } else if (dir == "Hit") {
+            s.wentToHitCount++;
         }
         s.lastEventDir = dir;
         s.lastEventLabel = s.currentLabel;
@@ -4585,7 +4525,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 if (label.isEmpty())
                     label = "(unclassified)";
                 stats.currentLabel = label;
-                stats.classCounts[label] = stats.classCounts.value(label) + 1;
+                if (evt.classified) {
+                    stats.classCounts[label] = stats.classCounts.value(label) + 1;
+                    if (evt.shouldTrigger) {
+                        stats.classifiedHitCount++;
+                    } else {
+                        stats.classifiedWasteCount++;
+                    }
+                }
             } else if (evt.detected) {
                 if (!stats.eventActive) {
                     stats.eventActive = true;
@@ -4605,7 +4552,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     if (label.isEmpty())
                         label = "(unclassified)";
                     stats.currentLabel = label;
-                    stats.classCounts[label] = stats.classCounts.value(label) + 1;
+                    if (evt.classified) {
+                        stats.classCounts[label] = stats.classCounts.value(label) + 1;
+                        if (evt.shouldTrigger) {
+                            stats.classifiedHitCount++;
+                        } else {
+                            stats.classifiedWasteCount++;
+                        }
+                    }
                 } else {
                     stats.cumulativeDy += static_cast<double>(evt.centroid.y - stats.lastCentroid.y);
                     stats.lastCentroid = evt.centroid;
@@ -5286,8 +5240,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             rec.eventDir = lastEventDir;
             rec.decisionFrame = lastDecisionFrame;
             rec.decisionEventId = lastDecisionEventId;
-            rec.hitCount = snap.hitCount;
-            rec.wasteCount = snap.wasteCount;
+            rec.hitCount = snap.wentToHitCount;
+            rec.wasteCount = snap.wentToWasteCount;
+            rec.classifiedHitCount = snap.classifiedHitCount;
+            rec.classifiedWasteCount = snap.classifiedWasteCount;
+            rec.wentToHitCount = snap.wentToHitCount;
+            rec.wentToWasteCount = snap.wentToWasteCount;
             QMutexLocker lk(&liveLogMutex);
             liveLog.push_back(rec);
         }
@@ -5435,6 +5393,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* navRailFrame = this->findChild<QFrame*>("OpenDssNavigationRail");
             auto* headerFrame = this->findChild<QFrame*>("OpenDssHeader");
             auto* statusStripFrame = this->findChild<QFrame*>("OpenDssStatusStrip");
+            auto* displayOverlayAction = this->findChild<QAction*>("DisplayOverlayAction");
+            auto* displayClearOverlayAction = this->findChild<QAction*>("DisplayClearOverlayAction");
+            auto* analysisOverlayCheck = this->findChild<QCheckBox*>("AnalysisOverlayCheckBox");
+            auto* liveViewerOverlayToggle = this->findChild<QToolButton*>("LiveViewerOverlayToggle");
+            auto* liveViewerDetectionOverlay = this->findChild<QWidget*>("LiveViewerDetectionOverlay");
             auto* rightViewport = rightScroll ? rightScroll->viewport() : nullptr;
 
             auto requireContained = [&](QWidget* child, QWidget* parent, const QString& message) {
@@ -5496,6 +5459,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(navRailFrame != nullptr, "OpenDssNavigationRail exists");
             require(headerFrame != nullptr, "OpenDssHeader exists");
             require(statusStripFrame != nullptr, "OpenDssStatusStrip exists");
+            require(displayOverlayAction == nullptr, "DisplayOverlayAction is absent");
+            require(displayClearOverlayAction == nullptr, "DisplayClearOverlayAction is absent");
+            require(analysisOverlayCheck == nullptr, "AnalysisOverlayCheckBox is absent");
+            require(liveViewerOverlayToggle == nullptr, "LiveViewerOverlayToggle is absent");
+            require(liveViewerDetectionOverlay == nullptr, "LiveViewerDetectionOverlay is absent");
             require(cameraControlsStack && rightViewport && cameraControlsStack->width() <= rightViewport->width(),
                     "CameraControlsStack width does not exceed the Live View right-panel viewport");
             require(rightScroll->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff,

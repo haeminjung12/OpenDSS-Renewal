@@ -1767,6 +1767,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     metricGrid->addWidget(makeMetric("Went to Waste", wentToWasteMetricLabel), 2, 0);
     metricGrid->addWidget(makeMetric("Trig/s", trigMetricLabel), 2, 1);
     runBody->addLayout(metricGrid);
+    auto runStateResetButton = new QPushButton("Reset Counters");
+    nameWidget(runStateResetButton, "RunStateResetCountersButton");
+    runStateResetButton->setToolTip("Reset the visible live run counters to zero.");
+    runStateResetButton->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+    runBody->addWidget(runStateResetButton, 0, Qt::AlignRight);
     auto lastDecisionCard = new QFrame;
     nameWidget(lastDecisionCard, "LiveLastDecisionCard");
     auto lastDecisionLayout = new QHBoxLayout;
@@ -4757,6 +4762,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     QObject::connect(statsResetBtn, &QPushButton::clicked, resetStats);
     QObject::connect(statsShowBtn, &QPushButton::clicked, showStatsFigures);
+    QObject::connect(runStateResetButton, &QPushButton::clicked, resetStats);
 
     QObject::connect(seqStartBtn, &QPushButton::clicked, [&]() {
         if (sequenceRunning.load())
@@ -5318,6 +5324,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     qInfo().noquote() << "VERIFY PASS:" << message;
                 }
             };
+            auto waitForUi = [&](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+                app.processEvents();
+            };
 
             workspaceStack->setCurrentWidget(liveWorkspacePage);
             liveNavButton->setChecked(true);
@@ -5390,6 +5402,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* sequenceFpsSpin = this->findChild<QDoubleSpinBox*>("SequenceFpsSpinBox");
             auto* sequenceStatusLabel = this->findChild<QLabel*>("SequenceStatusLabel");
             auto* sequenceLogLabel = this->findChild<QLabel*>("SequenceLogLabel");
+            auto* liveRunEventsMetricLabel = this->findChild<QLabel*>("LiveRunEventsMetricLabel");
+            auto* liveRunClassifiedHitMetricLabel = this->findChild<QLabel*>("LiveRunClassifiedHitMetricLabel");
+            auto* liveRunClassifiedWasteMetricLabel =
+                this->findChild<QLabel*>("LiveRunClassifiedWasteMetricLabel");
+            auto* liveRunWentToHitMetricLabel = this->findChild<QLabel*>("LiveRunWentToHitMetricLabel");
+            auto* liveRunWentToWasteMetricLabel = this->findChild<QLabel*>("LiveRunWentToWasteMetricLabel");
+            auto* liveLastDecisionValueLabel = this->findChild<QLabel*>("LiveLastDecisionValueLabel");
+            auto* statsClassTextLabel = this->findChild<QLabel*>("StatsClassCountsLabel");
+            auto* statsLastEventLabel = this->findChild<QLabel*>("StatsLastEventLabel");
             auto* navRailFrame = this->findChild<QFrame*>("OpenDssNavigationRail");
             auto* headerFrame = this->findChild<QFrame*>("OpenDssHeader");
             auto* statusStripFrame = this->findChild<QFrame*>("OpenDssStatusStrip");
@@ -5518,6 +5539,68 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "Sequence run button makes recorded-sequence simulation explicit");
             require(sequenceStartButton && !sequenceStartButton->isEnabled(),
                     "Sequence run button remains disabled until a sequence is loaded");
+            require(runStateResetButton != nullptr, "RunStateResetCountersButton exists");
+            require(runStateResetButton && runStateResetButton->objectName() == "RunStateResetCountersButton",
+                    "RunStateResetCountersButton keeps a stable object name");
+            require(runStateResetButton && runStateResetButton->isVisibleTo(this),
+                    "RunStateResetCountersButton is visible in Live View");
+
+            {
+                StatsSnapshot seededSnap;
+                {
+                    QMutexLocker lock(&statsMutex);
+                    stats.totalEvents = 9;
+                    stats.classifiedHitCount = 4;
+                    stats.classifiedWasteCount = 3;
+                    stats.wentToHitCount = 2;
+                    stats.wentToWasteCount = 7;
+                    stats.classCounts.clear();
+                    stats.classCounts.insert("Single", 4);
+                    stats.classCounts.insert("Empty", 3);
+                    stats.lastEventDir = "Hit";
+                    stats.lastEventLabel = "Single";
+                    stats.lastDecisionFrame = 42;
+                    stats.lastDecisionEventId = 9;
+                    stats.eventActive = false;
+                    seededSnap = makeStatsSnapshot(stats);
+                }
+                applyStatsSnapshot(seededSnap);
+                waitForUi(650);
+                require(liveRunEventsMetricLabel && liveRunEventsMetricLabel->text() == "9",
+                        "LiveRunEventsMetricLabel reflects seeded event count before reset");
+                require(liveRunClassifiedHitMetricLabel && liveRunClassifiedHitMetricLabel->text() == "4",
+                        "LiveRunClassifiedHitMetricLabel reflects seeded hit count before reset");
+                require(liveRunClassifiedWasteMetricLabel && liveRunClassifiedWasteMetricLabel->text() == "3",
+                        "LiveRunClassifiedWasteMetricLabel reflects seeded waste count before reset");
+                require(liveRunWentToHitMetricLabel && liveRunWentToHitMetricLabel->text() == "2",
+                        "LiveRunWentToHitMetricLabel reflects seeded went-to-hit count before reset");
+                require(liveRunWentToWasteMetricLabel && liveRunWentToWasteMetricLabel->text() == "7",
+                        "LiveRunWentToWasteMetricLabel reflects seeded went-to-waste count before reset");
+                require(statsClassTextLabel && statsClassTextLabel->text().contains("Single: 4"),
+                        "StatsClassCountsLabel reflects seeded class counts before reset");
+                require(statsLastEventLabel && statsLastEventLabel->text().contains("Single (Hit)"),
+                        "StatsLastEventLabel reflects seeded last event before reset");
+
+                if (runStateResetButton)
+                    runStateResetButton->click();
+                waitForUi(650);
+                require(liveRunEventsMetricLabel && liveRunEventsMetricLabel->text() == "0",
+                        "RunStateResetCountersButton resets event count to zero");
+                require(liveRunClassifiedHitMetricLabel && liveRunClassifiedHitMetricLabel->text() == "0",
+                        "RunStateResetCountersButton resets classified hit count to zero");
+                require(liveRunClassifiedWasteMetricLabel && liveRunClassifiedWasteMetricLabel->text() == "0",
+                        "RunStateResetCountersButton resets classified waste count to zero");
+                require(liveRunWentToHitMetricLabel && liveRunWentToHitMetricLabel->text() == "0",
+                        "RunStateResetCountersButton resets went-to-hit count to zero");
+                require(liveRunWentToWasteMetricLabel && liveRunWentToWasteMetricLabel->text() == "0",
+                        "RunStateResetCountersButton resets went-to-waste count to zero");
+                require(statsClassTextLabel && statsClassTextLabel->text() == "Classes:\n(none)",
+                        "RunStateResetCountersButton clears class count text back to default");
+                require(statsLastEventLabel && statsLastEventLabel->text() == "Last event: --",
+                        "RunStateResetCountersButton clears last-event text");
+                require(liveLastDecisionValueLabel && liveLastDecisionValueLabel->text() == "--",
+                        "RunStateResetCountersButton clears the last decision summary");
+            }
 
             const auto shellColors = desktop_app::theme::colors(currentThemeMode);
             const QString shellCss = shellColors.shellBackground.name(QColor::HexRgb);

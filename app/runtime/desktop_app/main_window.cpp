@@ -1577,14 +1577,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QObject::connect(source, qOverload<double>(&QDoubleSpinBox::valueChanged), spin, &QDoubleSpinBox::setValue);
         return spin;
     };
-    auto makeUnavailableSpin = [](int value, const QString& tooltip) {
-        auto* spin = new QSpinBox;
-        spin->setRange(0, 1000000);
-        spin->setValue(value);
-        spin->setEnabled(false);
-        spin->setToolTip(tooltip);
-        return spin;
-    };
     addLiveDetectorSpin("BG frames", makeLinkedIntSpin(bgFramesSpin, 1, 10000), "LiveDetectorBgFramesSpinBox");
     addLiveDetectorSpin("Diff threshold 0-255", makeLinkedIntSpin(diffThreshSpin, 0, 255),
                         "LiveDetectorDiffThresholdSpinBox");
@@ -1593,29 +1585,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     addLiveDetectorSpin("Max area frame frac", makeLinkedDoubleSpin(maxAreaFracSpin, 0.0, 1.0, 4, 0.001),
                         "LiveDetectorMaxAreaSpinBox");
     addLiveDetectorSpin("Blur radius", makeLinkedIntSpin(blurRadiusSpin, 0, 25), "LiveDetectorBlurRadiusSpinBox");
-    addLiveDetectorSpin(
-        "Erode iterations unavailable",
-        makeUnavailableSpin(0, "Current runtime exposes one morph radius, not separate erode iterations."),
-        "LiveDetectorErodeIterationsSpinBox");
-    addLiveDetectorSpin(
-        "Dilate iterations unavailable",
-        makeUnavailableSpin(morphRadiusSpin->value(),
-                            "Current runtime exposes one morph radius, not separate dilate iterations."),
-        "LiveDetectorDilateIterationsSpinBox");
     addLiveDetectorSpin("Min rectangle size", makeLinkedIntSpin(minBboxSpin, 1, 10000),
                         "LiveDetectorMinRectangleSizeSpinBox");
-    addLiveDetectorSpin("Aspect ratio min unavailable",
-                        makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."),
-                        "LiveDetectorAspectRatioMinSpinBox");
-    addLiveDetectorSpin("Aspect ratio max unavailable",
-                        makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."),
-                        "LiveDetectorAspectRatioMaxSpinBox");
-    addLiveDetectorSpin("Velocity min unavailable",
-                        makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."),
-                        "LiveDetectorVelocityMinSpinBox");
-    addLiveDetectorSpin("Velocity max unavailable",
-                        makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."),
-                        "LiveDetectorVelocityMaxSpinBox");
     liveDetectorDrawerLayout->addLayout(liveDetectorGrid);
     liveDetectorDrawerLayout->addStretch(1);
     liveDetectorDrawer->setLayout(liveDetectorDrawerLayout);

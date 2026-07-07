@@ -22,7 +22,7 @@ Active workspace for all new work:
 ## Known Open Items
 
 - Sequence summary CSV is not created by the current sequence verifier path.
-- Python trainer/export source is deferred from this first clean cut.
+- Python trainer source now lives under `training/python`. CPU validation is planned against the local-only dataset `C:\Users\goals\Codex\CNN for Droplet Sorting\datasets\prepared\droplet_binary_2026-04-30`, and GPU validation remains a separate follow-up wave.
 - Packaging is deferred from this first clean cut.
 - Shell nav/header retry remains a pending UI task in the historical workspace.
 - Interactive manual functionality test remained pending in the historical workspace.

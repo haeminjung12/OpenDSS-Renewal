@@ -1,0 +1,12 @@
+--index-url https://download.pytorch.org/whl/cpu
+--extra-index-url https://pypi.org/simple
+torch==2.10.0
+torchvision==0.25.0
+-c windows-py312-common-constraints.txt
+numpy==2.4.4
+pillow==12.2.0
+scikit-learn==1.8.0
+pandas==3.0.2
+onnx==1.21.0
+onnxruntime==1.25.1
+onnxscript==0.7.0

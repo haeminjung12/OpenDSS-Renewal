@@ -31,6 +31,21 @@ __pycache__/
 *.egg-info/
 .venv/
 venv/
+training/python/.venv/
+training/python/venv/
+training/python/**/__pycache__/
+training/python/**/*.pyc
+training/python/**/*.egg-info/
+training/python/build/
+training/python/dist/
+training/python/best_runs/
+training/python/outputs/
+training/python/**/*.onnx
+training/python/**/*.pth
+training/python/**/*.mat
+training/data/
+training/datasets/
+training/crops/
 
 # IDE/user files
 .vs/

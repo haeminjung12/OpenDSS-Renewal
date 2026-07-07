@@ -2905,9 +2905,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         process->start(python, args);
     };
     QObject::connect(trainerEnvCheckBtn, &QPushButton::clicked, [&]() {
-        const QString code =
-            "import sys, droplet_trainer; print('Python ' + sys.version.split()[0] + ' -- trainer available')";
-        startTrainerCommand("Environment validation", {"-c", code}, false, false);
+        startTrainerCommand("Environment validation",
+                            {"-m", "droplet_trainer", "env-check", "--device", "cpu", "--require-training",
+                             "--require-onnx", "--json"},
+                            false, false);
     });
     QObject::connect(trainerDryRunBtn, &QPushButton::clicked,
                      [&]() { startTrainerCommand("Training dry run", trainerTrainArgs(true), false, true); });

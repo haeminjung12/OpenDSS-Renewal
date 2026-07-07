@@ -27,19 +27,21 @@ Excluded from that copy:
 - `CONTEXT_SUMMARY.md`
 - `README_INTERNAL.md`
 
-## Deferred
+## Trainer Migration Wave
 
-- Python trainer/exporter source and training environment files.
-- Packaging execution and packaged release artifacts.
-- Broad historical evidence.
-- Shell nav/header retry work.
-- Interactive manual functionality test completion.
-- Sequence summary CSV fix.
-- Any future cleanup of old runtime code paths not needed by the current build.
+The clean repo has an approved Python trainer migration boundary for a CPU-focused wave:
+
+- `training/python/droplet_trainer/`
+- `training/python/pyproject.toml`
+- `training/python/README-windows-training.md`
+- `training/python/requirements/`
+- `training/python/scripts/windows/`
+
+This migration does not include local datasets, crops, venvs, `best_runs`, or generated `*.onnx`, `*.pth`, and `*.mat` outputs. GPU execution validation is a separate follow-up wave, and packaging remains deferred.
 
 ## Not Yet Migrated
 
-- Python training code, exporter code, trainer dependencies, and trainer validation evidence.
+- Legacy exporter code, trainer dependencies installed into local venvs, and trainer validation evidence remain outside the clean repo boundary.
 - Packaging scripts, package-check scripts, installer/release bundles, and portable package output.
 - Raw datasets, training datasets, stream test datasets, generated crop evidence, and large evidence logs.
 - Historical worker reports, wave tracking docs, orchestration memory, prompts, and task folders.

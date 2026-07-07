@@ -716,16 +716,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto bgFramesSpin = new QSpinBox;
     bgFramesSpin->setRange(1, 10000);
     bgFramesSpin->setValue(pipelineDetectCfg.bgFrames);
+    bgFramesSpin->setSuffix(" frames");
     auto bgUpdateSpin = new QSpinBox;
     bgUpdateSpin->setRange(0, 10000);
     bgUpdateSpin->setValue(pipelineDetectCfg.bgUpdateFrames);
+    bgUpdateSpin->setSuffix(" frames");
     auto resetFramesSpin = new QSpinBox;
     resetFramesSpin->setRange(1, 1000);
     resetFramesSpin->setValue(pipelineDetectCfg.resetFrames);
+    resetFramesSpin->setSuffix(" frames");
     auto minAreaSpin = new QDoubleSpinBox;
     minAreaSpin->setDecimals(1);
     minAreaSpin->setRange(-1.0, 1e9);
     minAreaSpin->setValue(pipelineDetectCfg.minArea);
+    minAreaSpin->setSuffix(" px^2");
+    minAreaSpin->setToolTip("Minimum detected pixel area. Use -1 for the automatic detector default.");
     auto minAreaFracSpin = new QDoubleSpinBox;
     minAreaFracSpin->setDecimals(4);
     minAreaFracSpin->setRange(0.0, 1.0);
@@ -736,21 +741,30 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     maxAreaFracSpin->setRange(0.0, 1.0);
     maxAreaFracSpin->setSingleStep(0.001);
     maxAreaFracSpin->setValue(pipelineDetectCfg.maxAreaFrac);
+    maxAreaFracSpin->setToolTip("Maximum detected object area as a fraction of the frame area.");
     auto minBboxSpin = new QSpinBox;
     minBboxSpin->setRange(1, 10000);
     minBboxSpin->setValue(pipelineDetectCfg.minBbox);
+    minBboxSpin->setSuffix(" px");
+    minBboxSpin->setToolTip(
+        "Minimum bounding rectangle width and height. A detected object must be at least this many pixels wide and "
+        "this many pixels high.");
     auto marginSpin = new QSpinBox;
     marginSpin->setRange(0, 10000);
     marginSpin->setValue(pipelineDetectCfg.margin);
+    marginSpin->setSuffix(" px");
     auto diffThreshSpin = new QSpinBox;
     diffThreshSpin->setRange(0, 255);
     diffThreshSpin->setValue(pipelineDetectCfg.diffThresh);
+    diffThreshSpin->setToolTip("Grayscale difference threshold, 0-255.");
     auto blurRadiusSpin = new QSpinBox;
     blurRadiusSpin->setRange(0, 25);
     blurRadiusSpin->setValue(pipelineDetectCfg.blurRadius);
+    blurRadiusSpin->setSuffix(" px");
     auto morphRadiusSpin = new QSpinBox;
     morphRadiusSpin->setRange(0, 25);
     morphRadiusSpin->setValue(pipelineDetectCfg.morphRadius);
+    morphRadiusSpin->setSuffix(" px");
     auto scaleSpin = new QDoubleSpinBox;
     scaleSpin->setDecimals(3);
     scaleSpin->setRange(0.05, 1.0);
@@ -759,6 +773,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto gapFireSpin = new QSpinBox;
     gapFireSpin->setRange(0, 10000);
     gapFireSpin->setValue(pipelineDetectCfg.gapFireShift);
+    gapFireSpin->setSuffix(" px");
 
     auto detectLayout = new QGridLayout;
     int detRow = 0;
@@ -768,25 +783,25 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     detectLayout->addWidget(bgUpdateSpin, detRow++, 1);
     detectLayout->addWidget(new QLabel("Reset frames"), detRow, 0);
     detectLayout->addWidget(resetFramesSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Min area (-1=auto)"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Min area px^2 (-1=auto)"), detRow, 0);
     detectLayout->addWidget(minAreaSpin, detRow++, 1);
     detectLayout->addWidget(new QLabel("Min area frac"), detRow, 0);
     detectLayout->addWidget(minAreaFracSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Max area frac"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Max area frame fraction"), detRow, 0);
     detectLayout->addWidget(maxAreaFracSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Min bbox"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Min rectangle size"), detRow, 0);
     detectLayout->addWidget(minBboxSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Margin"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Margin px"), detRow, 0);
     detectLayout->addWidget(marginSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Diff thresh"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Diff threshold 0-255"), detRow, 0);
     detectLayout->addWidget(diffThreshSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Blur radius"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Blur radius px"), detRow, 0);
     detectLayout->addWidget(blurRadiusSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Morph radius"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Morph radius px"), detRow, 0);
     detectLayout->addWidget(morphRadiusSpin, detRow++, 1);
     detectLayout->addWidget(new QLabel("Scale"), detRow, 0);
     detectLayout->addWidget(scaleSpin, detRow++, 1);
-    detectLayout->addWidget(new QLabel("Gap fire shift"), detRow, 0);
+    detectLayout->addWidget(new QLabel("Gap fire shift px"), detRow, 0);
     detectLayout->addWidget(gapFireSpin, detRow++, 1);
     auto detectWidget = new QWidget;
     detectWidget->setLayout(detectLayout);
@@ -1502,7 +1517,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     liveDetectorDrawerLayout->setSpacing(8);
     auto liveDetectorHeader = new QHBoxLayout;
     liveDetectorHeader->setContentsMargins(0, 0, 0, 0);
-    auto liveDetectorTitle = new QLabel("Detector tuning");
+    auto liveDetectorTitle = new QLabel("Detector settings");
     liveDetectorTitle->setProperty("panelTitle", true);
     auto liveDetectorClose = new QToolButton;
     nameWidget(liveDetectorClose, "LiveDetectorTuningCloseButton");
@@ -1526,6 +1541,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         auto* labelWidget = new QLabel(label);
         labelWidget->setProperty("mutedText", true);
         nameWidget(spin, objectName);
+        if (!spin->toolTip().isEmpty())
+            labelWidget->setToolTip(spin->toolTip());
         liveDetectorGrid->addWidget(labelWidget, liveDetectorRow, 0);
         liveDetectorGrid->addWidget(spin, liveDetectorRow++, 1);
     };
@@ -1533,6 +1550,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         auto* spin = new QSpinBox;
         spin->setRange(min, max);
         spin->setValue(source->value());
+        spin->setSuffix(source->suffix());
+        spin->setToolTip(source->toolTip());
         QObject::connect(spin, qOverload<int>(&QSpinBox::valueChanged), [=, &scheduleDetectorApply](int value) {
             if (source->value() != value)
                 source->setValue(value);
@@ -1547,6 +1566,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         spin->setDecimals(decimals);
         spin->setSingleStep(step);
         spin->setValue(source->value());
+        spin->setSuffix(source->suffix());
+        spin->setToolTip(source->toolTip());
         QObject::connect(spin, qOverload<double>(&QDoubleSpinBox::valueChanged),
                          [=, &scheduleDetectorApply](double value) {
                              if (!qFuzzyCompare(source->value() + 1.0, value + 1.0))
@@ -1556,44 +1577,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QObject::connect(source, qOverload<double>(&QDoubleSpinBox::valueChanged), spin, &QDoubleSpinBox::setValue);
         return spin;
     };
-    auto makeUnavailableSpin = [](int value, const QString& tooltip) {
-        auto* spin = new QSpinBox;
-        spin->setRange(0, 1000000);
-        spin->setValue(value);
-        spin->setEnabled(false);
-        spin->setToolTip(tooltip);
-        return spin;
-    };
     addLiveDetectorSpin("BG frames", makeLinkedIntSpin(bgFramesSpin, 1, 10000), "LiveDetectorBgFramesSpinBox");
-    addLiveDetectorSpin("Diff threshold", makeLinkedIntSpin(diffThreshSpin, 0, 255),
+    addLiveDetectorSpin("Diff threshold 0-255", makeLinkedIntSpin(diffThreshSpin, 0, 255),
                         "LiveDetectorDiffThresholdSpinBox");
-    addLiveDetectorSpin("Min area", makeLinkedDoubleSpin(minAreaSpin, -1.0, 1e9, 1, 1.0), "LiveDetectorMinAreaSpinBox");
-    addLiveDetectorSpin("Max area", makeLinkedDoubleSpin(maxAreaFracSpin, 0.0, 1.0, 4, 0.001),
+    addLiveDetectorSpin("Min area (-1 auto)", makeLinkedDoubleSpin(minAreaSpin, -1.0, 1e9, 1, 1.0),
+                        "LiveDetectorMinAreaSpinBox");
+    addLiveDetectorSpin("Max area frame frac", makeLinkedDoubleSpin(maxAreaFracSpin, 0.0, 1.0, 4, 0.001),
                         "LiveDetectorMaxAreaSpinBox");
     addLiveDetectorSpin("Blur radius", makeLinkedIntSpin(blurRadiusSpin, 0, 25), "LiveDetectorBlurRadiusSpinBox");
-    addLiveDetectorSpin(
-        "Erode iterations",
-        makeUnavailableSpin(0, "Current runtime exposes one morph radius, not separate erode iterations."),
-        "LiveDetectorErodeIterationsSpinBox");
-    addLiveDetectorSpin(
-        "Dilate iterations",
-        makeUnavailableSpin(morphRadiusSpin->value(),
-                            "Current runtime exposes one morph radius, not separate dilate iterations."),
-        "LiveDetectorDilateIterationsSpinBox");
-    addLiveDetectorSpin("Min contour points", makeLinkedIntSpin(minBboxSpin, 1, 10000),
-                        "LiveDetectorMinContourPointsSpinBox");
-    addLiveDetectorSpin("Aspect ratio min",
-                        makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."),
-                        "LiveDetectorAspectRatioMinSpinBox");
-    addLiveDetectorSpin("Aspect ratio max",
-                        makeUnavailableSpin(0, "Aspect-ratio filtering is not exposed by the current detector config."),
-                        "LiveDetectorAspectRatioMaxSpinBox");
-    addLiveDetectorSpin("Velocity min",
-                        makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."),
-                        "LiveDetectorVelocityMinSpinBox");
-    addLiveDetectorSpin("Velocity max",
-                        makeUnavailableSpin(0, "Velocity filtering is not exposed by the current detector config."),
-                        "LiveDetectorVelocityMaxSpinBox");
+    addLiveDetectorSpin("Min rectangle size", makeLinkedIntSpin(minBboxSpin, 1, 10000),
+                        "LiveDetectorMinRectangleSizeSpinBox");
     liveDetectorDrawerLayout->addLayout(liveDetectorGrid);
     liveDetectorDrawerLayout->addStretch(1);
     liveDetectorDrawer->setLayout(liveDetectorDrawerLayout);
@@ -1666,9 +1659,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(liveOpenRunBtn, "LiveOpenRunButton");
     liveOpenRunBtn->setEnabled(false);
     openRunFolderAction->setEnabled(false);
-    auto liveDetectorTuningBtn = new QPushButton("Tuning");
+    auto liveDetectorTuningBtn = new QPushButton("Detector");
     nameWidget(liveDetectorTuningBtn, "LiveDetectorTuningButton");
-    liveDetectorTuningBtn->setToolTip("Open detector tuning controls.");
+    liveDetectorTuningBtn->setToolTip("Open detector settings.");
     for (auto* button : {startBtn, pipelineStartBtn, pipelineStopBtn, triggerSafeBtn, liveForceTriggerBtn,
                          liveSnapshotBtn, liveOpenRunBtn, liveDetectorTuningBtn}) {
         button->setFixedHeight(34);
@@ -1683,7 +1676,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     liveForceTriggerBtn->setMaximumWidth(124);
     liveSnapshotBtn->setMaximumWidth(110);
     liveOpenRunBtn->setMaximumWidth(108);
-    liveDetectorTuningBtn->setMaximumWidth(96);
+    liveDetectorTuningBtn->setMaximumWidth(112);
     liveRunLayout->addWidget(startBtn);
     liveRunLayout->addWidget(pipelineStartBtn);
     liveRunLayout->addWidget(pipelineStopBtn);
@@ -3880,7 +3873,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     settingsController->setUpdateForceTriggerCallback(updateForceTriggerState);
     scheduleDetectorApply = [&]() { detectorTuningApplyTimer.start(); };
 
-    QObject::connect(loadPipelineBtn, &QPushButton::clicked, [&]() { loadPipeline(false); });
+    QObject::connect(loadPipelineBtn, &QPushButton::clicked,
+                     [&]() { loadPipeline(pipelineEnableCheck->isChecked()); });
 
     QObject::connect(pipelineStartBtn, &QPushButton::clicked, [&]() {
         if (sequenceRunning.load())
@@ -5419,6 +5413,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* analysisOverlayCheck = this->findChild<QCheckBox*>("AnalysisOverlayCheckBox");
             auto* liveViewerOverlayToggle = this->findChild<QToolButton*>("LiveViewerOverlayToggle");
             auto* liveViewerDetectionOverlay = this->findChild<QWidget*>("LiveViewerDetectionOverlay");
+            auto* liveDetectorSettingsButton = this->findChild<QPushButton*>("LiveDetectorTuningButton");
+            auto* liveDetectorSettingsDrawer = this->findChild<QFrame*>("LiveDetectorTuningDrawer");
+            auto* liveDetectorMinRectangleSpin = this->findChild<QSpinBox*>("LiveDetectorMinRectangleSizeSpinBox");
             auto* rightViewport = rightScroll ? rightScroll->viewport() : nullptr;
 
             auto requireContained = [&](QWidget* child, QWidget* parent, const QString& message) {
@@ -5438,6 +5435,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 const QRect childRect(child->mapTo(parent, QPoint(0, 0)), child->size());
                 const QRect bounds = parent->contentsRect();
                 require(childRect.left() >= bounds.left() && childRect.right() <= bounds.right(), message);
+            };
+            auto hasLabelText = [](QWidget* root, const QString& text) {
+                if (!root)
+                    return false;
+                for (auto* label : root->findChildren<QLabel*>()) {
+                    if (label->text() == text)
+                        return true;
+                }
+                return false;
             };
 
             require(cameraNavButton == nullptr, "NavCameraButton is absent");
@@ -5485,6 +5491,22 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(analysisOverlayCheck == nullptr, "AnalysisOverlayCheckBox is absent");
             require(liveViewerOverlayToggle == nullptr, "LiveViewerOverlayToggle is absent");
             require(liveViewerDetectionOverlay == nullptr, "LiveViewerDetectionOverlay is absent");
+            require(liveDetectorSettingsButton && liveDetectorSettingsButton->text() == "Detector",
+                    "Live detector settings button is discoverable");
+            require(liveDetectorSettingsButton && liveDetectorSettingsButton->toolTip() == "Open detector settings.",
+                    "Live detector settings button tooltip explains the action");
+            require(liveDetectorSettingsDrawer != nullptr, "Live detector settings drawer exists");
+            require(hasLabelText(liveDetectorSettingsDrawer, "Detector settings"),
+                    "Live detector drawer title reads Detector settings");
+            require(hasLabelText(liveDetectorSettingsDrawer, "Min rectangle size"),
+                    "Live detector minimum bbox label uses rectangle wording");
+            require(!hasLabelText(liveDetectorSettingsDrawer, "Min contour points"),
+                    "Live detector drawer no longer labels the bbox filter as contour points");
+            require(liveDetectorMinRectangleSpin && liveDetectorMinRectangleSpin->suffix().trimmed() == "px",
+                    "Live detector minimum rectangle control shows pixel units");
+            require(liveDetectorMinRectangleSpin &&
+                        liveDetectorMinRectangleSpin->toolTip().contains("Minimum bounding rectangle width and height"),
+                    "Live detector minimum rectangle tooltip explains width and height");
             require(cameraControlsStack && rightViewport && cameraControlsStack->width() <= rightViewport->width(),
                     "CameraControlsStack width does not exceed the Live View right-panel viewport");
             require(rightScroll->horizontalScrollBarPolicy() == Qt::ScrollBarAlwaysOff,

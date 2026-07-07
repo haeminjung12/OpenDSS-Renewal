@@ -3868,7 +3868,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     settingsController->setUpdateForceTriggerCallback(updateForceTriggerState);
     scheduleDetectorApply = [&]() { detectorTuningApplyTimer.start(); };
 
-    QObject::connect(loadPipelineBtn, &QPushButton::clicked, [&]() { loadPipeline(false); });
+    QObject::connect(loadPipelineBtn, &QPushButton::clicked,
+                     [&]() { loadPipeline(pipelineEnableCheck->isChecked()); });
 
     QObject::connect(pipelineStartBtn, &QPushButton::clicked, [&]() {
         if (sequenceRunning.load())

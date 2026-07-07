@@ -197,12 +197,34 @@ def _is_dataset_builder_manifest(manifest: dict[str, Any]) -> bool:
     return manifest.get("schema_version") == DATASET_BUILDER_MANIFEST_VERSION
 
 
+def _manifest_path_candidate(raw: dict[str, Any], field: str, dataset_root: Path) -> Path | None:
+    value = raw.get(field)
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    path = Path(text)
+    return path if path.is_absolute() else dataset_root / path
+
+
 def _item_image_path(raw: dict[str, Any], dataset_root: Path) -> Path:
-    raw_path = raw.get("source_path") or raw.get("crop_path") or raw.get("path") or ""
-    source_path = Path(str(raw_path))
-    if not source_path.is_absolute():
-        source_path = dataset_root / source_path
-    return source_path
+    local_candidates = [
+        candidate
+        for field in ("path", "crop_path")
+        if (candidate := _manifest_path_candidate(raw, field, dataset_root)) is not None
+    ]
+    for candidate in local_candidates:
+        if candidate.is_file():
+            return candidate
+
+    source_path = _manifest_path_candidate(raw, "source_path", dataset_root)
+    if source_path is not None:
+        return source_path
+
+    if local_candidates:
+        return local_candidates[0]
+    return dataset_root
 
 
 def _scan_manifest_mode(dataset_root: Path, manifest_path: Path, schema: ClassSchema) -> tuple[list[dict[str, Any]], list[dict[str, Any]], Counter[str], dict[str, Any]]:
@@ -264,6 +286,8 @@ def _scan_manifest_mode(dataset_root: Path, manifest_path: Path, schema: ClassSc
             {
                 "source_path": str(source_path.resolve()),
                 "path": str(raw.get("path", source_path.name)),
+                "manifest_source_path": raw.get("source_path"),
+                "manifest_crop_path": raw.get("crop_path"),
                 "original_label": label,
                 "class_id": normalized_class_id,
                 "label_status": label_status,

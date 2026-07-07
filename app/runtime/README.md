@@ -114,7 +114,7 @@ Event detection details
 Hit/Waste decision
 - During an event, the droplet centroid is tracked.
 - Decision is made when the event ends (after resetFrames misses).
-- Direction is inferred from cumulative Y movement and final position:
+- Direction is inferred from cumulative Y movement:
   - Moving toward top: Waste
   - Moving toward bottom: Hit
 - Decision frame is logged in both sequence and live CSVs.

@@ -76,26 +76,17 @@ inline QString normalizeEventLabel(const QString& label) {
 }
 
 inline QString decideEventDirection(double cumulativeDy, double lastY, int frameHeight, bool hasCentroid) {
+    Q_UNUSED(lastY);
+    Q_UNUSED(frameHeight);
     if (!hasCentroid)
         return "Unknown";
-    double threshold = 2.0;
-    if (frameHeight > 0) {
-        threshold = std::max(threshold, frameHeight * 0.02);
-    }
-    bool movedUp = cumulativeDy < -threshold;
-    bool movedDown = cumulativeDy > threshold;
-    bool hasFrame = (frameHeight > 0);
-    double mid = hasFrame ? frameHeight * 0.5 : 0.0;
-    if (movedUp) {
+    if (cumulativeDy < 0.0) {
         return "Waste";
     }
-    if (movedDown) {
+    if (cumulativeDy > 0.0) {
         return "Hit";
     }
-    if (hasFrame) {
-        return (lastY < mid) ? "Waste" : "Hit";
-    }
-    return (cumulativeDy < 0.0) ? "Waste" : "Hit";
+    return "Unknown";
 }
 
 struct SequenceEventRecord {

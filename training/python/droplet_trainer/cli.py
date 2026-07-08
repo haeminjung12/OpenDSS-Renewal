@@ -63,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--dataset", required=True)
     train.add_argument("--output", required=True)
     train.add_argument("--config")
+    train.add_argument("--smoke", action="store_true", help="Apply a bounded one-epoch smoke-training configuration after loading any config file.")
     train.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     train.add_argument("--run-name")
     train.add_argument(

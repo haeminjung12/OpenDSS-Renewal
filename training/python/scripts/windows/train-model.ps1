@@ -11,6 +11,7 @@ param(
     [string]$Classes = "0,1",
     [string]$Config,
     [string]$RunName,
+    [switch]$Smoke,
     [string]$LogPath
 )
 
@@ -37,6 +38,7 @@ $argsList = @(
 )
 if ($Config) { $argsList += @("--config", ([System.IO.Path]::GetFullPath($Config))) }
 if ($RunName) { $argsList += @("--run-name", $RunName) }
+if ($Smoke) { $argsList += "--smoke" }
 
 Write-Host "Command: `"$venvPython`" $($argsList -join ' ')"
 & $venvPython @argsList 2>&1 | Tee-Object -FilePath $LogPath

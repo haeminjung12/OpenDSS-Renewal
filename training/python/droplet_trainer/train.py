@@ -65,6 +65,18 @@ DEFAULT_CONFIG: dict[str, Any] = {
 }
 
 
+SMOKE_CONFIG_OVERRIDE: dict[str, Any] = {
+    "epochs": 1,
+    "batch_size": 8,
+    "num_workers": 0,
+    "patience": 1,
+    "export_onnx": False,
+    "stages": [
+        {"name": "smoke", "epochs": 1, "learning_rate": 0.0001, "trainable": "classifier_and_last_fire_modules"},
+    ],
+}
+
+
 class JsonlEmitter:
     def __init__(self, command: str, run_id: str) -> None:
         self.command = command
@@ -96,14 +108,16 @@ def _deep_update(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
     return result
 
 
-def load_training_config(path: str | None, schema: ClassSchema) -> dict[str, Any]:
+def load_training_config(path: str | None, schema: ClassSchema, smoke: bool = False) -> dict[str, Any]:
     config = copy.deepcopy(DEFAULT_CONFIG)
     config["classes"] = list(schema.classes)
     config["display_labels"] = dict(schema.display_labels)
     if path:
-        with Path(path).expanduser().resolve().open("r", encoding="utf-8") as handle:
+        with Path(path).expanduser().resolve().open("r", encoding="utf-8-sig") as handle:
             loaded = json.load(handle)
         config = _deep_update(config, loaded)
+    if smoke:
+        config = _deep_update(config, SMOKE_CONFIG_OVERRIDE)
     config["classes"] = [str(value) for value in config.get("classes", schema.classes)]
     if config["classes"] != schema.classes:
         raise CliError(
@@ -382,6 +396,16 @@ def _evaluate(model: Any, loader: Any, criterion: Any, device: Any) -> dict[str,
     return {"loss": total_loss / max(len(loader.dataset), 1), "targets": targets_all, "preds": preds_all}
 
 
+def _make_cuda_amp_scaler(torch_module: Any) -> Any:
+    grad_scaler = getattr(getattr(torch_module, "amp", None), "GradScaler", None)
+    if grad_scaler is not None:
+        try:
+            return grad_scaler("cuda")
+        except TypeError:
+            pass
+    return torch_module.cuda.amp.GradScaler()
+
+
 def _write_metrics_artifacts(run_dir: Path, classes: list[str], history: list[dict[str, Any]], test_metrics: dict[str, Any]) -> dict[str, str]:
     metrics_json = run_dir / "metrics.json"
     metrics_csv = run_dir / "metrics.csv"
@@ -451,7 +475,7 @@ def _artifact_hashes(paths: dict[str, str]) -> dict[str, str]:
 
 
 def run_train(args: Any, schema: ClassSchema) -> int:
-    config = load_training_config(args.config, schema)
+    config = load_training_config(args.config, schema, smoke=bool(getattr(args, "smoke", False)))
     run_id, run_dir = _run_folder(args.output, args.run_name)
     emitter = JsonlEmitter("train", run_id)
     emitter.emit("run_started", run_dir=str(run_dir), class_schema=schema_payload(schema))
@@ -516,10 +540,7 @@ def run_train(args: Any, schema: ClassSchema) -> int:
             stale = 0
             emitter.emit("stage_started", stage=stage["name"], epochs=int(stage["epochs"]), trainable=stage.get("trainable"))
             if bool(config.get("use_amp", True)) and device.type == "cuda":
-                try:
-                    scaler = torch.amp.GradScaler(device_type="cuda")
-                except TypeError:
-                    scaler = torch.cuda.amp.GradScaler()
+                scaler = _make_cuda_amp_scaler(torch)
             else:
                 scaler = None
             for epoch in range(1, int(stage["epochs"]) + 1):

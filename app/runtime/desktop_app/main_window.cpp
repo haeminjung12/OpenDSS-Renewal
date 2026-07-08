@@ -220,7 +220,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     statsLabel->setMinimumWidth(220);
     // Buttons
     auto startBtn = new QPushButton("Start");
-    auto stopBtn = new QPushButton("Stop");
     auto pipelineStartBtn = new QPushButton("Start Sorting");
     auto pipelineStopBtn = new QPushButton("Stop Sorting");
     pipelineStopBtn->setEnabled(false);
@@ -228,7 +227,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto applyBtn = new QPushButton("Apply Camera Settings");
     auto viewerBtn = new QPushButton("Viewer");
     nameWidget(startBtn, "CameraStartButton");
-    nameWidget(stopBtn, "CameraStopButton");
     nameWidget(pipelineStartBtn, "PipelineStartButton");
     nameWidget(pipelineStopBtn, "PipelineStopButton");
     nameWidget(reconnectBtn, "CameraReconnectButton");
@@ -315,6 +313,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto armTriggerAction = addDisabledAction(sortingMenu, "Arm Trigger", "SortingArmTriggerAction",
                                               "Trigger arming is not introduced in this declutter pass.");
     auto manualTriggerAction = sortingMenu->addAction("Manual Trigger");
+    manualTriggerAction->setStatusTip(
+        "Can fire the configured DAQ waveform in normal mode. Test mode and no-DAQ runs skip output.");
     auto openRunFolderAction = sortingMenu->addAction("Open Run Folder");
 
     auto viewMenu = this->menuBar()->addMenu("&View");
@@ -706,8 +706,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     labviewLayout->addWidget(new QLabel("Delay"), labRow, 0);
     labviewLayout->addWidget(delaySpin, labRow++, 1, 1, 2);
     auto labviewTestBtn = new QPushButton("Manual Trigger");
+    labviewTestBtn->setToolTip("Fires the configured DAQ waveform in normal mode. Test mode and no-DAQ runs skip output.");
     labviewLayout->addWidget(labviewTestBtn, labRow++, 0, 1, 2);
-    auto labviewReconnectBtn = new QPushButton("Reconnect LabVIEW");
+    auto labviewReconnectBtn = new QPushButton("Reconnect DAQ");
     labviewLayout->addWidget(labviewReconnectBtn, labRow++, 0, 1, 2);
 
     auto labviewWidget = new QWidget;
@@ -835,6 +836,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto seqBrowseBtn = new QPushButton("Browse");
     auto seqLoadBtn = new QPushButton("Load into memory");
     auto seqStartBtn = new QPushButton("Run Recorded Sequence");
+    seqStartBtn->setToolTip("Replay recorded frames through the detector/classifier with DAQ output disabled.");
+    seqStartBtn->setProperty("daqOutputMode", "disabled-for-replay");
     auto seqStopBtn = new QPushButton("Stop Replay");
     seqStartBtn->setEnabled(false);
     seqStopBtn->setEnabled(false);
@@ -2596,7 +2599,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QObject::connect(openViewerAction, &QAction::triggered, viewerBtn, &QPushButton::click);
     QObject::connect(reconnectAction, &QAction::triggered, reconnectBtn, &QPushButton::click);
     QObject::connect(startPreviewAction, &QAction::triggered, startBtn, &QPushButton::click);
-    QObject::connect(stopPreviewAction, &QAction::triggered, stopBtn, &QPushButton::click);
+    QObject::connect(stopPreviewAction, &QAction::triggered, [&]() {
+        if (appState.cameraStreaming) {
+            startBtn->click();
+        }
+    });
     QObject::connect(captureStillAction, &QAction::triggered, captureBtn, &QPushButton::click);
     QObject::connect(startSortingAction, &QAction::triggered, pipelineStartBtn, &QPushButton::click);
     QObject::connect(stopSortingAction, &QAction::triggered, pipelineStopBtn, &QPushButton::click);
@@ -3428,7 +3435,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     validatorWorkspaceControllerDeps.pipelineStartBtn = pipelineStartBtn;
     validatorWorkspaceControllerDeps.pipelineStopBtn = pipelineStopBtn;
     validatorWorkspaceControllerDeps.startBtn = startBtn;
-    validatorWorkspaceControllerDeps.stopBtn = stopBtn;
+    validatorWorkspaceControllerDeps.stopBtn = nullptr;
     validatorWorkspaceControllerDeps.reconnectBtn = reconnectBtn;
     validatorWorkspaceControllerDeps.applyBtn = applyBtn;
     validatorWorkspaceControllerDeps.viewerOnly = &viewerOnly;
@@ -3490,7 +3497,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     cameraControllerDeps.liveHudFps = liveHudFps;
     cameraControllerDeps.cameraHudFps = cameraHudFps;
     cameraControllerDeps.startButton = startBtn;
-    cameraControllerDeps.stopButton = stopBtn;
     cameraControllerDeps.reconnectButton = reconnectBtn;
     cameraControllerDeps.applyButton = applyBtn;
     cameraControllerDeps.operationalTabs = operationalTabs;
@@ -3685,7 +3691,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         logMessage("DAQ startup state: " + stateText);
     };
 
-    auto loadPipeline = [&](bool enableAfter) {
+    auto loadPipeline = [&](bool enableAfter, bool forceNoDaq) {
         logMessage("Pipeline init requested");
         settingsController->refreshDaqDeviceOptions(true);
         if (liveModelCombo->currentData(kLiveModelModeRole).toString() == "blocked") {
@@ -3727,15 +3733,22 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         cfg.daq.frequencyHz = freqSpin->value() * 1000.0;
         cfg.daq.durationMs = durationSpin->value();
         cfg.daq.delayMs = delaySpin->value();
+        if (forceNoDaq) {
+            cfg.daq = DaqConfig{};
+        }
 
         logMessage(QString("Pipeline init paths: onnx=%1 meta=%2").arg(onnxEdit->text(), metaEdit->text()));
         logMessage(QString("Pipeline init resolved paths: onnx=%1 meta=%2").arg(onnxResolved, metaResolved));
-        logMessage(QString("DAQ config: channel=%1 range=[-10,10] amp=%2V freq=%3Hz duration=%4ms delay=%5ms")
-                       .arg(daqChannelEdit->text().trimmed())
-                       .arg(amplitudeSpin->value(), 0, 'f', 3)
-                       .arg(freqSpin->value() * 1000.0, 0, 'f', 1)
-                       .arg(durationSpin->value(), 0, 'f', 3)
-                       .arg(delaySpin->value(), 0, 'f', 3));
+        if (forceNoDaq) {
+            logMessage("DAQ config: disabled for recorded sequence replay");
+        } else {
+            logMessage(QString("DAQ config: channel=%1 range=[-10,10] amp=%2V freq=%3Hz duration=%4ms delay=%5ms")
+                           .arg(daqChannelEdit->text().trimmed())
+                           .arg(amplitudeSpin->value(), 0, 'f', 3)
+                           .arg(freqSpin->value() * 1000.0, 0, 'f', 1)
+                           .arg(durationSpin->value(), 0, 'f', 3)
+                           .arg(delaySpin->value(), 0, 'f', 3));
+        }
         if (!settingsController->discoveredDaqDevices().empty()) {
             logMessage(QString("DAQ discovery: %1").arg(settingsController->describeDiscoveredDaqDevices()));
         } else if (!settingsController->daqDiscoveryError().isEmpty()) {
@@ -3867,15 +3880,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         if (viewerOnly)
             return;
         bool enableAfter = pipelineEnableCheck->isChecked();
-        loadPipeline(enableAfter);
+        loadPipeline(enableAfter, false);
         updateForceTriggerState();
     });
-    settingsController->setReloadPipelineCallback([&](bool enableAfter) { loadPipeline(enableAfter); });
+    settingsController->setReloadPipelineCallback([&](bool enableAfter) { loadPipeline(enableAfter, false); });
     settingsController->setUpdateForceTriggerCallback(updateForceTriggerState);
     scheduleDetectorApply = [&]() { detectorTuningApplyTimer.start(); };
 
     QObject::connect(loadPipelineBtn, &QPushButton::clicked,
-                     [&]() { loadPipeline(pipelineEnableCheck->isChecked()); });
+                     [&]() { loadPipeline(pipelineEnableCheck->isChecked(), false); });
 
     QObject::connect(pipelineStartBtn, &QPushButton::clicked, [&]() {
         if (sequenceRunning.load())
@@ -3886,7 +3899,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             ready = pipeline.isReady();
         }
         if (!ready) {
-            loadPipeline(false);
+            loadPipeline(false, false);
             {
                 QMutexLocker lock(&pipelineMutex);
                 ready = pipeline.isReady();
@@ -3911,7 +3924,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
         outputEdit->setText(runDir);
         writeRuntimeSettingsSnapshot(runDir, "live");
-        loadPipeline(true);
+        loadPipeline(true, false);
         {
             QMutexLocker lock(&pipelineMutex);
             ready = pipeline.isReady();
@@ -4016,7 +4029,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             ready = pipeline.isReady();
         }
         if (!ready) {
-            loadPipeline(true);
+            loadPipeline(true, false);
         }
         datasetStartCaptureBtn->setEnabled(false);
         datasetStopCaptureBtn->setEnabled(true);
@@ -4034,7 +4047,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     QObject::connect(labviewReconnectBtn, &QPushButton::clicked, [&]() {
         bool enableAfter = pipelineEnableCheck->isChecked();
-        loadPipeline(enableAfter);
+        loadPipeline(enableAfter, false);
     });
 
     QObject::connect(labviewTestBtn, &QPushButton::clicked, [&]() {
@@ -4788,15 +4801,33 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
         sequencePrevPipelineChecked = pipelineEnableCheck->isChecked();
         sequenceStarting.store(true);
-        loadPipeline(true);
+        loadPipeline(true, true);
         bool pipelineReady = false;
+        bool triggerReady = false;
         {
             QMutexLocker lock(&pipelineMutex);
             pipelineReady = pipeline.isReady();
+            triggerReady = pipeline.isTriggerReady();
         }
         sequenceStarting.store(false);
         if (!pipelineReady) {
             seqStatusLabel->setText("Pipeline not ready. Fix settings and load pipeline.");
+            return;
+        }
+        if (triggerReady) {
+            pipelineEnabled.store(false);
+            pipelineEnableCheck->setChecked(false);
+            pipelineStartBtn->setEnabled(false);
+            pipelineStopBtn->setEnabled(false);
+            updateLiveRunStartStopVisibility();
+            updateForceTriggerState();
+            runStatusItem->setText("Run: idle");
+            pipelineStatusLabel->setText("Pipeline: paused");
+            statusLabel->setText("Sequence replay blocked: DAQ trigger path is still armed.");
+            seqStatusLabel->setText("Sequence replay blocked: DAQ trigger path is still armed.");
+            this->statusBar()->showMessage("Sequence replay blocked: DAQ trigger path armed");
+            reportsWorkspaceController.refreshOpenRunAvailability();
+            logMessage("Sequence replay blocked because replay pipeline reported DAQ trigger-ready.");
             return;
         }
         if (sequenceThread.joinable()) {
@@ -5299,7 +5330,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         logDaqStartupState("DAQ disabled by launch option.");
     }
     if (!hardwareFreeMode) {
-        QTimer::singleShot(0, [&]() { loadPipeline(false); });
+        QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
     }
     if (!options.datasetBuilderReviewPath.trimmed().isEmpty()) {
         QTimer::singleShot(0, [&]() {
@@ -5324,6 +5355,19 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 QTimer::singleShot(ms, &loop, &QEventLoop::quit);
                 loop.exec();
                 app.processEvents();
+            };
+            auto waitUntil = [&](int timeoutMs, const std::function<bool()>& predicate) {
+                QElapsedTimer timer;
+                timer.start();
+                while (timer.elapsed() < timeoutMs) {
+                    app.processEvents();
+                    if (predicate()) {
+                        return true;
+                    }
+                    waitForUi(100);
+                }
+                app.processEvents();
+                return predicate();
             };
 
             workspaceStack->setCurrentWidget(liveWorkspacePage);
@@ -5381,6 +5425,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* cameraLutMaxSpin = this->findChild<QSpinBox*>("CameraLutMaxSpinBox");
             auto* cameraDisplayEverySpin = this->findChild<QSpinBox*>("CameraDisplayEverySpinBox");
             auto* cameraStartButton = this->findChild<QPushButton*>("CameraStartButton");
+            auto* cameraReconnectButton = this->findChild<QPushButton*>("CameraReconnectButton");
+            auto* cameraApplyButton = this->findChild<QPushButton*>("CameraApplySettingsButton");
+            auto* cameraStopButton = this->findChild<QPushButton*>("CameraStopButton");
+            if (!cameraReconnectButton) {
+                cameraReconnectButton = reconnectBtn;
+            }
+            if (!cameraApplyButton) {
+                cameraApplyButton = applyBtn;
+            }
             auto* pipelineStartButton = this->findChild<QPushButton*>("PipelineStartButton");
             auto* pipelineStopButton = this->findChild<QPushButton*>("PipelineStopButton");
             auto* savePathLineEdit = this->findChild<QLineEdit*>("SavePathEdit");
@@ -5478,12 +5531,30 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(cameraLutMaxSlider == nullptr, "CameraLutMaxSlider is absent from the visible workspace tree");
             require(cameraLutModeControl == nullptr, "CameraLutModeSegmentedControl is absent");
             require(cameraDisplayEverySpin == nullptr, "CameraDisplayEverySpinBox is absent from the visible workspace tree");
+            require(cameraStopButton == nullptr, "CameraStopButton is absent");
             require(cameraStartButton && cameraStartButton->text() == "Start Camera",
                     "Camera action starts as Start Camera");
-            require(pipelineStartButton && pipelineStartButton->isVisibleTo(this),
-                    "Sorting action starts as Start Sorting");
-            require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
-                    "Stop Sorting action starts hidden until sorting is active");
+            require(cameraStartButton && cameraStartButton->toolTip() == "Start camera acquisition.",
+                    "Camera action tooltip starts as Start camera acquisition.");
+            require(cameraReconnectButton && cameraReconnectButton->text().contains("Reconnect", Qt::CaseInsensitive),
+                    QString("Camera reconnect button keeps expected visible wording (text=%1)")
+                        .arg(cameraReconnectButton ? cameraReconnectButton->text() : QStringLiteral("<missing>")));
+            require(cameraApplyButton && cameraApplyButton->text().contains("Apply", Qt::CaseInsensitive) &&
+                        cameraApplyButton->text().contains("Settings", Qt::CaseInsensitive),
+                    QString("Camera apply button keeps expected visible wording (text=%1)")
+                        .arg(cameraApplyButton ? cameraApplyButton->text() : QStringLiteral("<missing>")));
+            const bool realCameraVerifier = !options.mockCamera && !options.noStartupPrompts;
+            if (!realCameraVerifier) {
+                require(pipelineStartButton && !pipelineStartButton->isEnabled(),
+                        "Start Sorting stays disabled until a valid pipeline is ready");
+                require(pipelineStartButton && pipelineStartButton->isVisibleTo(this),
+                        "Sorting action starts as Start Sorting");
+                require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
+                        "Stop Sorting action starts hidden until sorting is active");
+            } else {
+                require(pipelineStartButton != nullptr, "Start Sorting control exists in real camera verifier");
+                require(pipelineStopButton != nullptr, "Stop Sorting control exists in real camera verifier");
+            }
             require(navRailFrame != nullptr, "OpenDssNavigationRail exists");
             require(headerFrame != nullptr, "OpenDssHeader exists");
             require(statusStripFrame != nullptr, "OpenDssStatusStrip exists");
@@ -5560,6 +5631,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             requireContained(sequenceLogLabel, cameraSequencePanelFrame, "SequenceLogLabel fits within Sequence Test");
             require(sequenceStartButton && sequenceStartButton->text().contains("Recorded Sequence"),
                     "Sequence run button makes recorded-sequence simulation explicit");
+            require(sequenceStartButton &&
+                        sequenceStartButton->toolTip().contains("DAQ output disabled", Qt::CaseInsensitive),
+                    "Sequence run button tooltip states DAQ output is disabled");
+            require(sequenceStartButton && sequenceStartButton->property("daqOutputMode").toString() ==
+                                               QStringLiteral("disabled-for-replay"),
+                    "Sequence run button exposes the disabled-for-replay DAQ output guard");
             require(sequenceStartButton && !sequenceStartButton->isEnabled(),
                     "Sequence run button remains disabled until a sequence is loaded");
             require(runStateResetButton != nullptr, "RunStateResetCountersButton exists");
@@ -5567,6 +5644,105 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "RunStateResetCountersButton keeps a stable object name");
             require(runStateResetButton && runStateResetButton->isVisibleTo(this),
                     "RunStateResetCountersButton is visible in Live View");
+
+            const QString initialRunStatusText = runStatusItem ? runStatusItem->text() : QString();
+            if (realCameraVerifier) {
+                require(options.noDaq, "Real camera verifier requires DAQ disabled by --no-daq");
+                const bool initSettled = waitUntil(12000, [&]() {
+                    const QString cameraStatus = cameraStatusItem ? cameraStatusItem->text() : QString();
+                    return cameraOpened || cameraStatus.contains("error", Qt::CaseInsensitive) ||
+                           cameraStatus.contains("unavailable", Qt::CaseInsensitive);
+                });
+                require(initSettled, "Real camera initialization reached a terminal app-owned status");
+                require(cameraOpened && cameraStatusItem && cameraStatusItem->text() == "Camera: connected",
+                        QString("Real camera initialized and status chip is connected (status=%1)")
+                            .arg(cameraStatusItem ? cameraStatusItem->text() : QStringLiteral("<missing>")));
+                if (cameraOpened && cameraStartButton) {
+                    cameraStartButton->click();
+                    const bool captureStarted = waitUntil(8000, [&]() {
+                        const QString cameraStatus = cameraStatusItem ? cameraStatusItem->text() : QString();
+                        return appState.cameraStreaming || cameraStatus.contains("acquiring", Qt::CaseInsensitive) ||
+                               cameraStatus.contains("error", Qt::CaseInsensitive);
+                    });
+                    require(captureStarted, "Real camera capture start completed through CameraStartButton");
+                    require(appState.cameraStreaming && cameraStatusItem &&
+                                cameraStatusItem->text().contains("acquiring", Qt::CaseInsensitive),
+                            QString("Real camera status chip reports acquiring (status=%1)")
+                                .arg(cameraStatusItem ? cameraStatusItem->text() : QStringLiteral("<missing>")));
+                    const bool frameArrived = waitUntil(12000, [&]() { return !cameraController->lastFrame().isNull(); });
+                    const FrameMeta realMeta = cameraController->lastMeta();
+                    require(frameArrived, "Real camera delivered at least one frame");
+                    require(realMeta.width > 0 && realMeta.height > 0 && realMeta.frameIndex > 0,
+                            QString("Real camera frame metadata is populated (width=%1 height=%2 frame=%3 delivered=%4)")
+                                .arg(realMeta.width)
+                                .arg(realMeta.height)
+                                .arg(realMeta.frameIndex)
+                                .arg(realMeta.delivered));
+                    qInfo().noquote()
+                        << QString("VERIFY INFO: real camera status=%1 frame=%2 size=%3x%4 delivered=%5 dropped=%6")
+                               .arg(cameraStatusItem ? cameraStatusItem->text() : QStringLiteral("<missing>"))
+                               .arg(realMeta.frameIndex)
+                               .arg(realMeta.width)
+                               .arg(realMeta.height)
+                               .arg(realMeta.delivered)
+                               .arg(realMeta.dropped);
+                    cameraStartButton->click();
+                    const bool captureStopped = waitUntil(8000, [&]() { return !appState.cameraStreaming; });
+                    require(captureStopped, "Real camera capture stops through CameraStartButton");
+                }
+            } else {
+                if (cameraReconnectButton) {
+                    cameraReconnectButton->click();
+                    app.processEvents();
+                    require(statusLabel && statusLabel->text() == "Mock camera reconnected.",
+                            "Camera reconnect updates the visible status text in mock mode");
+                    require(cameraStatusItem && cameraStatusItem->text() == "Camera: mock",
+                            "Camera reconnect keeps the camera status chip on mock");
+                    require(this->statusBar()->currentMessage().contains("Mock camera reconnected"),
+                            "Camera reconnect updates the status bar in mock mode");
+                }
+                if (cameraApplyButton) {
+                    cameraApplyButton->click();
+                    app.processEvents();
+                    require(statusLabel && statusLabel->text() == "Mock camera settings applied.",
+                            "Camera apply updates the visible status text in mock mode");
+                    require(cameraStatusItem && cameraStatusItem->text() == "Camera: mock",
+                            "Camera apply keeps the camera status chip on mock");
+                    require(this->statusBar()->currentMessage().contains("Mock camera settings applied"),
+                            "Camera apply updates the status bar in mock mode");
+                }
+            }
+            if (!realCameraVerifier) {
+                if (pipelineStartButton) {
+                    pipelineStartButton->click();
+                    app.processEvents();
+                    require(runStatusItem && runStatusItem->text() == initialRunStatusText,
+                            "Disabled Start Sorting does not change the run state");
+                    require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
+                            "Disabled Start Sorting keeps Stop Sorting hidden");
+                }
+                pipelineEnableCheck->setChecked(true);
+                app.processEvents();
+                require(pipelineStartButton && !pipelineStartButton->isVisibleTo(this),
+                        "Pipeline enabled state hides Start Sorting");
+                require(pipelineStopButton && pipelineStopButton->isVisibleTo(this),
+                        "Pipeline enabled state shows Stop Sorting");
+                require(pipelineStopButton && pipelineStopButton->isEnabled(),
+                        "Pipeline enabled state exposes an enabled Stop Sorting control");
+                if (pipelineStopButton) {
+                    pipelineStopButton->click();
+                    app.processEvents();
+                    require(runStatusItem && runStatusItem->text() == "Run: idle",
+                            "Stop Sorting returns the run state to idle");
+                    require(pipelineStartButton && pipelineStartButton->isVisibleTo(this),
+                            "Stop Sorting restores Start Sorting visibility");
+                    require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
+                            "Stop Sorting hides the Stop Sorting control again");
+                }
+            } else {
+                require(runStatusItem && runStatusItem->text() == initialRunStatusText,
+                        "Real camera verifier leaves sorting run state unchanged");
+            }
 
             {
                 StatsSnapshot seededSnap;
@@ -5709,11 +5885,24 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* deviceCombo = this->findChild<QComboBox*>("DaqDeviceComboBox");
             auto* channelEdit = this->findChild<QLineEdit*>("DaqChannelEdit");
             auto* reconnectButton = this->findChild<QPushButton*>("DaqReconnectButton");
+            auto* manualTriggerButton = this->findChild<QPushButton*>("DaqManualTriggerButton");
+            auto* settingsTestModeCheck = this->findChild<QCheckBox*>("SettingsWorkspaceTestModeCheckBox");
             auto* statusIndicatorWidget = this->findChild<QLabel*>("DaqStatusTextLabel");
             auto* statusBarDaqWidget = this->findChild<QLabel*>("DaqStatusBarLabel");
             auto* shellDaqStatusWidget = this->findChild<QLabel*>("OpenDssShellDaqStatusLabel");
             auto* headerDaqChipWidget = this->findChild<QLabel*>("OpenDssHeaderDaqChip");
             auto* forceTriggerButton = this->findChild<QPushButton*>("LiveForceTriggerButton");
+            auto hasPanelLabelText = [](QWidget* root, const QString& text) {
+                if (!root) {
+                    return false;
+                }
+                for (auto* label : root->findChildren<QLabel*>()) {
+                    if (label->text() == text) {
+                        return true;
+                    }
+                }
+                return false;
+            };
 
             require(settingsHardwarePanel != nullptr, "Settings hardware panel exists");
             require(deviceCombo != nullptr, "DAQ device combo exists");
@@ -5724,6 +5913,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         deviceCombo->mapTo(settingsHardwarePanel, QPoint(0, 0)).y() <
                             channelEdit->mapTo(settingsHardwarePanel, QPoint(0, 0)).y(),
                     "DAQ device combo is above the DAQ channel field in Settings > Hardware");
+            require(reconnectButton && reconnectButton->text() == "Reconnect DAQ",
+                    "DAQ reconnect button wording matches the current DAQ path");
+            require(manualTriggerButton &&
+                        manualTriggerButton->toolTip().contains("skip output", Qt::CaseInsensitive),
+                    "Manual Trigger warns that test mode and no-DAQ runs skip output");
+            require(settingsTestModeCheck &&
+                        settingsTestModeCheck->toolTip().contains("future startups", Qt::CaseInsensitive),
+                    "Test mode preference tooltip explains that launch-only flags apply on startup");
+            require(hasPanelLabelText(settingsHardwarePanel, "Test mode preference"),
+                    "Settings hardware row label reads Test mode preference");
 
             QStringList comboEntries;
             for (int i = 0; i < deviceCombo->count(); ++i) {

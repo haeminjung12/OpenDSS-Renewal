@@ -569,37 +569,6 @@ void CameraWorkspaceController::wireControls() {
         });
     }
 
-    if (deps_.stopButton) {
-        connect(deps_.stopButton, &QPushButton::clicked, this, [this]() {
-            if (deps_.viewerOnly && *deps_.viewerOnly) {
-                return;
-            }
-            if (deps_.hardwareFreeMode) {
-                if (deps_.appState) {
-                    deps_.appState->cameraStreaming = false;
-                }
-                updateCameraActionState();
-                if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Mock preview stopped.");
-                }
-                if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText("Camera: mock");
-                }
-                if (deps_.pipelineEnabled && !deps_.pipelineEnabled->load() && deps_.runStatusItem) {
-                    deps_.runStatusItem->setText("Run: idle");
-                }
-                showStatusMessage("Mock preview stopped");
-                log("Mock preview stopped.");
-                return;
-            }
-            if (deps_.statusLabel) {
-                deps_.statusLabel->setText("Stopping capture...");
-            }
-            QMetaObject::invokeMethod(
-                deps_.cameraWorker, [worker = deps_.cameraWorker]() { worker->stopCapture(); }, Qt::QueuedConnection);
-        });
-    }
-
     if (deps_.applyButton) {
         connect(deps_.applyButton, &QPushButton::clicked, this, [this]() {
             if (deps_.viewerOnly && *deps_.viewerOnly) {
@@ -837,9 +806,6 @@ void CameraWorkspaceController::setViewerOnly() {
     showStatusMessage("Viewer-only mode");
     if (deps_.startButton) {
         deps_.startButton->setEnabled(false);
-    }
-    if (deps_.stopButton) {
-        deps_.stopButton->setEnabled(false);
     }
     if (deps_.reconnectButton) {
         deps_.reconnectButton->setEnabled(false);

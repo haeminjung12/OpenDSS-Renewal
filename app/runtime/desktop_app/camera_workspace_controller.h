@@ -68,7 +68,6 @@ class CameraWorkspaceController : public QObject {
         QLabel* liveHudFps = nullptr;
         QLabel* cameraHudFps = nullptr;
         QPushButton* startButton = nullptr;
-        QPushButton* stopButton = nullptr;
         QPushButton* reconnectButton = nullptr;
         QPushButton* applyButton = nullptr;
         QTabWidget* operationalTabs = nullptr;

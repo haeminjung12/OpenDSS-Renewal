@@ -1,7 +1,7 @@
 param(
     [string]$SourceRoot = (Resolve-Path "$PSScriptRoot\..").Path,
     [string]$BuildDir = "",
-    [string]$AcceptedBuildDirName = "build-internal-release-wave61",
+    [string]$AcceptedBuildDirName = "build-opendss-internal-release",
     [string]$Config = "Release",
     [string]$QtDir = "C:\Qt\6.10.1\msvc2022_64",
     [string]$OnnxDir = "C:\onnxruntime-gpu",

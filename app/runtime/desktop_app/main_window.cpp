@@ -3054,7 +3054,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         "run_20260429_221500_wsl2_binary_linuxmirror_onnx", onnxPicked, metaPicked, "promoted_current",
                         "normal", "1", "Temporary static fallback row. Registry file was empty or unavailable.",
                         "34eec09f49ab4612a34e3a24ccf85eccc98516b388fbadbfb0736ecbf8fb1769",
-                        "fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f", true);
+                        "528ac091764c09cd9c2c6ad2a6ff1e38bb009184a26e7352b71b3a025c30902d", true);
     }
     int activeLiveModelIndex = 0;
     for (int i = 0; i < liveModelCombo->count(); ++i) {
@@ -5761,6 +5761,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 qInfo().noquote() << "VERIFY INFO: Compatible DAQ count =" << compatibleCount;
             }
 
+            const bool hasRealDiscoveredSelection =
+                !settingsController->discoveredDaqDevices().empty() &&
+                !deviceCombo->currentData().toString().trimmed().isEmpty();
+
             if (deviceCombo->count() > 1) {
                 const int originalIndex = deviceCombo->currentIndex();
                 const int nextIndex = (originalIndex + 1) % deviceCombo->count();
@@ -5802,7 +5806,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         "DAQ reconnect keeps the header DAQ chip populated");
                 require(forceTriggerButton != nullptr && !forceTriggerButton->isEnabled(),
                         "Force Trigger stays gated during verification without arming or firing");
-            } else if (deviceCombo->count() == 1) {
+            } else if (deviceCombo->count() == 1 && hasRealDiscoveredSelection) {
                 QSettings settings;
                 require(settings.value("settings/daqSelectedDevice")
                                 .toString()
@@ -5815,6 +5819,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 }
             } else {
                 require(!deviceCombo->isEnabled(), "DAQ combo disables when no devices are available");
+                require(deviceCombo->currentData().toString().trimmed().isEmpty(),
+                        "No-device DAQ combo placeholder does not expose a real device selection");
             }
 
             if (statusBarDaqWidget && shellDaqStatusWidget && headerDaqChipWidget) {

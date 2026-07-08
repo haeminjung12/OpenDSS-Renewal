@@ -49,6 +49,25 @@ function Test-RequiredPath {
     return $false
 }
 
+function Test-ExcludedPath {
+    param(
+        [System.Collections.ArrayList]$List,
+        [System.Collections.ArrayList]$Errors,
+        [string]$Name,
+        [string]$Path
+    )
+
+    if (Test-Path -LiteralPath $Path) {
+        $message = "Unexpected packaged artifact present: $Path"
+        Add-CheckResult -List $List -Name $Name -Status "fail" -Path $Path -Detail $message
+        [void]$Errors.Add($message)
+        return $false
+    }
+
+    Add-CheckResult -List $List -Name $Name -Status "pass" -Path $Path -Detail "Excluded from portable package."
+    return $true
+}
+
 function Test-OptionalPrerequisite {
     param(
         [System.Collections.ArrayList]$List,
@@ -173,7 +192,24 @@ foreach ($relativePath in @(
     "opencv_imgproc4.dll",
     "opencv_imgcodecs4.dll",
     "platforms\qwindows.dll",
-    "models\model_registry.json"
+    "models\model_registry.json",
+    "training\python\pyproject.toml",
+    "training\python\README-windows-training.md",
+    "training\python\droplet_trainer\__main__.py",
+    "training\python\droplet_trainer\cli.py",
+    "training\python\scripts\windows\create-training-venv.ps1",
+    "training\python\scripts\windows\install-training-cpu.ps1",
+    "training\python\scripts\windows\install-training-gpu-cu128.ps1",
+    "training\python\scripts\windows\install-training-gpu-cu130.ps1",
+    "training\python\scripts\windows\inspect-dataset.ps1",
+    "training\python\scripts\windows\train-model.ps1",
+    "training\python\scripts\windows\validate-dataset.ps1",
+    "training\python\scripts\windows\validate-images.ps1",
+    "training\python\scripts\windows\verify-training-env.ps1",
+    "training\python\requirements\windows-py312-common-constraints.txt",
+    "training\python\requirements\windows-py312-cpu.txt",
+    "training\python\requirements\windows-py312-gpu-cu128.txt",
+    "training\python\requirements\windows-py312-gpu-cu130.txt"
 )) {
     $requiredPackageFiles.Add($relativePath)
 }
@@ -198,6 +234,15 @@ $requiredPackageFiles = @($requiredPackageFiles | Select-Object -Unique)
 
 foreach ($relativePath in $requiredPackageFiles) {
     Test-RequiredPath -List $checks -Errors $errors -Name $relativePath -Path (Join-Path $PackageDir $relativePath) | Out-Null
+}
+
+foreach ($relativePath in @(
+    "training\python\build",
+    "training\python\outputs",
+    "training\python\droplet_trainer.egg-info",
+    "training\python\droplet_trainer\__pycache__"
+)) {
+    Test-ExcludedPath -List $checks -Errors $errors -Name ("excluded: " + $relativePath) -Path (Join-Path $PackageDir $relativePath) | Out-Null
 }
 
 $registryPath = Join-Path $PackageDir "models\model_registry.json"

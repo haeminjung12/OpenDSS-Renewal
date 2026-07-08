@@ -35,5 +35,7 @@ The GUI builds as `OpenVisualDropletSorter.exe` and is the main entry point for 
 - Build with MSBuild (Release)
 
 ## Standalone package
-Use `package_portable.ps1` to build and deploy Qt runtimes into `build/Release`.
+Use `package_portable.ps1` to create a portable package outside the repo and deploy Qt runtimes with `windeployqt`.
+The package now includes `training/python/` beside the executable so Trainer and Validator workflows can use the migrated trainer source, Windows wrapper scripts, requirements files, and Windows training README from the packaged layout.
+The portable package does not bundle Python, PyTorch, CUDA, or a trainer `venv`; users install those externally by running the packaged `training/python/scripts/windows/*.ps1` helpers from a user-managed environment.
 The portable package relies on the system DCAM runtime (no bundled `dcamapi.dll`).

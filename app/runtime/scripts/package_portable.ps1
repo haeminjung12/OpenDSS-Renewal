@@ -14,6 +14,41 @@ param(
     [string]$NidaqBin = "C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\lib64\msvc"
 )
 
+function Copy-FilteredTree {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$SourceDir,
+        [Parameter(Mandatory = $true)]
+        [string]$DestinationDir
+    )
+
+    $sourceRoot = (Resolve-Path -LiteralPath $SourceDir).Path
+    New-Item -ItemType Directory -Path $DestinationDir -Force | Out-Null
+
+    Get-ChildItem -LiteralPath $sourceRoot -Recurse -Force | ForEach-Object {
+        $relativePath = $_.FullName.Substring($sourceRoot.Length).TrimStart('\')
+        if (-not $relativePath) {
+            return
+        }
+        if ($relativePath -match '(^|\\)__pycache__(\\|$)' -or
+            $relativePath -like '*.pyc' -or
+            $relativePath -like '*.pyo') {
+            return
+        }
+
+        $destinationPath = Join-Path $DestinationDir $relativePath
+        if ($_.PSIsContainer) {
+            New-Item -ItemType Directory -Path $destinationPath -Force | Out-Null
+        } else {
+            $destinationParent = Split-Path -Parent $destinationPath
+            if ($destinationParent) {
+                New-Item -ItemType Directory -Path $destinationParent -Force | Out-Null
+            }
+            Copy-Item -LiteralPath $_.FullName -Destination $destinationPath -Force
+        }
+    }
+}
+
 $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot "..\..")).Path
 $RepoParent = Split-Path -Parent $RepoRoot
@@ -24,6 +59,20 @@ if (-not $BuildDir) {
 }
 if (-not $ModelsDir) { $ModelsDir = Join-Path $SourceRoot "models" }
 if (-not $OutputDir) { $OutputDir = Join-Path $RepoParent "artifacts\internal-release" }
+
+$trainerSourceRoot = Join-Path $RepoRoot "training\python"
+$requiredTrainerFiles = @(
+    "pyproject.toml",
+    "README-windows-training.md",
+    "droplet_trainer\__main__.py",
+    "droplet_trainer\cli.py",
+    "scripts\windows\create-training-venv.ps1",
+    "scripts\windows\install-training-cpu.ps1",
+    "scripts\windows\verify-training-env.ps1",
+    "scripts\windows\train-model.ps1",
+    "requirements\windows-py312-common-constraints.txt",
+    "requirements\windows-py312-cpu.txt"
+)
 
 $BuildDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BuildDir)
 $OutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDir)
@@ -47,6 +96,15 @@ if (-not (Test-Path $windeployqt)) {
 
 if (-not (Test-Path $ModelsDir)) {
     throw "ModelsDir not found: $ModelsDir"
+}
+if (-not (Test-Path -LiteralPath $trainerSourceRoot)) {
+    throw "Trainer source root not found: $trainerSourceRoot"
+}
+foreach ($relativeTrainerFile in $requiredTrainerFiles) {
+    $trainerPath = Join-Path $trainerSourceRoot $relativeTrainerFile
+    if (-not (Test-Path -LiteralPath $trainerPath)) {
+        throw "Required trainer asset not found: $trainerPath"
+    }
 }
 
 $registryPath = Join-Path $ModelsDir "model_registry.json"
@@ -130,6 +188,17 @@ New-Item -ItemType Directory -Path $modelsOut -Force | Out-Null
 foreach ($modelFile in $requiredModelFiles) {
     Copy-Item -Path (Join-Path $ModelsDir $modelFile) -Destination $modelsOut -Force
 }
+
+# Copy trainer source, Windows wrappers, and dependency metadata into the
+# package-relative layout expected by the desktop app.
+$trainerOut = Join-Path $packageDir "training\python"
+New-Item -ItemType Directory -Path $trainerOut -Force | Out-Null
+foreach ($trainerFile in @("pyproject.toml", "README-windows-training.md")) {
+    Copy-Item -LiteralPath (Join-Path $trainerSourceRoot $trainerFile) -Destination (Join-Path $trainerOut $trainerFile) -Force
+}
+Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "droplet_trainer") -DestinationDir (Join-Path $trainerOut "droplet_trainer")
+Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "requirements") -DestinationDir (Join-Path $trainerOut "requirements")
+Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "scripts\windows") -DestinationDir (Join-Path $trainerOut "scripts\windows")
 
 # Deploy Qt runtime and plugins next to the exe.
 & $windeployqt (Join-Path $packageDir $exeName) | Out-Host

@@ -104,7 +104,7 @@ QJsonObject temporaryStaticModelRegistry() {
     promoted["model_path"] = "app/runtime/models/squeezenet_final_new_condition.onnx";
     promoted["model_sha256"] = "34eec09f49ab4612a34e3a24ccf85eccc98516b388fbadbfb0736ecbf8fb1769";
     promoted["metadata_path"] = "app/runtime/models/metadata.json";
-    promoted["metadata_sha256"] = "fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f";
+    promoted["metadata_sha256"] = "528ac091764c09cd9c2c6ad2a6ff1e38bb009184a26e7352b71b3a025c30902d";
     promoted["metadata_status"] = "Pass";
     promoted["validation_status"] = "Default hashes match / image pass / NI pass / sequence provisional";
     promoted["promotion_status"] = "Promoted/current";

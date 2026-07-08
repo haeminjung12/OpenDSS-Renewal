@@ -21,7 +21,7 @@
             "live_use_mode": "normal",
             "metadata_path": "app/runtime/models/metadata.json",
             "metadata_schema_version": "model-metadata-v1",
-            "metadata_sha256": "fa5321dfad900baec23fa6c239a29279e0e8c03fa2e78f0bd679dfb973888d2f",
+            "metadata_sha256": "528ac091764c09cd9c2c6ad2a6ff1e38bb009184a26e7352b71b3a025c30902d",
             "metadata_status": "Pass",
             "model_id": "run_20260429_221500_wsl2_binary_linuxmirror_onnx",
             "model_path": "app/runtime/models/squeezenet_final_new_condition.onnx",

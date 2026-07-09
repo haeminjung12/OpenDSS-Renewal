@@ -24,6 +24,7 @@ struct AppOptions {
     bool mockCamera = false;
     bool verifyCameraWorkspace = false;
     bool verifyDaqSettings = false;
+    bool verifyDirectDaqManualTrigger = false;
     bool noDaq = false;
     bool noStartupPrompts = false;
     QString datasetBuilderReviewPath;

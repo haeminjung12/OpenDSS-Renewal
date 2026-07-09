@@ -26,6 +26,9 @@ AppOptions parseAppOptions(int argc, char* argv[]) {
         if (arg.find("--verify-daq-settings") != std::string::npos) {
             options.verifyDaqSettings = true;
         }
+        if (arg.find("--verify-direct-daq-manual-trigger") != std::string::npos) {
+            options.verifyDirectDaqManualTrigger = true;
+        }
         if (arg.find("--no-daq") != std::string::npos) {
             options.noDaq = true;
         }

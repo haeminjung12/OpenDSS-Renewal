@@ -18,7 +18,7 @@ For ordinary bug fixes, prefer the sparse debug workspace. It contains the activ
 5. Prefer `rtk grep` with line numbers/context before whole-file reads, especially for `app/runtime/desktop_app/main_window.cpp`.
 6. Fix one bug per branch or commit.
 7. Keep packaging, trainer/exporter, old wave history, and archived workspaces out of ordinary runtime bug fixes.
-8. Do not fire DAQ output unless the user explicitly approves the exact action.
+8. During DAQ/debug work, workers may intentionally fire DAQ output when needed to test the assigned behavior. They must report each firing during the work or in the completion report, including trigger source, channel, waveform/settings, count, and observed/logged result.
 
 ## Safe Verification
 

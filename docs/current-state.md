@@ -14,7 +14,7 @@ Active workspace for all new work:
 - NI-DAQmx device discovery and Settings > Hardware device selection are accepted.
 - Current connected USB-6001 was discovered in the source workspace as `Dev2` with `Dev2/ao0` and `Dev2/ao1`.
 - Settings > Hardware includes `DaqDeviceComboBox`.
-- No DAQ output was fired during migration.
+- No intentional DAQ output was fired during migration.
 - The older three-class model is labeled `Cell aggregate model V1 (2026-05-14)`.
 - Legacy three-class target class remains `Single`.
 - ONNX Runtime package compatibility was fixed before migration: the Release/package path must use the selected local ONNX Runtime DLL, not a stale PATH DLL.

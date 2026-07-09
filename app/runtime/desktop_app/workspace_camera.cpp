@@ -360,9 +360,13 @@ QString refreshCameraFormatOptions(QComboBox* presetCombo, QComboBox* bitsCombo,
             const QVariantMap bit = bitValue.toMap();
             const int value = bit.value(QStringLiteral("value")).toInt();
             const QString label = bit.value(QStringLiteral("label")).toString();
-            if (value > 0) {
+            if (value == 8 || value == 16) {
                 bitsCombo->addItem(label.isEmpty() ? QString::number(value) : label, value);
             }
+        }
+        if (bitsCombo->count() == 0) {
+            bitsCombo->addItem(QStringLiteral("8"), 8);
+            bitsCombo->addItem(QStringLiteral("16"), 16);
         }
         const int index = bitsCombo->findData(previousBits);
         bitsCombo->setCurrentIndex(index >= 0 ? index : 0);
@@ -375,12 +379,17 @@ QString refreshCameraFormatOptions(QComboBox* presetCombo, QComboBox* bitsCombo,
             const QVariantMap speed = speedValue.toMap();
             const int value = speed.value(QStringLiteral("value")).toInt();
             const QString label = speed.value(QStringLiteral("label")).toString();
-            if (value > 0) {
+            if (value > 0 && label.compare(QStringLiteral("Fast"), Qt::CaseInsensitive) == 0) {
                 readoutCombo->addItem(label.isEmpty() ? QString::number(value) : label, value);
             }
         }
+        if (readoutCombo->count() == 0) {
+            readoutCombo->addItem(QStringLiteral("Fast"), 0);
+        }
         const int index = readoutCombo->findData(previousReadout);
         readoutCombo->setCurrentIndex(index >= 0 ? index : 0);
+        readoutCombo->setEnabled(false);
+        readoutCombo->setToolTip(QStringLiteral("Readout is fixed to Fast for live camera use."));
     }
 
     if (maximumWidth > 0) {
@@ -422,7 +431,14 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     cameraFormatGrid->addItem(makeCameraFieldGroup("Bit depth", controls.bitsCombo));
     cameraFormatGrid->addItem(makeCameraFieldGroup("Width", controls.customWidthSpin));
     cameraFormatGrid->addItem(makeCameraFieldGroup("Height", controls.customHeightSpin));
-    cameraFormatGrid->addItem(makeCameraFieldGroup("Exposure", controls.exposureSpin));
+    auto* exposureRowWidget = new QWidget;
+    auto* exposureRow = makeCameraRow(6);
+    relaxHorizontalSize(controls.exposureSpin, QSizePolicy::Expanding);
+    relaxHorizontalSize(controls.autoExposureButton, QSizePolicy::Fixed);
+    exposureRow->addWidget(controls.exposureSpin, 1);
+    exposureRow->addWidget(controls.autoExposureButton);
+    exposureRowWidget->setLayout(exposureRow);
+    cameraFormatGrid->addItem(makeCameraFieldGroup("Exposure", exposureRowWidget));
     cameraFormatGrid->addItem(makeCameraFieldGroup("Readout", controls.readoutCombo));
     cameraFormatGrid->addItem(makeCameraFieldGroup("Binning", controls.binCombo));
     cameraFormatSection.body->addWidget(cameraFormatGrid);
@@ -430,6 +446,7 @@ QWidget* buildCameraControlsStack(const CameraWorkspaceControls& controls) {
     auto* cameraLutGrid = new CameraResponsiveGrid(136);
     cameraLutGrid->addItem(makeCameraFieldGroup("Black", controls.lutMinSpin));
     cameraLutGrid->addItem(makeCameraFieldGroup("White", controls.lutMaxSpin));
+    cameraLutGrid->addItem(makeCameraFieldGroup("Range", controls.lutAutoSetButton));
     auto* cameraLutRangeBar = new CameraLutRangeBar(controls.lutMinSlider, controls.lutMaxSlider);
     nameWidget(cameraLutRangeBar, "CameraLutRangeBar");
     relaxHorizontalSize(cameraLutRangeBar, QSizePolicy::Expanding);

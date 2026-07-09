@@ -39,6 +39,9 @@ class DaqTrigger {
     void shutdown();
     bool fire(std::string& err);
     bool isReady() const;
+    double sampleRateHz() const;
+    int finiteSampleCount() const;
+    double finalSampleValue() const;
 
   private:
     DaqConfig cfg_;

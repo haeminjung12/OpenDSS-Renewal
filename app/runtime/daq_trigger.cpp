@@ -212,22 +212,23 @@ bool DaqTrigger::init(const DaqConfig& cfg, std::string& err) {
 
         for (int attempt = 0; attempt < kMaxRateClampAttempts && workingSampleRate >= kAbsoluteMinSampleRate;
              ++attempt) {
-            const int samples = std::max(2, static_cast<int>(std::lround(durationSec * workingSampleRate)));
+            const int generatedSamples = std::max(2, static_cast<int>(std::lround(durationSec * workingSampleRate)));
+            const int finiteSamples = generatedSamples + 1;
 
-            waveform_.assign(samples, 0.0);
+            waveform_.assign(finiteSamples, 0.0);
             const double omega = 2.0 * 3.14159265358979323846 * cfg_.frequencyHz;
-            for (int i = 0; i < samples; ++i) {
+            for (int i = 0; i < generatedSamples; ++i) {
                 const double t = static_cast<double>(i) / workingSampleRate;
                 waveform_[i] = amplitude * std::sin(omega * t);
             }
 
-            error =
-                DAQmxCfgSampClkTiming(task, "", workingSampleRate, DAQmx_Val_Rising, DAQmx_Val_FiniteSamps, samples);
+            error = DAQmxCfgSampClkTiming(task, "", workingSampleRate, DAQmx_Val_Rising, DAQmx_Val_FiniteSamps,
+                                          finiteSamples);
             if (!DAQmxFailed(error)) {
-                error = DAQmxCfgOutputBuffer(task, static_cast<uInt32>(samples));
+                error = DAQmxCfgOutputBuffer(task, static_cast<uInt32>(finiteSamples));
                 if (!DAQmxFailed(error)) {
                     sampleRate_ = workingSampleRate;
-                    samples_ = samples;
+                    samples_ = finiteSamples;
                     timingConfigured = true;
                     break;
                 }
@@ -342,4 +343,28 @@ bool DaqTrigger::fire(std::string& err) {
 
 bool DaqTrigger::isReady() const {
     return ready_;
+}
+
+double DaqTrigger::sampleRateHz() const {
+#ifdef HAVE_NIDAQMX
+    return sampleRate_;
+#else
+    return 0.0;
+#endif
+}
+
+int DaqTrigger::finiteSampleCount() const {
+#ifdef HAVE_NIDAQMX
+    return samples_;
+#else
+    return 0;
+#endif
+}
+
+double DaqTrigger::finalSampleValue() const {
+#ifdef HAVE_NIDAQMX
+    return waveform_.empty() ? 0.0 : waveform_.back();
+#else
+    return 0.0;
+#endif
 }

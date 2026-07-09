@@ -1,6 +1,7 @@
 #include "camera_workspace_controller.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <memory>
 
@@ -588,9 +589,17 @@ void CameraWorkspaceController::wireControls() {
     if (controls.lutMaxSlider) {
         connect(controls.lutMaxSlider, &QSlider::valueChanged, this, [this](int value) { setLutMax(value); });
     }
+    if (controls.lutAutoSetButton) {
+        connect(controls.lutAutoSetButton, &QPushButton::clicked, this,
+                [this]() { autoSetLutFromCurrentFrame(); });
+    }
     if (controls.exposureSpin) {
         connect(controls.exposureSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [this]() { scheduleApplySettings(); });
+    }
+    if (controls.autoExposureButton) {
+        connect(controls.autoExposureButton, &QPushButton::clicked, this,
+                [this]() { autoSetExposureFromCurrentFrame(); });
     }
     if (controls.readoutCombo) {
         connect(controls.readoutCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
@@ -692,6 +701,118 @@ void CameraWorkspaceController::setLutMax(int value) {
     rebuildLut();
 }
 
+void CameraWorkspaceController::autoSetLutFromCurrentFrame() {
+    QImage frame = lastFrame();
+    if (frame.isNull()) {
+        log(QStringLiteral("LUT Auto Set skipped: no current frame."));
+        showStatusMessage(QStringLiteral("LUT Auto Set needs a current frame"));
+        return;
+    }
+    if (frame.format() != QImage::Format_Grayscale8) {
+        frame = frame.convertToFormat(QImage::Format_Grayscale8);
+    }
+
+    std::array<int, 256> histogram{};
+    int total = 0;
+    for (int y = 0; y < frame.height(); ++y) {
+        const uchar* row = frame.constScanLine(y);
+        for (int x = 0; x < frame.width(); ++x) {
+            ++histogram[row[x]];
+            ++total;
+        }
+    }
+    if (total <= 0) {
+        log(QStringLiteral("LUT Auto Set skipped: current frame is empty."));
+        return;
+    }
+
+    auto percentileBin = [&](double percentile) {
+        const int target = std::clamp(static_cast<int>(std::lround(total * percentile)), 0, total - 1);
+        int cumulative = 0;
+        for (int i = 0; i < static_cast<int>(histogram.size()); ++i) {
+            cumulative += histogram[i];
+            if (cumulative > target) {
+                return i;
+            }
+        }
+        return 255;
+    };
+
+    const int low8 = percentileBin(0.01);
+    int high8 = percentileBin(0.995);
+    if (high8 <= low8) {
+        high8 = std::min(255, low8 + 1);
+    }
+
+    const int rangeMax = std::max(1, lutRangeMax_.load());
+    int low = std::clamp(static_cast<int>(std::lround(low8 * rangeMax / 255.0)), 0, rangeMax - 1);
+    int high = std::clamp(static_cast<int>(std::lround(high8 * rangeMax / 255.0)), 1, rangeMax);
+    if (high <= low) {
+        high = std::min(rangeMax, low + 1);
+    }
+    setLutMin(low);
+    setLutMax(high);
+    log(QString("LUT Auto Set: black=%1 white=%2 from current frame percentiles.").arg(low).arg(high));
+    showStatusMessage(QStringLiteral("LUT Auto Set applied"));
+}
+
+void CameraWorkspaceController::autoSetExposureFromCurrentFrame() {
+    const auto& controls = deps_.controls;
+    if (!controls.exposureSpin) {
+        return;
+    }
+    QImage frame = lastFrame();
+    if (frame.isNull()) {
+        log(QStringLiteral("Auto Exposure skipped: no current frame."));
+        showStatusMessage(QStringLiteral("Auto Exposure needs a current frame"));
+        return;
+    }
+    if (frame.format() != QImage::Format_Grayscale8) {
+        frame = frame.convertToFormat(QImage::Format_Grayscale8);
+    }
+
+    std::array<int, 256> histogram{};
+    int total = 0;
+    for (int y = 0; y < frame.height(); ++y) {
+        const uchar* row = frame.constScanLine(y);
+        for (int x = 0; x < frame.width(); ++x) {
+            ++histogram[row[x]];
+            ++total;
+        }
+    }
+    if (total <= 0) {
+        log(QStringLiteral("Auto Exposure skipped: current frame is empty."));
+        return;
+    }
+
+    const int targetCount = std::clamp(static_cast<int>(std::lround(total * 0.95)), 0, total - 1);
+    int cumulative = 0;
+    int p95 = 0;
+    for (int i = 0; i < static_cast<int>(histogram.size()); ++i) {
+        cumulative += histogram[i];
+        if (cumulative > targetCount) {
+            p95 = i;
+            break;
+        }
+    }
+    if (p95 <= 0) {
+        p95 = 1;
+    }
+
+    constexpr double targetP95 = 180.0;
+    const double factor = std::clamp(targetP95 / static_cast<double>(p95), 0.25, 4.0);
+    const double currentMs = controls.exposureSpin->value();
+    const double nextMs = std::clamp(currentMs * factor, controls.exposureSpin->minimum(), controls.exposureSpin->maximum());
+    controls.exposureSpin->setValue(nextMs);
+    applySettings();
+    log(QString("Auto Exposure: p95=%1 target=%2 exposure_ms=%3 -> %4")
+            .arg(p95)
+            .arg(targetP95, 0, 'f', 0)
+            .arg(currentMs, 0, 'f', 3)
+            .arg(nextMs, 0, 'f', 3));
+    showStatusMessage(QStringLiteral("Auto Exposure applied"));
+}
+
 void CameraWorkspaceController::applySettings() {
     const auto& controls = deps_.controls;
     if (!deps_.cameraWorker || !controls.presetCombo || !controls.binCombo || !controls.exposureSpin ||
@@ -713,7 +834,8 @@ void CameraWorkspaceController::applySettings() {
     settings.bits = bits;
     settings.pixelType = bits > 8 ? DCAM_PIXELTYPE_MONO16 : DCAM_PIXELTYPE_MONO8;
     settings.exposure_s = exposureMs / 1000.0;
-    settings.readoutSpeed = controls.readoutCombo->currentData().toInt();
+    const int comboReadout = controls.readoutCombo->currentData().toInt();
+    settings.readoutSpeed = comboReadout > 0 ? comboReadout : DCAMPROP_READOUTSPEED__FASTEST;
     settings.bundleEnabled = false;
     settings.bundleCount = 0;
     log(QString("Apply: preset=%1x%2 bin=%3 binH=%4 binV=%5 bits=%6 pixType=%7 exp_ms=%8 readout=%9")

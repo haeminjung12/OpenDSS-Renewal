@@ -477,7 +477,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     binCombo->setCurrentIndex(0);
 
     auto bitsCombo = new QComboBox;
-    bitsCombo->addItems({"8", "12", "16"});
+    bitsCombo->addItems({"8", "16"});
     bitsCombo->setCurrentIndex(0); // default 8-bit
 
     auto lutMinSpin = new QSpinBox;
@@ -503,11 +503,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     exposureSpin->setMinimum(0.01);
     exposureSpin->setMaximum(10000.0);
     exposureSpin->setValue(10.0);
+    auto autoExposureBtn = new QPushButton("Auto Exposure");
+    autoExposureBtn->setToolTip("Adjust exposure from the current live frame.");
 
     auto readoutCombo = new QComboBox;
     readoutCombo->addItem("Fast", DCAMPROP_READOUTSPEED__FASTEST);
-    readoutCombo->addItem("Slow", DCAMPROP_READOUTSPEED__SLOWEST);
     readoutCombo->setCurrentIndex(0);
+    readoutCombo->setEnabled(false);
+    readoutCombo->setToolTip("Readout is fixed to Fast for live camera use.");
+
+    auto lutAutoSetBtn = new QPushButton("Auto Set");
+    lutAutoSetBtn->setToolTip("Set black and white display range from the current frame.");
 
     auto logCheck = new QCheckBox("Enable logging (session_log.txt)");
     logCheck->setChecked(true);
@@ -1168,10 +1174,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(binCombo, "CameraBinningComboBox");
     nameWidget(bitsCombo, "CameraBitsComboBox");
     nameWidget(exposureSpin, "CameraExposureSpinBox");
+    nameWidget(autoExposureBtn, "CameraAutoExposureButton");
     nameWidget(readoutCombo, "CameraReadoutSpeedComboBox");
     nameWidget(displayEverySpin, "CameraDisplayEverySpinBox");
     nameWidget(lutMinSpin, "CameraLutMinSpinBox");
     nameWidget(lutMaxSpin, "CameraLutMaxSpinBox");
+    nameWidget(lutAutoSetBtn, "CameraLutAutoSetButton");
     nameWidget(lutMinSlider, "CameraLutMinSlider");
     nameWidget(lutMaxSlider, "CameraLutMaxSlider");
     nameWidget(lutRangeLabel, "CameraLutRangeLabel");
@@ -1946,10 +1954,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     cameraWorkspaceControls.customWidthSpin = customWidthSpin;
     cameraWorkspaceControls.customHeightSpin = customHeightSpin;
     cameraWorkspaceControls.exposureSpin = exposureSpin;
+    cameraWorkspaceControls.autoExposureButton = autoExposureBtn;
     cameraWorkspaceControls.readoutCombo = readoutCombo;
     cameraWorkspaceControls.binCombo = binCombo;
     cameraWorkspaceControls.lutMinSpin = lutMinSpin;
     cameraWorkspaceControls.lutMaxSpin = lutMaxSpin;
+    cameraWorkspaceControls.lutAutoSetButton = lutAutoSetBtn;
     cameraWorkspaceControls.lutMinSlider = lutMinSlider;
     cameraWorkspaceControls.lutMaxSlider = lutMaxSlider;
     cameraWorkspaceControls.displayEverySpin = displayEverySpin;
@@ -4058,14 +4068,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QPointer<QWidget> windowPtr(this);
         QPointer<QLabel> statusLabelPtr(statusLabel);
         backgroundTasks.launch("daq-manual-trigger", [&, cfg, windowPtr,
-                                                      statusLabelPtr](const BackgroundTaskRegistry::StopFlag& stop) {
+                                                       statusLabelPtr](const BackgroundTaskRegistry::StopFlag& stop) {
             std::string trigErr;
             bool ok = false;
+            double actualSampleRateHz = 0.0;
+            int finiteSampleCount = 0;
+            double finalSampleValue = 0.0;
             if (!stop->load()) {
                 DaqTrigger manualTrigger;
                 if (!manualTrigger.init(cfg, trigErr)) {
                     ok = false;
                 } else {
+                    actualSampleRateHz = manualTrigger.sampleRateHz();
+                    finiteSampleCount = manualTrigger.finiteSampleCount();
+                    finalSampleValue = manualTrigger.finalSampleValue();
                     ok = manualTrigger.fire(trigErr);
                 }
             }
@@ -4074,11 +4090,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             }
             QMetaObject::invokeMethod(
                 windowPtr,
-                [&, ok, trigErr, statusLabelPtr]() {
+                [&, ok, trigErr, statusLabelPtr, actualSampleRateHz, finiteSampleCount, finalSampleValue]() {
                     if (statusLabelPtr.isNull())
                         return;
                     if (ok) {
                         statusLabelPtr->setText("DAQ trigger sent.");
+                        qInfo().noquote()
+                            << "Manual DAQ trigger waveform:"
+                            << "SampleRateHz=" << actualSampleRateHz
+                            << "FiniteSampleCount=" << finiteSampleCount
+                            << "FinalSampleV=" << finalSampleValue;
+                        logMessage(QStringLiteral("Manual DAQ trigger waveform: SampleRateHz=%1 FiniteSampleCount=%2 "
+                                                  "FinalSampleV=%3")
+                                       .arg(actualSampleRateHz, 0, 'f', 3)
+                                       .arg(finiteSampleCount)
+                                       .arg(finalSampleValue, 0, 'f', 6));
                         appState.daqAvailable = true;
                         appState.daqDisabled = false;
                         appState.daqFault = false;
@@ -5394,11 +5420,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* cameraWidthSpin = this->findChild<QSpinBox*>("CameraCustomWidthSpinBox");
             auto* cameraHeightSpin = this->findChild<QSpinBox*>("CameraCustomHeightSpinBox");
             auto* cameraExposureSpin = this->findChild<QDoubleSpinBox*>("CameraExposureSpinBox");
+            auto* cameraAutoExposureButton = this->findChild<QPushButton*>("CameraAutoExposureButton");
             auto* cameraReadoutCombo = this->findChild<QComboBox*>("CameraReadoutSpeedComboBox");
             auto* cameraBinningCombo = this->findChild<QComboBox*>("CameraBinningComboBox");
             auto* cameraLutModeControl = this->findChild<QWidget*>("CameraLutModeSegmentedControl");
             auto* cameraLutMinSpin = this->findChild<QSpinBox*>("CameraLutMinSpinBox");
             auto* cameraLutMaxSpin = this->findChild<QSpinBox*>("CameraLutMaxSpinBox");
+            auto* cameraLutAutoSetButton = this->findChild<QPushButton*>("CameraLutAutoSetButton");
             auto* cameraDisplayEverySpin = this->findChild<QSpinBox*>("CameraDisplayEverySpinBox");
             auto* cameraStartButton = this->findChild<QPushButton*>("CameraStartButton");
             auto* cameraReconnectButton = this->findChild<QPushButton*>("CameraReconnectButton");
@@ -5519,6 +5547,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         cameraApplyButton->text().contains("Settings", Qt::CaseInsensitive),
                     QString("Camera apply button keeps expected visible wording (text=%1)")
                         .arg(cameraApplyButton ? cameraApplyButton->text() : QStringLiteral("<missing>")));
+            require(cameraAutoExposureButton && cameraAutoExposureButton->text() == "Auto Exposure",
+                    "CameraAutoExposureButton exists with expected text");
+            require(cameraAutoExposureButton &&
+                        cameraAutoExposureButton->toolTip().contains("current live frame", Qt::CaseInsensitive),
+                    "CameraAutoExposureButton tooltip explains current-frame behavior");
+            require(cameraLutAutoSetButton && cameraLutAutoSetButton->text() == "Auto Set",
+                    "CameraLutAutoSetButton exists with expected text");
+            require(cameraLutAutoSetButton &&
+                        cameraLutAutoSetButton->toolTip().contains("current frame", Qt::CaseInsensitive),
+                    "CameraLutAutoSetButton tooltip explains current-frame behavior");
+            require(cameraBitsCombo && cameraBitsCombo->count() == 2 && cameraBitsCombo->itemText(0) == "8" &&
+                        cameraBitsCombo->itemText(1) == "16",
+                    "CameraBitsComboBox is restricted to 8 and 16");
+            require(cameraReadoutCombo && cameraReadoutCombo->count() == 1 &&
+                        cameraReadoutCombo->itemText(0).compare("Fast", Qt::CaseInsensitive) == 0 &&
+                        !cameraReadoutCombo->isEnabled(),
+                    "CameraReadoutSpeedComboBox is fixed to disabled Fast");
             const bool realCameraVerifier = !options.noStartupPrompts;
             require(realCameraVerifier, "Camera workspace verifier requires normal camera startup");
             if (!realCameraVerifier) {
@@ -5574,6 +5619,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                              "CameraCustomHeightSpinBox fits within Format & Speed");
             requireContained(cameraExposureSpin, cameraFormatPanelFrame,
                              "CameraExposureSpinBox fits within Format & Speed");
+            requireContained(cameraAutoExposureButton, cameraFormatPanelFrame,
+                             "CameraAutoExposureButton fits within Format & Speed");
             requireContained(cameraReadoutCombo, cameraFormatPanelFrame,
                              "CameraReadoutSpeedComboBox fits within Format & Speed");
             requireContained(cameraBinningCombo, cameraFormatPanelFrame,
@@ -5584,6 +5631,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "CameraReadoutSpeedComboBox expands enough for the active readout text");
             requireContained(cameraLutMinSpin, cameraFormatPanelFrame, "CameraLutMinSpinBox fits within Format & Speed");
             requireContained(cameraLutMaxSpin, cameraFormatPanelFrame, "CameraLutMaxSpinBox fits within Format & Speed");
+            requireContained(cameraLutAutoSetButton, cameraFormatPanelFrame,
+                             "CameraLutAutoSetButton fits within Format & Speed");
             requireContained(cameraLutRangeBar, cameraFormatPanelFrame, "CameraLutRangeBar fits within Format & Speed");
             requireContained(savePathLineEdit, cameraRecordingPanelFrame, "SavePathEdit fits within Recording");
             requireContained(saveBrowseButton, cameraRecordingPanelFrame, "SaveBrowseButton fits within Recording");
@@ -5771,6 +5820,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(liveHudResolution->text().contains("320 x 240"),
                     "LiveViewerHudResolutionLabel updated from frame data");
             require(liveHudFps->text().contains("42"), "LiveViewerHudFpsLabel updated from frame data");
+            if (cameraLutAutoSetButton) {
+                cameraLutAutoSetButton->click();
+                app.processEvents();
+            }
+            require(cameraController->lutMaxValue() > cameraController->lutMinValue(),
+                    "CameraLutAutoSetButton keeps LUT range ordered after direct Qt click");
+            const double exposureBeforeAuto = exposureSpin->value();
+            if (cameraAutoExposureButton) {
+                cameraAutoExposureButton->click();
+                waitForUi(350);
+            }
+            require(exposureSpin->value() >= exposureSpin->minimum() && exposureSpin->value() <= exposureSpin->maximum(),
+                    QString("CameraAutoExposureButton leaves exposure within limits (before=%1 after=%2)")
+                        .arg(exposureBeforeAuto, 0, 'f', 3)
+                        .arg(exposureSpin->value(), 0, 'f', 3));
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
             if (!failures.isEmpty()) {
@@ -6105,8 +6169,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(forceTriggerButton && forceTriggerButton->isEnabled(), "LiveForceTriggerButton is enabled");
             require(triggerButton != nullptr, triggerObjectName + QStringLiteral(" exists"));
             require(triggerButton && triggerButton->isEnabled(), triggerObjectName + QStringLiteral(" is enabled"));
-            require(selectedDevice == QStringLiteral("Dev2"), "Selected DAQ device is Dev2");
-            require(selectedChannel == QStringLiteral("Dev2/ao0"), "Selected DAQ channel is Dev2/ao0");
+            require(selectedDevice == QStringLiteral("Dev1"), "Selected DAQ device is Dev1");
+            require(selectedChannel == QStringLiteral("Dev1/ao0"), "Selected DAQ channel is Dev1/ao0");
             require(amplitudeSpin && nearlyEqual(amplitudeSpin->value(), 5.0), "Amplitude is 5.000 V");
             require(frequencySpin && nearlyEqual(frequencySpin->value(), 10.0), "Frequency is 10.000 kHz");
             require(durationSpin && nearlyEqual(durationSpin->value(), 5.0), "Duration is 5.000 ms");
@@ -6160,9 +6224,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             }
 
             if (verifyLiveViewTrigger) {
-                logMessage("Live View manual trigger verifier sent one approved Dev2/ao0 output.");
+                logMessage("Live View manual trigger verifier sent one approved Dev1/ao0 output.");
             } else {
-                logMessage("Direct DAQ manual trigger verifier sent one approved Dev2/ao0 output.");
+                logMessage("Direct DAQ manual trigger verifier sent one approved Dev1/ao0 output.");
             }
             finish(0);
         });

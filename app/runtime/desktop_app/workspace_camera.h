@@ -21,11 +21,13 @@ struct CameraWorkspaceControls {
     QSpinBox* customWidthSpin = nullptr;
     QSpinBox* customHeightSpin = nullptr;
     QDoubleSpinBox* exposureSpin = nullptr;
+    QPushButton* autoExposureButton = nullptr;
     QComboBox* readoutCombo = nullptr;
     QComboBox* binCombo = nullptr;
 
     QSpinBox* lutMinSpin = nullptr;
     QSpinBox* lutMaxSpin = nullptr;
+    QPushButton* lutAutoSetButton = nullptr;
     QSlider* lutMinSlider = nullptr;
     QSlider* lutMaxSlider = nullptr;
     QSpinBox* displayEverySpin = nullptr;

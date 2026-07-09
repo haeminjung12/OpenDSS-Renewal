@@ -43,17 +43,15 @@ int main(int argc, char* argv[]) {
         runtimeSettings.value("runtime/v1/model/targetClassId", QStringLiteral("1")).toString().trimmed();
     if (appState.targetClassId.isEmpty())
         appState.targetClassId = QStringLiteral("1");
-    appState.testMode = options.testMode || runtimeSettings.value("settings/testMode", false).toBool();
-    appState.daqDisabled = options.noDaq;
+    appState.daqDisabled = false;
 #ifdef HAVE_NIDAQMX
     constexpr bool kDaqBuildEnabled = true;
 #else
     constexpr bool kDaqBuildEnabled = false;
 #endif
     const QString initialDaqStatusText =
-        options.noDaq ? QStringLiteral("DAQ: disabled")
-                      : (kDaqBuildEnabled ? QStringLiteral("DAQ: unchecked") : QStringLiteral("DAQ: unavailable"));
-    appState.daqFault = !options.noDaq && !kDaqBuildEnabled;
+        kDaqBuildEnabled ? QStringLiteral("DAQ: unchecked") : QStringLiteral("DAQ: unavailable");
+    appState.daqFault = !kDaqBuildEnabled;
     appState.daqStatusText = initialDaqStatusText;
     QString registryFilePath;
     QString registryLoadWarning;

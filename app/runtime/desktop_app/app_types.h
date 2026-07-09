@@ -20,12 +20,10 @@ struct SequenceFrame {
 };
 
 struct AppOptions {
-    bool testMode = false;
-    bool mockCamera = false;
     bool verifyCameraWorkspace = false;
     bool verifyDaqSettings = false;
     bool verifyDirectDaqManualTrigger = false;
-    bool noDaq = false;
+    bool verifyLiveViewManualTrigger = false;
     bool noStartupPrompts = false;
     QString datasetBuilderReviewPath;
     QString initialWorkspace;

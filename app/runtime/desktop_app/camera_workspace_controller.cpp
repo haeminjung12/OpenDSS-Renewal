@@ -233,9 +233,18 @@ bool CameraWorkspaceController::initializeCamera() {
     if (!deps_.cameraWorker) {
         return false;
     }
-    const bool skipStartup = deps_.hardwareFreeMode || (deps_.options && deps_.options->noStartupPrompts);
+    const bool skipStartup = deps_.options && deps_.options->noStartupPrompts;
     if (skipStartup) {
-        setHardwareFreeMode();
+        if (deps_.statusLabel) {
+            deps_.statusLabel->setText("Camera startup skipped by launch option.");
+        }
+        if (deps_.cameraStatusItem) {
+            deps_.cameraStatusItem->setText("Camera: startup skipped");
+        }
+        if (deps_.cameraOpened) {
+            *deps_.cameraOpened = false;
+        }
+        updateCameraActionState();
         return true;
     }
     if (deps_.statusLabel) {
@@ -501,17 +510,6 @@ void CameraWorkspaceController::wireControls() {
 
     if (deps_.reconnectButton) {
         connect(deps_.reconnectButton, &QPushButton::clicked, this, [this]() {
-            if (deps_.hardwareFreeMode) {
-                if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Mock camera reconnected.");
-                }
-                if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText("Camera: mock");
-                }
-                showStatusMessage("Mock camera reconnected");
-                log("Mock camera reconnect requested.");
-                return;
-            }
             if (deps_.statusLabel) {
                 deps_.statusLabel->setText("Reconnecting camera...");
             }
@@ -530,26 +528,6 @@ void CameraWorkspaceController::wireControls() {
                 return;
             }
             const bool stopRequested = deps_.appState && deps_.appState->cameraStreaming;
-            if (deps_.hardwareFreeMode) {
-                if (deps_.appState) {
-                    deps_.appState->cameraStreaming = !stopRequested;
-                }
-                if (deps_.statusLabel) {
-                    deps_.statusLabel->setText(stopRequested ? "Mock preview stopped." : "Mock preview started.");
-                }
-                if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText(stopRequested ? "Camera: mock" : "Camera: mock acquiring");
-                }
-                if (deps_.runStatusItem && !stopRequested) {
-                    deps_.runStatusItem->setText("Run: capture");
-                } else if (deps_.pipelineEnabled && !deps_.pipelineEnabled->load() && deps_.runStatusItem) {
-                    deps_.runStatusItem->setText("Run: idle");
-                }
-                updateCameraActionState();
-                showStatusMessage(stopRequested ? "Mock preview stopped" : "Mock preview started");
-                log(stopRequested ? "Mock preview stopped." : "Mock preview started.");
-                return;
-            }
             if (deps_.statusLabel) {
                 deps_.statusLabel->setText(stopRequested ? "Stopping capture..." : "Starting capture...");
             }
@@ -572,17 +550,6 @@ void CameraWorkspaceController::wireControls() {
     if (deps_.applyButton) {
         connect(deps_.applyButton, &QPushButton::clicked, this, [this]() {
             if (deps_.viewerOnly && *deps_.viewerOnly) {
-                return;
-            }
-            if (deps_.hardwareFreeMode) {
-                if (deps_.statusLabel) {
-                    deps_.statusLabel->setText("Mock camera settings applied.");
-                }
-                if (deps_.cameraStatusItem) {
-                    deps_.cameraStatusItem->setText("Camera: mock");
-                }
-                showStatusMessage("Mock camera settings applied");
-                log("Mock camera settings applied.");
                 return;
             }
             applySettings();
@@ -816,40 +783,6 @@ void CameraWorkspaceController::setViewerOnly() {
     if (deps_.operationalTabs) {
         deps_.operationalTabs->setEnabled(false);
     }
-}
-
-void CameraWorkspaceController::setHardwareFreeMode() {
-    if (deps_.appState) {
-        deps_.appState->testMode = true;
-        deps_.appState->cameraStreaming = false;
-        deps_.appState->daqAvailable = false;
-        deps_.appState->daqDisabled = deps_.options && deps_.options->noDaq;
-        deps_.appState->daqFault = deps_.options && !deps_.options->noDaq && !deps_.daqBuildEnabled;
-        deps_.appState->daqStatusText = deps_.initialDaqStatusText;
-    }
-    updateCameraActionState();
-    const bool mockCamera = deps_.options && deps_.options->mockCamera;
-    if (deps_.statusLabel) {
-        deps_.statusLabel->setText(mockCamera ? "Test mode: mock camera active."
-                                              : "Test mode: camera startup skipped.");
-    }
-    if (deps_.cameraStatusItem) {
-        deps_.cameraStatusItem->setText(mockCamera ? "Camera: mock" : "Camera: unavailable");
-    }
-    if (deps_.cameraOpened) {
-        *deps_.cameraOpened = false;
-    }
-    if (deps_.modelStatusItem) {
-        deps_.modelStatusItem->setText("Model: not loaded");
-    }
-    if (deps_.daqStatusItem) {
-        deps_.daqStatusItem->setText(deps_.initialDaqStatusText);
-    }
-    if (deps_.runStatusItem) {
-        deps_.runStatusItem->setText("Run: idle");
-    }
-    showStatusMessage("Hardware-free test mode");
-    log("Hardware-free GUI test mode active; startup camera prompts suppressed.");
 }
 
 void CameraWorkspaceController::updateCameraActionState() {

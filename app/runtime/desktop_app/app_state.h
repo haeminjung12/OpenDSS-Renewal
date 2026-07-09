@@ -10,7 +10,6 @@ struct AppState {
 
     bool triggerArmed = false;
     bool cameraStreaming = false;
-    bool testMode = false;
 
     bool daqAvailable = false;
     bool daqDisabled = false;

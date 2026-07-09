@@ -10,6 +10,4 @@ struct AppContext {
 
     AppContext();
     AppContext(const AppOptions& optionsIn, const AppPaths& pathsIn);
-
-    bool hardwareFreeMode() const;
 };

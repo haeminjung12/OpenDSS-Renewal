@@ -31,6 +31,17 @@ This produces:
 
 `C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe`
 
+## Hardware-required GUI verifiers
+
+These verifiers require the relevant camera/DAQ hardware to be connected. The Live View manual-trigger verifier fires
+one configured finite DAQ output after app-owned Qt assertions pass.
+
+```powershell
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-camera-workspace
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-daq-settings
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-live-view-manual-trigger
+```
+
 ## No-hardware build and test path
 
 For CI or local verification without NI hardware attached, keep the GUI enabled, disable NI-DAQmx, and build the

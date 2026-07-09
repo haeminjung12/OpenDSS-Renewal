@@ -47,7 +47,6 @@ class CameraWorkspaceController : public QObject {
         desktop_app::workspace::CameraWorkspaceControls controls;
         bool* viewerOnly = nullptr;
         bool* cameraOpened = nullptr;
-        bool hardwareFreeMode = false;
         bool daqBuildEnabled = false;
         QString initialDaqStatusText;
         QLabel* statusLabel = nullptr;
@@ -102,7 +101,6 @@ class CameraWorkspaceController : public QObject {
     void applySettings();
     void scheduleApplySettings();
     void setViewerOnly();
-    void setHardwareFreeMode();
     void updateCameraActionState();
     void resetPipelineIfReady(const QString& statusText);
     void showStatusMessage(const QString& message);

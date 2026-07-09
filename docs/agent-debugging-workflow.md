@@ -86,11 +86,12 @@ rtk test cmake --build "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-rele
 rtk test ctest --test-dir "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release" -C Release --output-on-failure
 ```
 
-For GUI changes, run the relevant verifier:
+For GUI changes, run the relevant hardware-required verifier:
 
 ```powershell
-rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --test-mode --verify-camera-workspace
-rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --test-mode --mock-camera --no-startup-prompts --verify-daq-settings
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-camera-workspace
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-daq-settings
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-live-view-manual-trigger
 ```
 
 Do not run DAQ output tests unless the user approves the exact action.

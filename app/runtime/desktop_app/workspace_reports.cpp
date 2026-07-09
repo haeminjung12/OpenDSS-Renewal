@@ -305,14 +305,12 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
     auto* reportsDiagnosticsBody = makePanelBody(reportsDiagnosticsPanel);
     auto* reportsDiagnosticsRow = new QHBoxLayout;
     reportsDiagnosticsRow->setSpacing(8);
-    reportsDiagnosticsRow->addWidget(makeReportMetric("Camera", controls.hardwareFreeMode ? "mock" : "startup",
-                                                      controls.viewerOnly ? "viewer-only" : "pending"));
+    reportsDiagnosticsRow->addWidget(
+        makeReportMetric("Camera", "startup", controls.viewerOnly ? "viewer-only" : "pending"));
     reportsDiagnosticsRow->addWidget(makeReportMetric("Model", "not loaded", "pipeline"));
-    reportsDiagnosticsRow->addWidget(
-        makeReportMetric("DAQ", controls.noDaq ? "disabled" : "unchecked", "trigger safe"));
+    reportsDiagnosticsRow->addWidget(makeReportMetric("DAQ", "unchecked", "trigger required"));
     reportsDiagnosticsRow->addWidget(makeReportMetric("Python", "not configured", "trainer/validator"));
-    reportsDiagnosticsRow->addWidget(
-        makeReportMetric("Run", "idle", controls.hardwareFreeMode ? "no hardware" : "hardware"));
+    reportsDiagnosticsRow->addWidget(makeReportMetric("Run", "idle", "hardware"));
     reportsDiagnosticsBody->addLayout(reportsDiagnosticsRow);
     auto* reportsDiagnosticsNote =
         new QLabel("Detailed hardware and subprocess diagnostics remain in the existing System Diagnostics dock.");

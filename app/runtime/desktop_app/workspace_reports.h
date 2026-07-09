@@ -10,9 +10,7 @@ namespace desktop_app::workspace {
 
 struct ReportsWorkspaceControls {
     QString logPath;
-    bool hardwareFreeMode = false;
     bool viewerOnly = false;
-    bool noDaq = false;
     QString outputRoot;
 
     QAction* showLogsAction = nullptr;

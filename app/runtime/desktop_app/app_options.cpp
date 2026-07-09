@@ -11,15 +11,6 @@ AppOptions parseAppOptions(int argc, char* argv[]) {
     AppOptions options;
     for (int i = 1; i < argc; ++i) {
         const std::string arg(argv[i]);
-        if (arg.find("--test-mode") != std::string::npos) {
-            options.testMode = true;
-            options.mockCamera = true;
-            options.noDaq = true;
-            options.noStartupPrompts = true;
-        }
-        if (arg.find("--mock-camera") != std::string::npos) {
-            options.mockCamera = true;
-        }
         if (arg.find("--verify-camera-workspace") != std::string::npos) {
             options.verifyCameraWorkspace = true;
         }
@@ -29,8 +20,8 @@ AppOptions parseAppOptions(int argc, char* argv[]) {
         if (arg.find("--verify-direct-daq-manual-trigger") != std::string::npos) {
             options.verifyDirectDaqManualTrigger = true;
         }
-        if (arg.find("--no-daq") != std::string::npos) {
-            options.noDaq = true;
+        if (arg.find("--verify-live-view-manual-trigger") != std::string::npos) {
+            options.verifyLiveViewManualTrigger = true;
         }
         if (arg.find("--no-startup-prompts") != std::string::npos) {
             options.noStartupPrompts = true;

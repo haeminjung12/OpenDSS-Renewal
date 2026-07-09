@@ -175,7 +175,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     constexpr bool kDaqBuildEnabled = false;
 #endif
     bool viewerOnly = false;
-    const bool hardwareFreeMode = context_.hardwareFreeMode();
     auto currentThemeMode =
         runtimeSettings.value("shell/theme", "dark").toString().compare("light", Qt::CaseInsensitive) == 0
             ? desktop_app::theme::ThemeMode::Light
@@ -313,8 +312,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto armTriggerAction = addDisabledAction(sortingMenu, "Arm Trigger", "SortingArmTriggerAction",
                                               "Trigger arming is not introduced in this declutter pass.");
     auto manualTriggerAction = sortingMenu->addAction("Manual Trigger");
-    manualTriggerAction->setStatusTip(
-        "Can fire the configured DAQ waveform in normal mode. Test mode and no-DAQ runs skip output.");
+    manualTriggerAction->setStatusTip("Fires the configured DAQ waveform from Live View when hardware is available.");
     auto openRunFolderAction = sortingMenu->addAction("Open Run Folder");
 
     auto viewMenu = this->menuBar()->addMenu("&View");
@@ -707,7 +705,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     labviewLayout->addWidget(delaySpin, labRow++, 1, 1, 2);
     auto labviewTestBtn = new QPushButton("Manual Trigger");
     labviewTestBtn->setEnabled(false);
-    labviewTestBtn->setToolTip("Fires the configured DAQ waveform in normal mode. Test mode and no-DAQ runs skip output.");
+    labviewTestBtn->setVisible(false);
+    labviewTestBtn->setToolTip("Internal DAQ trigger endpoint; use Live View Manual Trigger.");
     labviewLayout->addWidget(labviewTestBtn, labRow++, 0, 1, 2);
     auto labviewReconnectBtn = new QPushButton("Reconnect DAQ");
     labviewLayout->addWidget(labviewReconnectBtn, labRow++, 0, 1, 2);
@@ -1282,13 +1281,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(trainerColorJitterCheck, "TrainerColorJitterCheckBox");
     nameWidget(trainerRandomCropCheck, "TrainerRandomCropCheckBox");
     nameWidget(trainerSchedulerCombo, "TrainerSchedulerCombo");
-    if (options.noDaq) {
-        daqDeviceCombo->setEnabled(false);
-        daqChannelEdit->clear();
-        labviewStatusText->setText("Disabled");
-        labviewOutputLabel->setText("Output: disabled");
-    }
-
     auto runStateGroup = new QGroupBox("Run State");
     nameWidget(runStateGroup, "RunStateGroup");
     auto runStateLayout = new QVBoxLayout;
@@ -1711,24 +1703,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QStringLiteral("Waveform settings are incomplete; click will block before output.");
         const QString manualTriggerTip =
             manualTriggerReady
-                ? (waveformValid
-                       ? QStringLiteral(
-                             "Send the configured manual DAQ trigger. Test mode and no-DAQ runs skip output.")
-                       : QStringLiteral("%1 Test mode and no-DAQ runs skip output.").arg(waveformInvalidTip))
-                : QStringLiteral("Manual Trigger disabled: %1. Test mode and no-DAQ runs skip output.")
-                      .arg(manualBlockers.join("; "));
+                ? (waveformValid ? QStringLiteral("Send the configured manual DAQ trigger.")
+                                 : waveformInvalidTip)
+                : QStringLiteral("Manual Trigger disabled: %1.").arg(manualBlockers.join("; "));
         labviewTestBtn->setEnabled(manualTriggerReady);
         labviewTestBtn->setToolTip(manualTriggerTip);
         labviewTestBtn->setStatusTip(manualTriggerTip);
         const QString liveManualTriggerTip =
             manualTriggerReady
-                ? (waveformValid
-                       ? QStringLiteral(
-                             "Send the configured manual DAQ trigger from Live View. Test mode and no-DAQ runs skip output.")
-                       : QStringLiteral("Live View Manual Trigger: %1 Test mode and no-DAQ runs skip output.")
-                             .arg(waveformInvalidTip))
-                : QStringLiteral("Live View Manual Trigger disabled: %1. Test mode and no-DAQ runs skip output.")
-                      .arg(manualBlockers.join("; "));
+                ? (waveformValid ? QStringLiteral("Send the configured manual DAQ trigger from Live View.")
+                                 : QStringLiteral("Live View Manual Trigger: %1").arg(waveformInvalidTip))
+                : QStringLiteral("Live View Manual Trigger disabled: %1.").arg(manualBlockers.join("; "));
         liveForceTriggerBtn->setEnabled(manualTriggerReady);
         liveForceTriggerBtn->setToolTip(liveManualTriggerTip);
         liveForceTriggerBtn->setStatusTip(liveManualTriggerTip);
@@ -2069,9 +2054,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     desktop_app::workspace::ReportsWorkspaceControls reportsWorkspaceControls;
     reportsWorkspaceControls.logPath = logPath;
-    reportsWorkspaceControls.hardwareFreeMode = hardwareFreeMode;
     reportsWorkspaceControls.viewerOnly = viewerOnly;
-    reportsWorkspaceControls.noDaq = options.noDaq;
     reportsWorkspaceControls.outputRoot = defaultWorkspacePaths.runs;
     reportsWorkspaceControls.showLogsAction = showLogsAction;
     reportsWorkspaceControls.showDiagnosticsAction = showDiagnosticsAction;
@@ -2085,7 +2068,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     settingsWorkspaceControls.metadataPath = metaEdit->text().trimmed();
     settingsWorkspaceControls.datasetsRoot = defaultWorkspacePaths.datasets;
     settingsWorkspaceControls.logPath = logPath;
-    settingsWorkspaceControls.hardwareFreeMode = hardwareFreeMode;
     settingsWorkspaceControls.cameraSavePathEdit = savePathEdit;
     settingsWorkspaceControls.cameraPresetCombo = presetCombo;
     settingsWorkspaceControls.exposureSpin = exposureSpin;
@@ -2103,7 +2085,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     settingsWorkspaceControls.operationalTabs = operationalTabs;
     settingsWorkspaceControls.analysisTab = leftAnalysisTab;
     settingsWorkspaceControls.devicesTab = leftDevicesTab;
-    settingsWorkspaceControls.appState = &appState;
     auto settingsWorkspacePage = desktop_app::workspace::buildSettingsWorkspace(settingsWorkspaceControls);
 
     auto workspaceStack = new QStackedWidget;
@@ -2135,10 +2116,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     headerStatusText->setMinimumWidth(190);
     headerStatusText->setMaximumWidth(300);
     headerStatusText->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    auto headerCameraChip = new QLabel(options.mockCamera ? "Camera mock" : "Camera startup");
+    auto headerCameraChip = new QLabel("Camera startup");
     auto headerModelChip = new QLabel("Model not loaded");
-    auto headerDaqChip = new QLabel((options.noDaq || !kDaqBuildEnabled) ? "DAQ unavailable" : "DAQ unchecked");
-    auto headerTriggerChip = new QLabel(options.noDaq ? "DAQ disabled" : "Manual trigger blocked");
+    auto headerDaqChip = new QLabel(!kDaqBuildEnabled ? "DAQ unavailable" : "DAQ unchecked");
+    auto headerTriggerChip = new QLabel("Manual trigger blocked");
     nameWidget(headerCameraChip, "OpenDssHeaderCameraChip");
     nameWidget(headerModelChip, "OpenDssHeaderModelChip");
     nameWidget(headerDaqChip, "OpenDssHeaderDaqChip");
@@ -2152,8 +2133,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     }
     headerCameraChip->setProperty("chipTone", "warn");
     headerModelChip->setProperty("chipTone", "warn");
-    headerDaqChip->setProperty("chipTone", options.noDaq ? "disabled" : "warn");
-    headerTriggerChip->setProperty("chipTone", options.noDaq ? "running" : "warn");
+    headerDaqChip->setProperty("chipTone", !kDaqBuildEnabled ? "disabled" : "warn");
+    headerTriggerChip->setProperty("chipTone", "warn");
     auto shellMenuButton = new QToolButton;
     nameWidget(shellMenuButton, "OpenDssHeaderMenuButton");
     shellMenuButton->setProperty("headerIcon", true);
@@ -2470,12 +2451,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         const QString run = statusValue(runText, "Run").toLower();
         if (run.contains("viewer-only") || camera.contains("unavailable"))
             return QStringLiteral("Camera viewer-only");
-        if (camera.contains("mock acquiring"))
-            return QStringLiteral("Camera mock acquiring");
         if (camera.contains("acquiring"))
             return QStringLiteral("Camera acquiring");
-        if (camera.contains("mock"))
-            return QStringLiteral("Camera mock");
         if (camera.contains("connected"))
             return QStringLiteral("Camera connected");
         if (camera.contains("error"))
@@ -2506,7 +2483,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             return QStringLiteral("Trigger sent");
         if (trigger.contains("failed"))
             return QStringLiteral("Trigger failed");
-        if (options.noDaq || appState.daqDisabled)
+        if (appState.daqDisabled)
             return QStringLiteral("DAQ disabled");
         if (liveForceTriggerBtn->isEnabled())
             return QStringLiteral("Manual trigger ready");
@@ -2616,12 +2593,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QObject::connect(startSortingAction, &QAction::triggered, pipelineStartBtn, &QPushButton::click);
     QObject::connect(stopSortingAction, &QAction::triggered, pipelineStopBtn, &QPushButton::click);
     QObject::connect(manualTriggerAction, &QAction::triggered, liveForceTriggerBtn, &QPushButton::click);
-    QObject::connect(liveForceTriggerBtn, &QPushButton::clicked, [&]() {
-        updateForceTriggerState();
-        if (!liveForceTriggerBtn->isEnabled())
-            return;
-        labviewTestBtn->click();
-    });
     QObject::connect(liveSnapshotBtn, &QPushButton::clicked, captureBtn, &QPushButton::click);
     QObject::connect(liveDetectorTuningBtn, &QPushButton::clicked, [&]() {
         liveDetectorDrawerOverlay->setVisible(!liveDetectorDrawerOverlay->isVisible());
@@ -3455,7 +3426,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     bool labviewTriggerReady = false;
     SettingsWorkspaceController::Dependencies settingsControllerDeps;
     settingsControllerDeps.appState = &appState;
-    settingsControllerDeps.noDaq = options.noDaq;
     settingsControllerDeps.daqDeviceCombo = daqDeviceCombo;
     settingsControllerDeps.daqChannelEdit = daqChannelEdit;
     settingsControllerDeps.amplitudeSpin = amplitudeSpin;
@@ -3480,7 +3450,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     cameraControllerDeps.controls = cameraWorkspaceControls;
     cameraControllerDeps.viewerOnly = &viewerOnly;
     cameraControllerDeps.cameraOpened = &cameraOpened;
-    cameraControllerDeps.hardwareFreeMode = hardwareFreeMode;
     cameraControllerDeps.daqBuildEnabled = kDaqBuildEnabled;
     cameraControllerDeps.initialDaqStatusText = initialDaqStatusText;
     cameraControllerDeps.statusLabel = statusLabel;
@@ -4054,21 +4023,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         loadPipeline(enableAfter, false);
     });
 
-    QObject::connect(labviewTestBtn, &QPushButton::clicked, [&]() {
-        if (options.noDaq) {
-            statusLabel->setText("DAQ disabled for test mode.");
-            daqStatusItem->setText("DAQ: disabled");
-            appState.daqAvailable = false;
-            appState.daqDisabled = true;
-            appState.daqFault = false;
-            appState.triggerArmed = false;
-            appState.daqStatusText = daqStatusItem->text();
-            settingsController->setLabviewStatus("Disabled", "#666");
-            updateForceTriggerState();
-            this->statusBar()->showMessage("DAQ disabled");
-            logMessage("Manual DAQ trigger skipped because --no-daq is active.");
-            return;
-        }
+    auto runManualDaqTrigger = [&](const QString& triggerSource) {
         updateForceTriggerState();
         const bool waveformValid = !daqChannelEdit->text().trimmed().isEmpty() && amplitudeSpin->value() > 0.0 &&
                                    freqSpin->value() > 0.0 && durationSpin->value() > 0.0;
@@ -4081,7 +4036,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         if (!waveformValid)
             blockers << QStringLiteral("waveform settings are incomplete");
         if (!blockers.isEmpty()) {
-            const QString message = QStringLiteral("Manual DAQ trigger blocked: %1.").arg(blockers.join("; "));
+            const QString message =
+                QStringLiteral("%1 blocked: %2.").arg(triggerSource, blockers.join("; "));
             statusLabel->setText(message);
             this->statusBar()->showMessage("Manual trigger blocked");
             logMessage(message);
@@ -4097,28 +4053,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         cfg.durationMs = durationSpin->value();
         cfg.delayMs = delaySpin->value();
 
-        bool canUsePipeline = false;
-        {
-            QMutexLocker lock(&pipelineMutex);
-            canUsePipeline = pipeline.isTriggerReady();
-        }
-
         statusLabel->setText("DAQ trigger queued...");
+        logMessage(QString("%1 queued direct DAQ output on %2.").arg(triggerSource, daqChannelEdit->text().trimmed()));
         QPointer<QWidget> windowPtr(this);
         QPointer<QLabel> statusLabelPtr(statusLabel);
-        backgroundTasks.launch("daq-force-trigger", [&, cfg, canUsePipeline, windowPtr,
-                                                     statusLabelPtr](const BackgroundTaskRegistry::StopFlag& stop) {
+        backgroundTasks.launch("daq-manual-trigger", [&, cfg, windowPtr,
+                                                      statusLabelPtr](const BackgroundTaskRegistry::StopFlag& stop) {
             std::string trigErr;
             bool ok = false;
-            bool usedPipeline = false;
-            if (canUsePipeline && !stop->load()) {
-                QMutexLocker lock(&pipelineMutex);
-                if (!stop->load()) {
-                    ok = pipeline.fireTrigger(trigErr);
-                    usedPipeline = true;
-                }
-            }
-            if (!usedPipeline && !stop->load()) {
+            if (!stop->load()) {
                 DaqTrigger manualTrigger;
                 if (!manualTrigger.init(cfg, trigErr)) {
                     ok = false;
@@ -4155,6 +4098,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 },
                 Qt::QueuedConnection);
         });
+    };
+
+    QObject::connect(labviewTestBtn, &QPushButton::clicked,
+                     [&]() { runManualDaqTrigger(QStringLiteral("Internal manual DAQ trigger")); });
+    QObject::connect(liveForceTriggerBtn, &QPushButton::clicked, [&]() {
+        updateForceTriggerState();
+        if (!liveForceTriggerBtn->isEnabled())
+            return;
+        runManualDaqTrigger(QStringLiteral("Live View Manual Trigger"));
     });
 
     QObject::connect(captureBtn, &QPushButton::clicked, [&]() {
@@ -5348,15 +5300,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     app.processEvents();
     this->showMaximized();
     splash.finish(this);
-    if (options.verifyDirectDaqManualTrigger) {
-        logMessage("Direct DAQ verifier: camera startup skipped without enabling hardware-free test mode.");
+    if (options.verifyDirectDaqManualTrigger || options.verifyLiveViewManualTrigger) {
+        logMessage("Manual DAQ verifier: camera startup skipped while preserving hardware-required DAQ checks.");
     } else {
         cameraController->initializeCamera();
     }
-    if (options.noDaq) {
-        logDaqStartupState("DAQ disabled by launch option.");
-    }
-    if (!hardwareFreeMode && !options.verifyDirectDaqManualTrigger) {
+    if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger) {
         QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
     }
     if (!options.datasetBuilderReviewPath.trimmed().isEmpty()) {
@@ -5570,7 +5519,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         cameraApplyButton->text().contains("Settings", Qt::CaseInsensitive),
                     QString("Camera apply button keeps expected visible wording (text=%1)")
                         .arg(cameraApplyButton ? cameraApplyButton->text() : QStringLiteral("<missing>")));
-            const bool realCameraVerifier = !options.mockCamera && !options.noStartupPrompts;
+            const bool realCameraVerifier = !options.noStartupPrompts;
+            require(realCameraVerifier, "Camera workspace verifier requires normal camera startup");
             if (!realCameraVerifier) {
                 require(pipelineStartButton && !pipelineStartButton->isEnabled(),
                         "Start Sorting stays disabled until a valid pipeline is ready");
@@ -5674,7 +5624,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
             const QString initialRunStatusText = runStatusItem ? runStatusItem->text() : QString();
             if (realCameraVerifier) {
-                require(options.noDaq, "Real camera verifier requires DAQ disabled by --no-daq");
                 const bool initSettled = waitUntil(12000, [&]() {
                     const QString cameraStatus = cameraStatusItem ? cameraStatusItem->text() : QString();
                     return cameraOpened || cameraStatus.contains("error", Qt::CaseInsensitive) ||
@@ -5717,59 +5666,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     const bool captureStopped = waitUntil(8000, [&]() { return !appState.cameraStreaming; });
                     require(captureStopped, "Real camera capture stops through CameraStartButton");
                 }
-            } else {
-                if (cameraReconnectButton) {
-                    cameraReconnectButton->click();
-                    app.processEvents();
-                    require(statusLabel && statusLabel->text() == "Mock camera reconnected.",
-                            "Camera reconnect updates the visible status text in mock mode");
-                    require(cameraStatusItem && cameraStatusItem->text() == "Camera: mock",
-                            "Camera reconnect keeps the camera status chip on mock");
-                    require(this->statusBar()->currentMessage().contains("Mock camera reconnected"),
-                            "Camera reconnect updates the status bar in mock mode");
-                }
-                if (cameraApplyButton) {
-                    cameraApplyButton->click();
-                    app.processEvents();
-                    require(statusLabel && statusLabel->text() == "Mock camera settings applied.",
-                            "Camera apply updates the visible status text in mock mode");
-                    require(cameraStatusItem && cameraStatusItem->text() == "Camera: mock",
-                            "Camera apply keeps the camera status chip on mock");
-                    require(this->statusBar()->currentMessage().contains("Mock camera settings applied"),
-                            "Camera apply updates the status bar in mock mode");
-                }
             }
-            if (!realCameraVerifier) {
-                if (pipelineStartButton) {
-                    pipelineStartButton->click();
-                    app.processEvents();
-                    require(runStatusItem && runStatusItem->text() == initialRunStatusText,
-                            "Disabled Start Sorting does not change the run state");
-                    require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
-                            "Disabled Start Sorting keeps Stop Sorting hidden");
-                }
-                pipelineEnableCheck->setChecked(true);
-                app.processEvents();
-                require(pipelineStartButton && !pipelineStartButton->isVisibleTo(this),
-                        "Pipeline enabled state hides Start Sorting");
-                require(pipelineStopButton && pipelineStopButton->isVisibleTo(this),
-                        "Pipeline enabled state shows Stop Sorting");
-                require(pipelineStopButton && pipelineStopButton->isEnabled(),
-                        "Pipeline enabled state exposes an enabled Stop Sorting control");
-                if (pipelineStopButton) {
-                    pipelineStopButton->click();
-                    app.processEvents();
-                    require(runStatusItem && runStatusItem->text() == "Run: idle",
-                            "Stop Sorting returns the run state to idle");
-                    require(pipelineStartButton && pipelineStartButton->isVisibleTo(this),
-                            "Stop Sorting restores Start Sorting visibility");
-                    require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
-                            "Stop Sorting hides the Stop Sorting control again");
-                }
-            } else {
-                require(runStatusItem && runStatusItem->text() == initialRunStatusText,
-                        "Real camera verifier leaves sorting run state unchanged");
-            }
+            require(runStatusItem && runStatusItem->text() == initialRunStatusText,
+                    "Real camera verifier leaves sorting run state unchanged");
 
             {
                 StatsSnapshot seededSnap;
@@ -5917,7 +5816,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* delaySpin = this->findChild<QDoubleSpinBox*>("DaqDelaySpinBox");
             auto* reconnectButton = this->findChild<QPushButton*>("DaqReconnectButton");
             auto* manualTriggerButton = this->findChild<QPushButton*>("DaqManualTriggerButton");
-            auto* settingsTestModeCheck = this->findChild<QCheckBox*>("SettingsWorkspaceTestModeCheckBox");
             auto* statusIndicatorWidget = this->findChild<QLabel*>("DaqStatusTextLabel");
             auto* statusBarDaqWidget = this->findChild<QLabel*>("DaqStatusBarLabel");
             auto* shellDaqStatusWidget = this->findChild<QLabel*>("OpenDssShellDaqStatusLabel");
@@ -5952,9 +5850,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "DAQ device combo is above the DAQ channel field in Settings > Hardware");
             require(reconnectButton && reconnectButton->text() == "Reconnect DAQ",
                     "DAQ reconnect button wording matches the current DAQ path");
-            require(manualTriggerButton &&
-                        manualTriggerButton->toolTip().contains("skip output", Qt::CaseInsensitive),
-                    "Manual Trigger warns that test mode and no-DAQ runs skip output");
+            require(manualTriggerButton && !manualTriggerButton->isVisibleTo(this),
+                    "Settings Manual Trigger is hidden from users");
             require(liveTriggerSafeButton == nullptr, "LiveTriggerSafeButton is absent from Live View");
             require(forceTriggerButton && forceTriggerButton->text() == "Manual Trigger",
                     "Live View uses Manual Trigger wording below the camera frame");
@@ -5963,25 +5860,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         manualTriggerMenuAction->isEnabled() == forceTriggerButton->isEnabled(),
                     "Manual Trigger menu action shares the Live View button gate");
             if (manualTriggerReady) {
-                require(manualTriggerButton && manualTriggerButton->isEnabled(),
-                        "Settings Manual Trigger enables automatically when DAQ is available");
                 require(forceTriggerButton && forceTriggerButton->isEnabled(),
                         "Live View Manual Trigger enables automatically when DAQ is available");
                 require(manualTriggerMenuAction && manualTriggerMenuAction->isEnabled(),
                         "Manual Trigger menu action enables automatically when DAQ is available");
             } else {
-                require(manualTriggerButton && !manualTriggerButton->isEnabled(),
-                        "Settings Manual Trigger stays disabled when DAQ is unavailable");
                 require(forceTriggerButton && !forceTriggerButton->isEnabled(),
                         "Live View Manual Trigger stays disabled when DAQ is unavailable");
                 require(manualTriggerMenuAction && !manualTriggerMenuAction->isEnabled(),
                         "Manual Trigger menu action stays disabled when DAQ is unavailable");
             }
-            require(settingsTestModeCheck &&
-                        settingsTestModeCheck->toolTip().contains("future startups", Qt::CaseInsensitive),
-                    "Test mode preference tooltip explains that launch-only flags apply on startup");
-            require(hasPanelLabelText(settingsHardwarePanel, "Test mode preference"),
-                    "Settings hardware row label reads Test mode preference");
+            require(!hasPanelLabelText(settingsHardwarePanel, "Test mode preference"),
+                    "Settings hardware no longer exposes a test mode preference");
 
             QStringList comboEntries;
             for (int i = 0; i < deviceCombo->count(); ++i) {
@@ -6114,16 +6004,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
         });
     }
-    if (options.verifyDirectDaqManualTrigger) {
+    if (options.verifyDirectDaqManualTrigger || options.verifyLiveViewManualTrigger) {
         QTimer::singleShot(0, [&]() {
             QStringList failures;
             bool triggerInvoked = false;
+            const bool verifyLiveViewTrigger = options.verifyLiveViewManualTrigger;
+            const QString verifierPrefix = verifyLiveViewTrigger ? QStringLiteral("LIVE VIEW DAQ VERIFY")
+                                                                 : QStringLiteral("DIRECT DAQ VERIFY");
+            const QString triggerObjectName = verifyLiveViewTrigger ? QStringLiteral("LiveForceTriggerButton")
+                                                                    : QStringLiteral("DaqManualTriggerButton");
+            const QString triggerSource = verifyLiveViewTrigger ? QStringLiteral("LiveForceTriggerButton")
+                                                                : QStringLiteral("DaqManualTriggerButton");
             auto require = [&](bool condition, const QString& message) {
                 if (!condition) {
                     failures.push_back(message);
-                    qCritical().noquote() << "DIRECT DAQ VERIFY FAIL:" << message;
+                    qCritical().noquote() << verifierPrefix << "FAIL:" << message;
                 } else {
-                    qInfo().noquote() << "DIRECT DAQ VERIFY PASS:" << message;
+                    qInfo().noquote() << verifierPrefix << "PASS:" << message;
                 }
             };
             auto waitForUi = [&](int ms) {
@@ -6133,7 +6030,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 app.processEvents();
             };
             auto finish = [&](int exitCode) {
-                qInfo().noquote() << "DIRECT DAQ VERIFY INFO: TriggerInvoked=" << (triggerInvoked ? 1 : 0);
+                qInfo().noquote() << verifierPrefix << "INFO: TriggerSource=" << triggerSource;
+                qInfo().noquote() << verifierPrefix << "INFO: TriggerInvoked=" << (triggerInvoked ? 1 : 0);
                 QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
             };
             auto nearlyEqual = [](double actual, double expected) {
@@ -6159,6 +6057,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* statusIndicatorWidget = this->findChild<QLabel*>("DaqStatusTextLabel");
             auto* statusBarDaqWidget = this->findChild<QLabel*>("DaqStatusBarLabel");
             auto* forceTriggerButton = this->findChild<QPushButton*>("LiveForceTriggerButton");
+            auto* triggerButton = verifyLiveViewTrigger ? forceTriggerButton : manualTriggerButton;
 
             const QString selectedDevice = deviceCombo ? deviceCombo->currentData().toString().trimmed() : QString();
             const QString selectedChannel = channelEdit ? channelEdit->text().trimmed() : QString();
@@ -6171,22 +6070,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 pipelineTriggerReady = pipeline.isTriggerReady();
             }
 
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: SelectedDevice=" << selectedDevice;
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: SelectedChannel=" << selectedChannel;
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: AmplitudeV="
+            qInfo().noquote() << verifierPrefix << "INFO: SelectedDevice=" << selectedDevice;
+            qInfo().noquote() << verifierPrefix << "INFO: SelectedChannel=" << selectedChannel;
+            qInfo().noquote() << verifierPrefix << "INFO: AmplitudeV="
                               << (amplitudeSpin ? amplitudeSpin->value() : -1.0);
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: FrequencyKHz="
+            qInfo().noquote() << verifierPrefix << "INFO: FrequencyKHz="
                               << (frequencySpin ? frequencySpin->value() : -1.0);
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: DurationMs="
+            qInfo().noquote() << verifierPrefix << "INFO: DurationMs="
                               << (durationSpin ? durationSpin->value() : -1.0);
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: DelayMs="
+            qInfo().noquote() << verifierPrefix << "INFO: DelayMs="
                               << (delaySpin ? delaySpin->value() : -1.0);
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: StatusIndicator=" << statusIndicatorText;
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: StatusBar=" << statusBarText;
+            qInfo().noquote() << verifierPrefix << "INFO: StatusIndicator=" << statusIndicatorText;
+            qInfo().noquote() << verifierPrefix << "INFO: StatusBar=" << statusBarText;
+            qInfo().noquote() << verifierPrefix << "INFO: PipelineTriggerReady=" << pipelineTriggerReady;
+            qInfo().noquote() << verifierPrefix << "INFO: TriggerCount=1";
 
-            require(!options.testMode, "Launch did not use --test-mode");
-            require(!appState.testMode, "Runtime test mode state is off");
-            require(!options.noDaq, "Launch did not use --no-daq");
             require(!appState.daqDisabled, "DAQ state is not disabled");
             require(!appState.daqFault, "DAQ state is not faulted");
             require(appState.daqAvailable, "DAQ state is available");
@@ -6199,44 +6097,73 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(durationSpin != nullptr, "DaqDurationSpinBox exists");
             require(delaySpin != nullptr, "DaqDelaySpinBox exists");
             require(manualTriggerButton != nullptr, "DaqManualTriggerButton exists");
-            require(manualTriggerButton && manualTriggerButton->isEnabled(), "DaqManualTriggerButton is enabled");
+            require(manualTriggerButton && !manualTriggerButton->isVisibleTo(this),
+                    "DaqManualTriggerButton is hidden from users");
+            require(forceTriggerButton != nullptr, "LiveForceTriggerButton exists");
+            require(forceTriggerButton && forceTriggerButton->text() == "Manual Trigger",
+                    "Live View Manual Trigger button wording matches the direct DAQ path");
+            require(forceTriggerButton && forceTriggerButton->isEnabled(), "LiveForceTriggerButton is enabled");
+            require(triggerButton != nullptr, triggerObjectName + QStringLiteral(" exists"));
+            require(triggerButton && triggerButton->isEnabled(), triggerObjectName + QStringLiteral(" is enabled"));
             require(selectedDevice == QStringLiteral("Dev2"), "Selected DAQ device is Dev2");
             require(selectedChannel == QStringLiteral("Dev2/ao0"), "Selected DAQ channel is Dev2/ao0");
             require(amplitudeSpin && nearlyEqual(amplitudeSpin->value(), 5.0), "Amplitude is 5.000 V");
             require(frequencySpin && nearlyEqual(frequencySpin->value(), 10.0), "Frequency is 10.000 kHz");
             require(durationSpin && nearlyEqual(durationSpin->value(), 5.0), "Duration is 5.000 ms");
             require(delaySpin && nearlyEqual(delaySpin->value(), 0.0), "Delay is 0.000 ms");
-            require(!pipelineTriggerReady, "Pipeline trigger path is not ready, so Manual Trigger uses direct DAQ");
-            require(forceTriggerButton && forceTriggerButton->text() == "Manual Trigger",
-                    "Live View Manual Trigger button wording matches the direct DAQ path");
             require(!forceTriggerButton || !forceTriggerButton->isDown(),
                     "Live View Manual Trigger button is not active");
 
             if (!failures.isEmpty()) {
-                logMessage("Direct DAQ manual trigger verifier aborted before output: " + failures.join("; "));
+                const QString messagePrefix =
+                    verifyLiveViewTrigger ? QStringLiteral("Live View manual trigger verifier")
+                                          : QStringLiteral("Direct DAQ manual trigger verifier");
+                logMessage(messagePrefix + " aborted before output: " + failures.join("; "));
                 finish(2);
                 return;
             }
 
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: Invoking DaqManualTriggerButton exactly once.";
+            if (verifyLiveViewTrigger) {
+                workspaceStack->setCurrentWidget(liveWorkspacePage);
+                liveNavButton->setChecked(true);
+                headerTitleLabel->setText("/ Live View");
+                headerStatusText->setText("Live View workspace");
+                app.processEvents();
+                waitForUi(350);
+                require(forceTriggerButton && forceTriggerButton->isVisibleTo(this),
+                        "LiveForceTriggerButton is visible before the verifier click");
+                if (!failures.isEmpty()) {
+                    logMessage("Live View manual trigger verifier aborted before output: " + failures.join("; "));
+                    finish(2);
+                    return;
+                }
+            }
+
+            qInfo().noquote() << verifierPrefix << "INFO: Invoking" << triggerSource << "exactly once.";
             triggerInvoked = true;
-            manualTriggerButton->click();
+            triggerButton->click();
             waitForUi(1200);
 
             const QString resultText = statusLabel->text().trimmed();
-            qInfo().noquote() << "DIRECT DAQ VERIFY INFO: ResultStatusLabel=" << resultText;
+            qInfo().noquote() << verifierPrefix << "INFO: ResultStatusLabel=" << resultText;
             require(resultText == QStringLiteral("DAQ trigger sent."), "Manual trigger reports DAQ trigger sent");
             require(appState.daqAvailable && !appState.daqDisabled && !appState.daqFault,
                     "DAQ remains available after manual trigger");
 
             if (!failures.isEmpty()) {
-                logMessage("Direct DAQ manual trigger verifier failed after one approved output attempt: " +
-                           failures.join("; "));
+                const QString messagePrefix =
+                    verifyLiveViewTrigger ? QStringLiteral("Live View manual trigger verifier")
+                                          : QStringLiteral("Direct DAQ manual trigger verifier");
+                logMessage(messagePrefix + " failed after one approved output attempt: " + failures.join("; "));
                 finish(3);
                 return;
             }
 
-            logMessage("Direct DAQ manual trigger verifier sent one approved Dev2/ao0 output.");
+            if (verifyLiveViewTrigger) {
+                logMessage("Live View manual trigger verifier sent one approved Dev2/ao0 output.");
+            } else {
+                logMessage("Direct DAQ manual trigger verifier sent one approved Dev2/ao0 output.");
+            }
             finish(0);
         });
     }

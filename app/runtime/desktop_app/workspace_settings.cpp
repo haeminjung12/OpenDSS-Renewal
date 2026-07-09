@@ -191,23 +191,6 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     addControlRow(3, "DAQ frequency", controls.frequencySpin);
     addControlRow(4, "DAQ duration", controls.durationSpin);
     addControlRow(5, "DAQ delay", controls.delaySpin);
-    auto settingsTestModeCheck = new QCheckBox("Test mode");
-    nameWidget(settingsTestModeCheck, "SettingsWorkspaceTestModeCheckBox");
-    settingsTestModeCheck->setToolTip(
-        "Saves the test mode preference for future startups. Launch-only no-hardware flags are not fully reapplied "
-        "to the current session.");
-    settingsTestModeCheck->setChecked(settings.value("settings/testMode", controls.hardwareFreeMode).toBool());
-    if (controls.appState)
-        controls.appState->testMode = settingsTestModeCheck->isChecked();
-    QObject::connect(settingsTestModeCheck, &QCheckBox::toggled, settingsTestModeCheck,
-                     [appState = controls.appState](bool checked) {
-                         QSettings settings;
-                         settings.setValue("settings/testMode", checked);
-                         settings.sync();
-                         if (appState)
-                             appState->testMode = checked;
-                     });
-    addControlRow(6, "Test mode preference", settingsTestModeCheck);
     settingsHardwareGrid->setColumnStretch(1, 1);
     settingsHardwareBody->addLayout(settingsHardwareGrid);
     settingsStackLayout->addWidget(settingsHardwarePanel);

@@ -30,11 +30,12 @@ rtk test cmake --build "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-rele
 rtk test ctest --test-dir "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release" -C Release --output-on-failure
 ```
 
-For GUI-adjacent fixes, also run the relevant no-hardware verifier:
+For GUI-adjacent fixes, also run the relevant hardware-required verifier:
 
 ```powershell
-rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --test-mode --verify-camera-workspace
-rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --test-mode --mock-camera --no-startup-prompts --verify-daq-settings
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-camera-workspace
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-daq-settings
+rtk test "C:\Users\goals\Codex\OpenDSS\build-opendss-internal-release\desktop_app\Release\OpenVisualDropletSorter.exe" --verify-live-view-manual-trigger
 ```
 
 ## Workflow

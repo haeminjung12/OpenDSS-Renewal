@@ -201,17 +201,6 @@ void SettingsWorkspaceController::refreshDaqDeviceOptions(bool allowChannelRewri
         return;
     }
 
-    if (deps_.noDaq) {
-        discoveredDaqDevices_.clear();
-        daqDiscoveryError_.clear();
-        QSignalBlocker blocker(deps_.daqDeviceCombo);
-        deps_.daqDeviceCombo->clear();
-        deps_.daqDeviceCombo->addItem(QStringLiteral("Disabled by launch option"), QString());
-        deps_.daqDeviceCombo->setCurrentIndex(0);
-        deps_.daqDeviceCombo->setEnabled(false);
-        return;
-    }
-
     const std::vector<DaqDeviceInfo> simulatedDevices = parseSimulatedDaqDevices();
     std::string discoveryErr;
     discoveredDaqDevices_ = simulatedDevices.empty() ? discoverDaqDevices(discoveryErr) : simulatedDevices;
@@ -322,14 +311,6 @@ DaqConfig SettingsWorkspaceController::currentDaqConfig() const {
 
 SettingsWorkspaceController::DaqAvailabilityState SettingsWorkspaceController::probeDaqAvailability() const {
     DaqAvailabilityState state;
-    if (deps_.noDaq) {
-        state.disabled = true;
-        state.statusText = QStringLiteral("DAQ: disabled");
-        state.indicatorText = QStringLiteral("Disabled");
-        state.indicatorColor = QStringLiteral("#666");
-        return state;
-    }
-
     const DaqConfig cfg = currentDaqConfig();
     if (cfg.channel.empty()) {
         state.fault = true;
@@ -428,9 +409,6 @@ const std::vector<DaqDeviceInfo>& SettingsWorkspaceController::discoveredDaqDevi
 void SettingsWorkspaceController::wireControls() {
     if (deps_.daqDeviceCombo) {
         connect(deps_.daqDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this]() {
-            if (deps_.noDaq) {
-                return;
-            }
             const QString selectedDevice = deps_.daqDeviceCombo->currentData().toString().trimmed();
             QSettings settings;
             settings.setValue("settings/daqSelectedDevice", selectedDevice);

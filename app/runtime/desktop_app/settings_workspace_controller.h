@@ -38,7 +38,6 @@ class SettingsWorkspaceController : public QObject {
 
     struct Dependencies {
         desktop_app::AppState* appState = nullptr;
-        bool noDaq = false;
         QComboBox* daqDeviceCombo = nullptr;
         QLineEdit* daqChannelEdit = nullptr;
         QDoubleSpinBox* amplitudeSpin = nullptr;

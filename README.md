@@ -53,6 +53,18 @@ It is designed for lab setups that use Hamamatsu camera hardware and may also us
 - Qt for source builds: [Qt Online Installer](https://www.qt.io/development/download-open-source)
 - ONNX Runtime for source builds: [installation guide](https://onnxruntime.ai/docs/install/)
 
+### Python Trainer
+
+The release includes trainer helper scripts under `training/python`, but Python, PyTorch, CUDA, datasets, checkpoints, and virtual environments are installed separately by the user. Install Python 3.12 x64, then run this from `training/python`:
+
+```powershell
+.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
+.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
+.\scripts\windows\verify-training-env.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv" -RequireTraining
+```
+
+For GPU training, use one CUDA-specific installer wrapper instead of the CPU installer: `install-training-gpu-cu130.ps1` or `install-training-gpu-cu128.ps1`.
+
 ## Quick Start
 
 1. Build from source, or use the public installer after it is posted to [GitHub Releases](https://github.com/haeminjung12/OpenDSS_clean/releases/latest).
@@ -98,17 +110,7 @@ To enable NI-trigger support, configure with `-D ENABLE_NIDAQMX=ON` and provide 
 
 ### Optional Model Training Helpers
 
-The installer and portable package include trainer helper scripts under `training/python`, but they do not bundle Python, PyTorch, CUDA, datasets, checkpoints, or a virtual environment. Create a user-managed environment before using the trainer.
-
-Recommended CPU setup from `training/python`:
-
-```powershell
-.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
-.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
-.\scripts\windows\verify-training-env.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv" -RequireTraining
-```
-
-GPU setup is optional and uses one of the CUDA-specific install wrappers in `training/python/scripts/windows`. A full instruction site with step-by-step installation, operation, trainer, and troubleshooting guidance is planned separately.
+The same trainer setup commands are included in the Downloads section. A full instruction site with step-by-step installation, operation, trainer, and troubleshooting guidance is planned separately.
 
 ## License
 

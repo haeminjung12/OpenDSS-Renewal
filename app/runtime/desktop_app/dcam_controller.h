@@ -17,6 +17,7 @@ class DcamController : public QObject {
     void stop();
     void cleanup();
 
+    QString configure(const ApplySettings& s, bool startAfterApply);
     QString apply(const ApplySettings& s);
     QString readProps(QString& out);
 

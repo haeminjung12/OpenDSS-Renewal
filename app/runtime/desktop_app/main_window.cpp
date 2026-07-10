@@ -477,7 +477,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     binCombo->setCurrentIndex(0);
 
     auto bitsCombo = new QComboBox;
-    bitsCombo->addItems({"8", "16"});
+    bitsCombo->addItem("8", 8);
+    bitsCombo->addItem("12", 12);
+    bitsCombo->addItem("16", 16);
     bitsCombo->setCurrentIndex(0); // default 8-bit
 
     auto lutMinSpin = new QSpinBox;
@@ -3146,7 +3148,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         customHeightSpin->setValue(
             runtimeSettings.value("runtime/v1/camera/customHeight", customHeightSpin->value()).toInt());
         setComboTextIfPresent(binCombo, runtimeSettings.value("runtime/v1/camera/binning").toString());
-        setComboTextIfPresent(bitsCombo, runtimeSettings.value("runtime/v1/camera/bits").toString());
+        setComboTextIfPresent(bitsCombo, QStringLiteral("8"));
         exposureSpin->setValue(runtimeSettings.value("runtime/v1/camera/exposureMs", exposureSpin->value()).toDouble());
         setComboTextIfPresent(readoutCombo, runtimeSettings.value("runtime/v1/camera/readoutSpeed").toString());
         displayEverySpin->setValue(
@@ -5557,9 +5559,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(cameraLutAutoSetButton &&
                         cameraLutAutoSetButton->toolTip().contains("current frame", Qt::CaseInsensitive),
                     "CameraLutAutoSetButton tooltip explains current-frame behavior");
-            require(cameraBitsCombo && cameraBitsCombo->count() == 2 && cameraBitsCombo->itemText(0) == "8" &&
-                        cameraBitsCombo->itemText(1) == "16",
-                    "CameraBitsComboBox is restricted to 8 and 16");
+            require(cameraBitsCombo && cameraBitsCombo->count() == 3 && cameraBitsCombo->itemText(0) == "8" &&
+                        cameraBitsCombo->itemText(1) == "12" && cameraBitsCombo->itemText(2) == "16",
+                    "CameraBitsComboBox offers 8, 12, and 16-bit choices");
+            require(cameraBitsCombo && cameraBitsCombo->currentText() == "8",
+                    "CameraBitsComboBox defaults to 8-bit");
             require(cameraReadoutCombo && cameraReadoutCombo->count() == 1 &&
                         cameraReadoutCombo->itemText(0).compare("Fast", Qt::CaseInsensitive) == 0 &&
                         !cameraReadoutCombo->isEnabled(),
@@ -5673,6 +5677,53 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
             const QString initialRunStatusText = runStatusItem ? runStatusItem->text() : QString();
             if (realCameraVerifier) {
+                auto stopCameraIfStreaming = [&]() {
+                    if (cameraStartButton && appState.cameraStreaming) {
+                        cameraStartButton->click();
+                        return waitUntil(8000, [&]() { return !appState.cameraStreaming; });
+                    }
+                    return true;
+                };
+                auto waitForRealCameraBits = [&](int expectedBits, const QString& context) {
+                    const bool frameWithBits = waitUntil(12000, [&]() {
+                        const FrameMeta meta = cameraController->lastMeta();
+                        return !cameraController->lastFrame().isNull() && meta.frameIndex > 0 &&
+                               meta.bits == expectedBits;
+                    });
+                    const FrameMeta meta = cameraController->lastMeta();
+                    require(frameWithBits,
+                            QString("%1 real camera readback reached %2-bit depth (readback=%3)")
+                                .arg(context)
+                                .arg(expectedBits)
+                                .arg(meta.bits));
+                    require(meta.width > 0 && meta.height > 0 && meta.frameIndex > 0,
+                            QString("%1 real camera frame metadata is populated (width=%2 height=%3 frame=%4 "
+                                    "delivered=%5)")
+                                .arg(context)
+                                .arg(meta.width)
+                                .arg(meta.height)
+                                .arg(meta.frameIndex)
+                                .arg(meta.delivered));
+                    require(meta.readoutSpeed > DCAMPROP_READOUTSPEED__SLOWEST,
+                            QString("%1 real camera readback accepted Fast readout (readout=%2 slowest=%3)")
+                                .arg(context)
+                                .arg(meta.readoutSpeed, 0, 'f', 0)
+                                .arg(DCAMPROP_READOUTSPEED__SLOWEST));
+                    qInfo().noquote()
+                        << QString("VERIFY INFO: %1 real camera status=%2 frame=%3 size=%4x%5 delivered=%6 dropped=%7 "
+                                   "bits=%8 readout=%9 slowest=%10")
+                               .arg(context)
+                               .arg(cameraStatusItem ? cameraStatusItem->text() : QStringLiteral("<missing>"))
+                               .arg(meta.frameIndex)
+                               .arg(meta.width)
+                               .arg(meta.height)
+                               .arg(meta.delivered)
+                               .arg(meta.dropped)
+                               .arg(meta.bits)
+                               .arg(meta.readoutSpeed, 0, 'f', 0)
+                               .arg(DCAMPROP_READOUTSPEED__SLOWEST);
+                    return meta;
+                };
                 const bool initSettled = waitUntil(12000, [&]() {
                     const QString cameraStatus = cameraStatusItem ? cameraStatusItem->text() : QString();
                     return cameraOpened || cameraStatus.contains("error", Qt::CaseInsensitive) ||
@@ -5694,26 +5745,53 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                                 cameraStatusItem->text().contains("acquiring", Qt::CaseInsensitive),
                             QString("Real camera status chip reports acquiring (status=%1)")
                                 .arg(cameraStatusItem ? cameraStatusItem->text() : QStringLiteral("<missing>")));
-                    const bool frameArrived = waitUntil(12000, [&]() { return !cameraController->lastFrame().isNull(); });
-                    const FrameMeta realMeta = cameraController->lastMeta();
-                    require(frameArrived, "Real camera delivered at least one frame");
-                    require(realMeta.width > 0 && realMeta.height > 0 && realMeta.frameIndex > 0,
-                            QString("Real camera frame metadata is populated (width=%1 height=%2 frame=%3 delivered=%4)")
-                                .arg(realMeta.width)
-                                .arg(realMeta.height)
-                                .arg(realMeta.frameIndex)
-                                .arg(realMeta.delivered));
+                    const FrameMeta realMeta = waitForRealCameraBits(8, QStringLiteral("Default 8-bit"));
+                    const int selectedBits = cameraBitsCombo ? cameraBitsCombo->currentText().toInt() : 0;
+                    require(selectedBits == 8 && realMeta.bits == selectedBits,
+                            QString("Real camera readback matches selected 8-bit depth (selected=%1 readback=%2)")
+                                .arg(selectedBits)
+                                .arg(realMeta.bits));
+                    require(stopCameraIfStreaming(), "Real camera capture stops through CameraStartButton");
+
+                    const int bit12Index = cameraBitsCombo ? cameraBitsCombo->findData(12) : -1;
+                    require(bit12Index >= 0, "CameraBitsComboBox can select 12-bit mode by data");
+                    if (bit12Index >= 0) {
+                        cameraBitsCombo->setCurrentIndex(bit12Index);
+                    }
                     qInfo().noquote()
-                        << QString("VERIFY INFO: real camera status=%1 frame=%2 size=%3x%4 delivered=%5 dropped=%6")
-                               .arg(cameraStatusItem ? cameraStatusItem->text() : QStringLiteral("<missing>"))
-                               .arg(realMeta.frameIndex)
-                               .arg(realMeta.width)
-                               .arg(realMeta.height)
-                               .arg(realMeta.delivered)
-                               .arg(realMeta.dropped);
-                    cameraStartButton->click();
-                    const bool captureStopped = waitUntil(8000, [&]() { return !appState.cameraStreaming; });
-                    require(captureStopped, "Real camera capture stops through CameraStartButton");
+                        << QString("VERIFY INFO: applying 12-bit camera mode with pixelType=%1")
+                               .arg(DCAM_PIXELTYPE_MONO16);
+                    if (cameraApplyButton) {
+                        cameraApplyButton->click();
+                    }
+                    const bool apply12Started = waitUntil(8000, [&]() {
+                        const QString cameraStatus = cameraStatusItem ? cameraStatusItem->text() : QString();
+                        return appState.cameraStreaming || cameraStatus.contains("acquiring", Qt::CaseInsensitive) ||
+                               cameraStatus.contains("error", Qt::CaseInsensitive);
+                    });
+                    require(apply12Started, "Applying 12-bit mode starts real camera capture");
+                    const FrameMeta bit12Meta = waitForRealCameraBits(12, QStringLiteral("Applied 12-bit"));
+                    require(bit12Meta.bits == 12,
+                            QString("Real camera readback matches selected 12-bit depth (readback=%1)")
+                                .arg(bit12Meta.bits));
+                    require(stopCameraIfStreaming(), "Real camera capture stops after 12-bit verification");
+
+                    const int bit8Index = cameraBitsCombo ? cameraBitsCombo->findData(8) : -1;
+                    if (bit8Index >= 0) {
+                        cameraBitsCombo->setCurrentIndex(bit8Index);
+                        if (cameraApplyButton) {
+                            cameraApplyButton->click();
+                        }
+                        const bool restore8Started = waitUntil(8000, [&]() {
+                            const QString cameraStatus = cameraStatusItem ? cameraStatusItem->text() : QString();
+                            return appState.cameraStreaming ||
+                                   cameraStatus.contains("acquiring", Qt::CaseInsensitive) ||
+                                   cameraStatus.contains("error", Qt::CaseInsensitive);
+                        });
+                        require(restore8Started, "Restoring 8-bit mode starts real camera capture");
+                        waitForRealCameraBits(8, QStringLiteral("Restored 8-bit"));
+                        require(stopCameraIfStreaming(), "Real camera capture stops after 8-bit restore");
+                    }
                 }
             }
             require(runStatusItem && runStatusItem->text() == initialRunStatusText,
@@ -5826,6 +5904,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             }
             require(cameraController->lutMaxValue() > cameraController->lutMinValue(),
                     "CameraLutAutoSetButton keeps LUT range ordered after direct Qt click");
+            require(cameraLutMinSpin && cameraLutMinSpin->value() == cameraController->lutMinValue(),
+                    "CameraLutAutoSetButton updates the visible black-level spin box");
+            require(cameraLutMaxSpin && cameraLutMaxSpin->value() == cameraController->lutMaxValue(),
+                    "CameraLutAutoSetButton updates the visible white-level spin box");
+            require(cameraLutRangeBar &&
+                        cameraLutRangeBar->property("lutMinimumValue").toInt() == cameraController->lutMinValue() &&
+                        cameraLutRangeBar->property("lutMaximumValue").toInt() == cameraController->lutMaxValue(),
+                    "CameraLutAutoSetButton updates CameraLutRangeBar Qt state");
             const double exposureBeforeAuto = exposureSpin->value();
             if (cameraAutoExposureButton) {
                 cameraAutoExposureButton->click();

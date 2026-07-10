@@ -356,19 +356,26 @@ QString refreshCameraFormatOptions(QComboBox* presetCombo, QComboBox* bitsCombo,
     if (!bitDepths.isEmpty()) {
         QSignalBlocker blocker(bitsCombo);
         bitsCombo->clear();
+        QString bit8Label = QStringLiteral("8");
+        QString bit12Label = QStringLiteral("12");
+        QString bit16Label = QStringLiteral("16");
         for (const QVariant& bitValue : bitDepths) {
             const QVariantMap bit = bitValue.toMap();
             const int value = bit.value(QStringLiteral("value")).toInt();
             const QString label = bit.value(QStringLiteral("label")).toString();
-            if (value == 8 || value == 16) {
-                bitsCombo->addItem(label.isEmpty() ? QString::number(value) : label, value);
+            if (value == 8 && !label.isEmpty()) {
+                bit8Label = label;
+            } else if (value == 12 && !label.isEmpty()) {
+                bit12Label = label;
+            } else if (value == 16 && !label.isEmpty()) {
+                bit16Label = label;
             }
         }
-        if (bitsCombo->count() == 0) {
-            bitsCombo->addItem(QStringLiteral("8"), 8);
-            bitsCombo->addItem(QStringLiteral("16"), 16);
-        }
-        const int index = bitsCombo->findData(previousBits);
+        bitsCombo->addItem(bit8Label, 8);
+        bitsCombo->addItem(bit12Label, 12);
+        bitsCombo->addItem(bit16Label, 16);
+        const int restoredBits = (previousBits == 8 || previousBits == 12 || previousBits == 16) ? previousBits : 8;
+        const int index = bitsCombo->findData(restoredBits);
         bitsCombo->setCurrentIndex(index >= 0 ? index : 0);
     }
 

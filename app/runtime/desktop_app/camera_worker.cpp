@@ -111,7 +111,10 @@ void CameraWorker::initAndOpen(int bits, int pixelType) {
     DcamController* ctrl = controller();
     const QString error = ctrl->initAndOpen();
     if (error.isEmpty()) {
-        applyDefaultCameraFormat(bits, pixelType);
+        const QString formatWarning = applyDefaultCameraFormat(bits, pixelType);
+        if (!formatWarning.isEmpty()) {
+            emit readbackReady(QStringLiteral("Default camera format warning: ") + formatWarning);
+        }
         emitFormatOptions();
         emitExposureLimits();
     }
@@ -123,7 +126,10 @@ void CameraWorker::reconnect(int bits, int pixelType) {
     DcamController* ctrl = controller();
     const QString error = ctrl->reconnect();
     if (error.isEmpty()) {
-        applyDefaultCameraFormat(bits, pixelType);
+        const QString formatWarning = applyDefaultCameraFormat(bits, pixelType);
+        if (!formatWarning.isEmpty()) {
+            emit readbackReady(QStringLiteral("Default camera format warning: ") + formatWarning);
+        }
         emitFormatOptions();
         emitExposureLimits();
     }
@@ -133,7 +139,10 @@ void CameraWorker::reconnect(int bits, int pixelType) {
 void CameraWorker::startCapture(int bits, int pixelType) {
     DcamController* ctrl = controller();
     if (ctrl->isOpened()) {
-        applyDefaultCameraFormat(bits, pixelType);
+        const QString formatWarning = applyDefaultCameraFormat(bits, pixelType);
+        if (!formatWarning.isEmpty()) {
+            emit readbackReady(QStringLiteral("Default camera format warning: ") + formatWarning);
+        }
     }
     const QString error = ctrl->start();
     if (error.isEmpty()) {
@@ -368,14 +377,23 @@ void CameraWorker::emitReadback() {
             .arg(readout, 0, 'f', 0));
 }
 
-void CameraWorker::applyDefaultCameraFormat(int bits, int pixelType) {
+QString CameraWorker::applyDefaultCameraFormat(int bits, int pixelType) {
     DcamController* ctrl = controller();
     if (!ctrl->isOpened()) {
-        return;
+        return {};
     }
-    dcamprop_setvalue(ctrl->handle(), DCAM_IDPROP_EXPOSURETIME, 0.010);
-    dcamprop_setvalue(ctrl->handle(), DCAM_IDPROP_IMAGE_PIXELTYPE, pixelType);
-    dcamprop_setvalue(ctrl->handle(), DCAM_IDPROP_BITSPERCHANNEL, bits);
+    ApplySettings settings;
+    settings.binning = 0;
+    settings.bits = bits;
+    settings.pixelType = pixelType;
+    settings.enableSubarray = false;
+    settings.exposure_s = 0.010;
+    settings.readoutSpeed = DCAMPROP_READOUTSPEED__FASTEST;
+    settings.bundleEnabled = false;
+    settings.bundleCount = 0;
+    const QString result = ctrl->configure(settings, false);
+    emitReadback();
+    return result;
 }
 
 void CameraWorker::scheduleGrab(int delayMs) {

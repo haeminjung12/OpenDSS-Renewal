@@ -1,5 +1,8 @@
 #include "dcam_controller.h"
 #include <QtGui/QImage>
+#include <QtCore/QDebug>
+
+#include <cmath>
 
 DcamController::DcamController(QObject* parent)
     : QObject(parent), hdcam(nullptr), hwait(nullptr), opened(false), frameCounter(0) {}
@@ -89,6 +92,10 @@ void DcamController::cleanup() {
 }
 
 QString DcamController::apply(const ApplySettings& s) {
+    return configure(s, true);
+}
+
+QString DcamController::configure(const ApplySettings& s, bool startAfterApply) {
     if (!opened)
         return "Camera not opened";
     stop();
@@ -133,24 +140,39 @@ QString DcamController::apply(const ApplySettings& s) {
         return {};
     };
 
-    auto setPixelTypeSample = [&](int32 pix) -> QString {
-        double v = pix;
-        DCAMERR err = dcamprop_queryvalue(hdcam, DCAM_IDPROP_IMAGE_PIXELTYPE, &v);
-        if (failed(err))
-            return errText("query pixeltype", err);
-        err = dcamprop_setvalue(hdcam, DCAM_IDPROP_IMAGE_PIXELTYPE, pix);
-        if (failed(err))
-            return errText("set pixeltype", err);
-        return {};
-    };
-    auto setBitsSample = [&](int32 bits) -> QString {
-        double v = bits;
-        DCAMERR err = dcamprop_queryvalue(hdcam, DCAM_IDPROP_BITSPERCHANNEL, &v);
-        if (failed(err))
-            return errText("query bits", err);
-        err = dcamprop_setvalue(hdcam, DCAM_IDPROP_BITSPERCHANNEL, bits);
-        if (failed(err))
-            return errText("set bits", err);
+    auto setAndReadback = [&](int32 prop, double requested, const QString& name, bool requireExact,
+                              bool requireQuery) -> QString {
+        double queried = requested;
+        const DCAMERR queryErr = dcamprop_queryvalue(hdcam, prop, &queried);
+        const bool queryOk = !failed(queryErr);
+        const DCAMERR setErr = dcamprop_setvalue(hdcam, prop, requested);
+        const bool setOk = !failed(setErr);
+        double readback = 0.0;
+        const DCAMERR readErr = dcamprop_getvalue(hdcam, prop, &readback);
+        const bool readOk = !failed(readErr);
+        qInfo().noquote()
+            << QString("DCAM apply %1: request=%2 query=%3 set=%4 readback=%5")
+                   .arg(name)
+                   .arg(requested, 0, 'f', 3)
+                   .arg(queryOk ? QString::number(queried, 'f', 3) : errText(QStringLiteral("query ") + name, queryErr))
+                   .arg(setOk ? QStringLiteral("ok") : errText(QStringLiteral("set ") + name, setErr))
+                   .arg(readOk ? QString::number(readback, 'f', 3)
+                               : errText(QStringLiteral("readback ") + name, readErr));
+        if (requireQuery && !queryOk) {
+            return errText(QStringLiteral("query ") + name, queryErr);
+        }
+        if (!setOk) {
+            return errText(QStringLiteral("set ") + name, setErr);
+        }
+        if (!readOk) {
+            return errText(QStringLiteral("readback ") + name, readErr);
+        }
+        if (requireExact && std::lround(readback) != std::lround(requested)) {
+            return QString("readback %1 mismatch: requested %2, got %3")
+                .arg(name)
+                .arg(requested, 0, 'f', 0)
+                .arg(readback, 0, 'f', 0);
+        }
         return {};
     };
 
@@ -192,22 +214,21 @@ QString DcamController::apply(const ApplySettings& s) {
 
     // Pixel type / bits
     if (s.pixelType > 0) {
-        QString e = setPixelTypeSample(static_cast<int32>(s.pixelType));
+        QString e =
+            setAndReadback(DCAM_IDPROP_IMAGE_PIXELTYPE, s.pixelType, QStringLiteral("pixeltype"), true, true);
         if (!e.isEmpty())
             warnings << e;
     }
     if (s.bits > 0) {
-        QString e = setBitsSample(static_cast<int32>(s.bits));
+        QString e = setAndReadback(DCAM_IDPROP_BITSPERCHANNEL, s.bits, QStringLiteral("bits"), true, true);
         if (!e.isEmpty())
             warnings << e;
     }
 
-    if (failed(dcambuf_alloc(hdcam, 16))) {
-        warnings << "buffer alloc failed after apply";
-    }
-
     if (s.readoutSpeed != 0) {
-        dcamprop_setvalue(hdcam, DCAM_IDPROP_READOUTSPEED, s.readoutSpeed);
+        QString e = setAndReadback(DCAM_IDPROP_READOUTSPEED, s.readoutSpeed, QStringLiteral("readout"), false, false);
+        if (!e.isEmpty())
+            warnings << e;
     }
     if (s.exposure_s > 0) {
         dcamprop_setvalue(hdcam, DCAM_IDPROP_EXPOSURETIME, s.exposure_s);
@@ -224,10 +245,16 @@ QString DcamController::apply(const ApplySettings& s) {
         dcamprop_setvalue(hdcam, DCAM_IDPROP_FRAMEBUNDLE_MODE, DCAMPROP_MODE__OFF);
     }
 
+    if (failed(dcambuf_alloc(hdcam, 16))) {
+        warnings << "buffer alloc failed after apply";
+    }
+
     frameCounter = 0;
-    QString startErr = start();
-    if (!startErr.isEmpty())
-        return startErr;
+    if (startAfterApply) {
+        QString startErr = start();
+        if (!startErr.isEmpty())
+            return startErr;
+    }
     if (!warnings.isEmpty())
         return QString("WARN: %1").arg(warnings.join("; "));
     return {};

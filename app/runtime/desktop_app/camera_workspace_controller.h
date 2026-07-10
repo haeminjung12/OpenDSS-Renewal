@@ -98,6 +98,7 @@ class CameraWorkspaceController : public QObject {
     void rebuildLut();
     void setLutMin(int value);
     void setLutMax(int value);
+    void refreshLutRangeBarState();
     void autoSetLutFromCurrentFrame();
     void autoSetExposureFromCurrentFrame();
     void applySettings();

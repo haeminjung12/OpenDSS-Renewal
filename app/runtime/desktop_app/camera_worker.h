@@ -45,7 +45,7 @@ class CameraWorker : public QObject {
     void emitExposureLimits();
     void emitFormatOptions();
     void emitReadback();
-    void applyDefaultCameraFormat(int bits, int pixelType);
+    QString applyDefaultCameraFormat(int bits, int pixelType);
     void scheduleGrab(int delayMs = 0);
 
     std::unique_ptr<DcamController> controller_;

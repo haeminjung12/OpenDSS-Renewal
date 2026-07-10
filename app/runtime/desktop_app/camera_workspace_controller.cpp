@@ -20,6 +20,7 @@
 #include <QtWidgets/QSpinBox>
 #include <QtWidgets/QStatusBar>
 #include <QtWidgets/QTabWidget>
+#include <QtWidgets/QWidget>
 
 #include "app_state.h"
 #include "camera_worker.h"
@@ -41,6 +42,7 @@ CameraWorkspaceController::CameraWorkspaceController(const Dependencies& depende
 
     wireCameraWorker();
     wireControls();
+    updateLutRange(currentBits());
     updateCameraActionState();
 }
 
@@ -119,6 +121,7 @@ void CameraWorkspaceController::updateLutRange(int bits) {
     lutMinValue_.store(minValue);
     lutMaxValue_.store(currentMaxValue);
     rebuildLut();
+    refreshLutRangeBarState();
 }
 
 QImage CameraWorkspaceController::applyLutToImage(const QImage& image) const {
@@ -673,6 +676,7 @@ void CameraWorkspaceController::setLutMin(int value) {
     }
     lutMinValue_.store(value);
     rebuildLut();
+    refreshLutRangeBarState();
 }
 
 void CameraWorkspaceController::setLutMax(int value) {
@@ -699,6 +703,23 @@ void CameraWorkspaceController::setLutMax(int value) {
     }
     lutMaxValue_.store(value);
     rebuildLut();
+    refreshLutRangeBarState();
+}
+
+void CameraWorkspaceController::refreshLutRangeBarState() {
+    const auto& controls = deps_.controls;
+    if (!deps_.window || !controls.lutMinSlider || !controls.lutMaxSlider) {
+        return;
+    }
+    auto* rangeBar = deps_.window->findChild<QWidget*>(QStringLiteral("CameraLutRangeBar"));
+    if (!rangeBar) {
+        return;
+    }
+    rangeBar->setProperty("lutMinimumValue", controls.lutMinSlider->value());
+    rangeBar->setProperty("lutMaximumValue", controls.lutMaxSlider->value());
+    rangeBar->setProperty("lutRangeMinimum", controls.lutMinSlider->minimum());
+    rangeBar->setProperty("lutRangeMaximum", controls.lutMinSlider->maximum());
+    rangeBar->update();
 }
 
 void CameraWorkspaceController::autoSetLutFromCurrentFrame() {
@@ -752,6 +773,7 @@ void CameraWorkspaceController::autoSetLutFromCurrentFrame() {
     }
     setLutMin(low);
     setLutMax(high);
+    refreshLutRangeBarState();
     log(QString("LUT Auto Set: black=%1 white=%2 from current frame percentiles.").arg(low).arg(high));
     showStatusMessage(QStringLiteral("LUT Auto Set applied"));
 }

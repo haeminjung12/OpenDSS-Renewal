@@ -8,7 +8,7 @@ version = "0.2.0"
 description = "External Python trainer backend for Open Visual Droplet Sorter Suite."
 requires-python = ">=3.10,<3.13"
 readme = "README-windows-training.md"
-license = {text = "BSD-3-Clause"}
+license = {text = "Apache-2.0"}
 dependencies = [
   "torch",
   "torchvision",

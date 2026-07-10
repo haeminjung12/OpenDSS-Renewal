@@ -145,6 +145,14 @@ New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
 Copy-Item -Path $exePath -Destination $packageDir -Force
 
+foreach ($noticeFile in @("LICENSE", "THIRD_PARTY_NOTICES.md")) {
+    $noticePath = Join-Path $RepoRoot $noticeFile
+    if (-not (Test-Path -LiteralPath $noticePath)) {
+        throw "Required release notice file not found: $noticePath"
+    }
+    Copy-Item -LiteralPath $noticePath -Destination (Join-Path $packageDir $noticeFile) -Force
+}
+
 # Copy any DLLs that the build already produced beside the executable.
 $buildDllDir = Split-Path $exePath -Parent
 Get-ChildItem -Path $buildDllDir -Filter "*.dll" | ForEach-Object {

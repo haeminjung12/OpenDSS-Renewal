@@ -11,7 +11,7 @@ param(
     [string]$NiInstaller = "",
     [string]$VcRedist = "",
     [string]$InnoSetup = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-    [switch]$CopyNidaq = $true
+    [switch]$CopyNidaq
 )
 
 $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
@@ -34,25 +34,14 @@ if ($OutputDir.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCas
     throw "OutputDir must be outside the clean release repo. Got: $OutputDir"
 }
 
-if (-not $NiInstaller) {
-    $NiInstaller = Join-Path $env:USERPROFILE "Downloads\ni-daqmx_25.8_online.exe"
+if ($NiInstaller) {
+    Write-Warning "Ignoring -NiInstaller. Public installers do not bundle NI-DAQmx installer payloads; users must install NI-DAQmx from NI before using DAQ output."
 }
-if (-not (Test-Path $NiInstaller)) {
-    throw "NI-DAQmx installer not found: $NiInstaller. Pass -NiInstaller <path to NI Package Manager/NI-DAQmx offline or online installer>. This input is required because the runtime imports nicaiu.dll and NI output support depends on NI-DAQmx being installed on the target machine."
+if ($VcRedist) {
+    Write-Warning "Ignoring -VcRedist. Public installers do not bundle Microsoft Visual C++ Redistributable payloads; users must install it from Microsoft if needed."
 }
-
-if (-not $VcRedist) {
-    $downloads = Join-Path $env:USERPROFILE "Downloads"
-    $candidate = Get-ChildItem -Path $downloads -Filter "*vcredist*_x64*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $candidate) {
-        $candidate = Get-ChildItem -Path $downloads -Filter "VC_redist.x64.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
-    }
-    if ($candidate) {
-        $VcRedist = $candidate.FullName
-    }
-}
-if (-not $VcRedist -or -not (Test-Path $VcRedist)) {
-    throw "VC++ Redistributable not found. Pass -VcRedist <path to VC_redist.x64.exe or vcredist_x64.exe>. This input is required for MSVC/UCRT runtime support on clean target machines."
+if ($CopyNidaq) {
+    Write-Warning "Copying NI-DAQmx runtime DLLs was requested. Use this only for internal validation with documented redistribution approval, not for prerequisite-only public releases."
 }
 
 if (-not (Test-Path $InnoSetup)) {
@@ -86,9 +75,6 @@ $checkScript = Join-Path $SourceRoot "scripts\check_package.ps1"
 & $checkScript `
     -PackageDir $packageDir `
     -SourceRoot $SourceRoot `
-    -NiInstaller $NiInstaller `
-    -VcRedist $VcRedist `
-    -RequireInstallerInputs `
     -WriteManifest
 if ($LASTEXITCODE -ne 0) {
     throw "Package check failed before installer build with exit code $LASTEXITCODE"
@@ -102,11 +88,9 @@ if (-not (Test-Path $issPath)) {
 }
 
 $defineSource = "/DSourceDir=`"$packageDir`""
-$defineNi = "/DNiInstaller=`"$NiInstaller`""
-$defineVc = "/DVcRedist=`"$VcRedist`""
 $defineOut = "/DOutputDir=`"$OutputDir`""
 
-& $InnoSetup $defineSource $defineNi $defineVc $defineOut $issPath
+& $InnoSetup $defineSource $defineOut $issPath
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed with exit code $LASTEXITCODE"
 }

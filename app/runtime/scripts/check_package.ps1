@@ -184,6 +184,8 @@ $warnings = New-Object System.Collections.ArrayList
 $requiredPackageFiles = New-Object System.Collections.Generic.List[string]
 foreach ($relativePath in @(
     "OpenVisualDropletSorter.exe",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
     "Qt6Core.dll",
     "Qt6Gui.dll",
     "Qt6Widgets.dll",

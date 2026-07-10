@@ -1,8 +1,8 @@
 Pre-install requirements
 
 - Hamamatsu DCAM runtime/driver must be installed before running this application. The installer does not bundle DCAM.
+- Microsoft Visual C++ Redistributable x64 may be required on clean target machines. Install it from Microsoft if the application does not launch because the MSVC runtime is missing. The installer does not bundle or run the redistributable installer.
 - This installer layers on the validated portable package output. It copies the packaged application, models, and bundled `training\python` source/scripts/docs, but it does not bundle Python, virtual environments, datasets, checkpoints, smoke outputs, or generated training/model outputs.
 - Python trainer dependencies remain external. If you need the packaged training tools, create a separate venv from the bundled `training\python` content after install and follow its Windows setup scripts.
-- NI-DAQmx is required for the accepted NI-enabled build because the application imports `nicaiu.dll`. The installer build requires a local NI-DAQmx installer path supplied through `build_installer.ps1 -NiInstaller`, and DAQ output still requires compatible NI hardware.
-- Microsoft Visual C++ Redistributable x64 is required for clean target machines. The installer build requires a local redistributable path supplied through `build_installer.ps1 -VcRedist`, unless auto-discovery finds it in Downloads.
+- NI-DAQmx is required only for NI DAQ trigger output. Install NI-DAQmx from NI before using DAQ features, and use compatible NI hardware. The installer does not bundle or run NI-DAQmx installer payloads.
 - Packaging validation does not exercise live DAQ output. Verify DAQ behavior separately on approved hardware after NI-DAQmx is installed.

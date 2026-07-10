@@ -28,7 +28,7 @@ It is designed for lab setups that use Hamamatsu camera hardware and may also us
 ### Required
 
 - Windows 10 or Windows 11
-- A supported Hamamatsu camera installation path if you want to use live acquisition
+- A supported Hamamatsu camera
 - Hamamatsu DCAM-API / DCAM-SDK installed on the machine
 
 ### Optional

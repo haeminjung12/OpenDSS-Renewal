@@ -1,6 +1,6 @@
 # OpenDSS
 
-Open Visual Droplet Sorter for live camera inspection, ONNX-based event classification, and optional NI hardware triggering on Windows.
+Open Visual Droplet Sorter for live camera inspection, ONNX-based event classification, and NI hardware triggering on Windows.
 
 <p align="center">
   <img src="assets/branding/opendss-primary-full-color.svg" alt="OpenDSS logo" width="520">
@@ -10,16 +10,16 @@ Public Windows binary releases are distributed through [GitHub Releases](https:/
 
 ## What It Does
 
-OpenDSS is a desktop application for running a droplet-sorting workflow from a Windows workstation. It combines live camera viewing, detector controls, model-backed inference, hardware settings, and optional DAQ triggering in one Qt-based interface.
+OpenDSS is a desktop application for running a droplet-sorting workflow from a Windows workstation. It combines live camera viewing, detector controls, model-backed inference, hardware settings, and DAQ triggering in one Qt-based interface.
 
-It is designed for lab setups that use Hamamatsu camera hardware and may also use NI output hardware for trigger delivery.
+It is designed for lab setups that use Hamamatsu camera hardware and NI output hardware for trigger delivery.
 
 ## Key Features
 
 - Live camera view with dedicated camera controls
 - Detector and event-processing controls for real-time inspection workflows
 - ONNX Runtime inference for model-backed classification
-- Optional NI-DAQmx trigger output for hardware-integrated sorting setups
+- NI-DAQmx trigger output for hardware-integrated sorting setups
 - Hardware settings workspace for camera and DAQ configuration
 - Windows training helpers for preparing datasets and training updated models outside the desktop app
 
@@ -30,10 +30,11 @@ It is designed for lab setups that use Hamamatsu camera hardware and may also us
 - Windows 10 or Windows 11
 - A supported Hamamatsu camera
 - Hamamatsu DCAM-API / DCAM-SDK installed on the machine
+- NI DAQ hardware supported by NI-DAQmx for trigger output
+- NI-DAQmx runtime/driver installed on the machine
 
 ### Optional
 
-- NI DAQ hardware supported by NI-DAQmx for trigger output
 - A trained ONNX model suitable for your droplet-classification workflow
 
 ## Downloads
@@ -42,7 +43,7 @@ It is designed for lab setups that use Hamamatsu camera hardware and may also us
 
 - Public installer release: [GitHub Releases](https://github.com/haeminjung12/OpenDSS_clean/releases/latest)
 - Release assets are distributed through GitHub Releases.
-- The public installer does not bundle or run NI-DAQmx, Hamamatsu DCAM, or Microsoft Visual C++ Redistributable installers.
+- The public installer does not bundle or run NI-DAQmx, Hamamatsu DCAM, or Microsoft Visual C++ Redistributable installers; install those prerequisites separately.
 
 ### Vendor Prerequisites
 
@@ -70,7 +71,7 @@ For GPU training, use one CUDA-specific installer wrapper instead of the CPU ins
 1. Build from source, or use the public installer after it is posted to [GitHub Releases](https://github.com/haeminjung12/OpenDSS_clean/releases/latest).
 2. Install Hamamatsu DCAM-API before connecting a supported camera.
 3. Install Microsoft Visual C++ Redistributable x64 if it is not already present on the target machine.
-4. Install NI-DAQmx only if your setup needs NI-based trigger output.
+4. Install NI-DAQmx for NI-based trigger output.
 5. Launch OpenDSS and configure camera, detector, model, and hardware settings for your workflow.
 
 ## Screenshots
@@ -91,7 +92,7 @@ OpenDSS is a Windows C++/Qt project built with CMake.
 - OpenCV
 - ONNX Runtime
 - Hamamatsu DCAM SDK
-- NI-DAQmx headers and libraries only if you want NI support enabled
+- NI-DAQmx headers and libraries
 
 ### Configure And Build
 
@@ -100,13 +101,15 @@ cmake -S app/runtime -B build-opendss-release `
   -G "Visual Studio 17 2022" -A x64 `
   -D CMAKE_PREFIX_PATH="C:\Qt\6.10.1\msvc2022_64" `
   -D ONNXRUNTIME_DIR="C:\onnxruntime-gpu" `
-  -D ENABLE_NIDAQMX=OFF `
+  -D NIDAQMX_INCLUDE_DIR="C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\include" `
+  -D NIDAQMX_LIBRARY="C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\lib64\msvc\NIDAQmx.lib" `
+  -D ENABLE_NIDAQMX=ON `
   -D BUILD_QT_GUI=ON
 
 cmake --build build-opendss-release --config Release --target desktop_app
 ```
 
-To enable NI-trigger support, configure with `-D ENABLE_NIDAQMX=ON` and provide valid NI-DAQmx include/library paths.
+NI trigger support requires `-D ENABLE_NIDAQMX=ON` with valid NI-DAQmx include and library paths.
 
 ### Optional Model Training Helpers
 

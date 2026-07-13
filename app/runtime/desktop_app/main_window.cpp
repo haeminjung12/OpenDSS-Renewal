@@ -285,8 +285,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto datasetReadinessAction = datasetMenu->addAction("Readiness Check");
 
     auto trainingMenu = this->menuBar()->addMenu("&Training");
-    auto trainingEnvironmentSettingsAction = trainingMenu->addAction("Training Environment Settings");
-    auto trainingValidateEnvironmentAction = trainingMenu->addAction("Validate Environment");
+    auto trainingEnvironmentSettingsAction = trainingMenu->addAction("Open Trainer Setup");
+    auto trainingValidateEnvironmentAction = trainingMenu->addAction("Check Python Setup");
     auto trainingNewRunAction =
         addDisabledAction(trainingMenu, "New Training Run", "TrainingNewRunAction",
                           "Full GUI-launched training is intentionally unavailable in this readiness prototype.");
@@ -295,7 +295,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto validationMenu = this->menuBar()->addMenu("&Validation");
     auto imageValidationAction = validationMenu->addAction("Image Validation");
-    imageValidationAction->setStatusTip("Launch image-level ONNX validation through the external Python validator.");
+    imageValidationAction->setStatusTip("Open the Validation workspace for image-level model checks.");
     auto sequenceValidationAction = addDisabledAction(
         validationMenu, "Sequence Validation", "ValidationSequenceValidationAction",
         "Runner-wrapped sequence validation is not available; artifact comparison remains internal/provisional.");
@@ -880,36 +880,35 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto trainerPythonEdit = new QLineEdit("python");
     auto trainerPythonBrowseBtn = new QPushButton("Browse");
     auto trainerDatasetEdit = new QLineEdit;
-    trainerDatasetEdit->setPlaceholderText("Select prepared dataset or labeled dataset root...");
+    trainerDatasetEdit->setPlaceholderText("Select the image set for Hit and Waste examples...");
     auto trainerDatasetBrowseBtn = new QPushButton("Browse");
     auto trainerOutputEdit = new QLineEdit;
-    trainerOutputEdit->setPlaceholderText("Select training output directory...");
+    trainerOutputEdit->setPlaceholderText("Choose where to save the trained model...");
     auto trainerOutputBrowseBtn = new QPushButton("Browse");
     for (auto* edit : {trainerPythonEdit, trainerDatasetEdit, trainerOutputEdit}) {
         edit->setMinimumWidth(0);
         edit->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     }
-    auto trainerEnvCheckBtn = new QPushButton("Validate Environment");
-    auto trainerConfigurePathBtn = new QPushButton("Configure Path");
+    auto trainerEnvCheckBtn = new QPushButton("Check Python setup");
+    auto trainerConfigurePathBtn = new QPushButton("Open app settings");
     trainerConfigurePathBtn->setFlat(true);
     trainerConfigurePathBtn->setCursor(Qt::PointingHandCursor);
     auto trainerCancelBtn = new QPushButton("Cancel");
     trainerCancelBtn->setEnabled(false);
-    auto trainerStartTrainingBtn = new QPushButton("Start Training");
-    auto trainerDryRunBtn = new QPushButton("Dry Run");
-    auto trainerStatusLabel =
-        new QLabel("Trainer idle. Validate the Python environment or run a dry run before training.");
+    auto trainerStartTrainingBtn = new QPushButton("Train model");
+    auto trainerDryRunBtn = new QPushButton("Check setup");
+    auto trainerStatusLabel = new QLabel("Setup not ready yet.");
     trainerStatusLabel->setWordWrap(true);
     trainerStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     auto trainerResultText = new QPlainTextEdit;
     trainerResultText->setReadOnly(true);
     trainerResultText->setMinimumHeight(210);
-    trainerResultText->setPlainText("Trainer process output appears here.");
+    trainerResultText->setPlainText("Detailed command output appears here.");
     auto trainerProgressBar = new QProgressBar;
     trainerProgressBar->setRange(0, 100);
     trainerProgressBar->setValue(0);
     trainerProgressBar->setTextVisible(true);
-    trainerProgressBar->setFormat("Idle");
+    trainerProgressBar->setFormat("Not running");
 
     auto trainerPathsLayout = new QGridLayout;
     trainerPathsLayout->setColumnStretch(0, 0);
@@ -917,16 +916,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerPathsLayout->setColumnStretch(2, 0);
     trainerPathsLayout->setColumnStretch(3, 0);
     int trainerRow = 0;
-    trainerPathsLayout->addWidget(new QLabel("Python"), trainerRow, 0);
-    trainerPathsLayout->addWidget(trainerPythonEdit, trainerRow, 1, 1, 2);
-    trainerPathsLayout->addWidget(trainerPythonBrowseBtn, trainerRow++, 3);
-    trainerPathsLayout->addWidget(new QLabel("Dataset"), trainerRow, 0);
+    trainerPathsLayout->addWidget(new QLabel("Training images"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerDatasetEdit, trainerRow, 1, 1, 2);
     trainerPathsLayout->addWidget(trainerDatasetBrowseBtn, trainerRow++, 3);
-    trainerPathsLayout->addWidget(new QLabel("Output"), trainerRow, 0);
+    trainerPathsLayout->addWidget(new QLabel("Save model to"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerOutputEdit, trainerRow, 1, 1, 2);
     trainerPathsLayout->addWidget(trainerOutputBrowseBtn, trainerRow++, 3);
-    auto trainerPathsGroup = new QGroupBox("Paths");
+    auto trainerPathsGroup = new QGroupBox("Training setup");
     trainerPathsGroup->setMinimumWidth(0);
     trainerPathsGroup->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     trainerPathsGroup->setLayout(trainerPathsLayout);
@@ -935,23 +931,40 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerActionsLayout->addWidget(trainerEnvCheckBtn);
     trainerActionsLayout->addStretch(1);
 
+    auto makeTrainerSectionToggle = [&](const QString& label, bool expanded) {
+        auto* button = new QToolButton;
+        button->setText(label);
+        button->setCheckable(true);
+        button->setChecked(expanded);
+        button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+        button->setArrowType(expanded ? Qt::DownArrow : Qt::RightArrow);
+        button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+        return button;
+    };
+
     auto trainerEnvironmentPanel = new QFrame;
     trainerEnvironmentPanel->setProperty("panel", true);
     auto trainerEnvironmentLayout = new QVBoxLayout;
     trainerEnvironmentLayout->setContentsMargins(12, 12, 12, 12);
     trainerEnvironmentLayout->setSpacing(10);
-    auto trainerEnvironmentTitle = new QLabel("ENVIRONMENT");
+    auto trainerEnvironmentTitle = new QLabel("SETUP DETAILS");
     trainerEnvironmentTitle->setProperty("panelTitle", true);
-    auto trainerEnvironmentSubtitle = new QLabel("External Python trainer - not bundled");
+    auto trainerEnvironmentSubtitle = new QLabel("Use this only if setup checks report a problem.");
     trainerEnvironmentSubtitle->setProperty("mutedText", true);
     trainerEnvironmentLayout->addWidget(trainerEnvironmentTitle);
     trainerEnvironmentLayout->addWidget(trainerEnvironmentSubtitle);
+    auto trainerPythonLayout = new QGridLayout;
+    trainerPythonLayout->setColumnStretch(1, 1);
+    trainerPythonLayout->addWidget(new QLabel("Python setup"), 0, 0);
+    trainerPythonLayout->addWidget(trainerPythonEdit, 0, 1);
+    trainerPythonLayout->addWidget(trainerPythonBrowseBtn, 0, 2);
+    trainerEnvironmentLayout->addLayout(trainerPythonLayout);
     const QVector<QPair<QString, QString>> trainerCheckRows = {
-        {"Python executable", "Configured by TrainerPythonPathEdit"},
-        {"Trainer package", "Validated by module import"},
-        {"PyTorch / CUDA", "Validated by env-check"},
-        {"Dataset manifest", "Checked by dry run or training command"},
-        {"Training output", "Written by external trainer process"},
+        {"Python setup", "Used when you train the model"},
+        {"Training helper", "Checked automatically"},
+        {"Computer support", "Checked automatically"},
+        {"Training images", "Checked from the selected image set"},
+        {"Save location", "Used for the trained model"},
     };
     for (const auto& row : trainerCheckRows) {
         auto* checkRow = new QFrame;
@@ -978,13 +991,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerLastCheckedLabel->setProperty("mutedText", true);
     trainerEnvironmentLayout->addWidget(trainerLastCheckedLabel, 0, Qt::AlignRight);
     trainerEnvironmentPanel->setLayout(trainerEnvironmentLayout);
+    auto trainerSetupDetailsToggle = makeTrainerSectionToggle("Show setup details", false);
+    trainerEnvironmentPanel->setVisible(false);
+    QObject::connect(trainerSetupDetailsToggle, &QToolButton::toggled, trainerEnvironmentPanel,
+                     [trainerSetupDetailsToggle, trainerEnvironmentPanel](bool checked) {
+                         trainerEnvironmentPanel->setVisible(checked);
+                         trainerSetupDetailsToggle->setText(checked ? "Hide setup details" : "Show setup details");
+                         trainerSetupDetailsToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
+                     });
 
     auto trainerFormPanel = new QFrame;
     trainerFormPanel->setProperty("panel", true);
     auto trainerFormLayout = new QVBoxLayout;
     trainerFormLayout->setContentsMargins(12, 12, 12, 12);
     trainerFormLayout->setSpacing(10);
-    auto trainerFormTitle = new QLabel("RUN TRAINING");
+    auto trainerFormTitle = new QLabel("TRAIN MODEL");
     trainerFormTitle->setProperty("panelTitle", true);
     trainerFormLayout->addWidget(trainerFormTitle);
     trainerFormLayout->addWidget(trainerPathsGroup);
@@ -997,8 +1018,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerArchitectureCombo->addItem("ResNet-34", "resnet34");
     auto trainerPretrainedGroup = new QButtonGroup(this);
     trainerPretrainedGroup->setExclusive(true);
-    auto trainerPretrainedImageNetBtn = new QPushButton("ImageNet");
-    auto trainerPretrainedNoneBtn = new QPushButton("None");
+    auto trainerPretrainedImageNetBtn = new QPushButton("Recommended start");
+    auto trainerPretrainedNoneBtn = new QPushButton("Blank start");
     for (auto* button : {trainerPretrainedImageNetBtn, trainerPretrainedNoneBtn}) {
         button->setCheckable(true);
         button->setMinimumHeight(28);
@@ -1029,9 +1050,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         trainerHyperGrid->addWidget(label, row, column);
         trainerHyperGrid->addWidget(editor, row, column + 1);
     };
-    addTrainerFormCell(0, 0, "Architecture", trainerArchitectureCombo);
-    addTrainerFormCell(0, 2, "Pretrained", trainerPretrainedSegment);
-    auto* trainerEpochsLabel = new QLabel("Epochs");
+    addTrainerFormCell(0, 0, "Model type", trainerArchitectureCombo);
+    addTrainerFormCell(0, 2, "Starting point", trainerPretrainedSegment);
+    auto* trainerEpochsLabel = new QLabel("Training rounds");
     trainerEpochsLabel->setProperty("metricLabel", true);
     auto* trainerBatchLabel = new QLabel("Batch size");
     trainerBatchLabel->setProperty("metricLabel", true);
@@ -1043,7 +1064,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerHyperGrid->addWidget(trainerBatchSpin, 1, 3);
     trainerHyperGrid->addWidget(trainerLrLabel, 2, 0);
     trainerHyperGrid->addWidget(trainerLrSpin, 2, 1);
-    trainerFormLayout->addLayout(trainerHyperGrid);
+    auto trainerAdvancedBasicsPanel = new QWidget;
+    trainerAdvancedBasicsPanel->setLayout(trainerHyperGrid);
+    auto trainerAdvancedBasicsToggle = makeTrainerSectionToggle("Show model options", false);
+    trainerAdvancedBasicsPanel->setVisible(false);
+    QObject::connect(trainerAdvancedBasicsToggle, &QToolButton::toggled, trainerAdvancedBasicsPanel,
+                     [trainerAdvancedBasicsToggle, trainerAdvancedBasicsPanel](bool checked) {
+                         trainerAdvancedBasicsPanel->setVisible(checked);
+                         trainerAdvancedBasicsToggle->setText(checked ? "Hide model options" : "Show model options");
+                         trainerAdvancedBasicsToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
+                     });
+    trainerFormLayout->addWidget(trainerAdvancedBasicsToggle);
+    trainerFormLayout->addWidget(trainerAdvancedBasicsPanel);
     auto trainerLaunchRow = new QHBoxLayout;
     trainerLaunchRow->addWidget(trainerStartTrainingBtn);
     trainerLaunchRow->addWidget(trainerDryRunBtn);
@@ -1057,11 +1089,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto trainerLogLayout = new QVBoxLayout;
     trainerLogLayout->setContentsMargins(12, 12, 12, 12);
     trainerLogLayout->setSpacing(10);
-    auto trainerLogTitle = new QLabel("PROGRESS / LOG");
+    auto trainerLogTitle = new QLabel("STATUS");
     trainerLogTitle->setProperty("panelTitle", true);
+    auto trainerLogToggle = makeTrainerSectionToggle("Show detailed log", false);
+    trainerResultText->setVisible(false);
+    QObject::connect(trainerLogToggle, &QToolButton::toggled, trainerResultText,
+                     [trainerLogToggle, trainerResultText](bool checked) {
+                         trainerResultText->setVisible(checked);
+                         trainerLogToggle->setText(checked ? "Hide detailed log" : "Show detailed log");
+                         trainerLogToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
+                     });
     trainerLogLayout->addWidget(trainerLogTitle);
     trainerLogLayout->addWidget(trainerStatusLabel);
     trainerLogLayout->addWidget(trainerProgressBar);
+    trainerLogLayout->addWidget(trainerLogToggle);
     trainerLogLayout->addWidget(trainerResultText, 1);
     trainerLogPanel->setLayout(trainerLogLayout);
 
@@ -1096,13 +1137,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerRecentRunsLayout->addWidget(trainerRecentRunsTable);
     trainerRecentRunsPanel->setLayout(trainerRecentRunsLayout);
 
-    auto trainerAdvancedPanel = new QGroupBox("Advanced - augmentations & schedulers");
+    auto trainerAdvancedPanel = new QGroupBox("Advanced setup");
     auto trainerAdvancedLayout = new QVBoxLayout;
     auto trainerFlipCheck = new QCheckBox("Random horizontal flip");
     trainerFlipCheck->setChecked(true);
     auto trainerRotationCheck = new QCheckBox("Random rotation +/-15 deg");
     trainerRotationCheck->setChecked(true);
-    auto trainerColorJitterCheck = new QCheckBox("Color jitter");
+    auto trainerColorJitterCheck = new QCheckBox("Color changes");
     auto trainerRandomCropCheck = new QCheckBox("Random crop");
     trainerRandomCropCheck->setChecked(true);
     auto trainerSchedulerCombo = new QComboBox;
@@ -1111,9 +1152,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerAdvancedLayout->addWidget(trainerRotationCheck);
     trainerAdvancedLayout->addWidget(trainerColorJitterCheck);
     trainerAdvancedLayout->addWidget(trainerRandomCropCheck);
-    trainerAdvancedLayout->addWidget(new QLabel("Scheduler"));
+    trainerAdvancedLayout->addWidget(new QLabel("Learning schedule"));
     trainerAdvancedLayout->addWidget(trainerSchedulerCombo);
     trainerAdvancedPanel->setLayout(trainerAdvancedLayout);
+    auto trainerAdvancedToggle = makeTrainerSectionToggle("Show advanced setup", false);
+    trainerAdvancedPanel->setVisible(false);
+    QObject::connect(trainerAdvancedToggle, &QToolButton::toggled, trainerAdvancedPanel,
+                     [trainerAdvancedToggle, trainerAdvancedPanel](bool checked) {
+                         trainerAdvancedPanel->setVisible(checked);
+                         trainerAdvancedToggle->setText(checked ? "Hide advanced setup" : "Show advanced setup");
+                         trainerAdvancedToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
+                     });
 
     auto trainerWidget = new QWidget;
     auto trainerLayout = new QHBoxLayout;
@@ -1132,8 +1181,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto trainerLeftLayout = new QVBoxLayout;
     trainerLeftLayout->setContentsMargins(0, 0, 0, 0);
     trainerLeftLayout->setSpacing(12);
-    trainerLeftLayout->addWidget(trainerEnvironmentPanel);
     trainerLeftLayout->addWidget(trainerFormPanel);
+    trainerLeftLayout->addWidget(trainerSetupDetailsToggle);
+    trainerLeftLayout->addWidget(trainerEnvironmentPanel);
     trainerLeftLayout->addWidget(trainerLogPanel, 1);
     trainerLeftContent->setLayout(trainerLeftLayout);
     trainerLeftScroll->setWidget(trainerLeftContent);
@@ -1148,6 +1198,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerRightLayout->setContentsMargins(0, 0, 0, 0);
     trainerRightLayout->setSpacing(12);
     trainerRightLayout->addWidget(trainerRecentRunsPanel);
+    trainerRightLayout->addWidget(trainerAdvancedToggle);
     trainerRightLayout->addWidget(trainerAdvancedPanel);
     trainerRightLayout->addStretch(1);
     trainerRightContent->setLayout(trainerRightLayout);
@@ -1161,9 +1212,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto trainerDockProxyLayout = new QVBoxLayout;
     trainerDockProxyLayout->setContentsMargins(12, 12, 12, 12);
     auto trainerDockProxyLabel =
-        new QLabel("Trainer readiness now opens in the main Trainer workspace. Training launch remains disabled.");
+        new QLabel("Use the main Trainer workspace to check setup and train a model.");
     trainerDockProxyLabel->setWordWrap(true);
-    auto trainerDockProxyButton = new QPushButton("Open Trainer Workspace");
+    auto trainerDockProxyButton = new QPushButton("Open Trainer workspace");
     nameWidget(trainerDockProxyButton, "TrainerDockOpenWorkspaceButton");
     trainerDockProxyLayout->addWidget(trainerDockProxyLabel);
     trainerDockProxyLayout->addWidget(trainerDockProxyButton);
@@ -1274,6 +1325,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(trainerStatusLabel, "TrainerReadinessStatusLabel");
     nameWidget(trainerResultText, "TrainerReadinessResultText");
     nameWidget(trainerProgressBar, "TrainerWorkspaceProgressBar");
+    nameWidget(trainerSetupDetailsToggle, "TrainerSetupDetailsToggleButton");
+    nameWidget(trainerAdvancedToggle, "TrainerAdvancedSetupToggleButton");
+    nameWidget(trainerLogToggle, "TrainerDetailedLogToggleButton");
     nameWidget(trainerEnvironmentPanel, "TrainerEnvironmentPanel");
     nameWidget(trainerFormPanel, "TrainerRunTrainingPanel");
     nameWidget(trainerLogPanel, "TrainerProgressLogPanel");
@@ -1984,15 +2038,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto cameraControlsStack = desktop_app::workspace::buildCameraControlsStack(cameraWorkspaceControls);
     rightStackLayout->insertWidget(2, cameraControlsStack);
 
-    desktop_app::workspace::ModelWorkspaceControls modelWorkspaceControls;
-    modelWorkspaceControls.registryEntries = registryEntries;
-    modelWorkspaceControls.registryFilePath = registryFilePath;
-    modelWorkspaceControls.registryLoadWarning = registryLoadWarning;
-    modelWorkspaceControls.targetClassCombo = targetClassCombo;
-    modelWorkspaceControls.imageValidationAction = imageValidationAction;
-    modelWorkspaceControls.appState = &appState;
-    auto modelWorkspacePage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
-
     desktop_app::workspace::DatasetWorkspaceControls datasetWorkspaceControls;
     datasetWorkspaceControls.datasetReviewAction = datasetLabelDatasetAction;
     datasetWorkspaceControls.operationDock = operationDock;
@@ -2063,6 +2108,25 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     validatorWorkspaceControls.trainerPythonPath = validatorTrainerPythonPath();
     validatorWorkspaceControls.imageValidationAction = imageValidationAction;
     auto validatorWorkspacePage = desktop_app::workspace::buildValidatorWorkspace(validatorWorkspaceControls);
+    auto* validatorWorkspaceModelEdit = validatorWorkspacePage->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit");
+    auto* validatorWorkspaceMetadataEdit =
+        validatorWorkspacePage->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit");
+    auto syncValidatorWorkspaceRuntimeModel = [&]() {
+        if (validatorWorkspaceModelEdit)
+            validatorWorkspaceModelEdit->setText(validatorResolveAppRelative(onnxEdit->text().trimmed()));
+        if (validatorWorkspaceMetadataEdit)
+            validatorWorkspaceMetadataEdit->setText(validatorResolveAppRelative(metaEdit->text().trimmed()));
+    };
+
+    desktop_app::workspace::ModelWorkspaceControls modelWorkspaceControls;
+    modelWorkspaceControls.registryEntries = registryEntries;
+    modelWorkspaceControls.registryFilePath = registryFilePath;
+    modelWorkspaceControls.registryLoadWarning = registryLoadWarning;
+    modelWorkspaceControls.targetClassCombo = targetClassCombo;
+    modelWorkspaceControls.imageValidationAction = imageValidationAction;
+    modelWorkspaceControls.validatorWorkspace = validatorWorkspacePage;
+    modelWorkspaceControls.appState = &appState;
+    auto modelWorkspacePage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
 
     desktop_app::workspace::ReportsWorkspaceControls reportsWorkspaceControls;
     reportsWorkspaceControls.logPath = logPath;
@@ -2388,7 +2452,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                    "Model: loaded through existing Pipeline controls\n"
                    "DAQ: configured in Devices > DAQ / Trigger\n"
                    "Python trainer: readiness checks available in Trainer tab\n"
-                   "Image validator: launch available in Validation > Image Validation\n"
+                   "Validation workspace: open from Validation > Image Validation\n"
                    "Training launch, runner-wrapped sequence validation, and Model Promotion: disabled placeholders");
     nameWidget(diagnosticsLabel, "SystemDiagnosticsLabel");
     diagnosticsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -2642,7 +2706,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QMessageBox::about(this, "About Open Visual Droplet Sorter Suite",
                            "Open Visual Droplet Sorter Suite\n\n"
                            "Qt shell preview around the existing Hamamatsu live-view and droplet pipeline controls.\n\n"
-                           "Image validation can be launched through the external Python validator. Trainer launch, "
+                           "Validation runs in the Validation workspace. Trainer launch, "
                            "runner-wrapped sequence validation, and model promotion remain disabled placeholders.");
     });
 
@@ -2803,21 +2867,30 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto setTrainerBusy = [datasetController, &trainerCommandWasTraining](bool busy) {
         datasetController->setTrainerBusy(busy, trainerCommandWasTraining);
     };
+    auto setTrainerSummary = [datasetController, trainerStatusLabel](const QString& headline,
+                                                                     const QString& detail = QString()) {
+        trainerStatusLabel->setText(datasetController->trainerSummaryText(headline, detail));
+    };
     auto trainerTrainArgs = [datasetController](bool dryRun) { return datasetController->trainerTrainArgs(dryRun); };
     auto startTrainerCommand = [&](const QString& label, const QStringList& args, bool isTraining, bool isDryRun) {
         if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
-            trainerStatusLabel->setText("A trainer command is already running.");
+            setTrainerSummary("A setup or training task is already running.");
             return;
         }
         QString python = trainerPythonEdit->text().trimmed();
         if (python.isEmpty()) {
-            trainerStatusLabel->setText("Select a Python executable before running trainer commands.");
+            setTrainerSummary("Choose Python setup before continuing.");
             return;
         }
-        if ((isTraining || isDryRun) && (trainerDatasetEdit->text().trimmed().isEmpty() ||
-                                         trainerOutputEdit->text().trimmed().isEmpty() || args.contains(QString()))) {
-            trainerStatusLabel->setText(
-                "Dataset, output directory, and generated config are required before training.");
+        if ((isTraining || isDryRun) &&
+            (trainerDatasetEdit->text().trimmed().isEmpty() || trainerOutputEdit->text().trimmed().isEmpty())) {
+            setTrainerSummary("Choose training images and a save location before continuing.");
+            return;
+        }
+        if ((isTraining || isDryRun) && args.contains(QString())) {
+            if (trainerStatusLabel->text().trimmed().isEmpty()) {
+                setTrainerSummary("Could not prepare the training setup.");
+            }
             return;
         }
         saveTrainerSettings();
@@ -2825,7 +2898,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         trainerCommandWasDryRun = isDryRun;
         trainerResultText->clear();
         appendTrainerLog(QString("Running %1\n%2\n\n").arg(label, trainerCommandPreview(python, args)));
-        trainerStatusLabel->setText(QString("%1 running...").arg(label));
+        if (isTraining) {
+            setTrainerSummary("Training model...");
+        } else if (isDryRun) {
+            setTrainerSummary("Checking setup...");
+        } else {
+            setTrainerSummary("Checking Python setup...");
+        }
         pythonStatusItem->setText("Python: checking");
         setTrainerBusy(true);
 
@@ -2873,12 +2952,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     QString("\nProcess finished: exit=%1%2\n").arg(exitCode).arg(crashed ? " crashed" : ""));
                 const bool ok = exitCode == 0 && !crashed;
                 if (trainerCommandWasDryRun) {
-                    trainerStatusLabel->setText(ok ? "Dry run completed." : "Dry run failed. Review log output.");
+                    setTrainerSummary(ok ? "Setup check completed." : "Setup check failed.",
+                                      ok ? QString() : "Review the detailed log for the failure.");
                 } else if (trainerCommandWasTraining) {
-                    trainerStatusLabel->setText(ok ? "Training completed." : "Training failed. Review log output.");
+                    setTrainerSummary(ok ? "Model training completed." : "Model training failed.",
+                                      ok ? QString() : "Review the detailed log for the failure.");
                 } else {
-                    trainerStatusLabel->setText(ok ? "Python environment validated."
-                                                   : "Environment validation failed.");
+                    setTrainerSummary(ok ? "Python setup checked." : "Python setup check failed.",
+                                      ok ? QString() : "Review the detailed log for the failure.");
                 }
                 pythonStatusItem->setText(ok ? "Python: ready" : "Python: issue");
                 setTrainerBusy(false);
@@ -2889,7 +2970,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             if (trainerProcess != process)
                 return;
             Q_UNUSED(error);
-            trainerStatusLabel->setText("Failed to start trainer subprocess.");
+            setTrainerSummary("Could not start the training helper.", process->errorString());
             appendTrainerLog("Process error: " + process->errorString() + "\n");
             pythonStatusItem->setText("Python: start failed");
             setTrainerBusy(false);
@@ -2899,19 +2980,19 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         process->start(python, args);
     };
     QObject::connect(trainerEnvCheckBtn, &QPushButton::clicked, [&]() {
-        startTrainerCommand("Environment validation",
+        startTrainerCommand("Python setup check",
                             {"-m", "droplet_trainer", "env-check", "--device", "cpu", "--require-training",
                              "--require-onnx", "--json"},
                             false, false);
     });
     QObject::connect(trainerDryRunBtn, &QPushButton::clicked,
-                     [&]() { startTrainerCommand("Training dry run", trainerTrainArgs(true), false, true); });
+                     [&]() { startTrainerCommand("Setup check", trainerTrainArgs(true), false, true); });
     QObject::connect(trainerStartTrainingBtn, &QPushButton::clicked,
-                     [&]() { startTrainerCommand("Training", trainerTrainArgs(false), true, false); });
+                     [&]() { startTrainerCommand("Train model", trainerTrainArgs(false), true, false); });
     QObject::connect(trainerCancelBtn, &QPushButton::clicked, [&]() {
         if (!trainerProcess || trainerProcess->state() == QProcess::NotRunning)
             return;
-        trainerStatusLabel->setText("Canceling trainer subprocess...");
+        setTrainerSummary("Stopping the current setup or training task...");
         trainerProcess->terminate();
         QPointer<QProcess> processPtr(trainerProcess);
         QTimer::singleShot(3000, this, [processPtr]() {
@@ -3405,6 +3486,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     validatorWorkspaceControllerDeps.onnxEdit = onnxEdit;
     validatorWorkspaceControllerDeps.metaEdit = metaEdit;
     validatorWorkspaceControllerDeps.pythonStatusItem = pythonStatusItem;
+    validatorWorkspaceControllerDeps.validatorNavButton = validatorNavButton;
+    validatorWorkspaceControllerDeps.workspaceStack = workspaceStack;
+    validatorWorkspaceControllerDeps.validatorWorkspace = validatorWorkspacePage;
     validatorWorkspaceControllerDeps.preparedDatasetPath = defaultWorkspacePaths.preparedDataset;
     validatorWorkspaceControllerDeps.validationRunsRoot = defaultWorkspacePaths.runs;
     validatorWorkspaceControllerDeps.appDir = appDir;
@@ -3494,6 +3578,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     cameraController->updateLutRange(cameraController->currentBits());
     restoreRuntimeSettings();
+    syncValidatorWorkspaceRuntimeModel();
     auto repairRuntimeModelPaths = [&]() {
         auto rawPathExists = [&](const QString& path) {
             const QString trimmed = path.trimmed();
@@ -3517,6 +3602,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                        .arg(onnxEdit->text(), metaEdit->text()));
     };
     repairRuntimeModelPaths();
+    syncValidatorWorkspaceRuntimeModel();
     populateTargetClassSelector();
     cameraController->updateLutRange(cameraController->currentBits());
 
@@ -3562,6 +3648,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QString file = QFileDialog::getOpenFileName(this, "Select ONNX model", onnxEdit->text(), "ONNX Model (*.onnx)");
         if (!file.isEmpty()) {
             onnxEdit->setText(file);
+            syncValidatorWorkspaceRuntimeModel();
             saveRuntimeSettings();
         }
     });
@@ -3569,6 +3656,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QString file = QFileDialog::getOpenFileName(this, "Select metadata JSON", metaEdit->text(), "JSON (*.json)");
         if (!file.isEmpty()) {
             metaEdit->setText(file);
+            syncValidatorWorkspaceRuntimeModel();
             populateTargetClassSelector();
             saveRuntimeSettings();
         }
@@ -3580,9 +3668,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             saveRuntimeSettings();
         }
     });
-    QObject::connect(liveModelCombo, qOverload<int>(&QComboBox::currentIndexChanged),
-                     [&]() { applyLiveModelSelection(); });
-    QObject::connect(refreshLiveModelsBtn, &QPushButton::clicked, [&]() { applyLiveModelSelection(); });
+    QObject::connect(liveModelCombo, qOverload<int>(&QComboBox::currentIndexChanged), [&]() {
+        applyLiveModelSelection();
+        syncValidatorWorkspaceRuntimeModel();
+    });
+    QObject::connect(refreshLiveModelsBtn, &QPushButton::clicked, [&]() {
+        applyLiveModelSelection();
+        syncValidatorWorkspaceRuntimeModel();
+    });
 
     auto connectRuntimeSettingsPersistence = [&]() {
         QObject::connect(onnxEdit, &QLineEdit::editingFinished, saveRuntimeSettings);
@@ -5330,10 +5423,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     splash.finish(this);
     if (options.verifyDirectDaqManualTrigger || options.verifyLiveViewManualTrigger) {
         logMessage("Manual DAQ verifier: camera startup skipped while preserving hardware-required DAQ checks.");
+    } else if (options.verifyValidationWorkspace) {
+        logMessage("Validation workspace verifier: camera startup skipped to keep checks no-hardware.");
     } else {
         cameraController->initializeCamera();
     }
-    if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger) {
+    if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger && !options.verifyValidationWorkspace) {
         QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
     }
     if (!options.datasetBuilderReviewPath.trimmed().isEmpty()) {
@@ -5341,6 +5436,112 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             logMessage("Opening Dataset Builder review manifest from command line: " +
                        options.datasetBuilderReviewPath);
             openDatasetLabelerPath(options.datasetBuilderReviewPath);
+        });
+    }
+    if (options.verifyValidationWorkspace) {
+        QTimer::singleShot(0, [&]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures.push_back(message);
+                    qCritical().noquote() << "VALIDATION VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "VALIDATION VERIFY PASS:" << message;
+                }
+            };
+            auto waitForUi = [&](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+                app.processEvents();
+            };
+            auto workspaceContainsText = [](QWidget* root, const QString& text) {
+                if (!root)
+                    return false;
+                for (auto* label : root->findChildren<QLabel*>()) {
+                    if (label->text().contains(text, Qt::CaseInsensitive) && label->isVisible())
+                        return true;
+                }
+                return false;
+            };
+            auto legacyDialogVisible = [this]() {
+                for (QWidget* widget : QApplication::topLevelWidgets()) {
+                    auto* dialog = qobject_cast<QDialog*>(widget);
+                    if (dialog && dialog->isVisible() &&
+                        dialog->windowTitle().contains("Image Validation", Qt::CaseInsensitive)) {
+                        return true;
+                    }
+                }
+                return false;
+            };
+
+            workspaceStack->setCurrentWidget(modelWorkspacePage);
+            if (modelNavButton)
+                modelNavButton->setChecked(true);
+            headerTitleLabel->setText("/ Model");
+            headerStatusText->setText("Model workspace");
+            app.processEvents();
+            waitForUi(250);
+
+            auto* runValidationButton = this->findChild<QPushButton*>("ModelWorkspaceRunValidationButton");
+            auto* validatorWorkspace = this->findChild<QWidget*>("ValidatorWorkspace");
+            auto* validatorRunButton = this->findChild<QPushButton*>("ValidatorWorkspaceOpenImageValidationButton");
+            auto* validatorModelEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit");
+            auto* commandPreview = this->findChild<QPlainTextEdit*>("ValidatorWorkspaceCommandPreview");
+            auto* pythonEdit = this->findChild<QLineEdit*>("ValidatorWorkspacePythonExecutableEdit");
+            auto* metadataEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit");
+            auto* schemaCombo = this->findChild<QComboBox*>("ValidatorWorkspaceClassSchemaComboBox");
+            auto* classesEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceClassesEdit");
+
+            require(runValidationButton != nullptr, "ModelWorkspaceRunValidationButton exists");
+            require(validatorWorkspace != nullptr, "ValidatorWorkspace exists");
+            if (runValidationButton)
+                runValidationButton->click();
+            waitForUi(250);
+
+            require(workspaceStack->currentWidget() == validatorWorkspace,
+                    "Model workspace Run Validation focuses ValidatorWorkspace");
+            require(!legacyDialogVisible(), "Model workspace route does not open the legacy dialog");
+            require(validatorRunButton != nullptr, "Validator workspace run button exists");
+            require(validatorRunButton && validatorRunButton->text() == "Run Validation",
+                    "Validator workspace uses Run Validation as the primary action");
+            require(validatorModelEdit && !validatorModelEdit->text().trimmed().isEmpty(),
+                    "Selected model is carried into the Validator workspace");
+            require(commandPreview && !commandPreview->isVisible(), "Command preview is hidden in the Validator workspace");
+            require(pythonEdit && !pythonEdit->isVisible(), "Python path is hidden in the Validator workspace");
+            require(metadataEdit && !metadataEdit->isVisible(), "Metadata path is hidden in the Validator workspace");
+            require(schemaCombo && !schemaCombo->isVisible(), "Class schema selector is hidden in the Validator workspace");
+            require(classesEdit && !classesEdit->isVisible(), "Custom classes input is hidden in the Validator workspace");
+            require(!workspaceContainsText(validatorWorkspace, "External Python validator"),
+                    "Validator workspace no longer shows external Python jargon");
+            require(!workspaceContainsText(validatorWorkspace, "ROC AUC"),
+                    "Validator workspace no longer shows ROC AUC by default");
+            require(!workspaceContainsText(validatorWorkspace, "Latency P99"),
+                    "Validator workspace no longer shows latency by default");
+            require(!workspaceContainsText(validatorWorkspace, "Sequence validation remains disabled"),
+                    "Validator workspace no longer shows sequence validation placeholder notes");
+
+            workspaceStack->setCurrentWidget(liveWorkspacePage);
+            if (liveNavButton)
+                liveNavButton->setChecked(true);
+            headerTitleLabel->setText("/ Live View");
+            headerStatusText->setText("Live View workspace");
+            app.processEvents();
+            waitForUi(150);
+
+            imageValidationAction->trigger();
+            waitForUi(150);
+            require(workspaceStack->currentWidget() == validatorWorkspace,
+                    "Validation menu action focuses ValidatorWorkspace");
+            require(!legacyDialogVisible(), "Validation menu action does not open the legacy dialog");
+
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            if (failures.isEmpty()) {
+                logMessage("Validation workspace verifier passed.");
+            } else {
+                logMessage("Validation workspace verifier failed: " + failures.join("; "));
+            }
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
         });
     }
     if (options.verifyCameraWorkspace) {

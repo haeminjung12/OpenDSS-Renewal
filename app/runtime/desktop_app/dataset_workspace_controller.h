@@ -68,9 +68,21 @@ class DatasetWorkspaceController : public QObject {
     QString trainingConfigPath() const;
     QStringList trainerTrainArgs(bool dryRun) const;
     QString trainerCommandPreview(const QString& program, const QStringList& args) const;
+    QString trainerSummaryText(const QString& stateHeadline = QString(),
+                               const QString& stateDetail = QString()) const;
 
   private:
+    struct TrainerDatasetCounts {
+        int hitCount = -1;
+        int wasteCount = -1;
+        int totalCount = -1;
+        bool available = false;
+    };
+
     static QString quoteTrainerArg(QString arg);
+    void refreshTrainerSummary() const;
+    bool trainerSetupReady(QStringList* issues = nullptr) const;
+    TrainerDatasetCounts collectTrainerDatasetCounts() const;
     void loadTrainerSettings() const;
     void wireDatasetActions();
     void wireTrainerPathButtons();

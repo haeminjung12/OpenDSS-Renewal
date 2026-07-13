@@ -23,13 +23,15 @@
 #include <QUrl>
 #include <QVBoxLayout>
 
+#include <array>
+
 #include "object_names.h"
 
 ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& initialPython, const QString& initialModel,
                                              const QString& initialMetadata, const QString& initialDataset,
                                              const QString& initialOutput, const QString& trainerPythonPath,
                                              ObjectNameMode objectNameMode)
-    : QWidget(parent), pythonPath(trainerPythonPath) {
+    : QWidget(parent), pythonPath(trainerPythonPath), workspaceMode(objectNameMode == ObjectNameMode::Workspace) {
     pythonEdit = new QLineEdit(initialPython.isEmpty() ? "python" : initialPython);
     modelEdit = new QLineEdit(initialModel);
     metadataEdit = new QLineEdit(initialMetadata);
@@ -41,7 +43,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     schemaCombo->addItems({"default binary 0,1", "legacy Empty,Single,MoreThanTwo", "custom classes"});
     classesEdit = new QLineEdit("0,1");
 
-    const bool workspaceNames = objectNameMode == ObjectNameMode::Workspace;
+    const bool workspaceNames = workspaceMode;
     nameWidget(pythonEdit, workspaceNames ? "ValidatorWorkspacePythonExecutableEdit" : "ValidatorPythonExecutableEdit");
     nameWidget(modelEdit, workspaceNames ? "ValidatorWorkspaceModelEdit" : "ValidatorModelEdit");
     nameWidget(metadataEdit, workspaceNames ? "ValidatorWorkspaceMetadataEdit" : "ValidatorMetadataEdit");
@@ -52,16 +54,22 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     nameWidget(classesEdit, workspaceNames ? "ValidatorWorkspaceClassesEdit" : "ValidatorClassesEdit");
 
     auto* form = new QGridLayout;
-    addPathRow(form, 0, "Python", pythonEdit, false, "Python executable");
-    addPathRow(form, 1, "Model", modelEdit, false, "ONNX model");
-    addPathRow(form, 2, "Metadata", metadataEdit, false, "Model metadata JSON");
-    addPathRow(form, 3, "Dataset", datasetEdit, true, "Labeled dataset folder");
-    addPathRow(form, 4, "Output", outputEdit, true, "Validation output folder");
-    form->addWidget(new QLabel("Device"), 5, 0);
-    form->addWidget(deviceCombo, 5, 1);
-    form->addWidget(new QLabel("Class Schema"), 6, 0);
-    form->addWidget(schemaCombo, 6, 1);
-    form->addWidget(classesEdit, 6, 2);
+    if (workspaceMode) {
+        addPathRow(form, 0, "Model", modelEdit, false, "ONNX model");
+        addPathRow(form, 1, "Validation images", datasetEdit, true, "Labeled dataset folder");
+        addPathRow(form, 2, "Results folder", outputEdit, true, "Validation output folder");
+    } else {
+        addPathRow(form, 0, "Python", pythonEdit, false, "Python executable");
+        addPathRow(form, 1, "Model", modelEdit, false, "ONNX model");
+        addPathRow(form, 2, "Metadata", metadataEdit, false, "Model metadata JSON");
+        addPathRow(form, 3, "Dataset", datasetEdit, true, "Labeled dataset folder");
+        addPathRow(form, 4, "Output", outputEdit, true, "Validation output folder");
+        form->addWidget(new QLabel("Device"), 5, 0);
+        form->addWidget(deviceCombo, 5, 1);
+        form->addWidget(new QLabel("Class Schema"), 6, 0);
+        form->addWidget(schemaCombo, 6, 1);
+        form->addWidget(classesEdit, 6, 2);
+    }
 
     statusLabel = new QLabel("Idle");
     statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -73,15 +81,15 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     logText = new QPlainTextEdit;
     logText->setReadOnly(true);
     nameWidget(logText, workspaceNames ? "ValidatorWorkspaceLogTextEdit" : "ValidatorLogTextEdit");
-    artifactLabel = new QLabel("Artifacts: not available");
+    artifactLabel = new QLabel(workspaceMode ? "No validation results yet." : "Artifacts: not available");
     artifactLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     artifactLabel->setWordWrap(true);
     nameWidget(artifactLabel, workspaceNames ? "ValidatorWorkspaceArtifactLabel" : "ValidatorArtifactLabel");
 
-    startButton = new QPushButton("Run Image Validation");
+    startButton = new QPushButton(workspaceMode ? "Run Validation" : "Run Image Validation");
     cancelButton = new QPushButton("Cancel");
-    openSummaryButton = new QPushButton("Open Summary");
-    openOutputButton = new QPushButton("Open Output Folder");
+    openSummaryButton = new QPushButton(workspaceMode ? "Open Results" : "Open Summary");
+    openOutputButton = new QPushButton(workspaceMode ? "Open Folder" : "Open Output Folder");
     cancelButton->setEnabled(false);
     openSummaryButton->setEnabled(false);
     openOutputButton->setEnabled(false);
@@ -89,6 +97,14 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     nameWidget(cancelButton, workspaceNames ? "ValidatorWorkspaceCancelButton" : "ValidatorCancelButton");
     nameWidget(openSummaryButton, workspaceNames ? "ValidatorWorkspaceOpenSummaryButton" : "ValidatorOpenSummaryButton");
     nameWidget(openOutputButton, workspaceNames ? "ValidatorWorkspaceOpenOutputButton" : "ValidatorOpenOutputButton");
+    const std::array<QWidget*, 16> ownedWidgets = {
+        pythonEdit,       modelEdit,     metadataEdit, datasetEdit,     outputEdit,       deviceCombo,
+        schemaCombo,      classesEdit,   statusLabel,  commandPreview,  logText,          artifactLabel,
+        startButton,      cancelButton,  openSummaryButton, openOutputButton,
+    };
+    for (QWidget* widget : ownedWidgets) {
+        widget->setParent(this);
+    }
 
     auto* buttons = new QHBoxLayout;
     buttons->addWidget(startButton);
@@ -97,20 +113,35 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     buttons->addWidget(openSummaryButton);
     buttons->addWidget(openOutputButton);
 
-    auto* note = new QLabel("Sequence validation remains unavailable here: runner-wrapped replay is not implemented, "
-                            "and existing artifact comparison is internal/provisional only.");
-    note->setWordWrap(true);
-    note->setStyleSheet("color:#6b4f00;");
-
     auto* layout = new QVBoxLayout;
     layout->addLayout(form);
-    layout->addWidget(new QLabel("Command Preview"));
-    layout->addWidget(commandPreview);
     layout->addWidget(statusLabel);
-    layout->addWidget(logText, 1);
     layout->addWidget(artifactLabel);
-    layout->addWidget(note);
     layout->addLayout(buttons);
+    if (!workspaceMode) {
+        layout->addWidget(new QLabel("Command Preview"));
+        layout->addWidget(commandPreview);
+        layout->addWidget(logText, 1);
+        auto* note = new QLabel("Sequence validation remains unavailable here: runner-wrapped replay is not implemented, "
+                                "and existing artifact comparison is internal/provisional only.");
+        note->setWordWrap(true);
+        note->setStyleSheet("color:#6b4f00;");
+        layout->addWidget(note);
+    } else {
+        pythonEdit->hide();
+        metadataEdit->hide();
+        deviceCombo->hide();
+        schemaCombo->hide();
+        classesEdit->hide();
+        commandPreview->hide();
+        detailsLabel = new QLabel("Details");
+        detailsLabel->setProperty("metricLabel", true);
+        detailsLabel->hide();
+        logText->hide();
+        logText->setMaximumHeight(140);
+        layout->addWidget(detailsLabel);
+        layout->addWidget(logText);
+    }
     setLayout(layout);
 
     auto update = [this]() {
@@ -145,6 +176,10 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
 
 ImageValidationWidget::~ImageValidationWidget() {
     stopProcess(1000);
+}
+
+void ImageValidationWidget::setSummaryChangedCallback(SummaryChangedCallback callback) {
+    summaryChangedCallback = std::move(callback);
 }
 
 void ImageValidationWidget::addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit,
@@ -192,7 +227,7 @@ QStringList ImageValidationWidget::commandArguments() const {
 QString ImageValidationWidget::missingInputs() const {
     QStringList missing;
     if (pythonEdit->text().trimmed().isEmpty())
-        missing << "Python executable";
+        missing << (workspaceMode ? "validation tool" : "Python executable");
     if (!QFileInfo(modelEdit->text().trimmed()).isFile())
         missing << "model file";
     if (!QFileInfo(metadataEdit->text().trimmed()).isFile())
@@ -204,21 +239,23 @@ QString ImageValidationWidget::missingInputs() const {
     if (schemaCombo->currentIndex() == 2 && classesEdit->text().trimmed().isEmpty())
         missing << "custom class list";
     if (!pythonPath.isEmpty() && !QFileInfo(pythonPath).isDir())
-        missing << "training/python module path";
+        missing << (workspaceMode ? "validator support files" : "training/python module path");
     return missing.join(", ");
 }
 
 void ImageValidationWidget::updatePreviewAndGate() {
-    QString preview = pythonEdit->text().trimmed();
-    for (const QString& arg : commandArguments()) {
-        QString quoted = arg;
-        quoted.replace("\"", "\\\"");
-        if (quoted.contains(' ')) {
-            quoted = "\"" + quoted + "\"";
+    if (!workspaceMode) {
+        QString preview = pythonEdit->text().trimmed();
+        for (const QString& arg : commandArguments()) {
+            QString quoted = arg;
+            quoted.replace("\"", "\\\"");
+            if (quoted.contains(' ')) {
+                quoted = "\"" + quoted + "\"";
+            }
+            preview += " " + quoted;
         }
-        preview += " " + quoted;
+        commandPreview->setPlainText(preview);
     }
-    commandPreview->setPlainText(preview);
 
     const QString missing = missingInputs();
     const bool running = process && process->state() != QProcess::NotRunning;
@@ -270,8 +307,16 @@ void ImageValidationWidget::startValidation() {
     openSummaryButton->setEnabled(false);
     openOutputButton->setEnabled(false);
     logText->clear();
-    artifactLabel->setText("Artifacts: pending");
-    statusLabel->setText("Running image validation...");
+    if (workspaceMode) {
+        logText->hide();
+        if (detailsLabel)
+            detailsLabel->hide();
+        artifactLabel->setText("Validation is running. Results will appear here when the run finishes.");
+        statusLabel->setText("Running validation...");
+    } else {
+        artifactLabel->setText("Artifacts: pending");
+        statusLabel->setText("Running image validation...");
+    }
 
     process.reset(new QProcess(this));
     QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
@@ -303,7 +348,7 @@ void ImageValidationWidget::cancelValidation() {
     if (!process || process->state() == QProcess::NotRunning)
         return;
     canceled = true;
-    statusLabel->setText("Canceling image validation...");
+    statusLabel->setText(workspaceMode ? "Canceling validation..." : "Canceling image validation...");
     stopProcess(2500);
 }
 
@@ -343,6 +388,11 @@ void ImageValidationWidget::finishValidation(int exitCode, QProcess::ExitStatus 
 void ImageValidationWidget::appendLog(const QString& text) {
     if (text.isEmpty())
         return;
+    if (workspaceMode) {
+        if (detailsLabel)
+            detailsLabel->show();
+        logText->show();
+    }
     logText->moveCursor(QTextCursor::End);
     logText->insertPlainText(text);
     logText->moveCursor(QTextCursor::End);
@@ -358,7 +408,8 @@ bool ImageValidationWidget::loadSummaryArtifacts() {
         }
     }
     if (!QFileInfo::exists(discovered)) {
-        artifactLabel->setText("Artifacts: validation_summary.json was not found. Check diagnostic output above.");
+        artifactLabel->setText(workspaceMode ? "Validation finished, but the results summary was not found."
+                                             : "Artifacts: validation_summary.json was not found. Check diagnostic output above.");
         openOutputButton->setEnabled(QFileInfo(outputEdit->text().trimmed()).exists());
         return false;
     }
@@ -366,13 +417,22 @@ bool ImageValidationWidget::loadSummaryArtifacts() {
     QFile file(summaryPath);
     QString status = "unknown";
     QString metrics;
+    int samplesTotal = 0;
+    int samplesEvaluated = 0;
+    int samplesFailed = 0;
+    int samplesIncorrect = 0;
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QJsonParseError err;
         QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
         if (err.error == QJsonParseError::NoError && doc.isObject()) {
             QJsonObject obj = doc.object();
             status = obj.value("status").toString(status);
+            const QJsonObject dataset = obj.value("dataset").toObject();
             QJsonObject m = obj.value("metrics").toObject();
+            samplesTotal = dataset.value("samples_total").toInt();
+            samplesEvaluated = dataset.value("samples_evaluated").toInt();
+            samplesFailed = dataset.value("samples_failed").toInt();
+            samplesIncorrect = m.value("samples_incorrect").toInt();
             if (!m.isEmpty()) {
                 metrics = QString(" accuracy=%1 macro_f1=%2")
                               .arg(m.value("accuracy").toDouble(), 0, 'f', 4)
@@ -380,11 +440,28 @@ bool ImageValidationWidget::loadSummaryArtifacts() {
             }
         }
     }
-    artifactLabel->setText(QString("Artifacts: %1\nSummary status: %2%3\nExpected CSVs: predictions.csv, "
-                                   "confusion_matrix.csv, class_metrics.csv, failure_cases.csv")
-                               .arg(summaryPath, status, metrics));
+    if (workspaceMode) {
+        const QString reviewSummary =
+            samplesFailed > 0 ? "Fail" : (samplesIncorrect > 0 ? "Needs review" : (samplesEvaluated > 0 ? "Pass" : "--"));
+        QStringList lines;
+        lines << "Latest validation report ready.";
+        lines << QString("Checked %1 of %2 images.").arg(samplesEvaluated).arg(samplesTotal);
+        lines << QString("Review summary: %1.").arg(reviewSummary);
+        if (samplesIncorrect > 0 || samplesFailed > 0) {
+            lines << QString("Needs attention: %1 misclassified, %2 failed to evaluate.")
+                         .arg(samplesIncorrect)
+                         .arg(samplesFailed);
+        }
+        artifactLabel->setText(lines.join("\n"));
+    } else {
+        artifactLabel->setText(QString("Artifacts: %1\nSummary status: %2%3\nExpected CSVs: predictions.csv, "
+                                       "confusion_matrix.csv, class_metrics.csv, failure_cases.csv")
+                                   .arg(summaryPath, status, metrics));
+    }
     openSummaryButton->setEnabled(true);
     openOutputButton->setEnabled(true);
+    if (summaryChangedCallback)
+        summaryChangedCallback(summaryPath);
     return true;
 }
 

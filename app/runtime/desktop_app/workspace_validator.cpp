@@ -1,34 +1,45 @@
 #include "workspace_validator.h"
 
-#include <QtWidgets>
 #include <QSettings>
+#include <QtWidgets>
 
+#include "image_validation_dialog.h"
 #include "object_names.h"
 #include "widget_helpers.h"
-#include "image_validation_dialog.h"
 
 namespace desktop_app::workspace {
 namespace {
 
-QFrame* makeValidatorMetric(const QString& label, const QString& value, const QString& sub = QString()) {
-    auto* frame = new QFrame;
-    frame->setProperty("panel", true);
+struct ValidatorMetricWidget {
+    QFrame* frame = nullptr;
+    QLabel* value = nullptr;
+    QLabel* sub = nullptr;
+};
+
+struct CsvTable {
+    QStringList headers;
+    QList<QStringList> rows;
+};
+
+ValidatorMetricWidget makeValidatorMetric(const QString& label) {
+    ValidatorMetricWidget widget;
+    widget.frame = new QFrame;
+    widget.frame->setProperty("panel", true);
     auto* layout = new QVBoxLayout;
     layout->setContentsMargins(10, 8, 10, 8);
     layout->setSpacing(2);
-    auto* valueLabel = new QLabel(value);
-    valueLabel->setProperty("metricValue", true);
+    widget.value = new QLabel("--");
+    widget.value->setProperty("metricValue", true);
     auto* labelText = new QLabel(label);
     labelText->setProperty("metricLabel", true);
-    layout->addWidget(valueLabel);
+    widget.sub = new QLabel;
+    widget.sub->setProperty("mutedText", true);
+    widget.sub->hide();
+    layout->addWidget(widget.value);
     layout->addWidget(labelText);
-    if (!sub.isEmpty()) {
-        auto* subLabel = new QLabel(sub);
-        subLabel->setProperty("mutedText", true);
-        layout->addWidget(subLabel);
-    }
-    frame->setLayout(layout);
-    return frame;
+    layout->addWidget(widget.sub);
+    widget.frame->setLayout(layout);
+    return widget;
 }
 
 QJsonObject loadSummaryArtifact(const QString& path, QString* parseDiagnostic) {
@@ -64,6 +75,199 @@ QString validationSummaryPath() {
     return QFileInfo::exists(summaryPath) ? QFileInfo(summaryPath).absoluteFilePath() : QString();
 }
 
+QString titleCaseLabel(QString value) {
+    QString normalized = value.trimmed();
+    if (normalized.compare("hit", Qt::CaseInsensitive) == 0)
+        return "Hit";
+    if (normalized.compare("waste", Qt::CaseInsensitive) == 0)
+        return "Waste";
+    normalized.replace('_', ' ');
+    normalized.replace('-', ' ');
+    QStringList words = normalized.simplified().split(' ', Qt::SkipEmptyParts);
+    for (QString& word : words) {
+        word = word.toLower();
+        word[0] = word.at(0).toUpper();
+    }
+    return words.join(' ');
+}
+
+QStringList parseCsvRow(const QString& line) {
+    QStringList cells;
+    QString current;
+    bool inQuotes = false;
+    for (int i = 0; i < line.size(); ++i) {
+        const QChar ch = line.at(i);
+        if (ch == '"') {
+            if (inQuotes && i + 1 < line.size() && line.at(i + 1) == '"') {
+                current += '"';
+                ++i;
+            } else {
+                inQuotes = !inQuotes;
+            }
+            continue;
+        }
+        if (ch == ',' && !inQuotes) {
+            cells << current;
+            current.clear();
+            continue;
+        }
+        current += ch;
+    }
+    cells << current;
+    return cells;
+}
+
+CsvTable readCsvTable(const QString& path) {
+    CsvTable table;
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return table;
+    QTextStream stream(&file);
+    bool first = true;
+    while (!stream.atEnd()) {
+        const QString line = stream.readLine();
+        if (first) {
+            table.headers = parseCsvRow(line);
+            first = false;
+            continue;
+        }
+        if (!line.trimmed().isEmpty())
+            table.rows.append(parseCsvRow(line));
+    }
+    return table;
+}
+
+QString csvValue(const CsvTable& table, const QStringList& row, const QString& header) {
+    const int index = table.headers.indexOf(header);
+    if (index < 0 || index >= row.size())
+        return {};
+    return row.at(index);
+}
+
+QString reviewSummaryText(int samplesEvaluated, int samplesIncorrect, int samplesFailed) {
+    if (samplesEvaluated <= 0)
+        return "--";
+    if (samplesFailed > 0)
+        return "Fail";
+    if (samplesIncorrect > 0)
+        return "Needs review";
+    return "Pass";
+}
+
+void setMetricValue(const ValidatorMetricWidget& widget, const QString& value, const QString& sub = QString()) {
+    widget.value->setText(value.isEmpty() ? "--" : value);
+    if (sub.isEmpty()) {
+        widget.sub->clear();
+        widget.sub->hide();
+    } else {
+        widget.sub->setText(sub);
+        widget.sub->show();
+    }
+}
+
+void populateConfusionTable(QTableWidget* table, const QStringList& labels, const QString& confusionPath) {
+    table->clear();
+    if (labels.isEmpty()) {
+        table->setRowCount(0);
+        table->setColumnCount(0);
+        return;
+    }
+
+    table->setRowCount(labels.size());
+    table->setColumnCount(labels.size());
+    QStringList displayLabels;
+    for (const QString& label : labels)
+        displayLabels << titleCaseLabel(label);
+    table->setHorizontalHeaderLabels(displayLabels);
+    table->setVerticalHeaderLabels(displayLabels);
+    for (int row = 0; row < labels.size(); ++row) {
+        for (int column = 0; column < labels.size(); ++column) {
+            auto* item = new QTableWidgetItem("--");
+            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            table->setItem(row, column, item);
+        }
+    }
+
+    const CsvTable csv = readCsvTable(confusionPath);
+    if (csv.headers.isEmpty())
+        return;
+    for (int row = 0; row < labels.size() && row < csv.rows.size(); ++row) {
+        const QStringList csvRow = csv.rows.at(row);
+        for (int column = 0; column < labels.size(); ++column) {
+            const QString value = csvValue(csv, csvRow, "pred_" + labels.at(column));
+            if (auto* item = table->item(row, column))
+                item->setText(value.isEmpty() ? "0" : value);
+        }
+    }
+    table->horizontalHeader()->setStretchLastSection(true);
+    table->resizeColumnsToContents();
+}
+
+void clearLayout(QLayout* layout) {
+    while (auto* item = layout->takeAt(0)) {
+        if (item->widget())
+            item->widget()->deleteLater();
+        delete item;
+    }
+}
+
+void populateFailureGrid(QWidget* grid, const QString& failureCasesPath) {
+    auto* layout = qobject_cast<QGridLayout*>(grid->layout());
+    if (!layout)
+        return;
+
+    clearLayout(layout);
+    const CsvTable csv = readCsvTable(failureCasesPath);
+    if (csv.headers.isEmpty() || csv.rows.isEmpty()) {
+        auto* emptyLabel = new QLabel("No misclassified samples in the latest validation run.");
+        emptyLabel->setProperty("mutedText", true);
+        emptyLabel->setWordWrap(true);
+        layout->addWidget(emptyLabel, 0, 0, 1, 3);
+        return;
+    }
+
+    const int limit = qMin(9, csv.rows.size());
+    for (int index = 0; index < limit; ++index) {
+        const QStringList row = csv.rows.at(index);
+        const QString sampleId = csvValue(csv, row, "sample_id");
+        const QString imagePath = csvValue(csv, row, "image_path");
+        const QString trueLabel = titleCaseLabel(csvValue(csv, row, "true_label"));
+        const QString predLabel = titleCaseLabel(csvValue(csv, row, "pred_label"));
+
+        auto* tile = new QFrame;
+        tile->setProperty("datasetTile", true);
+        tile->setMinimumSize(104, 116);
+        auto* tileLayout = new QVBoxLayout;
+        tileLayout->setContentsMargins(7, 7, 7, 6);
+        tileLayout->setSpacing(4);
+
+        auto* thumb = new QLabel;
+        thumb->setProperty("datasetThumb", true);
+        thumb->setAlignment(Qt::AlignCenter);
+        thumb->setMinimumHeight(58);
+        QPixmap pixmap(imagePath);
+        if (!pixmap.isNull()) {
+            thumb->setPixmap(pixmap.scaled(QSize(88, 58), Qt::KeepAspectRatio, Qt::SmoothTransformation));
+        } else {
+            thumb->setText("sample");
+        }
+
+        auto* verdict = new QLabel(QString("%1 -> %2").arg(trueLabel, predLabel));
+        verdict->setWordWrap(true);
+        verdict->setAlignment(Qt::AlignCenter);
+        auto* id = new QLabel(sampleId.isEmpty() ? QString("sample_%1").arg(index + 1) : sampleId);
+        id->setProperty("mutedText", true);
+        id->setAlignment(Qt::AlignCenter);
+        id->setWordWrap(true);
+
+        tileLayout->addWidget(thumb, 1);
+        tileLayout->addWidget(verdict);
+        tileLayout->addWidget(id);
+        tile->setLayout(tileLayout);
+        layout->addWidget(tile, index / 3, index % 3);
+    }
+}
+
 } // namespace
 
 QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
@@ -86,7 +290,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorLeftLayout->setContentsMargins(0, 0, 2, 0);
     validatorLeftLayout->setSpacing(12);
 
-    auto validatorImagePanel = makePanel("Image Validation", "External Python validator");
+    auto validatorImagePanel = makePanel("Validation", "Run a trained model on saved images");
     validatorImagePanel->setObjectName("ValidatorImageValidationPanel");
     auto validatorImageBody = makePanelBody(validatorImagePanel);
     auto* validatorImageWidget =
@@ -96,49 +300,38 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     nameWidget(validatorImageWidget, "ValidatorWorkspaceImageValidationWidget");
     validatorImageBody->addWidget(validatorImageWidget);
 
-    auto validatorSequenceNote =
-        new QLabel("Sequence validation remains disabled: runner-wrapped replay is not available in this workspace, "
-                   "and provisional artifact comparison is not promoted for public gates.");
-    validatorSequenceNote->setWordWrap(true);
-    validatorSequenceNote->setProperty("mutedText", true);
-    nameWidget(validatorSequenceNote, "ValidatorWorkspaceSequenceValidationNote");
-    validatorImageBody->addWidget(validatorSequenceNote);
-
-    auto validatorReportPanel = makePanel("Last report", "Awaiting validation_summary.json");
+    auto validatorReportPanel = makePanel("Latest results", "Validation summary");
     validatorReportPanel->setObjectName("ValidatorLastReportPanel");
     auto validatorReportBody = makePanelBody(validatorReportPanel);
     auto validatorMetricsRow = new QHBoxLayout;
     validatorMetricsRow->setSpacing(8);
-    validatorMetricsRow->addWidget(makeValidatorMetric("Top-1 accuracy", "--", "held-out"));
-    validatorMetricsRow->addWidget(makeValidatorMetric("Macro F1", "--"));
-    validatorMetricsRow->addWidget(makeValidatorMetric("ROC AUC", "--"));
-    validatorMetricsRow->addWidget(makeValidatorMetric("Latency P99", "--"));
+    const ValidatorMetricWidget checkedMetric = makeValidatorMetric("Images checked");
+    const ValidatorMetricWidget hitMetric = makeValidatorMetric("Hit results");
+    const ValidatorMetricWidget wasteMetric = makeValidatorMetric("Waste results");
+    const ValidatorMetricWidget reviewMetric = makeValidatorMetric("Review summary");
+    validatorMetricsRow->addWidget(checkedMetric.frame);
+    validatorMetricsRow->addWidget(hitMetric.frame);
+    validatorMetricsRow->addWidget(wasteMetric.frame);
+    validatorMetricsRow->addWidget(reviewMetric.frame);
     validatorReportBody->addLayout(validatorMetricsRow);
-    auto validatorSummaryDiagnostic = new QLabel("Validation summary diagnostics: not checked");
+
+    auto validatorSummaryDiagnostic = new QLabel("Choose a model and validation images, then run validation.");
     validatorSummaryDiagnostic->setProperty("mutedText", true);
+    validatorSummaryDiagnostic->setWordWrap(true);
     nameWidget(validatorSummaryDiagnostic, "ValidatorWorkspaceSummaryDiagnosticLabel");
     validatorReportBody->addWidget(validatorSummaryDiagnostic);
-    auto validatorConfusionLabel = new QLabel("Confusion - no report loaded");
+
+    auto validatorConfusionLabel = new QLabel("Hit/Waste results");
     validatorConfusionLabel->setProperty("metricLabel", true);
     validatorReportBody->addWidget(validatorConfusionLabel);
-    auto validatorConfusion = new QTableWidget(3, 3);
+    auto validatorConfusion = new QTableWidget(0, 0);
     nameWidget(validatorConfusion, "ValidatorWorkspaceConfusionTable");
-    validatorConfusion->setHorizontalHeaderLabels({"Empty", "Single", "More"});
-    validatorConfusion->setVerticalHeaderLabels({"Empty", "Single", "More"});
     validatorConfusion->setEditTriggers(QAbstractItemView::NoEditTriggers);
     validatorConfusion->setSelectionMode(QAbstractItemView::NoSelection);
     validatorConfusion->setShowGrid(false);
     validatorConfusion->setMaximumHeight(150);
-    for (int row = 0; row < 3; ++row) {
-        for (int column = 0; column < 3; ++column) {
-            auto* item = new QTableWidgetItem("--");
-            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
-            validatorConfusion->setItem(row, column, item);
-        }
-    }
-    validatorConfusion->horizontalHeader()->setStretchLastSection(true);
-    validatorConfusion->resizeColumnsToContents();
     validatorReportBody->addWidget(validatorConfusion);
+
     validatorLeftLayout->addWidget(validatorImagePanel);
     validatorLeftLayout->addWidget(validatorReportPanel);
     validatorLeftLayout->addStretch(1);
@@ -157,7 +350,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorRightLayout->setContentsMargins(0, 0, 2, 0);
     validatorRightLayout->setSpacing(12);
 
-    auto validatorMisclassifiedPanel = makePanel("Misclassified samples");
+    auto validatorMisclassifiedPanel = makePanel("Misclassified samples", "Examples that need review");
     validatorMisclassifiedPanel->setObjectName("ValidatorMisclassifiedPanel");
     auto validatorMisclassifiedBody = makePanelBody(validatorMisclassifiedPanel);
     auto validatorSampleGrid = new QWidget;
@@ -165,38 +358,10 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     auto validatorSampleLayout = new QGridLayout;
     validatorSampleLayout->setContentsMargins(0, 0, 0, 0);
     validatorSampleLayout->setSpacing(8);
-    for (int i = 0; i < 9; ++i) {
-        auto* tile = new QFrame;
-        tile->setProperty("datasetTile", true);
-        tile->setFixedSize(96, 78);
-        auto* tileLayout = new QVBoxLayout;
-        tileLayout->setContentsMargins(7, 7, 7, 6);
-        tileLayout->setSpacing(4);
-        auto* thumb = new QLabel("sample");
-        thumb->setProperty("datasetThumb", true);
-        thumb->setAlignment(Qt::AlignCenter);
-        auto* id = new QLabel(QString("err_%1").arg(i + 1, 3, 10, QChar('0')));
-        id->setProperty("mutedText", true);
-        id->setAlignment(Qt::AlignCenter);
-        tileLayout->addWidget(thumb, 1);
-        tileLayout->addWidget(id);
-        tile->setLayout(tileLayout);
-        validatorSampleLayout->addWidget(tile, i / 3, i % 3);
-    }
     validatorSampleGrid->setLayout(validatorSampleLayout);
     validatorMisclassifiedBody->addWidget(validatorSampleGrid);
 
-    auto validatorLogPanel = makePanel("Validator notes");
-    validatorLogPanel->setObjectName("ValidatorLogPanel");
-    auto validatorLogBody = makePanelBody(validatorLogPanel);
-    auto validatorSequenceButton = new QPushButton("Sequence Validation");
-    nameWidget(validatorSequenceButton, "ValidatorWorkspaceSequenceValidationButton");
-    validatorSequenceButton->setEnabled(false);
-    validatorSequenceButton->setToolTip("Runner-wrapped sequence validation remains unavailable.");
-    validatorLogBody->addWidget(validatorSequenceButton);
-
     validatorRightLayout->addWidget(validatorMisclassifiedPanel);
-    validatorRightLayout->addWidget(validatorLogPanel);
     validatorRightLayout->addStretch(1);
     validatorRightStack->setLayout(validatorRightLayout);
     validatorRightScroll->setWidget(validatorRightStack);
@@ -205,25 +370,82 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorWorkspaceLayout->addWidget(validatorRightScroll, 0);
     validatorWorkspacePage->setLayout(validatorWorkspaceLayout);
 
-    const QString summaryPath = validationSummaryPath();
-    QString parseDiagnostic;
-    if (!summaryPath.isEmpty()) {
-        const QJsonObject summary = loadSummaryArtifact(summaryPath, &parseDiagnostic);
+    auto refreshReport = [=](const QString& requestedSummaryPath) {
+        const QString summaryPath = requestedSummaryPath.trimmed().isEmpty() ? validationSummaryPath() : requestedSummaryPath;
+        QString parseDiagnostic;
+        const QJsonObject summary = summaryPath.isEmpty() ? QJsonObject() : loadSummaryArtifact(summaryPath, &parseDiagnostic);
         if (!parseDiagnostic.isEmpty()) {
-            validatorSummaryDiagnostic->setText("Validation summary parse diagnostic: " + parseDiagnostic);
-        } else if (!summary.isEmpty()) {
-            const QString status = summary.value("status").toString("unknown");
-            const QJsonObject metrics = summary.value("metrics").toObject();
-            const QString accuracy = metrics.value("accuracy").toString();
-            validatorSummaryDiagnostic->setText(
-                QString("Loaded validation summary from %1 (status=%2).")
-                    .arg(QFileInfo(summaryPath).fileName(), status) +
-                (accuracy.isEmpty() ? QString() : QString(" accuracy=%1").arg(accuracy)));
+            setMetricValue(checkedMetric, "--");
+            setMetricValue(hitMetric, "--");
+            setMetricValue(wasteMetric, "--");
+            setMetricValue(reviewMetric, "Needs review");
+            validatorSummaryDiagnostic->setText("The latest validation report could not be read: " + parseDiagnostic);
+            validatorConfusionLabel->setText("Hit/Waste results");
+            populateConfusionTable(validatorConfusion, {}, QString());
+            populateFailureGrid(validatorSampleGrid, QString());
+            return;
         }
-    } else {
-        validatorSummaryDiagnostic->setText("Validation summary diagnostics: summary path was not found in settings.");
-    }
-    Q_UNUSED(controls.imageValidationAction);
+
+        if (summary.isEmpty()) {
+            setMetricValue(checkedMetric, "--");
+            setMetricValue(hitMetric, "--");
+            setMetricValue(wasteMetric, "--");
+            setMetricValue(reviewMetric, "--");
+            validatorSummaryDiagnostic->setText("Choose a model and validation images, then run validation.");
+            validatorConfusionLabel->setText("Hit/Waste results");
+            populateConfusionTable(validatorConfusion, {}, QString());
+            populateFailureGrid(validatorSampleGrid, QString());
+            return;
+        }
+
+        const QJsonObject dataset = summary.value("dataset").toObject();
+        const QJsonObject metrics = summary.value("metrics").toObject();
+        const QJsonObject artifacts = summary.value("artifacts").toObject();
+        QStringList labels;
+        for (const QJsonValue& labelValue : summary.value("labels").toArray())
+            labels << labelValue.toString();
+
+        const int samplesTotal = dataset.value("samples_total").toInt();
+        const int samplesEvaluated = dataset.value("samples_evaluated").toInt();
+        const int samplesFailed = dataset.value("samples_failed").toInt();
+        const int samplesIncorrect = metrics.value("samples_incorrect").toInt();
+        const QJsonObject classCounts = dataset.value("class_counts").toObject();
+        const bool hasHitCounts = classCounts.contains("hit");
+        const bool hasWasteCounts = classCounts.contains("waste");
+        const QString reviewSummary = reviewSummaryText(samplesEvaluated, samplesIncorrect, samplesFailed);
+        const QString accuracyText = metrics.contains("accuracy")
+                                         ? QString::number(metrics.value("accuracy").toDouble() * 100.0, 'f', 1) + "%"
+                                         : QString();
+
+        setMetricValue(checkedMetric, QString("%1 / %2").arg(samplesEvaluated).arg(samplesTotal),
+                       samplesFailed > 0 ? QString("%1 failed").arg(samplesFailed) : QString());
+        setMetricValue(hitMetric, hasHitCounts ? QString::number(classCounts.value("hit").toInt()) : QString(),
+                       hasHitCounts ? "images in set" : QString());
+        setMetricValue(wasteMetric, hasWasteCounts ? QString::number(classCounts.value("waste").toInt()) : QString(),
+                       hasWasteCounts ? "images in set" : QString());
+        setMetricValue(reviewMetric, reviewSummary, accuracyText.isEmpty() ? QString() : "accuracy " + accuracyText);
+
+        QStringList summaryLines;
+        summaryLines << QString("Latest run: %1.").arg(titleCaseLabel(summary.value("status").toString("unknown")));
+        summaryLines << QString("Checked %1 of %2 images.").arg(samplesEvaluated).arg(samplesTotal);
+        if (samplesIncorrect > 0 || samplesFailed > 0) {
+            summaryLines << QString("%1 images need review and %2 failed to evaluate.")
+                                .arg(samplesIncorrect)
+                                .arg(samplesFailed);
+        } else {
+            summaryLines << "No misclassified samples were reported in the latest run.";
+        }
+        validatorSummaryDiagnostic->setText(summaryLines.join(" "));
+
+        validatorConfusionLabel->setText(labels.contains("hit", Qt::CaseInsensitive) && labels.contains("waste", Qt::CaseInsensitive)
+                                             ? "Hit/Waste results"
+                                             : "Results by label");
+        populateConfusionTable(validatorConfusion, labels, artifacts.value("confusion_matrix_csv").toString());
+        populateFailureGrid(validatorSampleGrid, artifacts.value("failure_cases_csv").toString());
+    };
+
+    validatorImageWidget->setSummaryChangedCallback(refreshReport);
+    refreshReport(validationSummaryPath());
 
     return validatorWorkspacePage;
 }

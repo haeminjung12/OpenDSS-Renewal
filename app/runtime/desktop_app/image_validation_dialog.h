@@ -5,6 +5,7 @@
 #include <QString>
 #include <QWidget>
 
+#include <functional>
 #include <memory>
 
 class QComboBox;
@@ -16,6 +17,7 @@ class QPushButton;
 
 class ImageValidationWidget : public QWidget {
   public:
+    using SummaryChangedCallback = std::function<void(const QString&)>;
     enum class ObjectNameMode { Dialog, Workspace };
 
     ImageValidationWidget(QWidget* parent, const QString& initialPython, const QString& initialModel,
@@ -23,6 +25,8 @@ class ImageValidationWidget : public QWidget {
                           const QString& trainerPythonPath,
                           ObjectNameMode objectNameMode = ObjectNameMode::Dialog);
     ~ImageValidationWidget() override;
+
+    void setSummaryChangedCallback(SummaryChangedCallback callback);
 
   private:
     void addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit, bool directory,
@@ -55,11 +59,14 @@ class ImageValidationWidget : public QWidget {
     QPushButton* cancelButton = nullptr;
     QPushButton* openSummaryButton = nullptr;
     QPushButton* openOutputButton = nullptr;
+    QLabel* detailsLabel = nullptr;
     std::unique_ptr<QProcess> process;
     QString pythonPath;
     QString summaryPath;
     QString terminalStatus;
     bool canceled = false;
+    bool workspaceMode = false;
+    SummaryChangedCallback summaryChangedCallback;
 };
 
 class ImageValidationDialog : public QDialog {

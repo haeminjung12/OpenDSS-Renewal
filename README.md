@@ -43,6 +43,7 @@ It is designed for lab setups that use Hamamatsu camera hardware and NI output h
 
 - Public installer release: [GitHub Releases](https://github.com/haeminjung12/OpenDSS_clean/releases/latest)
 - Release assets are distributed through GitHub Releases.
+- Release packages include the current trained binary SqueezeNet, its required `model.onnx.data` sidecar, and a blank SqueezeNet template that is not validated for live sorting.
 - The public installer does not bundle or run NI-DAQmx, Hamamatsu DCAM, or Microsoft Visual C++ Redistributable installers; install those prerequisites separately.
 
 ### Vendor Prerequisites

@@ -16,6 +16,7 @@ class QAction;
 class QLabel;
 class QLineEdit;
 class QPushButton;
+class QStackedWidget;
 class QWidget;
 
 class BackgroundTaskRegistry;
@@ -32,6 +33,9 @@ class ValidatorWorkspaceController : public QObject {
         QLineEdit* onnxEdit = nullptr;
         QLineEdit* metaEdit = nullptr;
         QLabel* pythonStatusItem = nullptr;
+        QPushButton* validatorNavButton = nullptr;
+        QStackedWidget* workspaceStack = nullptr;
+        QWidget* validatorWorkspace = nullptr;
         QString preparedDatasetPath;
         QString validationRunsRoot;
         QString appDir;
@@ -76,6 +80,7 @@ class ValidatorWorkspaceController : public QObject {
 
     QString defaultValidationOutput() const;
     QString findPathUpwards(const QString& relativePath) const;
+    void focusValidatorWorkspace();
     void openImageValidationDialog();
     void wireValidatorAction();
     void wireSequenceControls();

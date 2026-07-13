@@ -23,6 +23,9 @@ AppOptions parseAppOptions(int argc, char* argv[]) {
         if (arg.find("--verify-live-view-manual-trigger") != std::string::npos) {
             options.verifyLiveViewManualTrigger = true;
         }
+        if (arg.find("--verify-validation-workspace") != std::string::npos) {
+            options.verifyValidationWorkspace = true;
+        }
         if (arg.find("--no-startup-prompts") != std::string::npos) {
             options.noStartupPrompts = true;
         }

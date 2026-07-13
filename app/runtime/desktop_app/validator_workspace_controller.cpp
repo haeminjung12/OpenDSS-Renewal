@@ -11,6 +11,7 @@
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
 #include <QtWidgets/QPushButton>
+#include <QtWidgets/QStackedWidget>
 
 #include "background_task_registry.h"
 #include "image_validation_dialog.h"
@@ -133,10 +134,20 @@ void ValidatorWorkspaceController::openImageValidationDialog() {
     }
 }
 
+void ValidatorWorkspaceController::focusValidatorWorkspace() {
+    if (deps_.validatorNavButton) {
+        deps_.validatorNavButton->click();
+    } else if (deps_.workspaceStack && deps_.validatorWorkspace) {
+        deps_.workspaceStack->setCurrentWidget(deps_.validatorWorkspace);
+    }
+    if (deps_.validatorWorkspace)
+        deps_.validatorWorkspace->setFocus(Qt::OtherFocusReason);
+}
+
 void ValidatorWorkspaceController::wireValidatorAction() {
     if (!deps_.imageValidationAction)
         return;
-    connect(deps_.imageValidationAction, &QAction::triggered, this, [this]() { openImageValidationDialog(); });
+    connect(deps_.imageValidationAction, &QAction::triggered, this, [this]() { focusValidatorWorkspace(); });
 }
 
 void ValidatorWorkspaceController::wireSequenceControls() {

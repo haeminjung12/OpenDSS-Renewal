@@ -2,6 +2,7 @@
 
 #include <QtCore/QCoreApplication>
 #include <QtCore/QDir>
+#include <QtCore/QDirIterator>
 #include <QtCore/QFile>
 #include <QtCore/QFileInfo>
 #include <QtCore/QJsonArray>
@@ -30,6 +31,7 @@ DatasetWorkspaceController::DatasetWorkspaceController(const Dependencies& depen
     wireDatasetActions();
     wireTrainerPathButtons();
     wireTrainerSettingsPersistence();
+    refreshTrainerSummary();
 }
 
 void DatasetWorkspaceController::openDatasetLabelerPath(const QString& preferredPath) {
@@ -103,7 +105,8 @@ void DatasetWorkspaceController::setTrainerBusy(bool busy, bool trainerCommandWa
         deps_.trainerOutputBrowseBtn->setEnabled(!busy);
     if (deps_.trainerStartTrainingBtn) {
         deps_.trainerStartTrainingBtn->setEnabled(!busy);
-        deps_.trainerStartTrainingBtn->setText(busy && trainerCommandWasTraining ? "Training..." : "Start Training");
+        deps_.trainerStartTrainingBtn->setText(busy && trainerCommandWasTraining ? "Training model..."
+                                                                                : "Train model");
     }
     if (deps_.trainerDryRunBtn)
         deps_.trainerDryRunBtn->setEnabled(!busy);
@@ -112,7 +115,7 @@ void DatasetWorkspaceController::setTrainerBusy(bool busy, bool trainerCommandWa
     if (deps_.trainerProgressBar) {
         deps_.trainerProgressBar->setRange(busy ? 0 : 0, busy ? 0 : 100);
         deps_.trainerProgressBar->setValue(0);
-        deps_.trainerProgressBar->setFormat(busy ? "Running..." : "Idle");
+        deps_.trainerProgressBar->setFormat(busy ? "Working..." : "Not running");
     }
 }
 
@@ -158,7 +161,8 @@ QString DatasetWorkspaceController::trainingConfigPath() const {
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
         if (deps_.trainerStatusLabel) {
-            deps_.trainerStatusLabel->setText("Unable to write trainer config: " + file.errorString());
+            deps_.trainerStatusLabel->setText(
+                trainerSummaryText("Could not prepare the training setup.", file.errorString()));
         }
         return {};
     }
@@ -196,9 +200,206 @@ QString DatasetWorkspaceController::trainerCommandPreview(const QString& program
     return pieces.join(" ");
 }
 
+QString DatasetWorkspaceController::trainerSummaryText(const QString& stateHeadline, const QString& stateDetail) const {
+    QStringList issues;
+    const bool ready = trainerSetupReady(&issues);
+    const TrainerDatasetCounts counts = collectTrainerDatasetCounts();
+
+    QString headline = stateHeadline.trimmed();
+    if (headline.isEmpty()) {
+        headline = ready ? "Setup ready. You can check setup or train the model."
+                         : "Setup not ready yet.";
+    }
+
+    QStringList lines;
+    lines << headline;
+
+    if (counts.available) {
+        lines << QString("Training images: %1 total, %2 Hit examples, %3 Waste examples.")
+                     .arg(counts.totalCount)
+                     .arg(counts.hitCount)
+                     .arg(counts.wasteCount);
+    } else if (deps_.trainerDatasetEdit && !deps_.trainerDatasetEdit->text().trimmed().isEmpty()) {
+        lines << "Training images: selected, but counts are not available for this folder yet.";
+    } else {
+        lines << "Training images: choose an image set with Hit and Waste examples.";
+    }
+
+    if (deps_.trainerOutputEdit && !deps_.trainerOutputEdit->text().trimmed().isEmpty()) {
+        lines << "Save model to: " + QDir::toNativeSeparators(deps_.trainerOutputEdit->text().trimmed());
+    } else {
+        lines << "Save model to: choose a folder for the trained model.";
+    }
+
+    const QString detail = stateDetail.trimmed();
+    if (!detail.isEmpty()) {
+        lines << detail;
+    } else if (!ready && !issues.isEmpty()) {
+        lines << "Still needed: " + issues.join(", ") + ".";
+    }
+
+    return lines.join("\n");
+}
+
 QString DatasetWorkspaceController::quoteTrainerArg(QString arg) {
     arg.replace("\"", "\\\"");
     return arg.contains(' ') ? "\"" + arg + "\"" : arg;
+}
+
+void DatasetWorkspaceController::refreshTrainerSummary() const {
+    if (deps_.trainerStatusLabel) {
+        deps_.trainerStatusLabel->setText(trainerSummaryText());
+    }
+}
+
+bool DatasetWorkspaceController::trainerSetupReady(QStringList* issues) const {
+    QStringList missing;
+
+    if (!deps_.trainerPythonEdit || deps_.trainerPythonEdit->text().trimmed().isEmpty()) {
+        missing << "choose Python setup";
+    }
+
+    if (!deps_.trainerDatasetEdit || deps_.trainerDatasetEdit->text().trimmed().isEmpty()) {
+        missing << "choose training images";
+    } else if (!QFileInfo(deps_.trainerDatasetEdit->text().trimmed()).exists()) {
+        missing << "fix the training images path";
+    }
+
+    if (!deps_.trainerOutputEdit || deps_.trainerOutputEdit->text().trimmed().isEmpty()) {
+        missing << "choose where to save the model";
+    }
+
+    if (issues) {
+        *issues = missing;
+    }
+    return missing.isEmpty();
+}
+
+DatasetWorkspaceController::TrainerDatasetCounts DatasetWorkspaceController::collectTrainerDatasetCounts() const {
+    TrainerDatasetCounts counts;
+    if (!deps_.trainerDatasetEdit) {
+        return counts;
+    }
+
+    const QString datasetPath = deps_.trainerDatasetEdit->text().trimmed();
+    if (datasetPath.isEmpty()) {
+        return counts;
+    }
+
+    auto countImagesRecursively = [](const QString& folderPath) {
+        static const QSet<QString> suffixes = {"png", "jpg", "jpeg", "bmp", "tif", "tiff", "webp"};
+        int total = 0;
+        QDirIterator it(folderPath, QDir::Files, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            const QFileInfo info(it.next());
+            if (suffixes.contains(info.suffix().toLower())) {
+                ++total;
+            }
+        }
+        return total;
+    };
+
+    auto countManifestRows = [&](const QString& manifestPath) {
+        QFile file(manifestPath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            return false;
+        }
+
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+        if (!doc.isObject()) {
+            return false;
+        }
+
+        const QJsonArray items = doc.object().value("items").toArray();
+        int hit = 0;
+        int waste = 0;
+        for (const QJsonValue& value : items) {
+            const QJsonObject item = value.toObject();
+            QString label = item.value("reviewed_label").toString().trimmed().toLower();
+            if (label.isEmpty()) {
+                label = item.value("auto_label").toString().trimmed().toLower();
+            }
+            if (label == "1") {
+                label = "hit";
+            } else if (label == "0" || label == "empty") {
+                label = "waste";
+            }
+            if (label == "hit") {
+                ++hit;
+            } else if (label == "waste") {
+                ++waste;
+            }
+        }
+
+        counts.hitCount = hit;
+        counts.wasteCount = waste;
+        counts.totalCount = hit + waste;
+        counts.available = counts.totalCount >= 0;
+        return true;
+    };
+
+    const QFileInfo datasetInfo(datasetPath);
+    if (datasetInfo.isFile()) {
+        countManifestRows(datasetInfo.absoluteFilePath());
+        return counts;
+    }
+
+    const QDir datasetDir(datasetInfo.absoluteFilePath());
+    const QString metadataManifest = datasetDir.filePath("metadata/dataset_manifest.json");
+    const QString rootManifest = datasetDir.filePath("manifest.json");
+    if (QFileInfo::exists(metadataManifest) && countManifestRows(metadataManifest)) {
+        return counts;
+    }
+    if (QFileInfo::exists(rootManifest) && countManifestRows(rootManifest)) {
+        return counts;
+    }
+
+    const QStringList hitFolders = {"hit", "hits"};
+    const QStringList wasteFolders = {"waste", "empty"};
+    int hit = 0;
+    int waste = 0;
+    for (const QString& split : {"train", "val", "test"}) {
+        const QDir splitDir(datasetDir.filePath(split));
+        if (!splitDir.exists()) {
+            continue;
+        }
+        for (const QString& folder : hitFolders) {
+            const QString path = splitDir.filePath(folder);
+            if (QFileInfo::exists(path)) {
+                hit += countImagesRecursively(path);
+            }
+        }
+        for (const QString& folder : wasteFolders) {
+            const QString path = splitDir.filePath(folder);
+            if (QFileInfo::exists(path)) {
+                waste += countImagesRecursively(path);
+            }
+        }
+    }
+
+    if (hit == 0 && waste == 0) {
+        for (const QString& folder : hitFolders) {
+            const QString path = datasetDir.filePath(folder);
+            if (QFileInfo::exists(path)) {
+                hit += countImagesRecursively(path);
+            }
+        }
+        for (const QString& folder : wasteFolders) {
+            const QString path = datasetDir.filePath(folder);
+            if (QFileInfo::exists(path)) {
+                waste += countImagesRecursively(path);
+            }
+        }
+    }
+
+    if (hit > 0 || waste > 0) {
+        counts.hitCount = hit;
+        counts.wasteCount = waste;
+        counts.totalCount = hit + waste;
+        counts.available = true;
+    }
+
+    return counts;
 }
 
 void DatasetWorkspaceController::loadTrainerSettings() const {
@@ -251,6 +452,8 @@ void DatasetWorkspaceController::loadTrainerSettings() const {
     if (schedulerIndex >= 0) {
         deps_.trainerSchedulerCombo->setCurrentIndex(schedulerIndex);
     }
+
+    refreshTrainerSummary();
 }
 
 void DatasetWorkspaceController::wireDatasetActions() {
@@ -297,7 +500,10 @@ void DatasetWorkspaceController::wireTrainerPathButtons() {
 }
 
 void DatasetWorkspaceController::wireTrainerSettingsPersistence() {
-    const auto save = [this]() { saveTrainerSettings(); };
+    const auto save = [this]() {
+        saveTrainerSettings();
+        refreshTrainerSummary();
+    };
 
     for (auto* edit : {deps_.trainerPythonEdit, deps_.trainerDatasetEdit, deps_.trainerOutputEdit}) {
         if (edit) {

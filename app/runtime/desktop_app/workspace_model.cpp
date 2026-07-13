@@ -18,6 +18,10 @@ namespace {
 
 constexpr const char* kRuntimeTargetClassIdKey = "runtime/v1/model/targetClassId";
 
+QString metadataArchitectureSummary(const QJsonObject& metadataDoc);
+bool entryIsActive(const QJsonObject& entry);
+bool entryIsValidated(const QJsonObject& entry);
+
 QString findProjectRootFromApp() {
     QStringList starts;
     starts << QCoreApplication::applicationDirPath() << QDir::currentPath();
@@ -185,9 +189,102 @@ QString classesSummary(const QJsonObject& entry) {
     const QJsonObject displayLabels = entry.value("display_labels").toObject();
     for (const auto& value : entry.value("classes").toArray()) {
         const QString classId = value.toString();
-        classLines << QString("%1 (%2)").arg(displayLabels.value(classId).toString(classId), classId);
+        classLines << displayLabels.value(classId).toString(classId);
     }
-    return classLines.join(", ");
+    return classLines.isEmpty() ? QString("--") : classLines.join(", ");
+}
+
+QString titleCaseToken(QString value) {
+    value = value.trimmed();
+    if (value.isEmpty())
+        return QString();
+    value.replace('_', ' ');
+    value.replace('-', ' ');
+    value = value.simplified();
+    QStringList words = value.split(' ', Qt::SkipEmptyParts);
+    for (QString& word : words) {
+        if (word.compare("onnx", Qt::CaseInsensitive) == 0) {
+            word = "ONNX";
+            continue;
+        }
+        word = word.toLower();
+        word[0] = word.at(0).toUpper();
+    }
+    return words.join(' ');
+}
+
+bool entryIsTemplate(const QJsonObject& entry, const QJsonObject& metadataDoc = {}) {
+    return registryString(entry, "promotion_status").contains("template", Qt::CaseInsensitive) ||
+           registryString(entry, "metadata_status").contains("template", Qt::CaseInsensitive) ||
+           metadataDoc.value("status").toString().contains("blank_untrained_template", Qt::CaseInsensitive);
+}
+
+QString userFacingModelStatus(const QJsonObject& entry, const QJsonObject& metadataDoc) {
+    if (entryIsTemplate(entry, metadataDoc))
+        return "Untrained template";
+    if (entryIsActive(entry))
+        return entryIsValidated(entry) ? "Ready for live sorting" : "Active, but not validated";
+    if (entryIsValidated(entry))
+        return "Trained and validated";
+    return "Not validated";
+}
+
+QString userFacingModelListSummary(const QJsonObject& entry, const QJsonObject& metadataDoc) {
+    QStringList parts;
+    parts << userFacingModelStatus(entry, metadataDoc);
+    if (entryIsActive(entry))
+        parts << "In use now";
+    const QString classifier = metadataArchitectureSummary(metadataDoc);
+    if (!classifier.isEmpty())
+        parts << classifier;
+    return parts.join("  -  ");
+}
+
+QString userFacingValidationSummary(const QJsonObject& entry, const QJsonObject& metadataDoc) {
+    if (entryIsTemplate(entry, metadataDoc)) {
+        return "No validation has been run. This blank template must be trained and validated before live sorting.";
+    }
+    const QJsonObject validationSummary = metadataDoc.value("validation_summary").toObject();
+    if (validationSummary.isEmpty()) {
+        const QString fallback = registryString(entry, "validation_status").trimmed();
+        return fallback.isEmpty() ? QString("Validation information is not available yet.") : fallback;
+    }
+    const QJsonObject imageValidation = validationSummary.value("image_validation").toObject();
+    const QJsonObject sequenceValidation = validationSummary.value("sequence_validation").toObject();
+    QStringList lines;
+    const QString imageStatus = imageValidation.value("status").toString().trimmed();
+    if (imageStatus.isEmpty() || imageStatus.compare("not_run", Qt::CaseInsensitive) == 0) {
+        lines << "Image validation has not been run yet.";
+    } else {
+        QString imageLine = "Image validation completed";
+        QStringList metrics;
+        if (imageValidation.value("accuracy").isDouble()) {
+            metrics << QString::number(imageValidation.value("accuracy").toDouble() * 100.0, 'f', 1) + "% accuracy";
+        }
+        if (imageValidation.value("macro_f1").isDouble()) {
+            metrics << "macro F1 " + QString::number(imageValidation.value("macro_f1").toDouble(), 'f', 3);
+        }
+        if (!metrics.isEmpty())
+            imageLine += " with " + metrics.join(" and ");
+        imageLine += ".";
+        const QString readableImageStatus = titleCaseToken(imageStatus);
+        if (!readableImageStatus.isEmpty())
+            imageLine += " Status: " + readableImageStatus + ".";
+        lines << imageLine;
+    }
+    const QString sequenceStatus = sequenceValidation.value("status").toString().trimmed();
+    if (sequenceStatus.compare("not_run", Qt::CaseInsensitive) == 0) {
+        lines << "Sequence validation has not been run yet.";
+    } else if (sequenceStatus.compare("not_available", Qt::CaseInsensitive) == 0) {
+        lines << "Sequence validation is not available for this model yet.";
+    } else if (!sequenceStatus.isEmpty()) {
+        lines << "Sequence validation status: " + titleCaseToken(sequenceStatus) + ".";
+    }
+    if (lines.isEmpty()) {
+        const QString fallback = registryString(entry, "validation_status").trimmed();
+        return fallback.isEmpty() ? QString("Validation information is not available yet.") : fallback;
+    }
+    return lines.join(" ");
 }
 
 QJsonObject loadMetadataDoc(const QJsonObject& entry) {
@@ -433,35 +530,24 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         for (int i = 0; i < registryEntries->size(); ++i) {
             const QJsonObject entry = registryEntries->at(i).toObject();
             const QJsonObject metadataDoc = loadMetadataDoc(entry);
-            QStringList summary;
-            const QString input = inputSizeSummary(metadataDoc);
-            if (input != "--")
-                summary << input;
-            const QString size = fileSizeSummary(registryString(entry, "model_path"));
-            if (!size.isEmpty())
-                summary << size;
-            const QString liveMode = registryString(entry, "live_use_mode");
-            if (!liveMode.isEmpty())
-                summary << liveMode;
-            const QString metadataStatus = registryString(entry, "metadata_status");
-            if (!metadataStatus.isEmpty())
-                summary << metadataStatus;
-            const QString active = entryIsActive(entry) ? "  [Active]" : QString();
-            auto* item = new QTableWidgetItem(displayNameForEntry(entry) + active + "\n" + summary.join("  -  "));
-            item->setToolTip(displayNameForEntry(entry));
+            const QString classes = classesSummary(entry);
+            const QString summary = userFacingModelListSummary(entry, metadataDoc);
+            auto* item = new QTableWidgetItem(displayNameForEntry(entry) + "\n" + summary);
+            item->setToolTip(displayNameForEntry(entry) + "\n" + summary + "\nClasses: " + classes);
             item->setTextAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-            if (!entryIsActive(entry)) {
+            if (entryIsTemplate(entry, metadataDoc) ||
+                registryString(entry, "live_use_mode").contains("blocked", Qt::CaseInsensitive)) {
                 item->setForeground(QBrush(QColor(Qt::gray)));
             }
             modelRegistryList->setItem(i, 0, item);
-            modelRegistryList->setRowHeight(i, 72);
+            modelRegistryList->setRowHeight(i, 78);
         }
     };
     populateRegistryList();
     modelRegistryBody->addWidget(modelRegistryList, 1);
     auto modelRegistryActions = new QHBoxLayout;
     modelRegistryActions->setContentsMargins(12, 0, 12, 12);
-    auto modelValidateBtn = new QPushButton("Validate");
+    auto modelValidateBtn = new QPushButton("Run Validation");
     nameWidget(modelValidateBtn, "ModelWorkspaceValidateButton");
     modelRegistryActions->addWidget(modelValidateBtn);
     modelRegistryBody->addLayout(modelRegistryActions);
@@ -488,27 +574,13 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     modelOverviewGrid->setHorizontalSpacing(10);
     modelOverviewGrid->setVerticalSpacing(8);
     auto modelNameValue = makeModelValue("ModelWorkspaceNameValue");
-    auto registryIdValue = makeModelValue("ModelWorkspaceRegistryIdValue", true);
     auto architectureValue = makeModelValue("ModelWorkspaceArchitectureValue");
     auto modelStateValue = makeModelValue("ModelWorkspaceStateValue");
-    auto modelLiveModeValue = makeModelValue("ModelWorkspaceLiveModeValue");
-    auto modelFileSizeValue = makeModelValue("ModelWorkspaceFileSizeValue");
-    auto modelPathValue = makeModelValue("ModelWorkspacePathValue", true);
-    auto modelShaValue = makeModelValue("ModelWorkspaceShaValue", true);
-    auto metadataPathValue = makeModelValue("ModelWorkspaceMetadataPathValue", true);
-    auto metadataShaValue = makeModelValue("ModelWorkspaceMetadataShaValue", true);
     auto modelClassesValue = makeModelValue("ModelWorkspaceClassesValue");
     addField(modelOverviewGrid, 0, 0, "Model", modelNameValue);
     addField(modelOverviewGrid, 1, 0, "Classifier", architectureValue);
-    addField(modelOverviewGrid, 2, 0, "State", modelStateValue);
-    addField(modelOverviewGrid, 3, 0, "Live use", modelLiveModeValue);
-    addField(modelOverviewGrid, 4, 0, "File size", modelFileSizeValue);
-    addField(modelOverviewGrid, 5, 0, "Registry ID", registryIdValue);
-    addField(modelOverviewGrid, 6, 0, "Output classes", modelClassesValue);
-    addField(modelOverviewGrid, 7, 0, "Path", modelPathValue);
-    addField(modelOverviewGrid, 8, 0, "ONNX SHA-256", modelShaValue);
-    addField(modelOverviewGrid, 9, 0, "Metadata", metadataPathValue);
-    addField(modelOverviewGrid, 10, 0, "Metadata SHA-256", metadataShaValue);
+    addField(modelOverviewGrid, 2, 0, "Status", modelStateValue);
+    addField(modelOverviewGrid, 3, 0, "Output classes", modelClassesValue);
     modelOverviewGrid->setColumnStretch(1, 1);
     modelOverviewGrid->setColumnStretch(3, 1);
     modelOverviewBody->addLayout(modelOverviewGrid);
@@ -516,14 +588,36 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     overviewActions->setContentsMargins(0, 0, 0, 0);
     overviewActions->setSpacing(8);
     auto* setActiveButton = makeSmallButton("Set Active", "ModelWorkspaceSetActiveButton");
-    auto* modelActionsButton = makeSmallButton("...", "ModelWorkspaceActionsButton");
-    modelActionsButton->setToolTip("Model actions");
+    auto* modelActionsButton = makeSmallButton("More", "ModelWorkspaceActionsButton");
+    modelActionsButton->setToolTip("More model actions");
     overviewActions->addWidget(setActiveButton, 0);
     overviewActions->addWidget(modelActionsButton, 0);
     overviewActions->addStretch(1);
     modelOverviewBody->addLayout(overviewActions);
 
-    auto modelMetadataPanel = makePanel("Metadata - normalization");
+    auto modelTechnicalPanel = makePanel("Technical details");
+    modelTechnicalPanel->setObjectName("ModelTechnicalDetailsPanel");
+    auto modelTechnicalBody = makePanelBody(modelTechnicalPanel);
+    auto modelTechnicalGrid = new QGridLayout;
+    modelTechnicalGrid->setContentsMargins(0, 0, 0, 0);
+    modelTechnicalGrid->setHorizontalSpacing(10);
+    modelTechnicalGrid->setVerticalSpacing(8);
+    auto registryIdValue = makeModelValue("ModelWorkspaceRegistryIdValue", true);
+    auto modelFileSizeValue = makeModelValue("ModelWorkspaceFileSizeValue");
+    auto modelPathValue = makeModelValue("ModelWorkspacePathValue", true);
+    auto modelShaValue = makeModelValue("ModelWorkspaceShaValue", true);
+    auto metadataPathValue = makeModelValue("ModelWorkspaceMetadataPathValue", true);
+    auto metadataShaValue = makeModelValue("ModelWorkspaceMetadataShaValue", true);
+    addField(modelTechnicalGrid, 0, 0, "Registry ID", registryIdValue);
+    addField(modelTechnicalGrid, 1, 0, "File size", modelFileSizeValue);
+    addField(modelTechnicalGrid, 2, 0, "Model path", modelPathValue);
+    addField(modelTechnicalGrid, 3, 0, "ONNX SHA-256", modelShaValue);
+    addField(modelTechnicalGrid, 4, 0, "Metadata path", metadataPathValue);
+    addField(modelTechnicalGrid, 5, 0, "Metadata SHA-256", metadataShaValue);
+    modelTechnicalGrid->setColumnStretch(1, 1);
+    modelTechnicalBody->addLayout(modelTechnicalGrid);
+
+    auto modelMetadataPanel = makePanel("Advanced metadata");
     modelMetadataPanel->setObjectName("ModelMetadataNormalizationPanel");
     auto modelMetadataBody = makePanelBody(modelMetadataPanel);
     auto modelMetadataGrid = new QGridLayout;
@@ -600,10 +694,6 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     validationMetricsGrid->addWidget(makeMetric("Sequence", sequenceValue), 0, 2);
     validationMetricsGrid->addWidget(makeMetric("Loss", lossValue), 0, 3);
     modelValidationBody->addLayout(validationMetricsGrid);
-    auto validationEvidenceValue = makeModelValue("ModelWorkspaceValidationEvidenceValue", true);
-    validationEvidenceValue->setProperty("mutedText", true);
-    validationEvidenceValue->setMaximumHeight(72);
-    modelValidationBody->addWidget(validationEvidenceValue);
     auto* validationActions = new QHBoxLayout;
     validationActions->setContentsMargins(0, 0, 0, 0);
     validationActions->setSpacing(8);
@@ -616,13 +706,17 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     validationActions->addStretch(1);
     modelValidationBody->addLayout(validationActions);
 
-    auto modelPromotionPanel = makePanel("Promotion policy");
+    auto modelPromotionPanel = makePanel("Notes and history");
     modelPromotionPanel->setObjectName("ModelPromotionPolicyPanel");
     auto modelPromotionBody = makePanelBody(modelPromotionPanel);
+    auto validationEvidenceValue = makeModelValue("ModelWorkspaceValidationEvidenceValue", true);
+    validationEvidenceValue->setProperty("mutedText", true);
+    validationEvidenceValue->setMaximumHeight(84);
     auto promotionStatusValue = makeModelValue("ModelWorkspacePromotionStatusValue");
     auto promotionRecordValue = makeModelValue("ModelWorkspacePromotionRecordValue", true);
     auto limitationsValue = makeModelValue("ModelWorkspaceLimitationsValue");
     auto blockersValue = makeModelValue("ModelWorkspaceBlockersValue", true);
+    modelPromotionBody->addWidget(validationEvidenceValue);
     modelPromotionBody->addWidget(promotionStatusValue);
     modelPromotionBody->addWidget(promotionRecordValue);
     modelPromotionBody->addWidget(limitationsValue);
@@ -645,12 +739,23 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     auto* benchmarkDisclosure = desktop_app::ui::makeCollapsedGroup("Inference benchmark", benchmarkBody);
     benchmarkDisclosure->setObjectName("ModelBenchmarkDisclosure");
 
+    auto* advancedDetailsBody = new QWidget;
+    auto* advancedDetailsLayout = new QVBoxLayout;
+    advancedDetailsLayout->setContentsMargins(0, 0, 0, 0);
+    advancedDetailsLayout->setSpacing(12);
+    advancedDetailsLayout->addWidget(modelTechnicalPanel);
+    advancedDetailsLayout->addWidget(modelMetadataPanel);
+    advancedDetailsLayout->addWidget(modelPromotionPanel);
+    advancedDetailsLayout->addWidget(benchmarkDisclosure);
+    advancedDetailsBody->setLayout(advancedDetailsLayout);
+    auto* advancedDetailsDisclosure =
+        desktop_app::ui::makeCollapsedGroup("Advanced details", advancedDetailsBody);
+    advancedDetailsDisclosure->setObjectName("ModelAdvancedDetailsDisclosure");
+
     modelDetailLayout->addWidget(modelOverviewPanel);
-    modelDetailLayout->addWidget(modelMetadataPanel);
     modelDetailLayout->addWidget(modelTargetPanel);
     modelDetailLayout->addWidget(modelValidationPanel);
-    modelDetailLayout->addWidget(modelPromotionPanel);
-    modelDetailLayout->addWidget(benchmarkDisclosure);
+    modelDetailLayout->addWidget(advancedDetailsDisclosure);
     modelDetailLayout->addStretch(1);
     modelDetailStack->setLayout(modelDetailLayout);
     modelDetailScroll->setWidget(modelDetailStack);
@@ -701,8 +806,7 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         modelNameValue->setText(modelName);
         registryIdValue->setText(wrapTechnicalText(registryString(entry, "registry_entry_id")));
         architectureValue->setText(metadataArchitectureSummary(metadataDoc));
-        modelStateValue->setText(registryString(entry, "state"));
-        modelLiveModeValue->setText(registryString(entry, "live_use_mode"));
+        modelStateValue->setText(userFacingModelStatus(entry, metadataDoc));
         const QString modelFileSize = fileSizeSummary(registryString(entry, "model_path"));
         modelFileSizeValue->setText(modelFileSize.isEmpty() ? "(unavailable)" : modelFileSize);
         modelPathValue->setText(wrapTechnicalText(registryString(entry, "model_path")));
@@ -730,8 +834,7 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         normalizationStdValue->setText(std.isEmpty() ? "--" : std);
         const QString targetId = registryNestedString(entry, "target_policy", "target_class_id");
         const QString targetDisplay = registryNestedString(entry, "target_policy", "target_display_label");
-        targetPolicyValue->setText(
-            QString("Policy target: %1 (%2)").arg(targetDisplay.isEmpty() ? targetId : targetDisplay, targetId));
+        targetPolicyValue->setText("Sorting target: " + (targetDisplay.isEmpty() ? targetId : targetDisplay));
         const QString runtimeTargetId = canonicalTargetClassId(
             controls.appState && !controls.appState->targetClassId.isEmpty()
                 ? controls.appState->targetClassId
@@ -751,7 +854,7 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         setActiveButton->setEnabled(!entryIsActive(entry));
         setActiveButton->setToolTip(entryIsActive(entry) ? "Selected model is already active."
                                                          : "Mark the selected model as active.");
-        validationStatusValue->setText("Status: " + registryString(entry, "validation_status"));
+        validationStatusValue->setText(userFacingValidationSummary(entry, metadataDoc));
         const QJsonObject validationSummary = metadataDoc.value("validation_summary").toObject();
         const QJsonObject imageValidation = validationSummary.value("image_validation").toObject();
         const QJsonObject sequenceValidation = validationSummary.value("sequence_validation").toObject();
@@ -763,7 +866,8 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         };
         accuracyValue->setText(percent(imageValidation.value("accuracy")));
         macroF1Value->setText(decimal(imageValidation.value("macro_f1")));
-        sequenceValue->setText(sequenceValidation.value("status").toString("--"));
+        const QString sequenceStatus = titleCaseToken(sequenceValidation.value("status").toString());
+        sequenceValue->setText(sequenceStatus.isEmpty() ? QString("--") : sequenceStatus);
         lossValue->setText(decimal(imageValidation.value("loss")));
         const QJsonObject benchmark = metadataDoc.value("benchmark").toObject();
         const QJsonObject inferenceBenchmark = metadataDoc.value("inference_benchmark").toObject();
@@ -779,7 +883,8 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         throughputValue->setText(throughput.isDouble() ? QString::number(throughput.toDouble(), 'f', 0) + " fps"
                                                        : "--");
         benchmarkAccuracyValue->setText(percent(imageValidation.value("accuracy")));
-        validationEvidenceValue->setText(wrapTechnicalText(jsonPathSummary(entry.value("validation_evidence"))));
+        validationEvidenceValue->setText(
+            wrapTechnicalText("Validation files: " + jsonPathSummary(entry.value("validation_evidence"))));
         promotionStatusValue->setText("Promotion: " + registryString(entry, "promotion_status"));
         promotionRecordValue->setText(
             wrapTechnicalText("Record: " + (registryString(entry, "promotion_record_path").isEmpty()
@@ -789,6 +894,14 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         blockersValue->setText(wrapTechnicalText("Blockers: " + (entry.value("blockers").toArray().isEmpty()
                                                                      ? "(none)"
                                                                      : jsonPathSummary(entry.value("blockers")))));
+        if (controls.validatorWorkspace) {
+            if (auto* modelEdit = controls.validatorWorkspace->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit")) {
+                modelEdit->setText(absoluteRegistryPath(registryString(entry, "model_path")));
+            }
+            if (auto* metadataEdit = controls.validatorWorkspace->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit")) {
+                metadataEdit->setText(absoluteRegistryPath(registryString(entry, "metadata_path")));
+            }
+        }
     };
     QObject::connect(modelRegistryList, &QTableWidget::currentCellChanged,
                      [=](int, int, int, int) { updateModelWorkspaceDetails(); });
@@ -815,6 +928,15 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         openPathOrWarn(modelWorkspacePage, reportPath, "Open Report");
     });
     auto navigateToValidator = [=]() {
+        if (controls.validatorWorkspace) {
+            const QJsonObject entry = selectedEntry();
+            if (auto* modelEdit = controls.validatorWorkspace->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit")) {
+                modelEdit->setText(absoluteRegistryPath(registryString(entry, "model_path")));
+            }
+            if (auto* metadataEdit = controls.validatorWorkspace->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit")) {
+                metadataEdit->setText(absoluteRegistryPath(registryString(entry, "metadata_path")));
+            }
+        }
         if (controls.imageValidationAction)
             controls.imageValidationAction->trigger();
         if (controls.workspaceStack && controls.validatorWorkspace) {

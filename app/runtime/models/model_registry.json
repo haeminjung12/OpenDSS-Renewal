@@ -61,6 +61,54 @@
         {
             "blockers": [
                 {
+                    "blocker": "Blank/untrained template",
+                    "evidence": "app/runtime/scripts/generate_blank_squeezenet.py",
+                    "owner_type": "Release packaging",
+                    "required_next_action": "Train and validate this template before any live sorting use."
+                }
+            ],
+            "classes": [
+                "0",
+                "1"
+            ],
+            "display_labels": {
+                "0": "Waste",
+                "1": "Hits"
+            },
+            "display_name": "Blank SqueezeNet template (untrained)",
+            "label_schema_version": "droplet-labels-binary-v1",
+            "limitations": [
+                "Blank/untrained SqueezeNet template generated for packaging and future training bootstrap only.",
+                "Do not use this template for live sorting or DAQ-triggered operation without separate training and validation."
+            ],
+            "live_use_mode": "blocked",
+            "metadata_path": "app/runtime/models/blank_squeezenet_template_metadata.json",
+            "metadata_schema_version": "model-metadata-v1",
+            "metadata_sha256": "86b64a15bd668832bab4d24d15f3498bd2a264cfee9bccdde808029f27e43abf",
+            "metadata_status": "Blank/untrained template",
+            "model_id": "blank_squeezenet_template_seed42",
+            "model_path": "app/runtime/models/blank_squeezenet_template.onnx",
+            "model_sha256": "ce86d715a3339d8d65874561c91f142d46975ba042408520c9ca7d8d97bb0a8d",
+            "model_sidecars": [
+            ],
+            "promotion_status": "Template only",
+            "registry_entry_id": "blank_squeezenet_template_seed42",
+            "selectable_for_normal_live_sorting": false,
+            "state": "available",
+            "target_policy": {
+                "target_class_id": "1",
+                "target_display_label": "Hits",
+                "trigger_rule": "trigger_on_target_class",
+                "waste_class_id": "0",
+                "waste_display_label": "Waste"
+            },
+            "validation_evidence": {
+            },
+            "validation_status": "Not validated / not for live sorting"
+        },
+        {
+            "blockers": [
+                {
                     "blocker": "Retired backup",
                     "evidence": "outputs/model_promotion_backups/pre_binary_promotion_20260430_055156/",
                     "owner_type": "Model Manager",
@@ -108,5 +156,5 @@
     ],
     "registry_id": "installed-default-model-registry",
     "schema_version": "model-registry-v1",
-    "updated_at": "2026-04-30T00:00:00-05:00"
+    "updated_at": "2026-07-13T00:00:00-05:00"
 }

@@ -10,6 +10,7 @@
 #include <QtCore/QJsonObject>
 #include <QtCore/QSettings>
 #include <QtCore/QSignalBlocker>
+#include <QtCore/QTimer>
 #include <QtGui/QAction>
 #include <QtGui/QTextCursor>
 #include <QtWidgets/QCheckBox>
@@ -17,8 +18,11 @@
 #include <QtWidgets/QDialog>
 #include <QtWidgets/QDoubleSpinBox>
 #include <QtWidgets/QFileDialog>
+#include <QtWidgets/QInputDialog>
 #include <QtWidgets/QLabel>
 #include <QtWidgets/QLineEdit>
+#include <QtWidgets/QMenu>
+#include <QtWidgets/QMessageBox>
 #include <QtWidgets/QPlainTextEdit>
 #include <QtWidgets/QProgressBar>
 #include <QtWidgets/QPushButton>
@@ -144,6 +148,27 @@ QString normalizedDatasetSelectionPath(const QString& path) {
     return info.absoluteFilePath();
 }
 
+QString trainerDatasetBrowseStartPath(const DatasetWorkspaceController::Dependencies& deps) {
+    const QString currentSelection =
+        normalizedDatasetSelectionPath(deps.trainerDatasetEdit ? deps.trainerDatasetEdit->text() : QString());
+    const QString defaultSelection = normalizedDatasetSelectionPath(deps.defaultTrainerDataset);
+
+    QSettings settings;
+    const QString savedSelection = normalizedDatasetSelectionPath(settings.value("settings/datasetsRoot").toString());
+    const bool verifyingDefaultPaths = qEnvironmentVariableIntValue("OVDS_VERIFY_DEFAULT_PATHS") != 0;
+    const bool hasRecentSavedSelection = !verifyingDefaultPaths && settings.contains("settings/datasetsRoot") &&
+                                         !savedSelection.isEmpty() &&
+                                         !isDeveloperInternalDefaultPath(savedSelection);
+    const bool currentSelectionIsExplicit =
+        !currentSelection.isEmpty() && currentSelection.compare(defaultSelection, Qt::CaseInsensitive) != 0 &&
+        !isDeveloperInternalDefaultPath(currentSelection);
+
+    const QString strongSelection = hasRecentSavedSelection ? savedSelection
+                                                            : (currentSelectionIsExplicit ? currentSelection : QString());
+    return chooseOpenFileDialogPath(strongSelection, defaultOpenDssPreparedDatasetsPath(),
+                                    findPackagedAppPath("datasets/prepared"));
+}
+
 } // namespace
 
 DatasetWorkspaceController::DatasetWorkspaceController(const Dependencies& dependencies, QObject* parent)
@@ -152,7 +177,13 @@ DatasetWorkspaceController::DatasetWorkspaceController(const Dependencies& depen
     wireDatasetActions();
     wireTrainerPathButtons();
     wireTrainerSettingsPersistence();
+    wireTrainerModelRenameAction();
     refreshTrainerSummary();
+    const QString verifyTrainerRename = qEnvironmentVariable("OVDS_VERIFY_TRAINER_MODEL_RENAME").trimmed();
+    if (!verifyTrainerRename.isEmpty() && verifyTrainerRename != "0" &&
+        verifyTrainerRename.compare("false", Qt::CaseInsensitive) != 0) {
+        QTimer::singleShot(0, this, [this]() { runTrainerModelRenameVerifier(); });
+    }
 }
 
 void DatasetWorkspaceController::openDatasetLabelerPath(const QString& preferredPath) {
@@ -653,11 +684,23 @@ void DatasetWorkspaceController::loadTrainerSettings() const {
         settings.value("settings/pythonTrainer", deps_.trainerPythonEdit->text()).toString());
     const QString defaultDatasetSelection =
         QDir::toNativeSeparators(normalizedDatasetSelectionPath(deps_.defaultTrainerDataset));
-    const QString savedDatasetSelection = settings.value("settings/datasetsRoot", defaultDatasetSelection).toString();
+    const bool verifyingDefaultPaths = qEnvironmentVariableIntValue("OVDS_VERIFY_DEFAULT_PATHS") != 0;
+    QString savedDatasetSelection = verifyingDefaultPaths
+                                        ? defaultDatasetSelection
+                                        : settings.value("settings/datasetsRoot", defaultDatasetSelection).toString();
+    if (isDeveloperInternalDefaultPath(savedDatasetSelection)) {
+        savedDatasetSelection = defaultDatasetSelection;
+    }
     deps_.trainerDatasetEdit->setText(
         QDir::toNativeSeparators(normalizedDatasetSelectionPath(savedDatasetSelection)));
-    deps_.trainerOutputEdit->setText(
-        settings.value("trainer/outputDir", QDir::toNativeSeparators(deps_.defaultTrainerOutput)).toString());
+    QString trainerOutput = verifyingDefaultPaths
+                                ? QDir::toNativeSeparators(deps_.defaultTrainerOutput)
+                                : settings.value("trainer/outputDir", QDir::toNativeSeparators(deps_.defaultTrainerOutput))
+                                      .toString();
+    if (isDeveloperInternalDefaultPath(trainerOutput)) {
+        trainerOutput = QDir::toNativeSeparators(deps_.defaultTrainerOutput);
+    }
+    deps_.trainerOutputEdit->setText(trainerOutput);
 
     if (deps_.trainerArchitectureCombo) {
         const QString arch =
@@ -731,9 +774,7 @@ void DatasetWorkspaceController::wireTrainerPathButtons() {
     }
     if (deps_.trainerDatasetBrowseBtn && deps_.trainerDatasetEdit) {
         connect(deps_.trainerDatasetBrowseBtn, &QPushButton::clicked, this, [this]() {
-            const QString startPath = chooseOpenFileDialogPath(
-                normalizedDatasetSelectionPath(deps_.trainerDatasetEdit->text()),
-                normalizedDatasetSelectionPath(deps_.defaultTrainerDataset), findPackagedAppPath("datasets/prepared"));
+            const QString startPath = trainerDatasetBrowseStartPath(deps_);
             const QString file = QFileDialog::getOpenFileName(
                 deps_.window, "Select training image set file", startPath,
                 "Image set files (*.json);;All files (*.*)");
@@ -803,6 +844,152 @@ void DatasetWorkspaceController::wireTrainerSettingsPersistence() {
     if (deps_.trainerSchedulerCombo) {
         connect(deps_.trainerSchedulerCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, save);
     }
+}
+
+void DatasetWorkspaceController::wireTrainerModelRenameAction() {
+    if (!deps_.trainerStartingModelCombo) {
+        return;
+    }
+
+    deps_.trainerStartingModelCombo->setContextMenuPolicy(Qt::CustomContextMenu);
+    deps_.trainerStartingModelCombo->setToolTip("Choose a starting model. Right-click to rename the selected model.");
+    connect(deps_.trainerStartingModelCombo, &QWidget::customContextMenuRequested, this, [this](const QPoint& pos) {
+        QMenu menu(deps_.trainerStartingModelCombo);
+        QAction* renameAction = menu.addAction("Rename selected model");
+        renameAction->setEnabled(!deps_.trainerStartingModelCombo->currentData().toString().trimmed().isEmpty());
+        connect(renameAction, &QAction::triggered, this, [this]() {
+            if (!renameSelectedStartingModel()) {
+                return;
+            }
+            refreshTrainerUi();
+        });
+        menu.exec(deps_.trainerStartingModelCombo->mapToGlobal(pos));
+    });
+}
+
+bool DatasetWorkspaceController::renameSelectedStartingModel() const {
+    if (!deps_.trainerStartingModelCombo) {
+        return false;
+    }
+
+    const QString selectedId = deps_.trainerStartingModelCombo->currentData().toString().trimmed();
+    if (selectedId.isEmpty()) {
+        QMessageBox::information(deps_.window, "Rename model", "Choose a starting model before renaming it.");
+        return false;
+    }
+
+    QJsonArray registryEntries;
+    if (!deps_.trainerRegistryFilePath.trimmed().isEmpty()) {
+        registryEntries = loadJsonObjectFile(deps_.trainerRegistryFilePath).value("entries").toArray();
+    }
+    if (registryEntries.isEmpty() && deps_.trainerRegistryEntries) {
+        registryEntries = *deps_.trainerRegistryEntries;
+    }
+
+    QString currentName = deps_.trainerStartingModelCombo->currentText().trimmed();
+    for (const auto& value : registryEntries) {
+        const QJsonObject entry = value.toObject();
+        if (registryString(entry, "registry_entry_id").trimmed().compare(selectedId, Qt::CaseInsensitive) == 0) {
+            currentName = fallbackDisplayName(entry);
+            break;
+        }
+    }
+
+    bool ok = false;
+    const QString newName =
+        QInputDialog::getText(deps_.window, "Rename model", "Model name:", QLineEdit::Normal, currentName, &ok).trimmed();
+    if (!ok) {
+        return false;
+    }
+    if (newName.isEmpty()) {
+        QMessageBox::warning(deps_.window, "Rename model", "Model name cannot be empty.");
+        return false;
+    }
+
+    QString error;
+    if (!renameRegistryEntryDisplayName(deps_.trainerRegistryFilePath, selectedId, newName, &error)) {
+        QMessageBox::warning(deps_.window, "Rename model", error);
+        return false;
+    }
+
+    const QSignalBlocker blocker(deps_.trainerStartingModelCombo);
+    populateTrainerModelOptions();
+    const int row = deps_.trainerStartingModelCombo->findData(selectedId);
+    if (row >= 0) {
+        deps_.trainerStartingModelCombo->setCurrentIndex(row);
+    }
+    saveTrainerSettings();
+    return true;
+}
+
+void DatasetWorkspaceController::runTrainerModelRenameVerifier() const {
+    QStringList failures;
+    auto require = [&](bool condition, const QString& message) {
+        if (!condition) {
+            failures << message;
+        }
+    };
+
+    populateTrainerModelOptions();
+    const QString selectedId =
+        deps_.trainerStartingModelCombo ? deps_.trainerStartingModelCombo->currentData().toString().trimmed() : QString();
+    require(deps_.trainerStartingModelCombo != nullptr, "Trainer starting-model combo exists");
+    require(!selectedId.isEmpty(), "Trainer starting-model combo has a selected registry id");
+    require(!deps_.trainerRegistryFilePath.trimmed().isEmpty(), "Trainer registry file path is available");
+
+    QJsonObject beforeEntry;
+    QJsonArray beforeEntries;
+    if (!deps_.trainerRegistryFilePath.trimmed().isEmpty()) {
+        beforeEntries = loadJsonObjectFile(deps_.trainerRegistryFilePath).value("entries").toArray();
+    }
+    for (const auto& value : beforeEntries) {
+        const QJsonObject entry = value.toObject();
+        if (registryString(entry, "registry_entry_id").trimmed().compare(selectedId, Qt::CaseInsensitive) == 0) {
+            beforeEntry = entry;
+            break;
+        }
+    }
+    require(!beforeEntry.isEmpty(), "Selected trainer model exists in the registry before rename");
+
+    const QString renamed = QString("Trainer verifier renamed model %1").arg(QCoreApplication::applicationPid());
+    QString error;
+    if (!selectedId.isEmpty()) {
+        require(renameRegistryEntryDisplayName(deps_.trainerRegistryFilePath, selectedId, renamed, &error),
+                QString("Trainer rename writes registry display_name: %1").arg(error));
+    }
+
+    refreshTrainerUi();
+    const int renamedIndex = deps_.trainerStartingModelCombo ? deps_.trainerStartingModelCombo->findData(selectedId) : -1;
+    require(renamedIndex >= 0, "Trainer rename keeps the selected model in the starting-model list");
+    if (renamedIndex >= 0 && deps_.trainerStartingModelCombo) {
+        deps_.trainerStartingModelCombo->setCurrentIndex(renamedIndex);
+        require(deps_.trainerStartingModelCombo->currentText().contains(renamed),
+                "Trainer starting-model list refreshes to show the renamed display name");
+    }
+
+    QJsonObject afterEntry;
+    const QJsonArray afterEntries = loadJsonObjectFile(deps_.trainerRegistryFilePath).value("entries").toArray();
+    for (const auto& value : afterEntries) {
+        const QJsonObject entry = value.toObject();
+        if (registryString(entry, "registry_entry_id").trimmed().compare(selectedId, Qt::CaseInsensitive) == 0) {
+            afterEntry = entry;
+            break;
+        }
+    }
+    require(registryString(afterEntry, "display_name") == renamed,
+            "Trainer rename persists display_name in the registry");
+    require(registryString(afterEntry, "model_path") == registryString(beforeEntry, "model_path"),
+            "Trainer rename leaves model_path unchanged");
+    require(registryString(afterEntry, "metadata_path") == registryString(beforeEntry, "metadata_path"),
+            "Trainer rename leaves metadata_path unchanged");
+
+    if (failures.isEmpty()) {
+        qInfo().noquote() << "Trainer model rename verifier passed.";
+        QCoreApplication::exit(0);
+        return;
+    }
+    qWarning().noquote() << "Trainer model rename verifier failed:" << failures.join("; ");
+    QCoreApplication::exit(2);
 }
 
 void DatasetWorkspaceController::populateTrainerModelOptions() const {

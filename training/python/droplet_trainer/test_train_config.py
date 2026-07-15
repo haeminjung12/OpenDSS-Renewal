@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from droplet_trainer.schema import default_binary_schema
-from droplet_trainer.train import _make_cuda_amp_scaler, _onnx_state_key_candidates, load_training_config
+from droplet_trainer.train import MIN_ONNX_OPSET, _make_cuda_amp_scaler, _onnx_state_key_candidates, load_training_config
 
 
 class TrainingConfigTests(unittest.TestCase):
@@ -29,6 +29,16 @@ class TrainingConfigTests(unittest.TestCase):
 
         self.assertEqual(config["batch_size"], 8)
         self.assertEqual(config["classes"], ["0", "1"])
+
+    def test_legacy_onnx_opset_is_normalized_to_export_floor(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "training_config.json"
+            config_path.write_text(json.dumps({"classes": ["0", "1"], "onnx_opset": 17}), encoding="utf-8")
+
+            config = load_training_config(str(config_path), default_binary_schema())
+
+        self.assertEqual(config["onnx_requested_opset"], 17)
+        self.assertEqual(config["onnx_opset"], MIN_ONNX_OPSET)
 
     def test_cuda_amp_scaler_uses_current_torch_amp_api(self) -> None:
         calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []

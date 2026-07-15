@@ -21,6 +21,8 @@ constexpr int kDefaultPageSize = 100;
 constexpr int kLoadBatchSize = 250;
 constexpr int kVisiblePageButtonCount = 5;
 constexpr int kManifestAutosaveDebounceMs = 750;
+constexpr int kTileLabelMaxChars = 14;
+constexpr int kTileDisplayTextRole = Qt::UserRole + 2;
 
 QString canonicalLegacyLabel(const QString& label) {
     const QString lower = label.trimmed().toLower();
@@ -540,12 +542,11 @@ class DatasetWorkspaceWidget final : public QWidget {
 
         auto* root = new QHBoxLayout;
         root->setContentsMargins(10, 10, 10, 10);
-        root->setSpacing(12);
+        root->setSpacing(0);
 
         auto* leftPanel = makePanel("Image Set", "Image set file and class setup");
-        leftPanel->setMinimumWidth(300);
-        leftPanel->setMaximumWidth(340);
-        leftPanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        leftPanel->setMinimumWidth(280);
+        leftPanel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Expanding);
         auto* leftBody = makePanelBody(leftPanel);
 
         manifestPathEdit_ = new QLineEdit;
@@ -632,7 +633,7 @@ class DatasetWorkspaceWidget final : public QWidget {
 
         auto* centerPanel = makePanel("All images", "0 shown");
         centerPanel->setObjectName("DatasetCropBrowserPanel");
-        centerPanel->setMinimumWidth(420);
+        centerPanel->setMinimumWidth(360);
         centerPanel->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
         centerPanelSubtitle_ = centerPanel->findChildren<QLabel*>().value(1);
         centerPanelTitle_ = centerPanel->findChildren<QLabel*>().value(0);
@@ -671,6 +672,7 @@ class DatasetWorkspaceWidget final : public QWidget {
         gridList_->setMovement(QListView::Static);
         gridList_->setIconSize(QSize(kIconSize, kIconSize));
         gridList_->setGridSize(QSize(112, 126));
+        gridList_->setTextElideMode(Qt::ElideNone);
         gridList_->setSelectionMode(QAbstractItemView::SingleSelection);
         gridList_->setUniformItemSizes(true);
         nameWidget(gridList_, "DatasetWorkspaceCropGrid");
@@ -694,6 +696,10 @@ class DatasetWorkspaceWidget final : public QWidget {
         auto* pageSizeLabel = new QLabel("Page size");
         pageSizeLabel->setProperty("metricLabel", true);
         pageSizeCombo_ = new QComboBox;
+        pageSizeCombo_->setSizeAdjustPolicy(QComboBox::AdjustToContents);
+        pageSizeCombo_->setMinimumContentsLength(4);
+        pageSizeCombo_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+        pageSizeCombo_->view()->setTextElideMode(Qt::ElideNone);
         pageSizeCombo_->addItem("100", 100);
         pageSizeCombo_->addItem("200", 200);
         pageSizeCombo_->addItem("300", 300);
@@ -725,9 +731,8 @@ class DatasetWorkspaceWidget final : public QWidget {
 
         auto* rightPanel = makePanel("Review", "Selected image");
         rightPanel->setObjectName("DatasetReviewPanel");
-        rightPanel->setMinimumWidth(390);
-        rightPanel->setMaximumWidth(460);
-        rightPanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
+        rightPanel->setMinimumWidth(340);
+        rightPanel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Expanding);
         auto* rightBody = makePanelBody(rightPanel);
 
         previewLabel_ = new QLabel("No image selected");
@@ -801,9 +806,19 @@ class DatasetWorkspaceWidget final : public QWidget {
         rightBody->addWidget(statusLabel_);
         rightBody->addStretch(1);
 
-        root->addWidget(leftPanel, 0);
-        root->addWidget(centerPanel, 1);
-        root->addWidget(rightPanel, 0);
+        auto* splitter = new QSplitter(Qt::Horizontal);
+        splitter->setObjectName("DatasetWorkspaceSplitter");
+        splitter->setChildrenCollapsible(false);
+        splitter->setOpaqueResize(true);
+        splitter->addWidget(leftPanel);
+        splitter->addWidget(centerPanel);
+        splitter->addWidget(rightPanel);
+        splitter->setStretchFactor(0, 1);
+        splitter->setStretchFactor(1, 3);
+        splitter->setStretchFactor(2, 1);
+        splitter->setSizes({310, 620, 390});
+
+        root->addWidget(splitter, 1);
         setMinimumWidth(1000);
         setLayout(root);
 
@@ -1501,6 +1516,59 @@ class DatasetWorkspaceWidget final : public QWidget {
         return haystack.contains(needle);
     }
 
+    QString compactTileLabelCandidate(const QString& raw) const {
+        QString stem = raw.trimmed();
+        if (stem.isEmpty())
+            return {};
+
+        stem.replace('\\', '/');
+        const QString fileName = QFileInfo(stem).fileName();
+        if (!fileName.isEmpty())
+            stem = QFileInfo(fileName).completeBaseName();
+        stem = stem.trimmed();
+        if (stem.isEmpty())
+            return {};
+
+        const QRegularExpression leadingDigits(QStringLiteral("^(\\d{3,})"));
+        const QRegularExpressionMatch leadingMatch = leadingDigits.match(stem);
+        if (leadingMatch.hasMatch())
+            return leadingMatch.captured(1).left(kTileLabelMaxChars);
+
+        const QStringList parts = stem.split(QRegularExpression(QStringLiteral("[\\s_\\-.]+")), Qt::SkipEmptyParts);
+        for (int i = 0; i < parts.size(); ++i) {
+            const QString part = parts.at(i);
+            if (!part.contains(QRegularExpression(QStringLiteral("\\d"))))
+                continue;
+            if (i > 0) {
+                const QString prefix = parts.at(i - 1);
+                const QString combined = prefix + "_" + part;
+                if (combined.size() <= kTileLabelMaxChars)
+                    return combined;
+            }
+            return part.left(kTileLabelMaxChars);
+        }
+
+        if (stem.size() <= kTileLabelMaxChars)
+            return stem;
+        return stem.left(kTileLabelMaxChars);
+    }
+
+    QString tileDisplayText(const CropItem& crop) const {
+        const QStringList candidates = {
+            crop.imageId,
+            QFileInfo(crop.cropPath).completeBaseName(),
+            QFileInfo(crop.cropPath).fileName(),
+        };
+        for (const QString& candidate : candidates) {
+            const QString label = compactTileLabelCandidate(candidate);
+            if (!label.isEmpty())
+                return label;
+        }
+        if (crop.manifestIndex >= 0)
+            return QString("#%1").arg(crop.manifestIndex + 1);
+        return "image";
+    }
+
     void applyFilters(bool refreshView = true) {
         const int previousSelection = selectedSourceIndex_;
         filteredIndexes_.clear();
@@ -1526,8 +1594,11 @@ class DatasetWorkspaceWidget final : public QWidget {
         }
         for (const int sourceIndex : visibleIndexes_) {
             const CropItem& crop = items_.at(sourceIndex);
-            auto* item = new QListWidgetItem(makeThumbnailIcon(crop, kIconSize), QFileInfo(crop.cropPath).fileName());
+            const QString tileText = tileDisplayText(crop);
+            auto* item = new QListWidgetItem(makeThumbnailIcon(crop, kIconSize), tileText);
             item->setData(kSourceIndexRole, sourceIndex);
+            item->setData(kTileDisplayTextRole, tileText);
+            item->setToolTip(QString("%1\n%2").arg(crop.imageId, QFileInfo(crop.cropPath).fileName()));
             item->setTextAlignment(Qt::AlignCenter);
             item->setForeground(reviewBaseColor(effectiveLabel(crop)));
             gridList_->addItem(item);
@@ -1570,8 +1641,11 @@ class DatasetWorkspaceWidget final : public QWidget {
         if (activeIndex == 0) {
             if (!gridPageDirty_) {
                 if (QListWidgetItem* item = gridList_->item(visibleRow)) {
+                    const QString tileText = tileDisplayText(crop);
                     item->setIcon(makeThumbnailIcon(crop, kIconSize));
-                    item->setText(QFileInfo(crop.cropPath).fileName());
+                    item->setText(tileText);
+                    item->setData(kTileDisplayTextRole, tileText);
+                    item->setToolTip(QString("%1\n%2").arg(crop.imageId, QFileInfo(crop.cropPath).fileName()));
                     item->setForeground(reviewBaseColor(effectiveLabel(crop)));
                 }
             }
@@ -2204,6 +2278,22 @@ class DatasetWorkspaceWidget final : public QWidget {
                 return desktop_app::theme::semanticClassColorForBase(classColorForId(canonical), currentThemeMode());
             return desktop_app::theme::semanticClassColor(canonical, currentThemeMode());
         };
+        auto expectGridLabel = [this, &expect](int row, const QString& expectedText) {
+            if (!gridList_ || row < 0 || row >= gridList_->count()) {
+                expect(false, QString("grid row %1 is outside the visible grid").arg(row));
+                return;
+            }
+            const QListWidgetItem* item = gridList_->item(row);
+            const QString text = item ? item->text().trimmed() : QString();
+            expect(!text.isEmpty(), QString("grid row %1 label is empty").arg(row));
+            expect(text != "...", QString("grid row %1 label is still ellipsis-only").arg(row));
+            expect(text == item->data(kTileDisplayTextRole).toString(),
+                   QString("grid row %1 display role does not match visible text").arg(row));
+            if (!expectedText.isEmpty()) {
+                expect(text == expectedText,
+                       QString("grid row %1 label expected %2, got %3").arg(row).arg(expectedText).arg(text));
+            }
+        };
         auto expectReviewColorMatch =
             [this, &expect, &thumbnailBorderColor, &expectedSemanticColor](QPushButton* button,
                                                                            const QString& expectedClassId,
@@ -2257,8 +2347,58 @@ class DatasetWorkspaceWidget final : public QWidget {
         expect(filteredIndexes_.size() == 4,
                QString("expected 4 displayable crops, got %1").arg(filteredIndexes_.size()));
         expect(gridList_->count() == 4, QString("expected 4 grid thumbnails, got %1").arg(gridList_->count()));
+        expect(gridList_->textElideMode() == Qt::ElideNone, "grid labels still use Qt eliding");
+        expectGridLabel(0, QString());
+        expect(pageSizeCombo_ != nullptr, "page-size combo was not created");
+        if (pageSizeCombo_) {
+            const QStringList expectedPageSizes = {"100", "200", "300"};
+            expect(pageSizeCombo_->count() == expectedPageSizes.size(),
+                   QString("page-size combo expected %1 entries, got %2")
+                       .arg(expectedPageSizes.size())
+                       .arg(pageSizeCombo_->count()));
+            expect(pageSizeCombo_->currentText() == "100",
+                   QString("default page-size text expected 100, got %1").arg(pageSizeCombo_->currentText()));
+            expect(pageSizeCombo_->sizeAdjustPolicy() == QComboBox::AdjustToContents,
+                   "page-size combo does not adjust to contents");
+            expect(pageSizeCombo_->minimumContentsLength() >= 3,
+                   QString("page-size combo minimum contents length expected at least 3, got %1")
+                       .arg(pageSizeCombo_->minimumContentsLength()));
+            expect(pageSizeCombo_->width() >= pageSizeCombo_->minimumSizeHint().width(),
+                   QString("page-size combo width %1 is narrower than minimum size hint %2")
+                       .arg(pageSizeCombo_->width())
+                       .arg(pageSizeCombo_->minimumSizeHint().width()));
+            auto* pageSizeView = pageSizeCombo_->view();
+            expect(pageSizeView != nullptr, "page-size combo popup view is missing");
+            if (pageSizeView)
+                expect(pageSizeView->textElideMode() == Qt::ElideNone, "page-size combo popup text is still elided");
+            for (int i = 0; i < expectedPageSizes.size() && i < pageSizeCombo_->count(); ++i) {
+                expect(pageSizeCombo_->itemText(i) == expectedPageSizes.at(i),
+                       QString("page-size option %1 expected %2, got %3")
+                           .arg(i)
+                           .arg(expectedPageSizes.at(i), pageSizeCombo_->itemText(i)));
+            }
+        }
         expect(centerPanelSubtitle_->text() == "Showing 1-4 of 4 filtered",
                "center subtitle did not report the current filtered page range");
+        auto* datasetSplitter = findChild<QSplitter*>("DatasetWorkspaceSplitter");
+        expect(datasetSplitter != nullptr, "Dataset workspace splitter was not created");
+        QList<int> splitterSizesBeforeFilter;
+        if (datasetSplitter) {
+            expect(datasetSplitter->count() == 3,
+                   QString("Dataset splitter expected 3 sections, got %1").arg(datasetSplitter->count()));
+            expect(!datasetSplitter->childrenCollapsible(), "Dataset splitter sections are collapsible");
+            expect(datasetSplitter->widget(0)->maximumWidth() == QWIDGETSIZE_MAX,
+                   "Image Set section still has a fixed maximum width");
+            expect(datasetSplitter->widget(2)->maximumWidth() == QWIDGETSIZE_MAX,
+                   "Review section still has a fixed maximum width");
+            datasetSplitter->setSizes({300, 620, 380});
+            QApplication::processEvents();
+            splitterSizesBeforeFilter = datasetSplitter->sizes();
+            applyFilters();
+            QApplication::processEvents();
+            expect(datasetSplitter->sizes() == splitterSizesBeforeFilter,
+                   "Dataset splitter sizes changed after applying filters");
+        }
         expect(!filteredIndexes_.contains(1), "manifest row with empty crop_path is still visible");
         expect(hitButton_->text() == classEntries_.value(0).displayName,
                QString("Class 0 button text expected %1, got %2")
@@ -2492,9 +2632,18 @@ class DatasetWorkspaceWidget final : public QWidget {
             if (pageSize200Index >= 0)
                 pageSizeCombo_->setCurrentIndex(pageSize200Index);
             expect(pageSize_ == 200, QString("page-size switch expected 200, got %1").arg(pageSize_));
+            expect(pageSizeCombo_ && pageSizeCombo_->currentText() == "200",
+                   QString("page-size combo selected text expected 200, got %1")
+                       .arg(pageSizeCombo_ ? pageSizeCombo_->currentText() : QString("<null>")));
             expect(pageCount() == 2, QString("large fixture expected 2 pages at size 200, got %1").arg(pageCount()));
             expect(gridList_->count() == 200,
                    QString("large fixture 200-size page expected 200 grid items, got %1").arg(gridList_->count()));
+            expectGridLabel(0, "large_0");
+            expectGridLabel(199, "large_199");
+            if (datasetSplitter && !splitterSizesBeforeFilter.isEmpty()) {
+                expect(datasetSplitter->sizes() == splitterSizesBeforeFilter,
+                       "Dataset splitter sizes changed after paging or page-size updates");
+            }
 
             selectRelative(1);
             expect(selectedSourceIndex_ >= 1,

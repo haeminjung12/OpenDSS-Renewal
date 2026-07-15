@@ -42,6 +42,7 @@ class TrainSmokeConfigTests(unittest.TestCase):
         self.assertEqual(config["stages"], DEFAULT_CONFIG["stages"])
         self.assertEqual(config["epochs"], DEFAULT_CONFIG["epochs"])
         self.assertTrue(config["export_onnx"])
+        self.assertEqual(config["onnx_opset"], DEFAULT_CONFIG["onnx_opset"])
 
     def test_smoke_overrides_loaded_config_to_remain_bounded(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

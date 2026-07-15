@@ -31,6 +31,8 @@ WSL_SOURCE_LINEAGE = {
     ],
 }
 
+MIN_ONNX_OPSET = 18
+
 
 DEFAULT_CONFIG: dict[str, Any] = {
     "schema_version": 1,
@@ -62,7 +64,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "source_checkpoint": None,
     "source_model_path": None,
     "export_onnx": True,
-    "onnx_opset": 17,
+    "onnx_opset": MIN_ONNX_OPSET,
     "optional_logging": {"wandb": False},
 }
 
@@ -110,6 +112,10 @@ def _deep_update(base: dict[str, Any], override: dict[str, Any]) -> dict[str, An
     return result
 
 
+def _resolved_onnx_opset(value: Any) -> int:
+    return max(int(value if value is not None else MIN_ONNX_OPSET), MIN_ONNX_OPSET)
+
+
 def load_training_config(path: str | None, schema: ClassSchema, smoke: bool = False) -> dict[str, Any]:
     config = copy.deepcopy(DEFAULT_CONFIG)
     config["classes"] = list(schema.classes)
@@ -139,6 +145,13 @@ def load_training_config(path: str | None, schema: ClassSchema, smoke: bool = Fa
     imbalance.setdefault("computed_from", "training_split_only")
     imbalance.setdefault("class_weights", {})
     config["imbalance"] = imbalance
+    requested_onnx_opset = int(config.get("onnx_opset", MIN_ONNX_OPSET))
+    if requested_onnx_opset < MIN_ONNX_OPSET:
+        config["onnx_requested_opset"] = requested_onnx_opset
+        config["onnx_opset"] = _resolved_onnx_opset(requested_onnx_opset)
+    else:
+        config["onnx_opset"] = _resolved_onnx_opset(requested_onnx_opset)
+        config.pop("onnx_requested_opset", None)
     return config
 
 
@@ -524,7 +537,12 @@ def _write_metrics_artifacts(run_dir: Path, classes: list[str], history: list[di
     return {"metrics_json": str(metrics_json), "metrics_csv": str(metrics_csv), "confusion_matrix_csv": str(cm_csv), "class_metrics_csv": str(class_csv)}
 
 
-def _export_onnx(model: Any, run_dir: Path, config: dict[str, Any]) -> Path:
+def _primary_onnx_opset(doc: Any) -> int | None:
+    versions = [int(entry.version) for entry in doc.opset_import if entry.domain in ("", "ai.onnx")]
+    return max(versions) if versions else None
+
+
+def _export_onnx(model: Any, run_dir: Path, config: dict[str, Any]) -> tuple[Path, int | None]:
     import torch
 
     onnx_path = run_dir / "model.onnx"
@@ -536,15 +554,16 @@ def _export_onnx(model: Any, run_dir: Path, config: dict[str, Any]) -> Path:
         input_names=["input"],
         output_names=["logits"],
         dynamic_axes={"input": {0: "batch"}, "logits": {0: "batch"}},
-        opset_version=int(config.get("onnx_opset", 17)),
+        opset_version=_resolved_onnx_opset(config.get("onnx_opset")),
     )
     try:
         import onnx
 
         onnx.checker.check_model(str(onnx_path))
+        exported = onnx.load(str(onnx_path), load_external_data=True)
     except Exception as exc:
         raise CliError("ONNX_EXPORT_FAILED", "ONNX export or checker validation failed.", EXIT_ONNX_EXPORT_FAILED, {"error": str(exc), "path": str(onnx_path)})
-    return onnx_path
+    return onnx_path, _primary_onnx_opset(exported)
 
 
 def _environment_payload(args: Any, package_status: dict[str, Any], device: Any) -> dict[str, Any]:
@@ -653,6 +672,16 @@ def run_train(args: Any, schema: ClassSchema) -> int:
             warnings=readiness_warnings,
             waste_source_selection=scan["waste_source_selection"],
         )
+        requested_onnx_opset = config.get("onnx_requested_opset")
+        if requested_onnx_opset is not None:
+            emitter.emit(
+                "warning",
+                level="warning",
+                code="ONNX_OPSET_UPGRADED",
+                message="Requested ONNX opset is below the supported torch exporter floor; exporting at opset 18 to avoid a post-export version-conversion traceback.",
+                requested_opset=int(requested_onnx_opset),
+                export_opset=int(config["onnx_opset"]),
+            )
 
         train_loader, val_loader, test_loader = _make_loaders(scan["items"], schema, config, device)
         imbalance_mode = str(config.get("imbalance", {}).get("mode", "class_weighted_loss"))
@@ -731,8 +760,9 @@ def run_train(args: Any, schema: ClassSchema) -> int:
         env_path.write_text(json.dumps(_environment_payload(args, package_status, device), indent=2), encoding="utf-8")
         artifacts.update({"training_config_json": str(config_path), "environment_json": str(env_path)})
         onnx_path = None
+        onnx_opset = None
         if bool(config.get("export_onnx", True)):
-            onnx_path = _export_onnx(model, run_dir, config)
+            onnx_path, onnx_opset = _export_onnx(model, run_dir, config)
             artifacts["model_onnx"] = str(onnx_path)
         metadata_path = run_dir / "metadata.json"
         sorting_policy = sorting_policy_for_classes(schema.classes, config["display_labels"])
@@ -765,7 +795,7 @@ def run_train(args: Any, schema: ClassSchema) -> int:
             },
             "imbalance": config["imbalance"],
             "validation_summary": {"image_validation": {"status": "internal_test_split", **test_metrics}, "sequence_validation": {"status": "not_run"}},
-            "export": {"format": "onnx", "opset": config.get("onnx_opset"), "sha256": sha256_file(onnx_path) if onnx_path else None},
+            "export": {"format": "onnx", "opset": onnx_opset, "sha256": sha256_file(onnx_path) if onnx_path else None},
             "limitations": ["Sequence validation has not been run for this candidate."],
         }
         metadata_path.write_text(json.dumps(metadata, indent=2), encoding="utf-8")

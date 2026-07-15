@@ -22,6 +22,8 @@ QString chooseOpenFileDialogPath(const QString& currentPath, const QString& work
 QJsonObject packagedBlankModelRegistryEntry();
 QJsonObject packagedPretrainedModelRegistryEntry();
 QString resolvePackagedPathFromRegistryPath(const QString& registryPath);
+bool renameRegistryEntryDisplayName(const QString& registryFilePath, const QString& registryEntryId,
+                                    const QString& displayName, QString* error = nullptr);
 
 namespace desktop_app::workspace {
 namespace {
@@ -1186,6 +1188,38 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
             return error;
         return QString();
     };
+    auto renameSelectedModel = [=](const QString& requestedName = QString(), bool promptUser = true) -> QString {
+        const int row = modelRegistryList->currentRow();
+        if (row < 0 || row >= registryEntries->size())
+            return "No model is selected.";
+
+        const QJsonObject entry = registryEntries->at(row).toObject();
+        const QString selectedId = registryEntryId(entry);
+        QString newName = requestedName.trimmed();
+        if (promptUser) {
+            bool ok = false;
+            newName = QInputDialog::getText(modelWorkspacePage, "Rename model", "Model name:", QLineEdit::Normal,
+                                            displayNameForEntry(entry), &ok)
+                          .trimmed();
+            if (!ok)
+                return QString();
+        }
+        if (newName.isEmpty())
+            return "Model name cannot be empty.";
+
+        QString error;
+        if (!renameRegistryEntryDisplayName(controls.registryFilePath, selectedId, newName, &error))
+            return error;
+
+        QJsonArray refreshed = loadRegistryEntriesFromPath(controls.registryFilePath, &error);
+        if (refreshed.isEmpty())
+            return error.isEmpty() ? "Registry refresh found no model entries after rename." : error;
+        *registryEntries = refreshed;
+        populateRegistryList();
+        selectRegistryRow(selectedId, row);
+        updateModelWorkspaceDetails();
+        return QString();
+    };
     QObject::connect(modelActionsButton, &QPushButton::clicked, [=]() {
         QMenu menu(modelActionsButton);
         menu.addAction("Open Metadata", [=]() {
@@ -1195,6 +1229,11 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
             openPathOrWarn(modelWorkspacePage, firstExistingEvidencePath(selectedEntry()), "Open Report");
         });
         menu.addAction("Run Validation", navigateToValidator);
+        menu.addAction("Rename model", [=]() {
+            const QString error = renameSelectedModel();
+            if (!error.isEmpty())
+                QMessageBox::warning(modelWorkspacePage, "Rename model", error);
+        });
         menu.addAction("Remove model", [=]() {
             const QString error = removeSelectedModel(true);
             if (!error.isEmpty())
@@ -1547,6 +1586,30 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
             require(!setActiveButton->isEnabled(),
                     "Reloaded blank starter row still disables Set Active");
             verifySimpleListRow(registryEntryId(reloadedBlankEntry), "Reloaded blank starter row");
+
+            const QString renamedBlank = QString("Verifier renamed blank starter %1").arg(QCoreApplication::applicationPid());
+            const QString renameError = renameSelectedModel(renamedBlank, false);
+            require(renameError.isEmpty(), QString("Rename model succeeds for selected row: %1").arg(renameError));
+            const QJsonObject renamedEntry = currentRowEntry();
+            require(registryString(renamedEntry, "display_name") == renamedBlank,
+                    "Rename model updates the in-memory selected entry display name");
+            verifySimpleListRow(registryEntryId(renamedEntry), "Renamed blank starter row");
+            const QJsonArray afterRenamePersisted = persistedEntries();
+            const int renamedPersistedRow = findRegistryEntryRowById(afterRenamePersisted, registryEntryId(renamedEntry));
+            require(renamedPersistedRow >= 0, "Rename model preserves the selected registry row");
+            if (renamedPersistedRow >= 0) {
+                const QJsonObject persistedRenamedEntry = afterRenamePersisted.at(renamedPersistedRow).toObject();
+                require(registryString(persistedRenamedEntry, "display_name") == renamedBlank,
+                        "Rename model persists display_name to the registry");
+                require(registryString(persistedRenamedEntry, "model_path") == registryString(addedBlankEntry, "model_path"),
+                        "Rename model leaves model_path unchanged");
+                require(registryString(persistedRenamedEntry, "metadata_path") ==
+                            registryString(addedBlankEntry, "metadata_path"),
+                        "Rename model leaves metadata_path unchanged");
+            }
+            const QString emptyRenameError = renameSelectedModel("   ", false);
+            require(emptyRenameError.contains("empty", Qt::CaseInsensitive),
+                    "Rename model rejects empty display names");
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
             if (failures.isEmpty()) {

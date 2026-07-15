@@ -27,6 +27,7 @@
 #include <atomic>
 #include <exception>
 #include <cstdio>
+#include <cstdlib>
 #include <thread>
 #include <mutex>
 #include <vector>
@@ -143,6 +144,205 @@ class WheelEventForwarder : public QObject {
 constexpr int kRuntimeSettingsSchemaVersion = 1;
 constexpr const char* kRuntimeSettingsSchemaVersionKey = "runtime/v1/schemaVersion";
 
+struct TrainerCompletionArtifacts {
+    bool complete = false;
+    QString runDir;
+    QString modelOnnxPath;
+    QString metadataJsonPath;
+};
+
+QString artifactPathFromRunDir(const QString& path, const QString& runDir) {
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty())
+        return QString();
+    if (QFileInfo(trimmed).isAbsolute())
+        return QFileInfo(trimmed).absoluteFilePath();
+    return QDir(runDir).absoluteFilePath(trimmed);
+}
+
+TrainerCompletionArtifacts parseSuccessfulTrainingArtifactsJsonl(const QString& jsonl) {
+    TrainerCompletionArtifacts result;
+    const QStringList lines = jsonl.split(QRegularExpression("[\r\n]+"), Qt::SkipEmptyParts);
+    for (const QString& rawLine : lines) {
+        const QString line = rawLine.trimmed();
+        if (!line.startsWith('{'))
+            continue;
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(line.toUtf8(), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+            continue;
+        const QJsonObject event = doc.object();
+        if (event.value("event").toString() != "run_finished" || event.value("status").toString() != "ok")
+            continue;
+        const QString runDir = QFileInfo(event.value("run_dir").toString()).absoluteFilePath();
+        const QJsonObject artifacts = event.value("artifacts").toObject();
+        const QString modelPath = artifactPathFromRunDir(artifacts.value("model_onnx").toString(), runDir);
+        const QString metadataPath = artifactPathFromRunDir(artifacts.value("metadata_json").toString(), runDir);
+        if (!runDir.isEmpty() && !modelPath.isEmpty() && !metadataPath.isEmpty()) {
+            result.complete = true;
+            result.runDir = runDir;
+            result.modelOnnxPath = modelPath;
+            result.metadataJsonPath = metadataPath;
+        }
+    }
+    return result;
+}
+
+QJsonObject loadRegistryObjectForVerifier(const QString& registryFilePath) {
+    QFile file(registryFilePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll());
+    return doc.isObject() ? doc.object() : QJsonObject{};
+}
+
+QJsonObject registryEntryByIdForVerifier(const QJsonArray& entries, const QString& entryId) {
+    for (const auto& value : entries) {
+        const QJsonObject entry = value.toObject();
+        if (registryString(entry, "registry_entry_id").compare(entryId, Qt::CaseInsensitive) == 0)
+            return entry;
+    }
+    return {};
+}
+
+void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
+                                               DatasetWorkspaceController* datasetController,
+                                               QComboBox* trainerStartingModelCombo,
+                                               const QString& registryFilePath) {
+    QStringList failures;
+    auto require = [&](bool condition, const QString& message) {
+        if (!condition)
+            failures << message;
+    };
+
+    require(!qEnvironmentVariable("OVDS_MODEL_REGISTRY_PATH").trimmed().isEmpty(),
+            "Verifier uses OVDS_MODEL_REGISTRY_PATH so user registry is not modified");
+    require(modelWorkspacePage != nullptr, "Model workspace exists");
+    require(datasetController != nullptr, "Dataset workspace controller exists");
+    require(trainerStartingModelCombo != nullptr, "Trainer starting-model combo exists");
+
+    QTemporaryDir tempDir(QDir::tempPath() + "/ovds_trainer_registration_verify_XXXXXX");
+    require(tempDir.isValid(), "Verifier temp run directory is available");
+    const QString runDir = tempDir.path();
+    const QString modelPath = QDir(runDir).filePath("model.onnx");
+    const QString metadataPath = QDir(runDir).filePath("metadata.json");
+
+    QFile modelFile(modelPath);
+    require(modelFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "Verifier can write synthetic ONNX artifact");
+    if (modelFile.isOpen()) {
+        modelFile.write("synthetic verifier model");
+        modelFile.close();
+    }
+
+    QJsonObject labels;
+    labels["0"] = "Non-target";
+    labels["1"] = "Target";
+    QJsonObject targetPolicy;
+    targetPolicy["mode"] = "trigger_on_target_class";
+    targetPolicy["target_class_id"] = "1";
+    targetPolicy["target_display_label"] = "Target";
+    targetPolicy["waste_class_id"] = "0";
+    targetPolicy["waste_display_label"] = "Non-target";
+    targetPolicy["trigger_rule"] = "trigger_on_target_class";
+    QJsonObject architecture;
+    architecture["family"] = "SqueezeNet";
+    architecture["variant"] = "1_1";
+    QJsonObject imageValidation;
+    imageValidation["status"] = "internal_test_split";
+    imageValidation["accuracy"] = 0.95;
+    imageValidation["macro_f1"] = 0.94;
+    QJsonObject sequenceValidation;
+    sequenceValidation["status"] = "not_run";
+    QJsonObject validationSummary;
+    validationSummary["image_validation"] = imageValidation;
+    validationSummary["sequence_validation"] = sequenceValidation;
+
+    const QString modelId = QString("trainer_registration_verifier_%1").arg(QCoreApplication::applicationPid());
+    QJsonObject metadata;
+    metadata["schema_version"] = "model-metadata-v1";
+    metadata["model_id"] = modelId;
+    metadata["model_name"] = "Trainer registration verifier model";
+    metadata["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    metadata["classes"] = QJsonArray{"0", "1"};
+    metadata["class_ids"] = QJsonArray{"0", "1"};
+    metadata["display_labels"] = labels;
+    metadata["label_schema_version"] = "droplet-labels-target-nontarget-binary-v1";
+    metadata["sorting_policy"] = targetPolicy;
+    metadata["architecture"] = architecture;
+    metadata["training_config"] = QJsonObject{{"architecture", "squeezenet1_1"}, {"pretrained", true}};
+    metadata["validation_summary"] = validationSummary;
+    metadata["limitations"] = QJsonArray{"Verifier synthetic metadata."};
+
+    QFile metadataFile(metadataPath);
+    require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Verifier can write synthetic metadata artifact");
+    if (metadataFile.isOpen()) {
+        metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
+        metadataFile.close();
+    }
+
+    const QJsonObject beforeRegistry = loadRegistryObjectForVerifier(registryFilePath);
+    const int beforeCount = beforeRegistry.value("entries").toArray().size();
+    const QString successfulJsonl =
+        QString("{\"event\":\"run_finished\",\"status\":\"ok\",\"run_dir\":\"%1\",\"artifacts\":"
+                "{\"model_onnx\":\"%2\",\"metadata_json\":\"%3\"}}\n")
+            .arg(runDir, modelPath, metadataPath);
+    const TrainerCompletionArtifacts parsed = parseSuccessfulTrainingArtifactsJsonl(successfulJsonl);
+    require(parsed.complete, "Successful run_finished JSONL is detected");
+    require(QDir::cleanPath(parsed.modelOnnxPath) == QDir::cleanPath(modelPath),
+            "Successful JSONL model_onnx path is captured");
+    require(QDir::cleanPath(parsed.metadataJsonPath) == QDir::cleanPath(metadataPath),
+            "Successful JSONL metadata_json path is captured");
+    require(!parseSuccessfulTrainingArtifactsJsonl(
+                 "{\"event\":\"run_finished\",\"status\":\"failed\",\"artifacts\":{\"model_onnx\":\"x\"}}\n")
+                 .complete,
+            "Failed run_finished JSONL is ignored");
+
+    QString entryId;
+    QString error;
+    if (parsed.complete) {
+        require(registerTrainedModelArtifacts(registryFilePath, parsed.runDir, parsed.modelOnnxPath,
+                                              parsed.metadataJsonPath, &entryId, &error),
+                QString("Trained artifacts register in model registry: %1").arg(error));
+    }
+
+    const QJsonObject afterRegistry = loadRegistryObjectForVerifier(registryFilePath);
+    const QJsonArray afterEntries = afterRegistry.value("entries").toArray();
+    const QJsonObject entry = registryEntryByIdForVerifier(afterEntries, entryId);
+    require(afterEntries.size() == beforeCount + 1, "Registry row count increases for new trained run");
+    require(!entry.isEmpty(), "Registered trained model entry exists");
+    require(QDir::cleanPath(registryString(entry, "model_path")) == QDir::cleanPath(modelPath),
+            "Registered entry points to generated ONNX");
+    require(QDir::cleanPath(registryString(entry, "metadata_path")) == QDir::cleanPath(metadataPath),
+            "Registered entry points to generated metadata");
+
+    auto* refreshButton = modelWorkspacePage ? modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")
+                                             : nullptr;
+    require(refreshButton != nullptr, "Model workspace refresh button exists");
+    if (refreshButton) {
+        refreshButton->click();
+        QCoreApplication::processEvents();
+    }
+    auto* modelTable = modelWorkspacePage ? modelWorkspacePage->findChild<QTableWidget*>("ModelWorkspaceRegistryTable")
+                                          : nullptr;
+    require(modelTable != nullptr, "Model workspace registry table exists");
+    require(modelTable && modelTable->rowCount() == afterEntries.size(),
+            "Model workspace refresh reloads the registry row count");
+
+    if (datasetController)
+        datasetController->refreshTrainerUi();
+    require(trainerStartingModelCombo && trainerStartingModelCombo->findData(entryId) >= 0,
+            "Trainer starting-model list refreshes to include the trained result");
+
+    const int exitCode = failures.isEmpty() ? 0 : 2;
+    if (failures.isEmpty()) {
+        qInfo().noquote() << "Trainer result model-registration verifier passed.";
+    } else {
+        qWarning().noquote() << "Trainer result model-registration verifier failed:" << failures.join("; ");
+    }
+    std::exit(exitCode);
+}
+
 QMutex liveEventMutex;
 SequenceEventTracker liveEventTracker;
 
@@ -169,6 +369,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     const bool verifyDatasetWorkspace =
         !qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_MANIFEST").trimmed().isEmpty();
     const bool verifyTrainerLaunch = qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_LAUNCH") != 0;
+    const bool verifyDefaultPaths = qEnvironmentVariableIntValue("OVDS_VERIFY_DEFAULT_PATHS") != 0;
     const DefaultWorkspacePaths& defaultWorkspacePaths = context_.paths.defaultWorkspacePaths;
     const QString& logPath = context_.paths.sessionLogPath;
     const QString initialDaqStatusText = appState.daqStatusText;
@@ -2817,14 +3018,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return root.filePath(datasetId);
     };
 
-    auto pickExistingPath = [](const QStringList& candidates) -> QString {
-        for (const auto& c : candidates) {
-            if (QFileInfo::exists(c))
-                return c;
-        }
-        return candidates.isEmpty() ? QString() : candidates.first();
-    };
-
     QString appDir = QCoreApplication::applicationDirPath();
     auto findModelUpwards = [&](const QString& filename) -> QString {
         QDir dir(appDir);
@@ -2936,6 +3129,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QProcess* trainerProcess = nullptr;
     bool trainerCommandWasTraining = false;
     bool trainerCommandWasDryRun = false;
+    QString trainerStdoutLog;
     auto appendTrainerLog = [datasetController](const QString& text) { datasetController->appendTrainerLog(text); };
     auto trainerCommandPreview = [datasetController](const QString& program, const QStringList& args) {
         return datasetController->trainerCommandPreview(program, args);
@@ -2981,6 +3175,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         saveTrainerSettings();
         trainerCommandWasTraining = isTraining;
         trainerCommandWasDryRun = isDryRun;
+        trainerStdoutLog.clear();
         trainerResultText->clear();
         appendTrainerLog(QString("Running %1\n%2\n\n").arg(label, trainerCommandPreview(python, args)));
         if (isTraining) {
@@ -3011,6 +3206,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             if (trainerProcess != process)
                 return;
             const QString chunk = QString::fromLocal8Bit(process->readAllStandardOutput());
+            trainerStdoutLog += chunk;
             appendTrainerLog(chunk);
             int progressIndex = chunk.indexOf("\"percent\"");
             if (progressIndex >= 0) {
@@ -3043,6 +3239,36 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 } else if (trainerCommandWasTraining) {
                     setTrainerSummary(ok ? "Model training completed." : "Model training failed.",
                                       ok ? QString() : "Review the detailed log for the failure.");
+                    if (ok) {
+                        const TrainerCompletionArtifacts artifacts = parseSuccessfulTrainingArtifactsJsonl(trainerStdoutLog);
+                        if (artifacts.complete) {
+                            QString registeredEntryId;
+                            QString registrationError;
+                            if (registerTrainedModelArtifacts(registryFilePath, artifacts.runDir, artifacts.modelOnnxPath,
+                                                              artifacts.metadataJsonPath, &registeredEntryId,
+                                                              &registrationError)) {
+                                appendTrainerLog(QString("Registered trained model in Model workspace: %1\n")
+                                                     .arg(registeredEntryId));
+                                if (auto* refreshButton =
+                                        modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")) {
+                                    refreshButton->click();
+                                }
+                                refreshTrainerUi();
+                                setTrainerSummary("Model training completed.",
+                                                  "Registered trained model in the Model workspace.");
+                            } else {
+                                appendTrainerLog("Model registration failed: " + registrationError + "\n");
+                                setTrainerSummary("Model training completed, but model registration failed.",
+                                                  registrationError);
+                            }
+                        } else {
+                            appendTrainerLog("Model registration skipped: successful model artifacts were not found in "
+                                             "trainer output.\n");
+                            setTrainerSummary("Model training completed, but no model artifacts were registered.",
+                                              "The trainer output did not include run_finished status ok with model_onnx "
+                                              "and metadata_json artifacts.");
+                        }
+                    }
                 } else {
                     setTrainerSummary(ok ? "Python setup checked." : "Python setup check failed.",
                                       ok ? QString() : "Review the detailed log for the failure.");
@@ -3088,6 +3314,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         });
     });
     QObject::connect(trainerNavButton, &QPushButton::clicked, [&]() { refreshTrainerUi(); });
+    if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_RESULT_MODEL_REGISTRATION") != 0) {
+        QTimer::singleShot(0, this, [=]() {
+            runTrainerResultModelRegistrationVerifier(modelWorkspacePage, datasetController, trainerStartingModelCombo,
+                                                      registryFilePath);
+        });
+    }
     QObject::connect(datasetReadinessAction, &QAction::triggered, [&]() {
         refreshTrainerUi();
         workspaceStack->setCurrentWidget(trainerWorkspacePage);
@@ -3318,38 +3550,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         trainerEnvCheckBtn->click();
     });
 
-    QString defaultOnnxRel = "../../../models/pre_binary_promotion_backup.onnx";
-    QString defaultMetaRel = "../../../models/pre_binary_promotion_backup_metadata.json";
-    QString defaultOnnxAbs = QDir(appDir).absoluteFilePath(defaultOnnxRel);
-    QString defaultMetaAbs = QDir(appDir).absoluteFilePath(defaultMetaRel);
-    QString defaultOnnxFromProject = findModelUpwards("pre_binary_promotion_backup.onnx");
-    QString defaultMetaFromProject = findModelUpwards("pre_binary_promotion_backup_metadata.json");
-    QStringList onnxCandidates = {defaultWorkspacePaths.activeModel,
-                                  defaultOnnxFromProject,
-                                  defaultOnnxAbs,
-                                  appDir + "/pre_binary_promotion_backup.onnx",
-                                  appDir + "/models/pre_binary_promotion_backup.onnx",
-                                  appDir + "/../models/pre_binary_promotion_backup.onnx",
-                                  appDir + "/../../models/pre_binary_promotion_backup.onnx"};
-    QStringList metaCandidates = {defaultWorkspacePaths.activeMetadata,
-                                  defaultMetaFromProject,
-                                  defaultMetaAbs,
-                                  appDir + "/pre_binary_promotion_backup_metadata.json",
-                                  appDir + "/models/pre_binary_promotion_backup_metadata.json",
-                                  appDir + "/../models/pre_binary_promotion_backup_metadata.json",
-                                  appDir + "/../../models/pre_binary_promotion_backup_metadata.json"};
-    QString onnxPicked = pickExistingPath(onnxCandidates);
-    if (onnxPicked.isEmpty()) {
-        onnxPicked = defaultOnnxRel;
-    } else {
-        onnxPicked = QDir(appDir).relativeFilePath(onnxPicked);
-    }
-    QString metaPicked = pickExistingPath(metaCandidates);
-    if (metaPicked.isEmpty()) {
-        metaPicked = defaultMetaRel;
-    } else {
-        metaPicked = QDir(appDir).relativeFilePath(metaPicked);
-    }
+    const QString documentsOnnxFallback = QDir(defaultWorkspacePaths.models).filePath("pre_binary_promotion_backup.onnx");
+    const QString documentsMetaFallback =
+        QDir(defaultWorkspacePaths.models).filePath("pre_binary_promotion_backup_metadata.json");
+    QString onnxPicked =
+        defaultWorkspacePaths.activeModel.isEmpty() ? documentsOnnxFallback : defaultWorkspacePaths.activeModel;
+    QString metaPicked =
+        defaultWorkspacePaths.activeMetadata.isEmpty() ? documentsMetaFallback : defaultWorkspacePaths.activeMetadata;
     onnxEdit->setText(onnxPicked);
     metaEdit->setText(metaPicked);
     if (outputEdit->text().isEmpty()) {
@@ -3519,14 +3726,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
 
     auto restoreRuntimeSettings = [&]() {
+        if (verifyDefaultPaths)
+            return;
         if (!runtimeSettings.contains(kRuntimeSettingsSchemaVersionKey))
             return;
         const int schemaVersion = runtimeSettings.value(kRuntimeSettingsSchemaVersionKey, 0).toInt();
         if (schemaVersion < 1 || schemaVersion > kRuntimeSettingsSchemaVersion)
             return;
 
-        onnxEdit->setText(runtimeSettings.value("runtime/v1/model/path", onnxEdit->text()).toString());
-        metaEdit->setText(runtimeSettings.value("runtime/v1/model/metadataPath", metaEdit->text()).toString());
+        auto restoredPathOrDefault = [&](const QString& key, const QString& defaultPath) {
+            const QString saved = runtimeSettings.value(key, defaultPath).toString();
+            const QString resolved = validatorResolveAppRelative(saved);
+            return isDeveloperInternalDefaultPath(saved) || isDeveloperInternalDefaultPath(resolved) ? defaultPath : saved;
+        };
+        onnxEdit->setText(restoredPathOrDefault("runtime/v1/model/path", onnxEdit->text()));
+        metaEdit->setText(restoredPathOrDefault("runtime/v1/model/metadataPath", metaEdit->text()));
         setSelectedTargetClassId(
             runtimeSettings.value("runtime/v1/model/targetClassId", pendingTargetClassId).toString());
         outputEdit->setText(runtimeSettings.value("runtime/v1/output/baseDir", outputEdit->text()).toString());
@@ -3907,15 +4121,26 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 return info.exists();
             return QFileInfo(QDir(appDir).absoluteFilePath(trimmed)).exists();
         };
-        if (rawPathExists(onnxEdit->text()) && rawPathExists(metaEdit->text())) {
+        if (rawPathExists(onnxEdit->text()) && rawPathExists(metaEdit->text()) &&
+            !isDeveloperInternalDefaultPath(onnxEdit->text()) && !isDeveloperInternalDefaultPath(metaEdit->text())) {
             return;
         }
         const QString registryOnnx = liveModelCombo->currentData(kLiveModelOnnxRole).toString();
         const QString registryMeta = liveModelCombo->currentData(kLiveModelMetadataRole).toString();
-        if (!registryOnnx.isEmpty())
+        if (!defaultWorkspacePaths.activeModel.isEmpty()) {
+            onnxEdit->setText(defaultWorkspacePaths.activeModel);
+        } else if (!registryOnnx.isEmpty() && !isDeveloperInternalDefaultPath(registryOnnx)) {
             onnxEdit->setText(registryOnnx);
-        if (!registryMeta.isEmpty())
+        } else {
+            onnxEdit->setText(documentsOnnxFallback);
+        }
+        if (!defaultWorkspacePaths.activeMetadata.isEmpty()) {
+            metaEdit->setText(defaultWorkspacePaths.activeMetadata);
+        } else if (!registryMeta.isEmpty() && !isDeveloperInternalDefaultPath(registryMeta)) {
             metaEdit->setText(registryMeta);
+        } else {
+            metaEdit->setText(documentsMetaFallback);
+        }
         logMessage(QString("Runtime model paths repaired from selected registry entry: onnx=%1 meta=%2")
                        .arg(onnxEdit->text(), metaEdit->text()));
     };
@@ -4054,10 +4279,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QObject::connect(morphRadiusSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
         QObject::connect(scaleSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), persistAndScheduleDetectorApply);
         QObject::connect(gapFireSpin, qOverload<int>(&QSpinBox::valueChanged), persistAndScheduleDetectorApply);
-        QObject::connect(&app, &QCoreApplication::aboutToQuit, saveRuntimeSettings);
+        if (!verifyDefaultPaths) {
+            QObject::connect(&app, &QCoreApplication::aboutToQuit, saveRuntimeSettings);
+        }
     };
     connectRuntimeSettingsPersistence();
-    saveRuntimeSettings();
+    if (!verifyDefaultPaths) {
+        saveRuntimeSettings();
+    }
 
     QObject::connect(pipelineEnableCheck, &QCheckBox::toggled, [&](bool enabled) {
         pipelineEnabled.store(enabled);
@@ -5765,14 +5994,58 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         logMessage("Validation workspace verifier: camera startup skipped to keep checks no-hardware.");
     } else if (verifyTrainerLaunch) {
         logMessage("Trainer launch verifier: camera startup skipped to keep checks no-hardware.");
+    } else if (verifyDefaultPaths) {
+        logMessage("Default paths verifier: camera startup skipped to keep checks no-hardware.");
     } else if (verifyDatasetWorkspace) {
         logMessage("Dataset workspace verifier: camera startup skipped to keep checks no-hardware.");
     } else {
         cameraController->initializeCamera();
     }
     if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger && !options.verifyLiveViewSortPolicy &&
-        !options.verifyValidationWorkspace && !verifyTrainerLaunch && !verifyDatasetWorkspace) {
+        !options.verifyValidationWorkspace && !verifyTrainerLaunch && !verifyDefaultPaths && !verifyDatasetWorkspace) {
         QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
+    }
+    if (verifyDefaultPaths) {
+        QTimer::singleShot(0, [&app, trainerDatasetEdit, trainerOutputEdit, onnxEdit, validatorWorkspaceModelEdit,
+                                defaultWorkspacePaths]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << "DEFAULT PATH VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "DEFAULT PATH VERIFY PASS:" << message;
+                }
+            };
+            const QString documentsRoot = QDir::fromNativeSeparators(defaultWorkspacePaths.root).toLower();
+            auto isDocumentsPath = [&](const QString& path) {
+                return QDir::fromNativeSeparators(QDir::cleanPath(path.trimmed())).toLower().startsWith(documentsRoot);
+            };
+
+            const QString trainerDatasetPath = trainerDatasetEdit ? trainerDatasetEdit->text().trimmed() : QString();
+            const QString trainerOutputPath = trainerOutputEdit ? trainerOutputEdit->text().trimmed() : QString();
+            const QString validatorModelPath = validatorWorkspaceModelEdit ? validatorWorkspaceModelEdit->text().trimmed()
+                                                                           : (onnxEdit ? onnxEdit->text().trimmed()
+                                                                                       : QString());
+            qInfo().noquote() << "DEFAULT PATH VERIFY VALUES:"
+                              << "trainerDataset=" << trainerDatasetPath
+                              << "trainerOutput=" << trainerOutputPath
+                              << "validatorModel=" << validatorModelPath
+                              << "documentsRoot=" << defaultWorkspacePaths.root;
+
+            require(isDocumentsPath(trainerOutputPath), "Trainer output defaults under Documents/OpenDSS");
+            require(!isDeveloperInternalDefaultPath(trainerOutputPath),
+                    "Trainer output does not use stale AppData verifier path");
+            require(isDocumentsPath(trainerDatasetPath), "Trainer image-set defaults under Documents/OpenDSS");
+            require(!isDeveloperInternalDefaultPath(trainerDatasetPath),
+                    "Trainer image-set does not use repo source dataset path");
+            require(isDocumentsPath(validatorModelPath), "Validator model defaults under Documents/OpenDSS");
+            require(!isDeveloperInternalDefaultPath(validatorModelPath),
+                    "Validator model does not use internal release build model path");
+
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+        });
     }
     if (verifyDatasetWorkspace) {
         auto* datasetVerifierExitTimer = new QTimer(this);

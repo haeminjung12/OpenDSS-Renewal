@@ -96,6 +96,9 @@ class DatasetWorkspaceController : public QObject {
     void wireDatasetActions();
     void wireTrainerPathButtons();
     void wireTrainerSettingsPersistence();
+    void wireTrainerModelRenameAction();
+    bool renameSelectedStartingModel() const;
+    void runTrainerModelRenameVerifier() const;
 
     Dependencies deps_;
     QPointer<DatasetLabelerDialog> activeDatasetLabelerDialog_;

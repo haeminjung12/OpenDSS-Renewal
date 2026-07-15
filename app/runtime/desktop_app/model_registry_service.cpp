@@ -1,6 +1,8 @@
 #include "model_registry_service.h"
 
 #include <QCoreApplication>
+#include <QCryptographicHash>
+#include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -51,6 +53,127 @@ QString existingDirectoryPath(const QString& path) {
     return QString();
 }
 
+QString absoluteCleanPath(const QString& path) {
+    const QString trimmed = path.trimmed();
+    return trimmed.isEmpty() ? QString() : QDir::cleanPath(QFileInfo(trimmed).absoluteFilePath());
+}
+
+QString normalizedPathForComparison(const QString& path) {
+    QString normalized = QDir::fromNativeSeparators(QDir::cleanPath(path.trimmed())).toLower();
+    while (normalized.contains("//"))
+        normalized.replace("//", "/");
+    return normalized;
+}
+
+bool pathLooksLikeDeveloperInternalDefault(const QString& path) {
+    const QString normalized = normalizedPathForComparison(path);
+    if (normalized.isEmpty())
+        return false;
+    return normalized.contains("/appdata/local/openvisualdropletsorter/trainer_gui_unicode_verify") ||
+           normalized.contains("/codex/opendss/0. codebase/datasets") ||
+           normalized.contains("/build-opendss-internal-release/desktop_app/release/models");
+}
+
+QString sha256FileHex(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return QString();
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!file.atEnd())
+        hash.addData(file.read(1024 * 1024));
+    return QString::fromLatin1(hash.result().toHex());
+}
+
+QString registryIdToken(QString value) {
+    value = value.trimmed();
+    QString result;
+    result.reserve(value.size());
+    for (const QChar ch : value) {
+        if (ch.isLetterOrNumber()) {
+            result.append(ch.toLower());
+        } else if (ch == '_' || ch == '-') {
+            result.append(ch);
+        } else if (!result.endsWith('_')) {
+            result.append('_');
+        }
+    }
+    while (result.startsWith('_'))
+        result.remove(0, 1);
+    while (result.endsWith('_'))
+        result.chop(1);
+    return result.isEmpty() ? QString("trained_model") : result;
+}
+
+QJsonObject readJsonObjectFile(const QString& path, QString* error) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error)
+            *error = "JSON file not readable: " + path;
+        return {};
+    }
+    QJsonParseError parseError;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error)
+            *error = "JSON parse failed for " + path + ": " + parseError.errorString();
+        return {};
+    }
+    return doc.object();
+}
+
+QString firstNonEmpty(std::initializer_list<QString> values) {
+    for (const QString& value : values) {
+        const QString trimmed = value.trimmed();
+        if (!trimmed.isEmpty())
+            return trimmed;
+    }
+    return QString();
+}
+
+bool jsonArrayContainsString(const QJsonArray& values, const QString& needle) {
+    for (const auto& value : values) {
+        if (value.toString().compare(needle, Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
+QString trainedValidationStatus(const QJsonObject& metadata) {
+    const QJsonObject validation = metadata.value("validation_summary").toObject();
+    const QJsonObject image = validation.value("image_validation").toObject();
+    const QString status = image.value("status").toString().trimmed();
+    QStringList parts;
+    parts << (status.isEmpty() ? QString("Training completed") : QString("Training completed; image status: %1").arg(status));
+    if (image.value("accuracy").isDouble())
+        parts << QString("accuracy %1%").arg(image.value("accuracy").toDouble() * 100.0, 0, 'f', 1);
+    if (image.value("macro_f1").isDouble())
+        parts << QString("macro F1 %1").arg(image.value("macro_f1").toDouble(), 0, 'f', 3);
+    const QJsonObject sequence = validation.value("sequence_validation").toObject();
+    const QString sequenceStatus = sequence.value("status").toString().trimmed();
+    if (!sequenceStatus.isEmpty())
+        parts << QString("sequence %1").arg(sequenceStatus);
+    return parts.join("; ");
+}
+
+QJsonObject targetPolicyFromMetadata(const QJsonObject& metadata) {
+    QJsonObject targetPolicy = metadata.value("sorting_policy").toObject();
+    if (!targetPolicy.isEmpty())
+        return targetPolicy;
+
+    const QJsonArray classes = metadata.value("classes").toArray();
+    const QJsonObject displayLabels = metadata.value("display_labels").toObject();
+    if (!jsonArrayContainsString(classes, "1"))
+        return {};
+    targetPolicy["target_class_id"] = "1";
+    targetPolicy["target_display_label"] = displayLabels.value("1").toString("Target");
+    targetPolicy["trigger_rule"] = "trigger_on_target_class";
+    if (jsonArrayContainsString(classes, "0")) {
+        targetPolicy["waste_class_id"] = "0";
+        targetPolicy["waste_display_label"] = displayLabels.value("0").toString("Non-target");
+    }
+    return targetPolicy;
+}
+
 QString ensureWorkspaceDirectory(const QString& path, bool fileDialog) {
     const QString trimmed = path.trimmed();
     if (trimmed.isEmpty())
@@ -90,7 +213,10 @@ QString packagedPathCandidate(const QString& relativePath) {
 
 QString resolveDialogPath(const QString& currentPath, const QString& workspacePath, const QString& packagedPath,
                           bool fileDialog) {
-    const QString current = fileDialog ? existingFileOrDirectoryPath(currentPath) : existingDirectoryPath(currentPath);
+    const QString current = pathLooksLikeDeveloperInternalDefault(currentPath)
+                                ? QString()
+                                : (fileDialog ? existingFileOrDirectoryPath(currentPath)
+                                              : existingDirectoryPath(currentPath));
     if (!current.isEmpty())
         return current;
 
@@ -275,6 +401,10 @@ QString chooseOpenFileDialogPath(const QString& currentPath, const QString& work
 QString chooseExistingDirectoryDialogPath(const QString& currentPath, const QString& workspacePath,
                                           const QString& packagedPath) {
     return resolveDialogPath(currentPath, workspacePath, packagedPath, false);
+}
+
+bool isDeveloperInternalDefaultPath(const QString& path) {
+    return pathLooksLikeDeveloperInternalDefault(path);
 }
 
 QJsonObject packagedPromotedModelRegistryEntry() {
@@ -472,6 +602,184 @@ QString registryString(const QJsonObject& entry, const QString& key) {
 
 QString registryNestedString(const QJsonObject& entry, const QString& objectKey, const QString& key) {
     return entry.value(objectKey).toObject().value(key).toString();
+}
+
+bool registerTrainedModelArtifacts(const QString& registryFilePath, const QString& runDir,
+                                   const QString& modelOnnxPath, const QString& metadataJsonPath,
+                                   QString* registeredEntryId, QString* error) {
+    if (registeredEntryId)
+        registeredEntryId->clear();
+    if (error)
+        error->clear();
+
+    const QString path = registryFilePath.trimmed();
+    const QString runPath = absoluteCleanPath(runDir);
+    const QString modelPath = absoluteCleanPath(modelOnnxPath);
+    const QString metadataPath = absoluteCleanPath(metadataJsonPath);
+    if (path.isEmpty()) {
+        if (error)
+            *error = "No model registry file path is available.";
+        return false;
+    }
+    if (!QFileInfo(modelPath).isFile()) {
+        if (error)
+            *error = "Trained ONNX model is missing: " + modelPath;
+        return false;
+    }
+    if (!QFileInfo(metadataPath).isFile()) {
+        if (error)
+            *error = "Trained model metadata is missing: " + metadataPath;
+        return false;
+    }
+
+    QString metadataError;
+    const QJsonObject metadata = readJsonObjectFile(metadataPath, &metadataError);
+    if (metadata.isEmpty()) {
+        if (error)
+            *error = metadataError.isEmpty() ? "Trained model metadata is empty." : metadataError;
+        return false;
+    }
+
+    QJsonObject registry;
+    QFile existing(path);
+    if (existing.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        QJsonParseError parseError;
+        const QJsonDocument doc = QJsonDocument::fromJson(existing.readAll(), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+            if (error)
+                *error = "Model registry parse failed: " + parseError.errorString();
+            return false;
+        }
+        registry = doc.object();
+    }
+    if (registry.value("schema_version").toString().isEmpty())
+        registry["schema_version"] = "model-registry-v1";
+
+    QJsonArray entries = registry.value("entries").toArray();
+    const QString modelId = firstNonEmpty({metadata.value("model_id").toString(), QFileInfo(runPath).fileName(),
+                                           QFileInfo(modelPath).completeBaseName()});
+    const QString entryId = "trained_" + registryIdToken(modelId);
+    const QString createdAt = firstNonEmpty({metadata.value("created_at").toString(),
+                                             QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs)});
+    const QString displayName =
+        firstNonEmpty({metadata.value("model_name").toString(), QString("Trained model %1").arg(createdAt)});
+
+    QJsonObject entry;
+    entry["registry_entry_id"] = entryId;
+    entry["display_name"] = displayName;
+    entry["state"] = "available";
+    entry["live_use_mode"] = "normal";
+    entry["selectable_for_normal_live_sorting"] = false;
+    entry["model_id"] = modelId;
+    entry["model_path"] = modelPath;
+    entry["model_sha256"] = sha256FileHex(modelPath);
+    entry["metadata_path"] = metadataPath;
+    entry["metadata_schema_version"] = metadata.value("schema_version").toString("model-metadata-v1");
+    entry["metadata_sha256"] = sha256FileHex(metadataPath);
+    entry["metadata_status"] = "Training completed";
+    entry["validation_status"] = trainedValidationStatus(metadata);
+    entry["promotion_status"] = "Available";
+    entry["created_at"] = createdAt;
+    entry["training_run_dir"] = runPath;
+    entry["classes"] = metadata.value("classes").toArray(metadata.value("class_ids").toArray());
+    entry["display_labels"] = metadata.value("display_labels").toObject();
+    entry["label_schema_version"] = metadata.value("label_schema_version").toString();
+    entry["target_policy"] = targetPolicyFromMetadata(metadata);
+    entry["limitations"] = metadata.value("limitations").toArray(
+        QJsonArray{QString("Sequence validation has not been run for this trained candidate.")});
+    entry["blockers"] = QJsonArray{};
+    entry["validation_evidence"] = metadata.value("validation_summary").toObject();
+
+    int existingIndex = -1;
+    for (int i = 0; i < entries.size(); ++i) {
+        const QJsonObject existingEntry = entries.at(i).toObject();
+        const QString existingId = registryString(existingEntry, "registry_entry_id");
+        const QString existingModel = absoluteCleanPath(registryString(existingEntry, "model_path"));
+        const QString existingMetadata = absoluteCleanPath(registryString(existingEntry, "metadata_path"));
+        if (existingId.compare(entryId, Qt::CaseInsensitive) == 0 ||
+            (!existingModel.isEmpty() && existingModel.compare(modelPath, Qt::CaseInsensitive) == 0) ||
+            (!existingMetadata.isEmpty() && existingMetadata.compare(metadataPath, Qt::CaseInsensitive) == 0)) {
+            existingIndex = i;
+            if (!registryString(existingEntry, "display_name").trimmed().isEmpty())
+                entry["display_name"] = registryString(existingEntry, "display_name");
+            break;
+        }
+    }
+
+    if (existingIndex >= 0) {
+        entries[existingIndex] = entry;
+    } else {
+        entries.append(entry);
+    }
+    registry["entries"] = entries;
+    registry["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+
+    if (!writeRegistryFile(path, registry, error))
+        return false;
+    if (registeredEntryId)
+        *registeredEntryId = entryId;
+    return true;
+}
+
+bool renameRegistryEntryDisplayName(const QString& registryFilePath, const QString& registryEntryId,
+                                    const QString& displayName, QString* error) {
+    if (error)
+        error->clear();
+
+    const QString path = registryFilePath.trimmed();
+    const QString entryId = registryEntryId.trimmed();
+    const QString newDisplayName = displayName.trimmed();
+    if (path.isEmpty()) {
+        if (error)
+            *error = "No registry file path is available.";
+        return false;
+    }
+    if (entryId.isEmpty()) {
+        if (error)
+            *error = "No model is selected.";
+        return false;
+    }
+    if (newDisplayName.isEmpty()) {
+        if (error)
+            *error = "Model name cannot be empty.";
+        return false;
+    }
+
+    QFile existing(path);
+    if (!existing.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error)
+            *error = "Registry file not readable: " + path;
+        return false;
+    }
+    QJsonParseError parseError;
+    QJsonDocument doc = QJsonDocument::fromJson(existing.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !doc.isObject()) {
+        if (error)
+            *error = "Registry parse failed: " + parseError.errorString();
+        return false;
+    }
+
+    QJsonObject registry = doc.object();
+    QJsonArray entries = registry.value("entries").toArray();
+    bool renamed = false;
+    for (int i = 0; i < entries.size(); ++i) {
+        QJsonObject entry = entries.at(i).toObject();
+        if (registryString(entry, "registry_entry_id").trimmed().compare(entryId, Qt::CaseInsensitive) != 0)
+            continue;
+        entry["display_name"] = newDisplayName;
+        entries[i] = entry;
+        renamed = true;
+        break;
+    }
+    if (!renamed) {
+        if (error)
+            *error = "Selected model is not present in the registry.";
+        return false;
+    }
+
+    registry["entries"] = entries;
+    registry["updated_at"] = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+    return writeRegistryFile(path, registry, error);
 }
 
 QString runtimePathFromRegistryPath(const QString& path) {

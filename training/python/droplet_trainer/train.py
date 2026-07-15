@@ -18,6 +18,7 @@ from typing import Any
 from . import __version__
 from .dataset import apply_waste_source_mode, assign_splits, class_balance_warnings, parse_split, scan_dataset, schema_payload, sha256_file, source_warnings, split_support_errors, utc_now, write_csv
 from .errors import CliError, EXIT_DEVICE_UNAVAILABLE, EXIT_MISSING_PACKAGE, EXIT_ONNX_EXPORT_FAILED, EXIT_OUTPUT_INVALID, EXIT_SCHEMA_MISMATCH, EXIT_TRAINING_FAILED
+from .metadata import sorting_policy_for_classes
 from .schema import ClassSchema, compute_inverse_count_weights
 
 
@@ -59,6 +60,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     },
     "pretrained": False,
     "source_checkpoint": None,
+    "source_model_path": None,
     "export_onnx": True,
     "onnx_opset": 17,
     "optional_logging": {"wandb": False},
@@ -308,6 +310,105 @@ def _load_source_checkpoint(model: Any, path: str | None) -> list[str]:
     return [f"missing_keys={list(missing)}", f"unexpected_keys={list(unexpected)}"]
 
 
+def _onnx_state_key_candidates(name: str) -> list[str]:
+    clean = name.strip()
+    if not clean:
+        return []
+
+    candidates: list[str] = []
+    if ": PARAMETER target='" in clean:
+        clean = clean.split(": PARAMETER target='", 1)[0].strip()
+    candidates.append(clean)
+
+    if "target='" in name:
+        target = name.split("target='", 1)[1].split("'", 1)[0].strip()
+        if target:
+            candidates.append(target)
+
+    if clean.startswith("p_"):
+        compact = clean[2:]
+        if compact.endswith("_weight"):
+            candidates.append(".".join(compact[:-7].split("_")) + ".weight")
+        elif compact.endswith("_bias"):
+            candidates.append(".".join(compact[:-5].split("_")) + ".bias")
+        else:
+            candidates.append(".".join(compact.split("_")))
+
+    deduped: list[str] = []
+    for candidate in candidates:
+        if candidate and candidate not in deduped:
+            deduped.append(candidate)
+    return deduped
+
+
+def _load_source_onnx(model: Any, path: str) -> list[str]:
+    import numpy as np
+    import onnx
+    import torch
+    from onnx import numpy_helper
+
+    onnx_path = Path(path).expanduser().resolve()
+    if not onnx_path.is_file():
+        raise CliError("SOURCE_MODEL_MISSING", "Selected source model does not exist.", EXIT_TRAINING_FAILED, {"path": str(onnx_path)})
+
+    doc = onnx.load(str(onnx_path), load_external_data=True)
+    state_template = model.state_dict()
+    translated: dict[str, Any] = {}
+    skipped: list[str] = []
+    shape_mismatches: list[dict[str, Any]] = []
+
+    for initializer in doc.graph.initializer:
+        target_key = None
+        for candidate in _onnx_state_key_candidates(initializer.name):
+            if candidate in state_template:
+                target_key = candidate
+                break
+        if target_key is None:
+            skipped.append(initializer.name)
+            continue
+
+        array = numpy_helper.to_array(initializer)
+        tensor = torch.from_numpy(np.array(array, copy=True))
+        expected = state_template[target_key]
+        if tuple(tensor.shape) != tuple(expected.shape):
+            shape_mismatches.append(
+                {
+                    "initializer": initializer.name,
+                    "target": target_key,
+                    "onnx_shape": list(tensor.shape),
+                    "model_shape": list(expected.shape),
+                }
+            )
+            continue
+        translated[target_key] = tensor.to(dtype=expected.dtype)
+
+    if not translated:
+        raise CliError(
+            "SOURCE_MODEL_UNSUPPORTED",
+            "Selected source model could not be mapped into the current trainer architecture.",
+            EXIT_TRAINING_FAILED,
+            {"path": str(onnx_path)},
+        )
+
+    missing, unexpected = model.load_state_dict(translated, strict=False)
+    warnings = [
+        f"loaded_onnx_parameters={len(translated)}",
+        f"missing_keys={list(missing)}",
+        f"unexpected_keys={list(unexpected)}",
+    ]
+    if skipped:
+        warnings.append(f"skipped_initializers={len(skipped)}")
+    if shape_mismatches:
+        warnings.append(f"shape_mismatches={shape_mismatches[:5]}")
+    return warnings
+
+
+def _load_source_artifact(model: Any, source_model_path: str | None, source_checkpoint: str | None) -> list[str]:
+    if source_model_path:
+        return _load_source_onnx(model, source_model_path)
+    return _load_source_checkpoint(model, source_checkpoint)
+
+
 def _freeze_for_stage(model: Any, trainable: str) -> None:
     if trainable == "classifier_and_last_fire_modules":
         for param in model.parameters():
@@ -474,6 +575,38 @@ def _artifact_hashes(paths: dict[str, str]) -> dict[str, str]:
     return result
 
 
+def _dataset_display_labels(manifest_path: Path | None, schema: ClassSchema) -> dict[str, str]:
+    if manifest_path is None or not manifest_path.is_file():
+        return {}
+    try:
+        with manifest_path.open("r", encoding="utf-8-sig") as handle:
+            manifest = json.load(handle)
+    except Exception:
+        return {}
+
+    display_labels: dict[str, str] = {}
+    classes = manifest.get("classes", [])
+    if isinstance(classes, list):
+        for entry in classes:
+            if not isinstance(entry, dict):
+                continue
+            class_id = str(entry.get("id", "")).strip()
+            display_name = str(entry.get("display_name", entry.get("label", entry.get("dataset_label", "")))).strip()
+            if class_id in schema.classes and display_name:
+                display_labels[class_id] = display_name
+
+    class_schema = manifest.get("class_schema", {})
+    if isinstance(class_schema, dict):
+        raw_display_labels = class_schema.get("display_labels", {})
+        if isinstance(raw_display_labels, dict):
+            for class_id in schema.classes:
+                value = raw_display_labels.get(class_id)
+                if value is not None and str(value).strip():
+                    display_labels[class_id] = str(value).strip()
+
+    return display_labels
+
+
 def run_train(args: Any, schema: ClassSchema) -> int:
     config = load_training_config(args.config, schema, smoke=bool(getattr(args, "smoke", False)))
     run_id, run_dir = _run_folder(args.output, args.run_name)
@@ -488,6 +621,12 @@ def run_train(args: Any, schema: ClassSchema) -> int:
         device = _device(args.device)
         _seed_everything(int(config["seed"]))
         scan = apply_waste_source_mode(scan_dataset(args.dataset, schema), schema, getattr(args, "waste_source_mode", "new-reviewed-only"))
+        dataset_display_labels = _dataset_display_labels(scan.get("manifest_path"), schema)
+        for class_id in schema.classes:
+            current_label = str(config["display_labels"].get(class_id, schema.display_labels.get(class_id, class_id)))
+            default_label = str(schema.display_labels.get(class_id, class_id))
+            if class_id in dataset_display_labels and current_label == default_label:
+                config["display_labels"][class_id] = dataset_display_labels[class_id]
         counts = dict(scan["counts"])
         errors = [{"class": class_id, "count": counts.get(class_id, 0)} for class_id in schema.classes if counts.get(class_id, 0) <= 0]
         if errors:
@@ -524,7 +663,9 @@ def run_train(args: Any, schema: ClassSchema) -> int:
         weight_tensor = torch.tensor([weights[class_id] for class_id in schema.classes], dtype=torch.float32, device=device) if weights else None
         criterion = nn.CrossEntropyLoss(weight=weight_tensor)
         model = _build_model(config, len(schema.classes))
-        checkpoint_warnings = _load_source_checkpoint(model, config.get("source_checkpoint"))
+        checkpoint_warnings = _load_source_artifact(
+            model, config.get("source_model_path"), config.get("source_checkpoint")
+        )
         for warning in checkpoint_warnings:
             emitter.emit("warning", level="warning", code="SOURCE_CHECKPOINT_PARTIAL_LOAD", message=warning)
         model = model.to(device)
@@ -594,6 +735,7 @@ def run_train(args: Any, schema: ClassSchema) -> int:
             onnx_path = _export_onnx(model, run_dir, config)
             artifacts["model_onnx"] = str(onnx_path)
         metadata_path = run_dir / "metadata.json"
+        sorting_policy = sorting_policy_for_classes(schema.classes, config["display_labels"])
         metadata = {
             "schema_version": "model-metadata-v1",
             "model_id": run_id,
@@ -601,14 +743,12 @@ def run_train(args: Any, schema: ClassSchema) -> int:
             "created_at": utc_now(),
             "training_code_version": __version__,
             "label_schema_version": schema.schema_id,
+            "class_count": len(schema.classes),
+            "class_ids": list(schema.classes),
             "classes": schema.classes,
             "class_to_idx": schema.class_to_idx,
             "display_labels": config["display_labels"],
-            "sorting_policy": {
-                "waste_class_id": "0" if schema.classes == ["0", "1"] else None,
-                "target_class_id": "1" if schema.classes == ["0", "1"] else None,
-                "trigger_rule": "trigger_on_target_class" if schema.classes == ["0", "1"] else "project_configuration_required",
-            },
+            "sorting_policy": sorting_policy,
             "input_size": config["input_size"],
             "normalization": config["normalization"],
             "architecture": {"family": "SqueezeNet", "variant": str(config.get("architecture", "squeezenet1_1")).replace("squeezenet", "")},
@@ -642,6 +782,8 @@ def run_train(args: Any, schema: ClassSchema) -> int:
             "waste_source_selection": scan["waste_source_selection"],
             "excluded_item_manifest_hash": sha256_file(scan["manifest_path"]) if scan["manifest_path"] and int(scan["summary"]["excluded_count"]) else None,
             "imbalance": config["imbalance"],
+            "source_model_path": config.get("source_model_path"),
+            "source_checkpoint": config.get("source_checkpoint"),
             "wsl_source_lineage": WSL_SOURCE_LINEAGE,
             "config_hash_sha256": hashlib.sha256(json.dumps(config, sort_keys=True).encode("utf-8")).hexdigest(),
             "artifact_hashes": _artifact_hashes(artifacts),

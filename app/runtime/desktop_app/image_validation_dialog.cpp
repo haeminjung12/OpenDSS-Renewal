@@ -8,6 +8,7 @@
 #include <QFileInfo>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -25,7 +26,48 @@
 
 #include <array>
 
+#include "model_registry_service.h"
 #include "object_names.h"
+
+namespace {
+
+QStringList jsonStringList(const QJsonArray& values) {
+    QStringList result;
+    for (const QJsonValue& value : values)
+        result << value.toString();
+    return result;
+}
+
+QJsonObject loadJsonObjectFile(const QString& path) {
+    QFile file(path.trimmed());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
+        return {};
+    QJsonParseError error;
+    const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
+    if (error.error != QJsonParseError::NoError || !doc.isObject())
+        return {};
+    return doc.object();
+}
+
+QString defaultDisplayLabelForClassId(const QStringList& classIds, const QString& classId) {
+    if (classIds == QStringList{"0", "1"}) {
+        if (classId == "0")
+            return "Non-target";
+        if (classId == "1")
+            return "Target";
+    }
+    if (classIds == QStringList{"0", "1", "2"}) {
+        if (classId == "0")
+            return "Non-target A";
+        if (classId == "1")
+            return "Target";
+        if (classId == "2")
+            return "Non-target B";
+    }
+    return classId;
+}
+
+} // namespace
 
 ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& initialPython, const QString& initialModel,
                                              const QString& initialMetadata, const QString& initialDataset,
@@ -40,7 +82,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     deviceCombo = new QComboBox;
     deviceCombo->addItems({"auto", "cpu", "cuda"});
     schemaCombo = new QComboBox;
-    schemaCombo->addItems({"default binary 0,1", "legacy Empty,Single,MoreThanTwo", "custom classes"});
+    schemaCombo->addItems({"Target / Non-target", "Legacy 3-label model", "Custom labels"});
     classesEdit = new QLineEdit("0,1");
 
     const bool workspaceNames = workspaceMode;
@@ -55,21 +97,30 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
 
     auto* form = new QGridLayout;
     if (workspaceMode) {
-        addPathRow(form, 0, "Model", modelEdit, false, "ONNX model");
-        addPathRow(form, 1, "Validation images", datasetEdit, true, "Labeled dataset folder");
-        addPathRow(form, 2, "Results folder", outputEdit, true, "Validation output folder");
+        addPathRow(form, 0, "Model", modelEdit, false, "Model file", defaultOpenDssModelsPath(),
+                   findPackagedAppPath("models"));
+        addPathRow(form, 1, "Training images", datasetEdit, true, "Training images folder",
+                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"));
+        addPathRow(form, 2, "Results folder", outputEdit, true, "Validation output folder",
+                   defaultOpenDssValidationRunsPath());
     } else {
         addPathRow(form, 0, "Python", pythonEdit, false, "Python executable");
-        addPathRow(form, 1, "Model", modelEdit, false, "ONNX model");
-        addPathRow(form, 2, "Metadata", metadataEdit, false, "Model metadata JSON");
-        addPathRow(form, 3, "Dataset", datasetEdit, true, "Labeled dataset folder");
-        addPathRow(form, 4, "Output", outputEdit, true, "Validation output folder");
+        addPathRow(form, 1, "Model", modelEdit, false, "Model file", defaultOpenDssModelsPath(),
+                   findPackagedAppPath("models"));
+        addPathRow(form, 2, "Model details", metadataEdit, false, "Model details JSON", defaultOpenDssModelsPath(),
+                   findPackagedAppPath("models"));
+        addPathRow(form, 3, "Training images", datasetEdit, true, "Training images folder",
+                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"));
+        addPathRow(form, 4, "Results folder", outputEdit, true, "Validation output folder",
+                   defaultOpenDssValidationRunsPath());
         form->addWidget(new QLabel("Device"), 5, 0);
         form->addWidget(deviceCombo, 5, 1);
-        form->addWidget(new QLabel("Class Schema"), 6, 0);
+        form->addWidget(new QLabel("Class setup"), 6, 0);
         form->addWidget(schemaCombo, 6, 1);
         form->addWidget(classesEdit, 6, 2);
     }
+    form->setColumnStretch(1, 1);
+    form->setColumnStretch(2, 1);
 
     statusLabel = new QLabel("Idle");
     statusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -81,7 +132,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     logText = new QPlainTextEdit;
     logText->setReadOnly(true);
     nameWidget(logText, workspaceNames ? "ValidatorWorkspaceLogTextEdit" : "ValidatorLogTextEdit");
-    artifactLabel = new QLabel(workspaceMode ? "No validation results yet." : "Artifacts: not available");
+    artifactLabel = new QLabel(workspaceMode ? "No validation results yet." : "Results: not available");
     artifactLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     artifactLabel->setWordWrap(true);
     nameWidget(artifactLabel, workspaceNames ? "ValidatorWorkspaceArtifactLabel" : "ValidatorArtifactLabel");
@@ -107,6 +158,11 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     }
 
     auto* buttons = new QHBoxLayout;
+    buttons->setSpacing(8);
+    for (auto* button : {startButton, cancelButton, openSummaryButton, openOutputButton}) {
+        button->setMinimumHeight(30);
+        button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    }
     buttons->addWidget(startButton);
     buttons->addWidget(cancelButton);
     buttons->addStretch(1);
@@ -122,8 +178,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
         layout->addWidget(new QLabel("Command Preview"));
         layout->addWidget(commandPreview);
         layout->addWidget(logText, 1);
-        auto* note = new QLabel("Sequence validation remains unavailable here: runner-wrapped replay is not implemented, "
-                                "and existing artifact comparison is internal/provisional only.");
+        auto* note = new QLabel("Sequence validation is not available here yet.");
         note->setWordWrap(true);
         note->setStyleSheet("color:#6b4f00;");
         layout->addWidget(note);
@@ -148,9 +203,13 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
         terminalStatus.clear();
         updatePreviewAndGate();
     };
-    for (auto* edit : {pythonEdit, modelEdit, metadataEdit, datasetEdit, outputEdit}) {
+    for (auto* edit : {pythonEdit, modelEdit, datasetEdit, outputEdit}) {
         QObject::connect(edit, &QLineEdit::textChanged, update);
     }
+    QObject::connect(metadataEdit, &QLineEdit::textChanged, [this, update]() {
+        syncSchemaFromMetadata();
+        update();
+    });
     QObject::connect(classesEdit, &QLineEdit::textChanged, update);
     QObject::connect(deviceCombo, &QComboBox::currentTextChanged, update);
     QObject::connect(schemaCombo, &QComboBox::currentTextChanged, [this, update]() {
@@ -170,6 +229,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     });
 
     loadSettings();
+    syncSchemaFromMetadata();
     classesEdit->setEnabled(schemaCombo->currentIndex() == 2);
     updatePreviewAndGate();
 }
@@ -183,18 +243,22 @@ void ImageValidationWidget::setSummaryChangedCallback(SummaryChangedCallback cal
 }
 
 void ImageValidationWidget::addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit,
-                                       bool directory, const QString& dialogTitle) {
+                                       bool directory, const QString& dialogTitle, const QString& workspacePath,
+                                       const QString& packagedPath) {
     auto* browse = new QPushButton("Browse");
     layout->addWidget(new QLabel(label), row, 0);
     layout->addWidget(edit, row, 1);
     layout->addWidget(browse, row, 2);
-    QObject::connect(browse, &QPushButton::clicked, this, [this, edit, directory, dialogTitle]() {
-        QString current = edit->text().trimmed();
+    QObject::connect(browse, &QPushButton::clicked,
+                     this, [this, edit, directory, dialogTitle, workspacePath, packagedPath]() {
+        const QString current = edit->text().trimmed();
         QString selected;
         if (directory) {
-            selected = QFileDialog::getExistingDirectory(this, dialogTitle, current);
+            const QString startDir = chooseExistingDirectoryDialogPath(current, workspacePath, packagedPath);
+            selected = QFileDialog::getExistingDirectory(this, dialogTitle, startDir);
         } else {
-            selected = QFileDialog::getOpenFileName(this, dialogTitle, current);
+            const QString startPath = chooseOpenFileDialogPath(current, workspacePath, packagedPath);
+            selected = QFileDialog::getOpenFileName(this, dialogTitle, startPath);
         }
         if (!selected.isEmpty())
             edit->setText(QDir::toNativeSeparators(selected));
@@ -224,6 +288,39 @@ QStringList ImageValidationWidget::commandArguments() const {
     return args;
 }
 
+void ImageValidationWidget::syncSchemaFromMetadata() {
+    const QJsonObject metadata = loadJsonObjectFile(metadataEdit->text());
+    const QStringList classes = jsonStringList(metadata.value("classes").toArray());
+    if (classes.isEmpty())
+        return;
+
+    int schemaIndex = 2;
+    if (classes == QStringList{"Empty", "Single", "MoreThanTwo"}) {
+        schemaIndex = 1;
+    } else if (classes == QStringList{"0", "1"}) {
+        schemaIndex = 0;
+    }
+
+    const QJsonObject displayLabels = metadata.value("display_labels").toObject();
+    QStringList labelSummary;
+    for (const QString& classId : classes) {
+        const QString displayLabel = displayLabels.value(classId).toString(defaultDisplayLabelForClassId(classes, classId));
+        labelSummary << (displayLabel == classId ? classId : QString("%1 (%2)").arg(displayLabel, classId));
+    }
+
+    {
+        QSignalBlocker comboBlocker(schemaCombo);
+        QSignalBlocker classBlocker(classesEdit);
+        schemaCombo->setCurrentIndex(schemaIndex);
+        classesEdit->setText(classes.join(","));
+    }
+    classesEdit->setEnabled(schemaIndex == 2);
+
+    if (workspaceMode && summaryPath.isEmpty() && terminalStatus.isEmpty() && !labelSummary.isEmpty()) {
+        artifactLabel->setText("Model labels: " + labelSummary.join(", "));
+    }
+}
+
 QString ImageValidationWidget::missingInputs() const {
     QStringList missing;
     if (pythonEdit->text().trimmed().isEmpty())
@@ -231,9 +328,9 @@ QString ImageValidationWidget::missingInputs() const {
     if (!QFileInfo(modelEdit->text().trimmed()).isFile())
         missing << "model file";
     if (!QFileInfo(metadataEdit->text().trimmed()).isFile())
-        missing << "metadata file";
+        missing << "model details file";
     if (!QFileInfo(datasetEdit->text().trimmed()).isDir())
-        missing << "dataset folder";
+        missing << "training images folder";
     if (outputEdit->text().trimmed().isEmpty())
         missing << "output folder";
     if (schemaCombo->currentIndex() == 2 && classesEdit->text().trimmed().isEmpty())
@@ -314,7 +411,7 @@ void ImageValidationWidget::startValidation() {
         artifactLabel->setText("Validation is running. Results will appear here when the run finishes.");
         statusLabel->setText("Running validation...");
     } else {
-        artifactLabel->setText("Artifacts: pending");
+        artifactLabel->setText("Results: pending");
         statusLabel->setText("Running image validation...");
     }
 
@@ -332,7 +429,7 @@ void ImageValidationWidget::startValidation() {
                      [this]() { appendLog(QString::fromUtf8(process->readAllStandardError())); });
     QObject::connect(process.get(), &QProcess::errorOccurred, this, [this](QProcess::ProcessError error) {
         Q_UNUSED(error);
-        terminalStatus = "Failed to start validator: " + process->errorString();
+        terminalStatus = "Failed to start the validation tool: " + process->errorString();
         statusLabel->setText(terminalStatus);
         appendLog("PROCESS ERROR: " + process->errorString() + "\n");
         updatePreviewAndGate();
@@ -369,11 +466,11 @@ void ImageValidationWidget::finishValidation(int exitCode, QProcess::ExitStatus 
     if (canceled) {
         terminalStatus = "Canceled.";
     } else if (crashed) {
-        terminalStatus = "Failed: validator process crashed.";
+        terminalStatus = "Failed: the validation tool stopped unexpectedly.";
     } else if (exitCode == 0) {
         terminalStatus = "Completed.";
     } else {
-        terminalStatus = QString("Failed: validator exited with code %1.").arg(exitCode);
+        terminalStatus = QString("Failed: the validation tool exited with code %1.").arg(exitCode);
     }
     statusLabel->setText(terminalStatus);
     const bool summaryLoaded = loadSummaryArtifacts();
@@ -409,7 +506,7 @@ bool ImageValidationWidget::loadSummaryArtifacts() {
     }
     if (!QFileInfo::exists(discovered)) {
         artifactLabel->setText(workspaceMode ? "Validation finished, but the results summary was not found."
-                                             : "Artifacts: validation_summary.json was not found. Check diagnostic output above.");
+                                             : "Results summary was not found. Check the details above.");
         openOutputButton->setEnabled(QFileInfo(outputEdit->text().trimmed()).exists());
         return false;
     }
@@ -454,8 +551,7 @@ bool ImageValidationWidget::loadSummaryArtifacts() {
         }
         artifactLabel->setText(lines.join("\n"));
     } else {
-        artifactLabel->setText(QString("Artifacts: %1\nSummary status: %2%3\nExpected CSVs: predictions.csv, "
-                                       "confusion_matrix.csv, class_metrics.csv, failure_cases.csv")
+        artifactLabel->setText(QString("Results summary: %1\nSummary status: %2%3\nDetailed result files are in the results folder.")
                                    .arg(summaryPath, status, metrics));
     }
     openSummaryButton->setEnabled(true);

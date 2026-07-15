@@ -235,6 +235,15 @@ if (EXISTS "${RUNTIME_MODELS_DIR}")
   )
 endif()
 
+set(TRAINING_HELPERS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../../../training/python")
+if (EXISTS "${TRAINING_HELPERS_DIR}/droplet_trainer/__main__.py")
+  add_custom_command(TARGET desktop_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+      "${TRAINING_HELPERS_DIR}"
+      "$<TARGET_FILE_DIR:desktop_app>/training/python"
+  )
+endif()
+
 if (BUILD_TESTING)
   add_subdirectory(../tests ${CMAKE_CURRENT_BINARY_DIR}/tests)
 endif()

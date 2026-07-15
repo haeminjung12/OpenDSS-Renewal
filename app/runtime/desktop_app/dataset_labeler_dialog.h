@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QColor>
 #include <QDialog>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -17,9 +18,17 @@ class QTableWidget;
 
 class DatasetLabelerDialog : public QDialog {
   public:
-    explicit DatasetLabelerDialog(QWidget* parent = nullptr, const QString& initialPath = QString());
+    explicit DatasetLabelerDialog(QWidget* parent = nullptr, const QString& initialPath = QString(),
+                                  const QString& defaultDatasetRoot = QString());
 
   private:
+    struct ClassEntry {
+        QString id;
+        QString displayName;
+        QString folder;
+        QString colorHex;
+    };
+
     struct BrowserRow {
         int manifestIndex = -1;
         QString imageId;
@@ -33,7 +42,6 @@ class DatasetLabelerDialog : public QDialog {
         QString confidence;
         QString sourceFramePath;
         QString notes;
-        QString excludeReason;
     };
 
     struct ReviewUndo {
@@ -53,6 +61,25 @@ class DatasetLabelerDialog : public QDialog {
                                      const QMap<QString, int>& eligibleCounts, int totalItems);
     void updateBannerFromBuilderCounts(const QMap<QString, int>& reviewedCounts,
                                        const QMap<QString, int>& eligibleCounts, int totalItems);
+    void resetClassSchema(int mode);
+    void loadClassSchema(const QJsonObject& root);
+    void storeClassSchema(QJsonObject& root) const;
+    void updateClassModeUi();
+    void updateFilterChoices();
+    void handleClassModeChanged();
+    void handleClassLabelEdited(int index);
+    void chooseClassColor(int index);
+    void setClassColor(int index, const QColor& color, bool persist = true);
+    QString canonicalLabel(const QString& label) const;
+    QString displayNameForLabel(const QString& label) const;
+    bool isTrainerClassId(const QString& label) const;
+    QString defaultClassColorHex(const QString& classId) const;
+    QString normalizedClassColorHex(const QString& raw, const QString& fallback) const;
+    QColor classColorForId(const QString& id) const;
+    QString classColorHexForId(const QString& id) const;
+    void applyReviewButtonStyles();
+    void updateColorSelectorButton(QPushButton* button, int index);
+    bool useDarkThemeStyles() const;
     void addLegacyBrowserRow(const QString& path, const QString& label, const QString& status, const QString& origin,
                              const QString& seed);
     bool rowMatchesFilter(const BrowserRow& row) const;
@@ -74,26 +101,32 @@ class DatasetLabelerDialog : public QDialog {
     void selectManifestIndexes(const QVector<int>& manifestIndexes);
     void refreshBuilderReviewSummary();
     void updateReviewControls();
-    void acceptAutoLabel();
+    void applyReviewLabelByIndex(int index, bool advance);
     void applyReviewLabel(const QString& label, bool advance);
     void undoLastReviewEdit();
     void rebuildRowsFromCurrentManifest();
     bool saveManifestAndLabels(bool showMessage = true);
     void writeLabelsCsv();
-    QString normalizedLabel(const QString& label) const;
     QString csvEscape(QString text) const;
 
     QLabel* pathLabel = nullptr;
     QLabel* bannerLabel = nullptr;
     QComboBox* filterCombo = nullptr;
     QLineEdit* searchEdit = nullptr;
-    QPushButton* hitButton = nullptr;
-    QPushButton* wasteButton = nullptr;
+    QComboBox* classModeCombo = nullptr;
+    QLineEdit* classZeroEdit = nullptr;
+    QLineEdit* classOneEdit = nullptr;
+    QLineEdit* classTwoEdit = nullptr;
+    QLabel* classTwoLabel = nullptr;
+    QPushButton* classZeroColorButton = nullptr;
+    QPushButton* classOneColorButton = nullptr;
+    QPushButton* classTwoColorButton = nullptr;
+    QPushButton* classZeroButton = nullptr;
+    QPushButton* classOneButton = nullptr;
+    QPushButton* classTwoButton = nullptr;
     QPushButton* excludeButton = nullptr;
-    QPushButton* acceptButton = nullptr;
     QPushButton* undoButton = nullptr;
     QPushButton* saveButton = nullptr;
-    QComboBox* excludeReasonCombo = nullptr;
     QPlainTextEdit* notesEdit = nullptr;
     QPushButton* prevButton = nullptr;
     QPushButton* nextButton = nullptr;
@@ -106,9 +139,12 @@ class DatasetLabelerDialog : public QDialog {
     QPlainTextEdit* outputText = nullptr;
     QVector<BrowserRow> browserRows;
     QVector<ReviewUndo> undoStack;
+    QVector<ClassEntry> classEntries;
     QJsonDocument manifestDoc;
     QString currentDatasetPath;
     QString manifestPath;
     QString datasetRoot;
+    QString defaultDatasetRoot;
+    QString excludedLabelDisplay = "Exclude";
     bool isBuilderManifest = false;
 };

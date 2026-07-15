@@ -62,10 +62,11 @@ The release includes trainer helper scripts under `training/python`, but Python,
 ```powershell
 .\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
 .\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
-.\scripts\windows\verify-training-env.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv" -RequireTraining
 ```
 
-For GPU training, use one CUDA-specific installer wrapper instead of the CPU installer: `install-training-gpu-cu130.ps1` or `install-training-gpu-cu128.ps1`.
+`install-training-cpu.ps1` verifies the environment and updates the app's Python trainer setting to `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv\Scripts\python.exe`.
+
+For GPU training, use one CUDA-specific installer wrapper instead of the CPU installer: `install-training-gpu-cu130.ps1` or `install-training-gpu-cu128.ps1`. Each GPU installer also verifies the environment and updates the app's Python trainer setting to the selected venv.
 
 ## Quick Start
 

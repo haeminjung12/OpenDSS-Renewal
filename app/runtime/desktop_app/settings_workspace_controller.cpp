@@ -327,7 +327,7 @@ SettingsWorkspaceController::DaqAvailabilityState SettingsWorkspaceController::p
             state.faultText = QStringLiteral("No DAQ output channel is configured.");
         }
         state.indicatorText = QStringLiteral("Disabled");
-        state.indicatorColor = QStringLiteral("#c0392b");
+        state.indicatorColor = QStringLiteral("#DC2626");
         return state;
     }
 
@@ -337,7 +337,7 @@ SettingsWorkspaceController::DaqAvailabilityState SettingsWorkspaceController::p
         state.available = true;
         state.statusText = QStringLiteral("DAQ: available");
         state.indicatorText = QStringLiteral("Connected");
-        state.indicatorColor = QStringLiteral("#2ecc71");
+        state.indicatorColor = QStringLiteral("#22C55E");
         return state;
     }
 
@@ -345,7 +345,7 @@ SettingsWorkspaceController::DaqAvailabilityState SettingsWorkspaceController::p
     state.statusText = QStringLiteral("DAQ: unavailable");
     state.faultText = QString::fromStdString(probeErr);
     state.indicatorText = QStringLiteral("Disconnected");
-    state.indicatorColor = QStringLiteral("#c0392b");
+    state.indicatorColor = QStringLiteral("#DC2626");
     return state;
 }
 
@@ -369,7 +369,7 @@ void SettingsWorkspaceController::setLabviewStatus(const QString& text, const QS
     }
     if (deps_.labviewStatusDot) {
         deps_.labviewStatusDot->setStyleSheet(
-            QString("background:%1;border-radius:7px;border:1px solid #333;").arg(color));
+            QString("background:%1;border-radius:7px;border:1px solid #94A3B8;").arg(color));
     }
 }
 

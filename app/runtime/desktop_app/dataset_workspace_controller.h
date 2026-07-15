@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QtCore/QJsonArray>
 #include <QtCore/QObject>
 #include <QtCore/QPointer>
 #include <QtCore/QString>
@@ -42,6 +43,11 @@ class DatasetWorkspaceController : public QObject {
         QLabel* trainerStatusLabel = nullptr;
         QPlainTextEdit* trainerResultText = nullptr;
         QProgressBar* trainerProgressBar = nullptr;
+        const QJsonArray* trainerRegistryEntries = nullptr;
+        QString trainerRegistryFilePath;
+        QComboBox* trainerStartingModelCombo = nullptr;
+        QComboBox* trainerTrainingModeCombo = nullptr;
+        QLabel* trainerStartingModelHintLabel = nullptr;
         QComboBox* trainerArchitectureCombo = nullptr;
         QPushButton* trainerPretrainedImageNetBtn = nullptr;
         QPushButton* trainerPretrainedNoneBtn = nullptr;
@@ -70,6 +76,7 @@ class DatasetWorkspaceController : public QObject {
     QString trainerCommandPreview(const QString& program, const QStringList& args) const;
     QString trainerSummaryText(const QString& stateHeadline = QString(),
                                const QString& stateDetail = QString()) const;
+    void refreshTrainerUi() const;
 
   private:
     struct TrainerDatasetCounts {
@@ -80,6 +87,8 @@ class DatasetWorkspaceController : public QObject {
     };
 
     static QString quoteTrainerArg(QString arg);
+    void populateTrainerModelOptions() const;
+    void refreshTrainerModeHint() const;
     void refreshTrainerSummary() const;
     bool trainerSetupReady(QStringList* issues = nullptr) const;
     TrainerDatasetCounts collectTrainerDatasetCounts() const;

@@ -5,33 +5,34 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .schema import DEFAULT_BINARY_CLASSES, LEGACY_CLASSES, default_aliases_for_classes, default_display_labels_for_classes, default_schema_id_for_classes
+
+
+def sorting_policy_for_classes(classes: list[str], display_labels: dict[str, str]) -> dict[str, Any]:
+    target_class_id = "1" if "1" in classes else None
+    target_display_label = display_labels.get(target_class_id, target_class_id) if target_class_id else None
+    sorting_policy: dict[str, Any] = {
+        "mode": "trigger_on_target_class" if target_class_id else "project_configuration_required",
+        "target_class_id": target_class_id,
+        "target_display_label": target_display_label,
+        "non_target_class_ids": [class_id for class_id in classes if class_id != target_class_id],
+        "trigger_rule": "trigger_on_target_class" if target_class_id else "project_configuration_required",
+    }
+    if classes == DEFAULT_BINARY_CLASSES:
+        sorting_policy["waste_class_id"] = "0"
+        sorting_policy["waste_display_label"] = display_labels.get("0", "Non-target")
+    else:
+        sorting_policy["waste_class_id"] = None
+        sorting_policy["waste_display_label"] = None
+    return sorting_policy
+
 
 def metadata_scaffold(classes: list[str], display_labels: dict[str, str]) -> dict[str, Any]:
+    display_labels = {class_id: str(display_labels.get(class_id, default_display_labels_for_classes(classes).get(class_id, class_id))) for class_id in classes}
     class_to_idx = {class_id: index for index, class_id in enumerate(classes)}
-    default_binary = classes == ["0", "1"]
-    if default_binary:
-        aliases = {
-            "0": ["Empty", "empty", "Waste", "waste", "MoreThanTwo", "MoreThan2", ">2", "2", "Multiple"],
-            "1": ["Single", "single", "Hit", "Hits", "hit", "hits"],
-        }
-        sorting_policy = {
-            "target_class_id": "1",
-            "target_display_label": display_labels.get("1", "Hits"),
-            "waste_class_id": "0",
-            "waste_display_label": display_labels.get("0", "Waste"),
-            "trigger_rule": "trigger_on_target_class",
-        }
-        label_schema_version = "droplet-labels-binary-v1"
-    else:
-        aliases = {class_id: [] for class_id in classes}
-        sorting_policy = {
-            "target_class_id": None,
-            "target_display_label": None,
-            "waste_class_id": None,
-            "waste_display_label": None,
-            "trigger_rule": "project_configuration_required",
-        }
-        label_schema_version = "droplet-labels-custom-v1"
+    aliases = {key: list(value) for key, value in default_aliases_for_classes(classes).items()}
+    sorting_policy = sorting_policy_for_classes(classes, display_labels)
+    label_schema_version = default_schema_id_for_classes(classes)
     return {
         "schema_version": "model-metadata-v1",
         "model_id": None,
@@ -62,6 +63,8 @@ def metadata_scaffold(classes: list[str], display_labels: dict[str, str]) -> dic
             },
         },
         "label_schema_version": label_schema_version,
+        "class_count": len(classes),
+        "class_ids": list(classes),
         "classes": classes,
         "class_to_idx": class_to_idx,
         "display_labels": display_labels,
@@ -154,11 +157,11 @@ def _sha256_file(path: Path) -> str:
 
 def _present_onnx_external_data_files(metadata_dir: Path, onnx_file: str | None) -> list[str]:
     if not onnx_file:
-        return []
+        return sorted(path.name for path in metadata_dir.glob("*.onnx.data") if path.is_file())
     exact_sidecar = metadata_dir / f"{onnx_file}.data"
     if exact_sidecar.is_file():
         return [exact_sidecar.name]
-    return sorted(path.name for path in metadata_dir.glob("*.onnx.data") if path.is_file())
+    return []
 
 
 def validate_metadata(path: Path, promotion_gate: bool = False) -> dict[str, Any]:
@@ -197,15 +200,14 @@ def validate_metadata(path: Path, promotion_gate: bool = False) -> dict[str, Any
         rejection_reasons.append("missing_model_metadata_v1_schema")
 
     label_schema_version = metadata.get("label_schema_version")
-    display_labels = metadata.get("display_labels", {})
+    default_display_labels = default_display_labels_for_classes([str(class_id) for class_id in (classes or [])])
+    display_labels_raw = metadata.get("display_labels", {})
+    display_labels = dict(default_display_labels)
+    if isinstance(display_labels_raw, dict):
+        for key, value in display_labels_raw.items():
+            display_labels[str(key)] = str(value)
     sorting_policy = metadata.get("sorting_policy", {})
-    if promotion_gate and label_schema_version == "droplet-labels-binary-v1":
-        if classes != ["0", "1"]:
-            errors.append("binary metadata classes must be exactly ['0', '1']")
-            rejection_reasons.append("binary_classes_not_0_1")
-        if display_labels != {"0": "Waste", "1": "Hits"}:
-            errors.append("binary metadata display_labels must map 0 to Waste and 1 to Hits")
-            rejection_reasons.append("binary_display_labels_mismatch")
+    if promotion_gate and classes == DEFAULT_BINARY_CLASSES:
         if not isinstance(sorting_policy, dict):
             errors.append("binary metadata sorting_policy is missing")
             rejection_reasons.append("missing_sorting_policy")
@@ -217,12 +219,37 @@ def validate_metadata(path: Path, promotion_gate: bool = False) -> dict[str, Any
                 errors.append("binary metadata sorting_policy.waste_class_id must be '0'")
                 rejection_reasons.append("waste_class_not_0")
 
-    if any(str(class_id) == "2" for class_id in (classes or [])):
-        warnings.append("legacy class id '2' is present")
+    if any(str(class_id) in LEGACY_CLASSES for class_id in (classes or [])):
+        warnings.append("legacy class ids are present")
         mode = "legacy_unvalidated"
-        rejection_reasons.append("legacy_class_id_2")
+        rejection_reasons.append("legacy_class_ids_present")
         if promotion_gate:
-            errors.append("legacy class id '2' blocks promotion-gating conclusions")
+            errors.append("legacy class ids block promotion-gating conclusions")
+
+    class_count = metadata.get("class_count")
+    if class_count is not None:
+        try:
+            if int(class_count) != len(classes or []):
+                message = "metadata.class_count does not match metadata.classes length"
+                if schema_version == "model-metadata-v1" or promotion_gate:
+                    errors.append(message)
+                else:
+                    warnings.append(message)
+                rejection_reasons.append("class_count_mismatch")
+        except (TypeError, ValueError):
+            errors.append("metadata.class_count must be an integer when present")
+            rejection_reasons.append("invalid_class_count")
+
+    class_ids = metadata.get("class_ids")
+    if class_ids is not None:
+        normalized_class_ids = [str(value) for value in class_ids] if isinstance(class_ids, list) else []
+        if normalized_class_ids != [str(class_id) for class_id in (classes or [])]:
+            message = "metadata.class_ids does not match metadata.classes"
+            if schema_version == "model-metadata-v1" or promotion_gate:
+                errors.append(message)
+            else:
+                warnings.append(message)
+            rejection_reasons.append("class_ids_mismatch")
 
     duplicates = sorted({str(class_id) for class_id in (classes or []) if [str(item) for item in (classes or [])].count(str(class_id)) > 1})
     if duplicates:
@@ -322,7 +349,11 @@ def validate_metadata(path: Path, promotion_gate: bool = False) -> dict[str, Any
         "valid": not errors,
         "mode": mode if not errors else "invalid",
         "classes": classes or [],
+        "class_count": len(classes or []),
+        "class_ids": [str(class_id) for class_id in (classes or [])],
         "display_labels": display_labels,
+        "sorting_policy": sorting_policy if isinstance(sorting_policy, dict) else {},
+        "target_class_id": sorting_policy.get("target_class_id") if isinstance(sorting_policy, dict) else None,
         "warnings": warnings,
         "errors": errors,
         "promotion_gate_allowed": promotion_gate and not errors and mode == "schema_valid",

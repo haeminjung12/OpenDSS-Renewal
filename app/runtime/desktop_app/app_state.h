@@ -7,6 +7,7 @@ namespace desktop_app {
 struct AppState {
     QString targetClassId;
     QString activeModelId;
+    bool sortNonTarget = false;
 
     bool triggerArmed = false;
     bool cameraStreaming = false;

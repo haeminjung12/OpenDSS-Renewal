@@ -26,4 +26,7 @@ Write-Host "Installing droplet_trainer from $source"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 & (Join-Path $PSScriptRoot "verify-training-env.ps1") -VenvPath $resolvedVenv -Device cpu -CheckOutput $CheckOutput
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+& (Join-Path $PSScriptRoot "set-app-trainer-python.ps1") -VenvPath $resolvedVenv
 exit $LASTEXITCODE

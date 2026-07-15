@@ -4,6 +4,7 @@
   "model_name": "run_20260429_221500_wsl2_binary_linuxmirror_onnx",
   "created_at": "2026-04-30T02:08:53.226835Z",
   "training_code_version": "0.2.0-train-scaffold",
+  "label_schema_version": "droplet-labels-target-nontarget-binary-v1",
   "classes": [
     "0",
     "1"
@@ -13,8 +14,42 @@
     "1": 1
   },
   "display_labels": {
-    "0": "Waste",
-    "1": "Hits"
+    "0": "Non-target",
+    "1": "Target"
+  },
+  "aliases": {
+    "0": [
+      "Non-target",
+      "non-target",
+      "Nontarget",
+      "Empty",
+      "empty",
+      "Waste",
+      "waste",
+      "MoreThanTwo",
+      "MoreThan2",
+      "More than two",
+      ">2",
+      "2",
+      "Multiple"
+    ],
+    "1": [
+      "Target",
+      "target",
+      "Single",
+      "single",
+      "Hit",
+      "Hits",
+      "hit",
+      "hits"
+    ]
+  },
+  "sorting_policy": {
+    "target_class_id": "1",
+    "target_display_label": "Target",
+    "waste_class_id": "0",
+    "waste_display_label": "Non-target",
+    "trigger_rule": "trigger_on_target_class"
   },
   "input_size": [
     96,
@@ -96,8 +131,8 @@
       "1"
     ],
     "display_labels": {
-      "0": "Waste",
-      "1": "Hits"
+      "0": "Non-target",
+      "1": "Target"
     }
   },
   "dataset_summary": {

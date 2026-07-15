@@ -30,6 +30,14 @@ std::string sanitizeLabel(const std::string& label) {
 
 PipelineRunner::~PipelineRunner() {}
 
+bool liveSortShouldTrigger(const std::string& predictedClassId, const std::string& targetClassId, bool sortNonTarget) {
+    if (predictedClassId.empty() || targetClassId.empty()) {
+        return false;
+    }
+    const bool matchesTarget = predictedClassId == targetClassId;
+    return sortNonTarget ? !matchesTarget : matchesTarget;
+}
+
 std::string PipelineRunner::toLowerAscii(const std::string& s) {
     std::string out;
     out.reserve(s.size());
@@ -200,7 +208,7 @@ bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
     }
 
     if (!cls.label.empty()) {
-        out.shouldTrigger = (cls.label == resolvedTargetClassId_);
+        out.shouldTrigger = liveSortShouldTrigger(cls.label, resolvedTargetClassId_, cfg_.sortNonTarget);
         if (triggerReady_ && out.shouldTrigger) {
             out.triggered = true;
             std::string trigErr;

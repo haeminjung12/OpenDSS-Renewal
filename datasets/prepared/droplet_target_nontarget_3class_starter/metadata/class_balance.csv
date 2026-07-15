@@ -1,0 +1,4 @@
+class,display_label,count,train_count,weight
+0,Non-target A,3142,2209,1.0
+1,Target,387,271,8.15129151291513
+2,Non-target B,91,54,40.907407407407405

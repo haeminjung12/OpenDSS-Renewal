@@ -59,6 +59,11 @@ if (-not $BuildDir) {
 }
 if (-not $ModelsDir) { $ModelsDir = Join-Path $SourceRoot "models" }
 if (-not $OutputDir) { $OutputDir = Join-Path $RepoParent "artifacts\internal-release" }
+$preparedDatasetRoot = Join-Path $RepoRoot "datasets\prepared"
+$requiredDatasetDirs = @(
+    "droplet_target_nontarget_binary_starter",
+    "droplet_target_nontarget_3class_starter"
+)
 
 $trainerSourceRoot = Join-Path $RepoRoot "training\python"
 $requiredTrainerFiles = @(
@@ -133,6 +138,12 @@ foreach ($modelFile in $requiredModelFiles) {
         throw "Required model asset not found: $modelPath"
     }
 }
+foreach ($datasetDir in $requiredDatasetDirs) {
+    $datasetPath = Join-Path $preparedDatasetRoot $datasetDir
+    if (-not (Test-Path -LiteralPath $datasetPath)) {
+        throw "Required starter dataset not found: $datasetPath"
+    }
+}
 
 $onnxRuntimeDll = Join-Path $OnnxDir "lib\onnxruntime.dll"
 if (-not (Test-Path -LiteralPath $onnxRuntimeDll)) {
@@ -195,6 +206,12 @@ $modelsOut = Join-Path $packageDir "models"
 New-Item -ItemType Directory -Path $modelsOut -Force | Out-Null
 foreach ($modelFile in $requiredModelFiles) {
     Copy-Item -Path (Join-Path $ModelsDir $modelFile) -Destination $modelsOut -Force
+}
+
+$datasetsOut = Join-Path $packageDir "datasets\prepared"
+New-Item -ItemType Directory -Path $datasetsOut -Force | Out-Null
+foreach ($datasetDir in $requiredDatasetDirs) {
+    Copy-FilteredTree -SourceDir (Join-Path $preparedDatasetRoot $datasetDir) -DestinationDir (Join-Path $datasetsOut $datasetDir)
 }
 
 # Copy trainer source, Windows wrappers, and dependency metadata into the

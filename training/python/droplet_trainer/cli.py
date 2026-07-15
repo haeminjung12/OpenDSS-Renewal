@@ -4,6 +4,7 @@ import argparse
 import json
 from typing import Any
 
+from .console import configure_console_io
 from .dataset import inspect_dataset, validate_dataset
 from .env import run_env_check
 from .errors import EXIT_USAGE, handle_exception, json_error
@@ -117,6 +118,7 @@ def print_payload(payload: dict[str, Any]) -> None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_console_io()
     parser = build_parser()
     try:
         args = parser.parse_args(argv)

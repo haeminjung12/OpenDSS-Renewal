@@ -1,13 +1,63 @@
 {
+  "schema_version": "legacy-model-metadata-v2",
+  "label_schema_version": "droplet-labels-target-nontarget-3class-v1",
+  "model_id": "pre_binary_promotion_backup",
+  "model_name": "Cell aggregate model V1 (2026-05-14)",
   "classes": [
-    "Empty",
-    "Single",
-    "MoreThanTwo"
+    "0",
+    "1",
+    "2"
   ],
   "class_to_idx": {
-    "2": 0,
-    "Empty": 1,
-    "Single": 2
+    "0": 0,
+    "1": 1,
+    "2": 2
+  },
+  "display_labels": {
+    "0": "Non-target A",
+    "1": "Target",
+    "2": "Non-target B"
+  },
+  "aliases": {
+    "0": [
+      "0",
+      "Non-target A",
+      "non-target a",
+      "NonTargetA",
+      "Empty",
+      "empty",
+      "Waste",
+      "waste"
+    ],
+    "1": [
+      "1",
+      "Target",
+      "target",
+      "Single",
+      "single"
+    ],
+    "2": [
+      "2",
+      "Non-target B",
+      "non-target b",
+      "NonTargetB",
+      "MoreThanTwo",
+      "More than two",
+      "MoreThan2",
+      ">2",
+      "Multiple"
+    ]
+  },
+  "sorting_policy": {
+    "target_class_id": "1",
+    "target_display_label": "Target",
+    "waste_class_id": "0",
+    "waste_display_label": "Non-target A",
+    "non_target_class_ids": [
+      "0",
+      "2"
+    ],
+    "trigger_rule": "trigger_on_target_class"
   },
   "input_size": [
     96,

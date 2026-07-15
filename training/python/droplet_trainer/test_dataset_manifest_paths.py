@@ -5,11 +5,63 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from droplet_trainer.dataset import scan_dataset
+from droplet_trainer.dataset import resolve_dataset_path, scan_dataset
 from droplet_trainer.schema import default_binary_schema
 
 
 class DatasetManifestPathTests(unittest.TestCase):
+    def test_resolve_dataset_path_accepts_metadata_json_file(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "prepared"
+            manifest_path = root / "metadata" / "dataset_manifest.json"
+            manifest_path.parent.mkdir(parents=True)
+            manifest_path.write_text(
+                json.dumps({"schema_version": "dataset-manifest-v1", "items": []}),
+                encoding="utf-8",
+            )
+
+            dataset_root, resolved_manifest, mode = resolve_dataset_path(str(manifest_path))
+
+        self.assertEqual(dataset_root, root)
+        self.assertEqual(resolved_manifest, manifest_path)
+        self.assertEqual(mode, "manifest")
+
+    def test_scan_dataset_accepts_folder_or_metadata_json_path(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "prepared"
+            image_path = root / "images" / "0" / "local.png"
+            manifest_path = root / "metadata" / "dataset_manifest.json"
+            image_path.parent.mkdir(parents=True)
+            manifest_path.parent.mkdir(parents=True)
+            image_path.write_bytes(b"not opened by scan")
+            manifest_path.write_text(
+                json.dumps(
+                    {
+                        "schema_version": "dataset-manifest-v1",
+                        "items": [
+                            {
+                                "path": "images/0/local.png",
+                                "crop_path": "images/0/local.png",
+                                "label": "0",
+                                "status": "included",
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            from_file = scan_dataset(str(manifest_path), default_binary_schema())
+            from_folder = scan_dataset(str(root), default_binary_schema())
+
+        self.assertEqual(from_file["mode"], "manifest")
+        self.assertEqual(from_folder["mode"], "manifest")
+        self.assertEqual(from_file["dataset_root"], root)
+        self.assertEqual(from_folder["dataset_root"], root)
+        self.assertEqual(from_file["manifest_path"], manifest_path)
+        self.assertEqual(from_folder["manifest_path"], manifest_path)
+        self.assertEqual(from_file["counts"], from_folder["counts"])
+
     def test_prepared_local_path_is_preferred_over_stale_source_path(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "prepared"

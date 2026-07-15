@@ -24,6 +24,7 @@ struct AppOptions {
     bool verifyDaqSettings = false;
     bool verifyDirectDaqManualTrigger = false;
     bool verifyLiveViewManualTrigger = false;
+    bool verifyLiveViewSortPolicy = false;
     bool verifyValidationWorkspace = false;
     bool noStartupPrompts = false;
     QString datasetBuilderReviewPath;

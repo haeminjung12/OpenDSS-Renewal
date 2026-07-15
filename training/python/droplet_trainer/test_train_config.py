@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from droplet_trainer.schema import default_binary_schema
-from droplet_trainer.train import _make_cuda_amp_scaler, load_training_config
+from droplet_trainer.train import _make_cuda_amp_scaler, _onnx_state_key_candidates, load_training_config
 
 
 class TrainingConfigTests(unittest.TestCase):
@@ -56,6 +56,16 @@ class TrainingConfigTests(unittest.TestCase):
 
         self.assertEqual(scaler, "scaler")
         self.assertEqual(calls, [("torch.amp", ("cuda",), {})])
+
+    def test_onnx_state_key_candidates_accept_direct_and_parameterized_names(self) -> None:
+        self.assertEqual(
+            _onnx_state_key_candidates("features.3.expand1x1.weight"),
+            ["features.3.expand1x1.weight"],
+        )
+        self.assertEqual(
+            _onnx_state_key_candidates("p_features_3_expand1x1_weight"),
+            ["p_features_3_expand1x1_weight", "features.3.expand1x1.weight"],
+        )
 
 
 if __name__ == "__main__":

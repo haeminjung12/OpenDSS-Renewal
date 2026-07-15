@@ -171,17 +171,94 @@ function Test-OnnxRuntimePackage {
     }
 }
 
+function Test-JsonFile {
+    param(
+        [System.Collections.ArrayList]$List,
+        [System.Collections.ArrayList]$Errors,
+        [string]$Name,
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    try {
+        Get-Content -LiteralPath $Path -Raw | ConvertFrom-Json | Out-Null
+        Add-CheckResult -List $List -Name $Name -Status "pass" -Path $Path -Detail "Valid JSON."
+    } catch {
+        $message = "Invalid JSON: $Path"
+        Add-CheckResult -List $List -Name $Name -Status "fail" -Path $Path -Detail $message
+        [void]$Errors.Add($message)
+    }
+}
+
+function Test-RegistryEntryAssetContract {
+    param(
+        [System.Collections.ArrayList]$List,
+        [System.Collections.ArrayList]$Errors,
+        [string]$Name,
+        $Entry,
+        [string]$ExpectedRegistryEntryId,
+        [string]$ExpectedModelPath,
+        [string]$ExpectedMetadataPath
+    )
+
+    if (-not $Entry) {
+        $message = "Missing required model registry entry: $ExpectedRegistryEntryId"
+        Add-CheckResult -List $List -Name $Name -Status "fail" -Path $ExpectedRegistryEntryId -Detail $message
+        [void]$Errors.Add($message)
+        return
+    }
+
+    $issues = New-Object System.Collections.Generic.List[string]
+    $registryEntryId = [string]$Entry.registry_entry_id
+    $modelPath = [string]$Entry.model_path
+    $metadataPath = [string]$Entry.metadata_path
+
+    if ($registryEntryId -ne $ExpectedRegistryEntryId) {
+        $issues.Add("registry_entry_id=$registryEntryId")
+    }
+    if ($modelPath -ne $ExpectedModelPath) {
+        $issues.Add("model_path=$modelPath")
+    }
+    if ($metadataPath -ne $ExpectedMetadataPath) {
+        $issues.Add("metadata_path=$metadataPath")
+    }
+    if ([System.IO.Path]::IsPathRooted($modelPath) -or $modelPath.StartsWith("\\") -or $modelPath.StartsWith("/")) {
+        $issues.Add("model_path must stay package-relative")
+    }
+    if ([System.IO.Path]::IsPathRooted($metadataPath) -or $metadataPath.StartsWith("\\") -or $metadataPath.StartsWith("/")) {
+        $issues.Add("metadata_path must stay package-relative")
+    }
+
+    if ($issues.Count -gt 0) {
+        $message = "Bundled asset contract failed for ${ExpectedRegistryEntryId}: " + ($issues -join "; ")
+        Add-CheckResult -List $List -Name $Name -Status "fail" -Path $ExpectedRegistryEntryId -Detail $message
+        [void]$Errors.Add($message)
+        return
+    }
+
+    $detail = "Registry entry points to bundled assets via $modelPath and $metadataPath."
+    Add-CheckResult -List $List -Name $Name -Status "pass" -Path $ExpectedRegistryEntryId -Detail $detail
+}
+
 $PackageDir = (Resolve-Path -LiteralPath $PackageDir).Path
 $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
 if (-not $ManifestPath) {
     $ManifestPath = Join-Path $PackageDir "package_manifest.json"
 }
+$packageManifestPath = $ManifestPath
 
 $checks = New-Object System.Collections.ArrayList
 $errors = New-Object System.Collections.ArrayList
 $warnings = New-Object System.Collections.ArrayList
 
 $requiredPackageFiles = New-Object System.Collections.Generic.List[string]
+$requiredDatasetDirs = @(
+    "droplet_target_nontarget_binary_starter",
+    "droplet_target_nontarget_3class_starter"
+)
 foreach ($relativePath in @(
     "OpenVisualDropletSorter.exe",
     "LICENSE",
@@ -215,6 +292,15 @@ foreach ($relativePath in @(
 )) {
     $requiredPackageFiles.Add($relativePath)
 }
+foreach ($datasetDir in $requiredDatasetDirs) {
+    foreach ($relativePath in @(
+        "datasets\prepared\$datasetDir\metadata\dataset_manifest.json",
+        "datasets\prepared\$datasetDir\metadata\dataset_summary.json",
+        "datasets\prepared\$datasetDir\metadata\class_balance.csv"
+    )) {
+        $requiredPackageFiles.Add($relativePath)
+    }
+}
 
 $packageRegistryPath = Join-Path $PackageDir "models\model_registry.json"
 if (Test-Path -LiteralPath $packageRegistryPath) {
@@ -247,6 +333,13 @@ foreach ($relativePath in @(
     Test-ExcludedPath -List $checks -Errors $errors -Name ("excluded: " + $relativePath) -Path (Join-Path $PackageDir $relativePath) | Out-Null
 }
 
+foreach ($datasetDir in $requiredDatasetDirs) {
+    $datasetManifestPath = Join-Path $PackageDir "datasets\prepared\$datasetDir\metadata\dataset_manifest.json"
+    $summaryPath = Join-Path $PackageDir "datasets\prepared\$datasetDir\metadata\dataset_summary.json"
+    Test-JsonFile -List $checks -Errors $errors -Name ("starter dataset manifest: " + $datasetDir) -Path $datasetManifestPath
+    Test-JsonFile -List $checks -Errors $errors -Name ("starter dataset summary: " + $datasetDir) -Path $summaryPath
+}
+
 $registryPath = Join-Path $PackageDir "models\model_registry.json"
 if (Test-Path -LiteralPath $registryPath) {
     $registry = Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json
@@ -265,13 +358,52 @@ if (Test-Path -LiteralPath $registryPath) {
             }
         }
     }
-    $currentEntry = $registry.entries | Where-Object { $_.state -eq "promoted_current" } | Select-Object -First 1
-    if ($currentEntry) {
-        Add-CheckResult -List $checks -Name "model registry promoted entry" -Status "pass" -Path $registryPath -Detail ("promoted_current=" + $currentEntry.registry_entry_id)
-    } else {
-        $message = "No promoted_current entry found in model registry."
+    $blankEntry = $registry.entries | Where-Object { $_.registry_entry_id -eq "blank_squeezenet_template_seed42" } | Select-Object -First 1
+    Test-RegistryEntryAssetContract `
+        -List $checks `
+        -Errors $errors `
+        -Name "blank starter bundled registry contract" `
+        -Entry $blankEntry `
+        -ExpectedRegistryEntryId "blank_squeezenet_template_seed42" `
+        -ExpectedModelPath "app/runtime/models/blank_squeezenet_template.onnx" `
+        -ExpectedMetadataPath "app/runtime/models/blank_squeezenet_template_metadata.json"
+    $expectedPromotedEntryId = "run_20260429_221500_wsl2_binary_linuxmirror_onnx"
+    $expectedPromotedModelPath = "app/runtime/models/squeezenet_final_new_condition.onnx"
+    $expectedPromotedMetadataPath = "app/runtime/models/metadata.json"
+    $expectedPromotedEntry = $registry.entries | Where-Object { $_.registry_entry_id -eq $expectedPromotedEntryId } | Select-Object -First 1
+    Test-RegistryEntryAssetContract `
+        -List $checks `
+        -Errors $errors `
+        -Name "promoted/current runtime registry contract" `
+        -Entry $expectedPromotedEntry `
+        -ExpectedRegistryEntryId $expectedPromotedEntryId `
+        -ExpectedModelPath $expectedPromotedModelPath `
+        -ExpectedMetadataPath $expectedPromotedMetadataPath
+
+    $promotedEntries = @($registry.entries | Where-Object { $_.state -eq "promoted_current" })
+    if ($promotedEntries.Count -ne 1) {
+        $message = "Expected exactly one promoted_current entry in model registry; found $($promotedEntries.Count)."
         Add-CheckResult -List $checks -Name "model registry promoted entry" -Status "fail" -Path $registryPath -Detail $message
         [void]$errors.Add($message)
+    } else {
+        $currentEntry = $promotedEntries[0]
+        $issues = New-Object System.Collections.Generic.List[string]
+        if ([string]$currentEntry.registry_entry_id -ne $expectedPromotedEntryId) {
+            $issues.Add("registry_entry_id=$($currentEntry.registry_entry_id)")
+        }
+        if (-not [bool]$currentEntry.selectable_for_normal_live_sorting) {
+            $issues.Add("selectable_for_normal_live_sorting=false")
+        }
+        if ([string]$currentEntry.live_use_mode -ne "normal") {
+            $issues.Add("live_use_mode=$($currentEntry.live_use_mode)")
+        }
+        if ($issues.Count -gt 0) {
+            $message = "promoted_current contract mismatch: " + ($issues -join "; ")
+            Add-CheckResult -List $checks -Name "model registry promoted entry" -Status "fail" -Path $registryPath -Detail $message
+            [void]$errors.Add($message)
+        } else {
+            Add-CheckResult -List $checks -Name "model registry promoted entry" -Status "pass" -Path $registryPath -Detail ("promoted_current=" + $currentEntry.registry_entry_id)
+        }
     }
 }
 
@@ -302,8 +434,8 @@ $manifest = [ordered]@{
 }
 
 if ($WriteManifest) {
-    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ManifestPath -Encoding UTF8
-    Write-Host "Package manifest written to: $ManifestPath"
+    $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $packageManifestPath -Encoding UTF8
+    Write-Host "Package manifest written to: $packageManifestPath"
 }
 
 foreach ($warning in $warnings) {

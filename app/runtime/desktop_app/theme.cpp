@@ -1,19 +1,59 @@
-#include "theme.h"
-
-#include <QStringBuilder>
-
-namespace desktop_app::theme {
-namespace {
-
+#include "theme.h" 
+ 
+#include <QPainter>
+#include <QPen>
+#include <QPixmap>
+#include <QStringBuilder> 
+ 
+namespace desktop_app::theme { 
+namespace { 
+ 
 QString cssColor(const QColor& color) {
     return color.name(QColor::HexRgb);
 }
 
-QString rgba(const QColor& color, int alpha) {
-    return QStringLiteral("rgba(%1, %2, %3, %4)").arg(color.red()).arg(color.green()).arg(color.blue()).arg(alpha);
+QString rgba(const QColor& color, int alpha) { 
+    return QStringLiteral("rgba(%1, %2, %3, %4)").arg(color.red()).arg(color.green()).arg(color.blue()).arg(alpha); 
+} 
+
+QString canonicalSemanticClassId(QString classId) {
+    classId = classId.trimmed().toLower();
+    if (classId == "1" || classId == "target" || classId == "hit" || classId == "hits" || classId == "single")
+        return QStringLiteral("1");
+    if (classId == "0" || classId == "non-target" || classId == "non_target" || classId == "waste" ||
+        classId == "empty")
+        return QStringLiteral("0");
+    if (classId == "2" || classId == "more" || classId == "morethantwo" || classId == "non-target b" ||
+        classId == "second non-target")
+        return QStringLiteral("2");
+    if (classId == "exclude" || classId == "excluded" || classId == "reject" || classId == "rejected")
+        return QStringLiteral("exclude");
+    return classId;
 }
 
-} // namespace
+QColor readableForeground(const QColor& fill) {
+    return qGray(fill.rgb()) >= 170 ? QColor("#111827") : QColor("#FFFFFF");
+}
+
+ReviewClassColors buildReviewClassColorsForBase(const QColor& baseColor) {
+    const QColor fill = QColor(baseColor.name(QColor::HexRgb));
+    return {fill, fill.darker(112), fill.darker(132), readableForeground(fill)};
+}
+
+ReviewClassColors buildReviewClassColors(const ThemeColors& c, const QString& classId) {
+    const QString canonical = canonicalSemanticClassId(classId);
+    if (canonical == "0")
+        return {c.reviewClassZeroBg, c.reviewClassZeroHoverBg, c.reviewClassZeroPressedBg, c.reviewClassZeroFg};
+    if (canonical == "1")
+        return {c.reviewClassOneBg, c.reviewClassOneHoverBg, c.reviewClassOnePressedBg, c.reviewClassOneFg};
+    if (canonical == "2")
+        return {c.reviewClassTwoBg, c.reviewClassTwoHoverBg, c.reviewClassTwoPressedBg, c.reviewClassTwoFg};
+    if (canonical == "exclude")
+        return {c.reviewExcludeBg, c.reviewExcludeHoverBg, c.reviewExcludePressedBg, c.reviewExcludeFg};
+    return {c.buttonBg, c.buttonHoverBg, c.buttonPressedBg, c.textDefault};
+}
+
+} // namespace 
 
 ThemeColors colors(ThemeMode mode) {
     ThemeColors c;
@@ -48,6 +88,65 @@ ThemeColors colors(ThemeMode mode) {
         c.statusErrorBg = QColor("#FEE2E2");
         c.statusDisabled = QColor("#94A3B8");
         c.statusDisabledBg = QColor("#E5E7EB");
+        c.railText = QColor("#0F172A");
+        c.railHoverBg = QColor("#FFFFFF");
+        c.railCheckedBg = QColor("#DBEAFE");
+        c.shellIconFg = QColor("#0F172A");
+        c.shellIconAccent = QColor("#2563EB");
+        c.buttonBg = QColor("#FFFFFF");
+        c.buttonHoverBg = QColor("#F1F5F9");
+        c.buttonPressedBg = QColor("#E2E8F0");
+        c.buttonBorder = QColor("#94A3B8");
+        c.buttonDisabledBg = QColor("#E5E7EB");
+        c.selectionBg = QColor("#DBEAFE");
+        c.selectionBorder = QColor("#2563EB");
+        c.chipNeutralBg = QColor("#FFFFFF");
+        c.chipNeutralBorder = QColor("#94A3B8");
+        c.chipNeutralText = QColor("#0F172A");
+        c.chipRunningBg = QColor("#DCFCE7");
+        c.chipRunningBorder = QColor("#166534");
+        c.chipRunningText = QColor("#166534");
+        c.chipWarningFill = QColor("#FEF3C7");
+        c.chipWarningBorder = QColor("#D97706");
+        c.chipWarningText = QColor("#92400E");
+        c.chipErrorFill = QColor("#FEE2E2");
+        c.chipErrorBorder = QColor("#DC2626");
+        c.chipErrorText = QColor("#991B1B");
+        c.chipInfoFill = QColor("#DBEAFE");
+        c.chipInfoBorder = QColor("#2563EB");
+        c.chipInfoText = QColor("#1D4ED8");
+        c.chipDisabledFill = QColor("#E5E7EB");
+        c.chipDisabledBorder = QColor("#94A3B8");
+        c.chipDisabledText = QColor("#64748B");
+        c.actionPrimaryBg = QColor("#1D4ED8");
+        c.actionPrimaryHoverBg = QColor("#1E40AF");
+        c.actionPrimaryPressedBg = QColor("#1E3A8A");
+        c.actionPrimaryFg = QColor("#FFFFFF");
+        c.actionDangerBg = QColor("#B91C1C");
+        c.actionDangerHoverBg = QColor("#991B1B");
+        c.actionDangerPressedBg = QColor("#7F1D1D");
+        c.actionDangerFg = QColor("#FFFFFF");
+        c.reviewClassZeroBg = QColor("#FF0000");
+        c.reviewClassZeroHoverBg = QColor("#D00000");
+        c.reviewClassZeroPressedBg = QColor("#A80000");
+        c.reviewClassZeroFg = QColor("#FFFFFF");
+        c.reviewClassOneBg = QColor("#00FF00");
+        c.reviewClassOneHoverBg = QColor("#00D000");
+        c.reviewClassOnePressedBg = QColor("#00A800");
+        c.reviewClassOneFg = QColor("#111827");
+        c.reviewClassTwoBg = QColor("#0000FF");
+        c.reviewClassTwoHoverBg = QColor("#0000D0");
+        c.reviewClassTwoPressedBg = QColor("#0000A8");
+        c.reviewClassTwoFg = QColor("#FFFFFF");
+        c.reviewExcludeBg = QColor("#4B5563");
+        c.reviewExcludeHoverBg = QColor("#334155");
+        c.reviewExcludePressedBg = QColor("#1E293B");
+        c.reviewExcludeFg = QColor("#FFFFFF");
+        c.lastDecisionThumbBg = c.viewerBackground;
+        c.lastDecisionThumbBorder = c.borderStrong;
+        c.lastDecisionThumbText = c.textMuted;
+        c.statusDotWarn = QColor("#D97706");
+        c.statusDotError = QColor("#DC2626");
     } else {
         c.brandNavy = QColor("#0B1F5E");
         c.brandRoyal = QColor("#2563EB");
@@ -79,6 +178,65 @@ ThemeColors colors(ThemeMode mode) {
         c.statusErrorBg = QColor("#3A181A");
         c.statusDisabled = QColor("#64748B");
         c.statusDisabledBg = QColor("#14161B");
+        c.railText = QColor("#F8FAFC");
+        c.railHoverBg = QColor("#364152");
+        c.railCheckedBg = QColor("#1F2A37");
+        c.shellIconFg = QColor("#F8FAFC");
+        c.shellIconAccent = QColor("#7DD3FC");
+        c.buttonBg = QColor("#2B3442");
+        c.buttonHoverBg = QColor("#475569");
+        c.buttonPressedBg = QColor("#1E293B");
+        c.buttonBorder = QColor("#94A3B8");
+        c.buttonDisabledBg = QColor("#1A1F27");
+        c.selectionBg = QColor("#27466E");
+        c.selectionBorder = QColor("#7DD3FC");
+        c.chipNeutralBg = QColor("#1E2733");
+        c.chipNeutralBorder = QColor("#475569");
+        c.chipNeutralText = QColor("#F8FAFC");
+        c.chipRunningBg = QColor("#0F332B");
+        c.chipRunningBorder = QColor("#22C55E");
+        c.chipRunningText = QColor("#DCFCE7");
+        c.chipWarningFill = QColor("#3C2A0F");
+        c.chipWarningBorder = QColor("#F59E0B");
+        c.chipWarningText = QColor("#FDE68A");
+        c.chipErrorFill = QColor("#3A181A");
+        c.chipErrorBorder = QColor("#F87171");
+        c.chipErrorText = QColor("#FECACA");
+        c.chipInfoFill = QColor("#112A46");
+        c.chipInfoBorder = QColor("#60A5FA");
+        c.chipInfoText = QColor("#DBEAFE");
+        c.chipDisabledFill = QColor("#1A1F27");
+        c.chipDisabledBorder = QColor("#334155");
+        c.chipDisabledText = QColor("#94A3B8");
+        c.actionPrimaryBg = QColor("#1D4ED8");
+        c.actionPrimaryHoverBg = QColor("#1E40AF");
+        c.actionPrimaryPressedBg = QColor("#1E3A8A");
+        c.actionPrimaryFg = QColor("#FFFFFF");
+        c.actionDangerBg = QColor("#B91C1C");
+        c.actionDangerHoverBg = QColor("#991B1B");
+        c.actionDangerPressedBg = QColor("#7F1D1D");
+        c.actionDangerFg = QColor("#FFFFFF");
+        c.reviewClassZeroBg = QColor("#FF0000");
+        c.reviewClassZeroHoverBg = QColor("#D00000");
+        c.reviewClassZeroPressedBg = QColor("#A80000");
+        c.reviewClassZeroFg = QColor("#FFFFFF");
+        c.reviewClassOneBg = QColor("#00FF00");
+        c.reviewClassOneHoverBg = QColor("#00D000");
+        c.reviewClassOnePressedBg = QColor("#00A800");
+        c.reviewClassOneFg = QColor("#111827");
+        c.reviewClassTwoBg = QColor("#0000FF");
+        c.reviewClassTwoHoverBg = QColor("#0000D0");
+        c.reviewClassTwoPressedBg = QColor("#0000A8");
+        c.reviewClassTwoFg = QColor("#FFFFFF");
+        c.reviewExcludeBg = QColor("#4B5563");
+        c.reviewExcludeHoverBg = QColor("#334155");
+        c.reviewExcludePressedBg = QColor("#1E293B");
+        c.reviewExcludeFg = QColor("#FFFFFF");
+        c.lastDecisionThumbBg = c.viewerBackground;
+        c.lastDecisionThumbBorder = c.borderStrong;
+        c.lastDecisionThumbText = c.textMuted;
+        c.statusDotWarn = QColor("#F59E0B");
+        c.statusDotError = QColor("#F87171");
     }
 
     c.surfaceBackground = c.surface;
@@ -109,8 +267,8 @@ QPalette palette(ThemeMode mode) {
     p.setColor(QPalette::Button, c.elevatedSurface);
     p.setColor(QPalette::ButtonText, c.textDefault);
     p.setColor(QPalette::BrightText, c.statusError);
-    p.setColor(QPalette::Highlight, c.brandRoyal);
-    p.setColor(QPalette::HighlightedText, c.onBrand);
+    p.setColor(QPalette::Highlight, c.selectionBg);
+    p.setColor(QPalette::HighlightedText, c.textDefault);
     p.setColor(QPalette::ToolTipBase, c.elevatedSurface);
     p.setColor(QPalette::ToolTipText, c.textDefault);
     p.setColor(QPalette::PlaceholderText, c.textMuted);
@@ -121,8 +279,8 @@ QPalette palette(ThemeMode mode) {
     return p;
 }
 
-QString defaultStyleSheet() {
-    const auto c = colors(ThemeMode::Dark);
+QString defaultStyleSheet() { 
+    const auto c = colors(ThemeMode::Dark); 
 
     return QString() % "QWidget { background: " % cssColor(c.appBackground) % "; color: " % cssColor(c.textDefault) %
            "; font-size: 13px; }\n" % "QFrame, QGroupBox { background: " % cssColor(c.surface) %
@@ -137,22 +295,19 @@ QString defaultStyleSheet() {
            "QPushButton:pressed { background: " % cssColor(c.borderSubtle) % "; }\n" %
            "QPushButton:disabled, QLineEdit:disabled, QComboBox:disabled { color: " % cssColor(c.textDisabled) %
            "; background: " % cssColor(c.surface) % "; border-color: " % cssColor(c.borderSubtle) % "; }\n";
-}
-
-QString shellStyleSheet(ThemeMode mode) {
+} 
+ 
+QString shellStyleSheet(ThemeMode mode) { 
     const auto c = colors(mode);
+    const ReviewClassColors classZeroColors = buildReviewClassColors(c, "0");
+    const ReviewClassColors classOneColors = buildReviewClassColors(c, "1");
+    const ReviewClassColors classTwoColors = buildReviewClassColors(c, "2");
+    const ReviewClassColors excludeColors = buildReviewClassColors(c, "exclude");
     const bool light = mode == ThemeMode::Light;
     const QColor shell = c.shellBackground;
     const QColor shellText = light ? c.textPrimary : c.onBrand;
     const QColor shellMuted = light ? c.textMuted : QColor("#D1D5DB");
     const QColor shellBorder = light ? QColor("#B8C0CC") : QColor("#2B3038");
-    const QColor railText = c.onBrand;
-    const QColor buttonBg = light ? c.elevatedSurface : QColor("#252936");
-    const QColor buttonHover = light ? QColor("#E5E7EB") : QColor("#303743");
-    const QColor chipBg = light ? c.elevatedSurface : QColor("#19202A");
-    const QColor chipBorder = light ? c.borderDefault : QColor("#3A4352");
-    const QColor chipText = light ? c.textDefault : QColor("#F1F5F9");
-    const QColor chipMuted = light ? c.textMuted : QColor("#CBD5E1");
     const QColor menuBg = light ? c.surface : QColor("#111318");
     const QColor menuBorder = light ? c.borderDefault : QColor("#303743");
     const QColor menuHover = light ? QColor("#E0F2FE") : QColor("#243447");
@@ -188,13 +343,15 @@ QString shellStyleSheet(ThemeMode mode) {
         "QFrame#OpenDssNavigationRail { background: " % cssColor(shell) % "; border-right: 1px solid " %
         cssColor(shellBorder) % "; }\n" % "QLabel#OpenDssRailLogo { background: " % cssColor(c.onBrand) %
         "; border-radius: 8px; }\n" %
-        "QPushButton[railButton=\"true\"] { background: transparent; border: 0; border-radius: 5px; color: " %
-        cssColor(railText) %
+        "QPushButton[railButton=\"true\"] { background: transparent; border: 0; border-left: 3px solid transparent; "
+        "border-radius: 5px; color: " %
+        cssColor(c.railText) %
         "; min-width: 40px; max-width: 40px; min-height: 40px; max-height: 40px; padding: 0; font-weight: 600; }\n" %
         "QPushButton[railButton=\"true\"]::menu-indicator { width: 0; }\n" %
-        "QPushButton[railButton=\"true\"]:hover, QPushButton[railButton=\"true\"]:checked { background: " %
-        rgba(c.onBrand, 30) % "; color: " % cssColor(c.onBrand) % "; }\n" %
-        "QPushButton[railButton=\"true\"]:checked { border-left: 3px solid " % cssColor(c.brandAqua) % "; }\n" %
+        "QPushButton[railButton=\"true\"]:hover { background: " % cssColor(c.railHoverBg) % "; color: " %
+        cssColor(c.railText) % "; }\n" %
+        "QPushButton[railButton=\"true\"]:checked { background: " % cssColor(c.railCheckedBg) % "; color: " %
+        cssColor(c.railText) % "; border-left: 3px solid " % cssColor(c.selectionBorder) % "; }\n" %
         "QFrame#OpenDssHeader, QFrame#OpenDssStatusStrip { background: " % cssColor(shell) % "; border: 0; }\n" %
         "QFrame#OpenDssHeader { border-bottom: 1px solid " % cssColor(shellBorder) %
         "; min-height: 44px; max-height: 44px; }\n" % "QFrame#OpenDssStatusStrip { border-top: 1px solid " %
@@ -203,19 +360,22 @@ QString shellStyleSheet(ThemeMode mode) {
         "QLabel#OpenDssHeaderProductTitle { color: " % cssColor(shellText) %
         "; font-weight: 650; font-size: 14px; }\n" % "QLabel#OpenDssHeaderWorkspaceTitle { color: " %
         cssColor(shellMuted) % "; font-weight: 500; font-size: 14px; }\n" %
-        "QLabel[statusChip=\"true\"] { background: " % cssColor(chipBg) % "; border: 1px solid " %
-        cssColor(chipBorder) % "; border-radius: 8px; padding: 3px 9px 3px 8px; color: " % cssColor(chipText) %
+        "QLabel[statusChip=\"true\"] { background: " % cssColor(c.chipNeutralBg) % "; border: 1px solid " %
+        cssColor(c.chipNeutralBorder) % "; border-radius: 8px; padding: 3px 9px 3px 8px; color: " %
+        cssColor(c.chipNeutralText) %
         "; font-family: Consolas, \"Cascadia Mono\", monospace; font-size: 11px; }\n" %
-        "QLabel[chipTone=\"running\"] { color: " % cssColor(chipText) % "; background: " % cssColor(chipBg) %
-        "; border-color: " % cssColor(c.statusSuccess) % "; }\n" % "QLabel[chipTone=\"warn\"] { color: " %
-        cssColor(chipText) % "; background: " % cssColor(chipBg) % "; border-color: " % cssColor(c.statusWarning) %
-        "; }\n" % "QLabel[chipTone=\"error\"] { color: " % cssColor(chipText) % "; background: " % cssColor(chipBg) %
-        "; border-color: " % cssColor(c.statusError) % "; }\n" % "QLabel[chipTone=\"info\"] { color: " %
-        cssColor(chipMuted) % "; background: " % cssColor(chipBg) % "; border-color: " % cssColor(c.statusInfo) %
-        "; }\n" % "QLabel[chipTone=\"disabled\"] { color: " % cssColor(chipMuted) % "; background: " %
-        cssColor(chipBg) % "; border-color: " % cssColor(chipBorder) % "; }\n" %
-        "QPushButton, QToolButton { background: " % cssColor(buttonBg) % "; border: 1px solid " %
-        cssColor(c.borderDefault) % "; border-radius: 5px; color: " % cssColor(c.textDefault) %
+        "QLabel[chipTone=\"running\"] { color: " % cssColor(c.chipRunningText) % "; background: " %
+        cssColor(c.chipRunningBg) % "; border-color: " % cssColor(c.chipRunningBorder) % "; }\n" %
+        "QLabel[chipTone=\"warn\"] { color: " % cssColor(c.chipWarningText) % "; background: " %
+        cssColor(c.chipWarningFill) % "; border-color: " % cssColor(c.chipWarningBorder) % "; }\n" %
+        "QLabel[chipTone=\"error\"] { color: " % cssColor(c.chipErrorText) % "; background: " %
+        cssColor(c.chipErrorFill) % "; border-color: " % cssColor(c.chipErrorBorder) % "; }\n" %
+        "QLabel[chipTone=\"info\"] { color: " % cssColor(c.chipInfoText) % "; background: " %
+        cssColor(c.chipInfoFill) % "; border-color: " % cssColor(c.chipInfoBorder) % "; }\n" %
+        "QLabel[chipTone=\"disabled\"] { color: " % cssColor(c.chipDisabledText) % "; background: " %
+        cssColor(c.chipDisabledFill) % "; border-color: " % cssColor(c.chipDisabledBorder) % "; }\n" %
+        "QPushButton, QToolButton { background: " % cssColor(c.buttonBg) % "; border: 1px solid " %
+        cssColor(c.buttonBorder) % "; border-radius: 5px; color: " % cssColor(c.textDefault) %
         "; padding: 6px 12px; }\n" %
         "QToolButton[headerIcon=\"true\"] { min-width: 34px; max-width: 34px; min-height: 30px; max-height: 30px; "
         "padding: 0; }\n" %
@@ -223,20 +383,78 @@ QString shellStyleSheet(ThemeMode mode) {
         (light ? QStringLiteral("rgba(148, 163, 184, 18)") : QStringLiteral("rgba(255, 255, 255, 18)")) %
         "; border-color: " %
         (light ? QStringLiteral("rgba(148, 163, 184, 72)") : QStringLiteral("rgba(229, 231, 235, 52)")) % "; }\n" %
-        "QPushButton:hover, QToolButton:hover { background: " % cssColor(buttonHover) % "; border-color: " %
+        "QFrame#OpenDssHeader QToolButton[headerIcon=\"true\"]:hover { background: " % cssColor(c.railHoverBg) %
+        "; border-color: " % cssColor(c.selectionBorder) % "; }\n" %
+        "QFrame#OpenDssHeader QToolButton[headerIcon=\"true\"]:pressed { background: " % cssColor(c.railCheckedBg) %
+        "; border-color: " % cssColor(c.selectionBorder) % "; }\n" %
+        "QPushButton:hover, QToolButton:hover { background: " % cssColor(c.buttonHoverBg) % "; border-color: " %
         cssColor(c.brandRoyal) % "; }\n" % "QPushButton:disabled, QToolButton:disabled { color: " %
-        cssColor(c.textDisabled) % "; background: " % cssColor(c.statusDisabledBg) % "; border-color: " %
-        cssColor(c.borderSubtle) % "; }\n" % "QPushButton#CameraStartButton { background: " % cssColor(c.statusInfo) %
-        "; border-color: " % cssColor(c.statusInfo) % "; color: " % cssColor(c.onBrand) %
-        "; min-width: 138px; font-weight: 650; }\n" % "QPushButton#PipelineStartButton { background: " %
-        cssColor(c.brandAqua) % "; border-color: " % cssColor(c.brandAqua) % "; color: " % cssColor(c.onBrand) %
-        "; min-width: 138px; font-weight: 650; }\n" % "QPushButton#PipelineStopButton { background: " %
-        cssColor(c.statusError) % "; border-color: " % cssColor(c.statusError) % "; color: " % cssColor(c.onBrand) %
-        "; min-width: 118px; font-weight: 650; }\n" % "QPushButton#LiveTriggerSafeButton { background: " %
+        cssColor(c.textDisabled) % "; background: " % cssColor(c.buttonDisabledBg) % "; border-color: " %
+        cssColor(c.borderSubtle) % "; }\n" % "QPushButton:pressed, QToolButton:pressed { background: " %
+        cssColor(c.buttonPressedBg) % "; }\n" %
+        "QPushButton#CameraStartButton, QPushButton#PipelineStartButton { background: " %
+        cssColor(c.actionPrimaryBg) % "; border-color: " % cssColor(c.actionPrimaryBg) % "; color: " %
+        cssColor(c.actionPrimaryFg) % "; min-width: 138px; font-weight: 650; }\n" %
+        "QPushButton#CameraStartButton:hover, QPushButton#PipelineStartButton:hover { background: " %
+        cssColor(c.actionPrimaryHoverBg) % "; border-color: " % cssColor(c.actionPrimaryHoverBg) % "; color: " %
+        cssColor(c.actionPrimaryFg) % "; }\n" %
+        "QPushButton#CameraStartButton:pressed, QPushButton#PipelineStartButton:pressed { background: " %
+        cssColor(c.actionPrimaryPressedBg) % "; border-color: " % cssColor(c.actionPrimaryPressedBg) % "; color: " %
+        cssColor(c.actionPrimaryFg) % "; }\n" %
+        "QPushButton#PipelineStopButton { background: " % cssColor(c.actionDangerBg) % "; border-color: " %
+        cssColor(c.actionDangerBg) % "; color: " % cssColor(c.actionDangerFg) %
+        "; min-width: 118px; font-weight: 650; }\n" %
+        "QPushButton#PipelineStopButton:hover { background: " % cssColor(c.actionDangerHoverBg) % "; border-color: " %
+        cssColor(c.actionDangerHoverBg) % "; color: " % cssColor(c.actionDangerFg) % "; }\n" %
+        "QPushButton#PipelineStopButton:pressed { background: " % cssColor(c.actionDangerPressedBg) % "; border-color: "
+        % cssColor(c.actionDangerPressedBg) % "; color: " % cssColor(c.actionDangerFg) % "; }\n" %
+        "QPushButton#LiveTriggerSafeButton { background: " %
         cssColor(c.elevatedSurface) % "; border-color: " % cssColor(c.borderDefault) % "; color: " %
         cssColor(c.textDefault) % "; }\n" % "QPushButton[primaryAction=\"true\"] { background: " %
-        cssColor(c.brandRoyal) % "; border-color: " % cssColor(c.brandRoyal) % "; color: " % cssColor(c.onBrand) %
-        "; font-weight: 650; }\n" % "QFrame[panel=\"true\"] { background: " % cssColor(c.surface) %
+        cssColor(c.actionPrimaryBg) % "; border-color: " % cssColor(c.actionPrimaryBg) % "; color: " %
+        cssColor(c.actionPrimaryFg) % "; font-weight: 650; }\n" %
+        "QPushButton[primaryAction=\"true\"]:hover { background: " % cssColor(c.actionPrimaryHoverBg) %
+        "; border-color: " % cssColor(c.actionPrimaryHoverBg) % "; color: " % cssColor(c.actionPrimaryFg) % "; }\n" %
+        "QPushButton[primaryAction=\"true\"]:pressed { background: " % cssColor(c.actionPrimaryPressedBg) %
+        "; border-color: " % cssColor(c.actionPrimaryPressedBg) % "; color: " % cssColor(c.actionPrimaryFg) % "; }\n" %
+        "QPushButton[reviewClassId=\"0\"] { background: " % cssColor(classZeroColors.fill) % "; border-color: " %
+        cssColor(classZeroColors.fill) % "; color: " % cssColor(classZeroColors.foreground) %
+        "; font-weight: 650; }\n" % "QPushButton[reviewClassId=\"0\"]:hover { background: " %
+        cssColor(classZeroColors.hoverFill) % "; border-color: " % cssColor(classZeroColors.hoverFill) % "; color: " %
+        cssColor(classZeroColors.foreground) % "; }\n" %
+        "QPushButton[reviewClassId=\"0\"]:pressed { background: " % cssColor(classZeroColors.pressedFill) %
+        "; border-color: " % cssColor(classZeroColors.pressedFill) % "; color: " %
+        cssColor(classZeroColors.foreground) % "; }\n" % "QPushButton[reviewClassId=\"1\"] { background: " %
+        cssColor(classOneColors.fill) % "; border-color: " % cssColor(classOneColors.fill) % "; color: " %
+        cssColor(classOneColors.foreground) % "; font-weight: 650; }\n" %
+        "QPushButton[reviewClassId=\"1\"]:hover { background: " % cssColor(classOneColors.hoverFill) %
+        "; border-color: " % cssColor(classOneColors.hoverFill) % "; color: " %
+        cssColor(classOneColors.foreground) % "; }\n" %
+        "QPushButton[reviewClassId=\"1\"]:pressed { background: " % cssColor(classOneColors.pressedFill) %
+        "; border-color: " % cssColor(classOneColors.pressedFill) % "; color: " %
+        cssColor(classOneColors.foreground) % "; }\n" % "QPushButton[reviewClassId=\"2\"] { background: " %
+        cssColor(classTwoColors.fill) % "; border-color: " % cssColor(classTwoColors.fill) % "; color: " %
+        cssColor(classTwoColors.foreground) % "; font-weight: 650; }\n" %
+        "QPushButton[reviewClassId=\"2\"]:hover { background: " % cssColor(classTwoColors.hoverFill) %
+        "; border-color: " % cssColor(classTwoColors.hoverFill) % "; color: " %
+        cssColor(classTwoColors.foreground) % "; }\n" %
+        "QPushButton[reviewClassId=\"2\"]:pressed { background: " % cssColor(classTwoColors.pressedFill) %
+        "; border-color: " % cssColor(classTwoColors.pressedFill) % "; color: " %
+        cssColor(classTwoColors.foreground) % "; }\n" % "QPushButton[reviewClassId=\"exclude\"] { background: " %
+        cssColor(excludeColors.fill) % "; border-color: " % cssColor(excludeColors.fill) % "; color: " %
+        cssColor(excludeColors.foreground) % "; font-weight: 650; }\n" %
+        "QPushButton[reviewClassId=\"exclude\"]:hover { background: " % cssColor(excludeColors.hoverFill) %
+        "; border-color: " % cssColor(excludeColors.hoverFill) % "; color: " %
+        cssColor(excludeColors.foreground) % "; }\n" %
+        "QPushButton[reviewClassId=\"exclude\"]:pressed { background: " % cssColor(excludeColors.pressedFill) %
+        "; border-color: " % cssColor(excludeColors.pressedFill) % "; color: " %
+        cssColor(excludeColors.foreground) % "; }\n" %
+        "QPushButton#CameraStartButton:disabled, QPushButton#PipelineStartButton:disabled, "
+        "QPushButton#PipelineStopButton:disabled, QPushButton[primaryAction=\"true\"]:disabled, "
+        "QPushButton[reviewClassId=\"0\"]:disabled, QPushButton[reviewClassId=\"1\"]:disabled, "
+        "QPushButton[reviewClassId=\"2\"]:disabled, QPushButton[reviewClassId=\"exclude\"]:disabled { background: " %
+        cssColor(c.buttonDisabledBg) % "; border-color: " % cssColor(c.borderSubtle) % "; color: " %
+        cssColor(c.textDisabled) % "; }\n" % "QFrame[panel=\"true\"] { background: " % cssColor(c.surface) %
         "; border: 1px solid " % cssColor(c.borderDefault) % "; border-radius: 8px; color: " % cssColor(c.textDefault) %
         "; }\n" %
         "QWidget[viewerCanvas=\"true\"], QFrame#LiveViewerStack, QFrame#CameraViewerFrame, QWidget#CameraViewerPattern "
@@ -267,11 +485,26 @@ QString shellStyleSheet(ThemeMode mode) {
              "QLabel[metricLabel=\"true\"] { color: " % cssColor(c.textMuted) %
              "; font-size: 10px; font-weight: 650; }\n" % "QLabel[statusDot=\"true\"] { color: " %
              cssColor(c.brandAqua) % "; font-size: 14px; font-weight: 700; }\n" %
-             "QLabel[statusPill=\"true\"] { background: " % cssColor(c.elevatedSurface) % "; border: 1px solid " %
-             cssColor(c.borderDefault) % "; border-radius: 8px; padding: 2px 7px; color: " % cssColor(c.textDefault) %
-             "; font-size: 10px; font-family: Consolas, \"Cascadia Mono\", monospace; }\n" %
-             "QFrame#LiveLastDecisionCard { background: " % cssColor(c.elevatedSurface) % "; border: 1px solid " %
-             cssColor(c.borderDefault) % "; border-radius: 5px; }\n" %
+             "QLabel[statusDot=\"true\"][statusTone=\"warn\"] { color: " % cssColor(c.statusDotWarn) % "; }\n" % 
+             "QLabel[statusDot=\"true\"][statusTone=\"error\"] { color: " % cssColor(c.statusDotError) % "; }\n" % 
+             "QLabel[statusPill=\"true\"] { background: " % cssColor(c.elevatedSurface) % "; border: 1px solid " % 
+             cssColor(c.borderDefault) % "; border-radius: 8px; padding: 2px 7px; color: " % cssColor(c.textDefault) % 
+             "; font-size: 10px; font-family: Consolas, \"Cascadia Mono\", monospace; }\n" % 
+             "QLabel[statusPill=\"true\"][semanticClassId=\"0\"] { background: " % cssColor(c.chipInfoFill) %
+             "; border-color: " % cssColor(c.chipInfoBorder) % "; color: " % cssColor(c.chipInfoText) % "; }\n" %
+             "QLabel[statusPill=\"true\"][semanticClassId=\"1\"] { background: " % cssColor(c.chipRunningBg) %
+             "; border-color: " % cssColor(c.chipRunningBorder) % "; color: " % cssColor(c.chipRunningText) %
+             "; }\n" % "QLabel[statusPill=\"true\"][semanticClassId=\"2\"] { background: " %
+             cssColor(c.chipWarningFill) % "; border-color: " % cssColor(c.chipWarningBorder) % "; color: " %
+             cssColor(c.chipWarningText) % "; }\n" %
+             "QLabel[statusPill=\"true\"][semanticClassId=\"exclude\"] { background: " %
+             cssColor(c.chipDisabledFill) % "; border-color: " % cssColor(c.chipDisabledBorder) % "; color: " %
+             cssColor(c.chipDisabledText) % "; }\n" %
+             "QFrame#LiveLastDecisionCard { background: " % cssColor(c.elevatedSurface) % "; border: 1px solid " % 
+             cssColor(c.borderDefault) % "; border-radius: 5px; }\n" % 
+             "QLabel#LiveLastDecisionThumbnail { background: " % cssColor(c.lastDecisionThumbBg) % "; color: " % 
+             cssColor(c.lastDecisionThumbText) % "; border: 1px solid " % cssColor(c.lastDecisionThumbBorder) % 
+             "; border-radius: 3px; font-size: 10px; }\n" %
              "QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox, QDoubleSpinBox { background: " %
              cssColor(c.inputSurface) % "; color: " % cssColor(c.textDefault) % "; border: 1px solid " %
              cssColor(c.borderDefault) % "; border-radius: 3px; padding: 4px 6px; selection-background-color: " %
@@ -281,15 +514,16 @@ QString shellStyleSheet(ThemeMode mode) {
              "QScrollArea#LiveImageView > QWidget, QLabel#LiveImageLabel { background: transparent; }\n" %
              "QTableWidget#ModelWorkspaceRegistryTable { background: " % cssColor(c.surface) %
              "; border: 0; gridline-color: " % cssColor(c.borderSubtle) % "; selection-background-color: " %
-             cssColor(c.elevatedSurface) % "; selection-color: " % cssColor(c.textDefault) % "; }\n" %
+             cssColor(c.selectionBg) % "; selection-color: " % cssColor(c.textDefault) % "; }\n" %
              "QTableWidget#ModelWorkspaceRegistryTable::item { border-bottom: 1px solid " % cssColor(c.borderSubtle) %
              "; padding: 8px 6px; }\n" %
              "QTableWidget#ModelWorkspaceRegistryTable::item:selected { border-left: 3px solid " %
-             cssColor(c.statusInfo) % "; }\n" %
+             cssColor(c.selectionBorder) % "; background: " % cssColor(c.selectionBg) % "; }\n" %
              "QPushButton[datasetFilterRow=\"true\"] { text-align: left; background: transparent; border: 0; "
              "border-radius: 5px; padding: 6px 10px; }\n" %
-             "QPushButton[datasetFilterRow=\"true\"]:checked { background: " % cssColor(c.elevatedSurface) %
-             "; border-left: 3px solid " % cssColor(c.brandAqua) % "; }\n" %
+             "QPushButton[datasetFilterRow=\"true\"]:hover { background: " % cssColor(c.buttonHoverBg) % "; }\n" %
+             "QPushButton[datasetFilterRow=\"true\"]:checked { background: " % cssColor(c.selectionBg) %
+             "; border-left: 3px solid " % cssColor(c.selectionBorder) % "; }\n" %
              "QPushButton[datasetFilterRow=\"true\"][chipTone=\"running\"] { color: " % cssColor(c.statusSuccess) %
              "; }\n" % "QPushButton[datasetFilterRow=\"true\"][chipTone=\"warn\"] { color: " %
              cssColor(c.statusWarning) % "; }\n" %
@@ -297,7 +531,8 @@ QString shellStyleSheet(ThemeMode mode) {
 
     style += QString() % "QFrame[datasetTile=\"true\"] { background: " % cssColor(c.elevatedSurface) %
              "; border: 1px solid " % cssColor(c.borderDefault) % "; border-radius: 5px; }\n" %
-             "QFrame[datasetTile=\"true\"][selected=\"true\"] { border: 2px solid " % cssColor(c.brandAqua) % "; }\n" %
+             "QFrame[datasetTile=\"true\"][selected=\"true\"] { border: 2px solid " % cssColor(c.selectionBorder) %
+             "; }\n" %
              "QLabel[datasetThumb=\"true\"] { background: " % cssColor(c.viewerBackground) % "; border: 1px solid " %
              cssColor(c.borderStrong) % "; border-radius: 4px; color: " % cssColor(c.textMuted) %
              "; font-family: Consolas, \"Cascadia Mono\", monospace; }\n" %
@@ -305,17 +540,17 @@ QString shellStyleSheet(ThemeMode mode) {
              "; border: 1px solid " % cssColor(c.borderDefault) % "; border-radius: 8px; }\n" %
              "QTableWidget#DatasetWorkspaceCropListTable { background: " % cssColor(c.surface) %
              "; border: 0; gridline-color: " % cssColor(c.borderSubtle) % "; selection-background-color: " %
-             cssColor(c.elevatedSurface) % "; selection-color: " % cssColor(c.textDefault) % "; }\n" %
+             cssColor(c.selectionBg) % "; selection-color: " % cssColor(c.textDefault) % "; }\n" %
              "QTableWidget#DatasetWorkspaceCropListTable::item { border-bottom: 1px solid " % cssColor(c.borderSubtle) %
              "; padding: 7px 6px; }\n" %
              "QTableWidget#DatasetWorkspaceCropListTable::item:selected { border-left: 3px solid " %
-             cssColor(c.brandAqua) % "; }\n";
+             cssColor(c.selectionBorder) % "; background: " % cssColor(c.selectionBg) % "; }\n";
 
     style += QString() % "QFrame[trainerCheckRow=\"true\"] { background: " % cssColor(c.elevatedSurface) %
              "; border: 1px solid " % cssColor(c.borderSubtle) % "; border-radius: 5px; }\n" %
              "QTableWidget#TrainerRecentRunsTable { background: " % cssColor(c.surface) %
              "; border: 0; gridline-color: " % cssColor(c.borderSubtle) % "; selection-background-color: " %
-             cssColor(c.elevatedSurface) % "; selection-color: " % cssColor(c.textDefault) % "; }\n" %
+             cssColor(c.selectionBg) % "; selection-color: " % cssColor(c.textDefault) % "; }\n" %
              "QTableWidget#TrainerRecentRunsTable::item { border-bottom: 1px solid " % cssColor(c.borderSubtle) %
              "; padding: 7px 6px; }\n" % "QProgressBar#TrainerWorkspaceProgressBar { background: " %
              cssColor(c.progressTrack) % "; border: 1px solid " % cssColor(c.borderDefault) %
@@ -327,7 +562,7 @@ QString shellStyleSheet(ThemeMode mode) {
              "QProgressBar#ValidatorWorkspaceProgressBar::chunk { background: " % cssColor(c.brandRoyal) %
              "; border-radius: 3px; }\n" % "QTableWidget#ValidatorWorkspaceConfusionTable { background: " %
              cssColor(c.surface) % "; border: 0; gridline-color: " % cssColor(c.borderSubtle) %
-             "; selection-background-color: " % cssColor(c.elevatedSurface) % "; selection-color: " %
+             "; selection-background-color: " % cssColor(c.selectionBg) % "; selection-color: " %
              cssColor(c.textDefault) % "; }\n" %
              "QTableWidget#ValidatorWorkspaceConfusionTable::item { border-bottom: 1px solid " %
              cssColor(c.borderSubtle) % "; padding: 7px 6px; }\n" %
@@ -338,8 +573,8 @@ QString shellStyleSheet(ThemeMode mode) {
         QString() % "QListWidget#ReportsWorkspaceRunList { background: " % cssColor(c.surface) %
         "; border: 0; outline: 0; }\n" % "QListWidget#ReportsWorkspaceRunList::item { border-bottom: 1px solid " %
         cssColor(c.borderSubtle) % "; padding: 10px 12px; color: " % cssColor(c.textDefault) % "; }\n" %
-        "QListWidget#ReportsWorkspaceRunList::item:selected { background: " % cssColor(c.elevatedSurface) %
-        "; border-left: 3px solid " % cssColor(c.statusInfo) % "; }\n" %
+        "QListWidget#ReportsWorkspaceRunList::item:selected { background: " % cssColor(c.selectionBg) %
+        "; border-left: 3px solid " % cssColor(c.selectionBorder) % "; }\n" %
         "QPlainTextEdit#ReportsWorkspaceSessionLogTextEdit { font-family: Consolas, \"Cascadia Mono\", monospace; "
         "font-size: 11px; }\n" %
         "QSplitter::handle, QSplitter#MainSplitter::handle, QSplitter#CameraWorkspaceSplitter::handle { background: " %
@@ -365,14 +600,79 @@ QString shellStyleSheet(ThemeMode mode) {
     return style;
 }
 
-BrandingResources brandingResources() {
-    return {
-        QStringLiteral(":/branding/opendss-primary-full-color.svg"),
-        QStringLiteral(":/branding/opendss-primary-white.svg"),
-        QStringLiteral(":/branding/opendss-icon-full-color.svg"),
-        QStringLiteral(":/branding/opendss-icon-512.png"),
-        QStringLiteral(":/branding/opendss-small-icon-full-color.svg"),
-    };
+BrandingResources brandingResources() { 
+    return { 
+        QStringLiteral(":/branding/opendss-primary-full-color.svg"), 
+        QStringLiteral(":/branding/opendss-primary-white.svg"), 
+        QStringLiteral(":/branding/opendss-icon-full-color.svg"), 
+        QStringLiteral(":/branding/opendss-icon-512.png"), 
+        QStringLiteral(":/branding/opendss-small-icon-full-color.svg"), 
+    }; 
+} 
+
+ReviewClassColors reviewClassColors(const QString& classId, ThemeMode mode) {
+    return buildReviewClassColors(colors(mode), classId);
 }
 
+ReviewClassColors reviewClassColorsForBase(const QColor& baseColor, ThemeMode mode) {
+    if (!baseColor.isValid())
+        return reviewClassColors(QStringLiteral("0"), mode);
+    return buildReviewClassColorsForBase(baseColor);
+}
+
+QString reviewClassButtonStyle(const QColor& baseColor, ThemeMode mode) {
+    const auto c = colors(mode);
+    const auto review = reviewClassColorsForBase(baseColor, mode);
+    return QStringLiteral(
+               "QPushButton { background:%1; border:1px solid %1; color:%2; font-weight:650; }"
+               "QPushButton:hover { background:%3; border-color:%3; color:%2; }"
+               "QPushButton:pressed { background:%4; border-color:%4; color:%2; }"
+               "QPushButton:disabled { background:%5; border:1px solid %6; color:%7; }")
+        .arg(cssColor(review.fill),
+             cssColor(review.foreground),
+             cssColor(review.hoverFill),
+             cssColor(review.pressedFill),
+             cssColor(c.buttonDisabledBg),
+             cssColor(c.borderSubtle),
+             cssColor(c.textDisabled));
+}
+
+QColor semanticClassColor(const QString& classId, ThemeMode mode) {
+    return reviewClassColors(classId, mode).fill;
+}
+
+QColor semanticClassColorForBase(const QColor& baseColor, ThemeMode mode) {
+    return reviewClassColorsForBase(baseColor, mode).fill;
+}
+
+QIcon semanticClassIcon(const QString& classId, ThemeMode mode) {
+    const QColor fill = semanticClassColor(classId, mode);
+    const QColor border = fill.darker(130);
+    QPixmap pixmap(14, 14);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(border, 1));
+    painter.setBrush(fill);
+    painter.drawEllipse(QRectF(2.0, 2.0, 10.0, 10.0));
+    painter.end();
+    return QIcon(pixmap);
+}
+
+QIcon semanticClassIconForBase(const QColor& baseColor, ThemeMode mode) {
+    const QColor fill = semanticClassColorForBase(baseColor, mode);
+    const QColor border = fill.darker(130);
+    QPixmap pixmap(14, 14);
+    pixmap.fill(Qt::transparent);
+
+    QPainter painter(&pixmap);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    painter.setPen(QPen(border, 1));
+    painter.setBrush(fill);
+    painter.drawEllipse(QRectF(2.0, 2.0, 10.0, 10.0));
+    painter.end();
+    return QIcon(pixmap);
+}
+ 
 } // namespace desktop_app::theme

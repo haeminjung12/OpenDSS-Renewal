@@ -43,6 +43,7 @@ int main(int argc, char* argv[]) {
         runtimeSettings.value("runtime/v1/model/targetClassId", QStringLiteral("1")).toString().trimmed();
     if (appState.targetClassId.isEmpty())
         appState.targetClassId = QStringLiteral("1");
+    appState.sortNonTarget = runtimeSettings.value("runtime/v1/sorting/sortNonTarget", false).toBool();
     appState.daqDisabled = false;
 #ifdef HAVE_NIDAQMX
     constexpr bool kDaqBuildEnabled = true;

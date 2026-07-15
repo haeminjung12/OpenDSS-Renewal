@@ -9,10 +9,17 @@ from .errors import CliError, EXIT_SCHEMA_MISMATCH
 
 
 DEFAULT_BINARY_CLASSES = ["0", "1"]
-DEFAULT_BINARY_DISPLAY_LABELS = {"0": "Waste", "1": "Hits"}
+DEFAULT_BINARY_DISPLAY_LABELS = {"0": "Non-target", "1": "Target"}
 DEFAULT_BINARY_ALIASES = {
-    "0": ["0", "Empty", "empty", "Waste", "waste", "MoreThanTwo", "MoreThan2", ">2", "2", "Multiple"],
-    "1": ["1", "Single", "single", "Hit", "Hits", "hit", "hits"],
+    "0": ["0", "Non-target", "non-target", "Nontarget", "Empty", "empty", "Waste", "waste", "MoreThanTwo", "MoreThan2", "More than two", ">2", "2", "Multiple"],
+    "1": ["1", "Target", "target", "Single", "single", "Hit", "Hits", "hit", "hits"],
+}
+DEFAULT_TERNARY_CLASSES = ["0", "1", "2"]
+DEFAULT_TERNARY_DISPLAY_LABELS = {"0": "Non-target A", "1": "Target", "2": "Non-target B"}
+DEFAULT_TERNARY_ALIASES = {
+    "0": ["0", "Non-target A", "non-target a", "NonTargetA", "Empty", "empty", "Waste", "waste"],
+    "1": ["1", "Target", "target", "Single", "single", "Hit", "Hits", "hit", "hits"],
+    "2": ["2", "Non-target B", "non-target b", "NonTargetB", "MoreThanTwo", "MoreThan2", "More than two", ">2", "Multiple"],
 }
 DEFAULT_EXCLUDED_LABELS = ["Reject", "reject", "Rejected", "rejected", "exclude", "Exclude", ""]
 
@@ -73,21 +80,51 @@ class ClassSchema:
         ]
 
 
+def default_display_labels_for_classes(classes: list[str]) -> dict[str, str]:
+    if classes == DEFAULT_BINARY_CLASSES:
+        return dict(DEFAULT_BINARY_DISPLAY_LABELS)
+    if classes == DEFAULT_TERNARY_CLASSES:
+        return dict(DEFAULT_TERNARY_DISPLAY_LABELS)
+    if classes == LEGACY_CLASSES:
+        return dict(LEGACY_DISPLAY_LABELS)
+    return {class_id: class_id for class_id in classes}
+
+
+def default_aliases_for_classes(classes: list[str]) -> dict[str, list[str]]:
+    if classes == DEFAULT_BINARY_CLASSES:
+        return {key: list(value) for key, value in DEFAULT_BINARY_ALIASES.items()}
+    if classes == DEFAULT_TERNARY_CLASSES:
+        return {key: list(value) for key, value in DEFAULT_TERNARY_ALIASES.items()}
+    if classes == LEGACY_CLASSES:
+        return {key: list(value) for key, value in LEGACY_ALIASES.items()}
+    return {class_id: [class_id] for class_id in classes}
+
+
+def default_schema_id_for_classes(classes: list[str]) -> str:
+    if classes == DEFAULT_BINARY_CLASSES:
+        return "droplet-labels-target-nontarget-binary-v1"
+    if classes == DEFAULT_TERNARY_CLASSES:
+        return "droplet-labels-target-nontarget-3class-v1"
+    if classes == LEGACY_CLASSES:
+        return "droplet-labels-legacy-v1"
+    return "custom-inline"
+
+
 def default_binary_schema() -> ClassSchema:
     return ClassSchema(
         classes=list(DEFAULT_BINARY_CLASSES),
-        display_labels=dict(DEFAULT_BINARY_DISPLAY_LABELS),
-        aliases={key: list(value) for key, value in DEFAULT_BINARY_ALIASES.items()},
-        schema_id="droplet-labels-binary-v1",
+        display_labels=default_display_labels_for_classes(DEFAULT_BINARY_CLASSES),
+        aliases=default_aliases_for_classes(DEFAULT_BINARY_CLASSES),
+        schema_id=default_schema_id_for_classes(DEFAULT_BINARY_CLASSES),
     )
 
 
 def legacy_schema() -> ClassSchema:
     return ClassSchema(
         classes=list(LEGACY_CLASSES),
-        display_labels=dict(LEGACY_DISPLAY_LABELS),
-        aliases={key: list(value) for key, value in LEGACY_ALIASES.items()},
-        schema_id="droplet-labels-legacy-v1",
+        display_labels=default_display_labels_for_classes(LEGACY_CLASSES),
+        aliases=default_aliases_for_classes(LEGACY_CLASSES),
+        schema_id=default_schema_id_for_classes(LEGACY_CLASSES),
     )
 
 
@@ -101,13 +138,12 @@ def parse_schema(args: Any) -> ClassSchema:
         classes = [part.strip() for part in classes_arg.split(",") if part.strip()]
         if not classes:
             raise CliError("EMPTY_CLASS_SCHEMA", "--classes did not contain any class ids.", EXIT_SCHEMA_MISMATCH)
-        display_labels = {class_id: class_id for class_id in classes}
-        if classes == DEFAULT_BINARY_CLASSES:
-            display_labels = dict(DEFAULT_BINARY_DISPLAY_LABELS)
-        aliases = {class_id: [class_id] for class_id in classes}
-        if classes == DEFAULT_BINARY_CLASSES:
-            aliases = {key: list(value) for key, value in DEFAULT_BINARY_ALIASES.items()}
-        return ClassSchema(classes=classes, display_labels=display_labels, aliases=aliases, schema_id="custom-inline")
+        return ClassSchema(
+            classes=classes,
+            display_labels=default_display_labels_for_classes(classes),
+            aliases=default_aliases_for_classes(classes),
+            schema_id=default_schema_id_for_classes(classes),
+        )
     return default_binary_schema()
 
 
@@ -117,18 +153,20 @@ def load_schema(path: Path) -> ClassSchema:
     classes = [str(item) for item in data.get("classes", [])]
     if not classes:
         raise CliError("EMPTY_CLASS_SCHEMA", "Class schema file has no classes.", EXIT_SCHEMA_MISMATCH, {"path": str(path)})
-    display_labels = {str(key): str(value) for key, value in data.get("display_labels", {}).items()}
+    display_labels = default_display_labels_for_classes(classes)
+    display_labels.update({str(key): str(value) for key, value in data.get("display_labels", {}).items()})
     for class_id in classes:
         display_labels.setdefault(class_id, class_id)
     aliases_raw = data.get("aliases", {})
-    aliases = {str(key): [str(value) for value in values] for key, values in aliases_raw.items()}
+    aliases = default_aliases_for_classes(classes)
+    aliases.update({str(key): [str(value) for value in values] for key, values in aliases_raw.items()})
     excluded = [str(value) for value in data.get("excluded_labels", DEFAULT_EXCLUDED_LABELS)]
     return ClassSchema(
         classes=classes,
         display_labels=display_labels,
         aliases=aliases,
         excluded_labels=excluded,
-        schema_id=str(data.get("label_schema_version", "custom-file")),
+        schema_id=str(data.get("label_schema_version", default_schema_id_for_classes(classes))),
     )
 
 

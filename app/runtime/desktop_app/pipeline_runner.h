@@ -17,6 +17,7 @@ struct PipelineConfig {
     std::string metadataPath;
     std::string targetClassId;
     std::string targetLabel = "Single";
+    bool sortNonTarget = false;
     std::string outputDir;
     bool useCuda = false;
     bool saveCrop = false;
@@ -49,6 +50,8 @@ struct PipelineEvent {
     std::string triggerError;
     int64_t frameNumber = 0;
 };
+
+bool liveSortShouldTrigger(const std::string& predictedClassId, const std::string& targetClassId, bool sortNonTarget);
 
 class PipelineRunner {
   public:

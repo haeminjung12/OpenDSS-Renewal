@@ -1,20 +1,22 @@
 {
   "schema_version": "model-metadata-v1",
   "model_id": "blank_squeezenet_template_seed42",
-  "model_name": "Blank SqueezeNet template (untrained)",
-  "version": "2026-07-13",
-  "created_at": "2026-07-13T00:00:00Z",
-  "status": "blank_untrained_template",
+  "model_name": "Blank SqueezeNet starter (ImageNet-start)",
+  "version": "2026-07-14",
+  "created_at": "2026-07-14T22:37:32Z",
+  "status": "imagenet_transfer_start",
   "training_code_version": {
     "repo": "OpenDSS",
     "commit": null,
     "dirty": null,
-    "training_entrypoint": null,
-    "training_script_legacy": null
+    "training_entrypoint": "training/python/droplet_trainer/train.py",
+    "training_script_legacy": "\\\\wsl.localhost\\Ubuntu\\home\\haeminjung\\CNN_Droplet_Sorting\\python_env\\train_droplet.py",
+    "training_script_role": "build_time_provenance_only",
+    "runtime_dependency": false
   },
   "artifact": {
     "onnx_file": "blank_squeezenet_template.onnx",
-    "onnx_sha256": "ce86d715a3339d8d65874561c91f142d46975ba042408520c9ca7d8d97bb0a8d",
+    "onnx_sha256": "9cf87bfc56962976845f9f62a121a37ef81751e8e8932b3366784b06a0be4528",
     "metadata_sha256": null,
     "external_data_files": [],
     "format": "onnx",
@@ -40,7 +42,7 @@
       "score_type": "logits"
     }
   },
-  "label_schema_version": "droplet-labels-binary-v1",
+  "label_schema_version": "droplet-labels-target-nontarget-binary-v1",
   "classes": [
     "0",
     "1"
@@ -50,22 +52,28 @@
     "1": 1
   },
   "display_labels": {
-    "0": "Waste",
-    "1": "Hits"
+    "0": "Non-target",
+    "1": "Target"
   },
   "aliases": {
     "0": [
+      "Non-target",
+      "non-target",
+      "Nontarget",
       "Empty",
       "empty",
       "Waste",
       "waste",
       "MoreThanTwo",
       "MoreThan2",
+      "More than two",
       ">2",
       "2",
       "Multiple"
     ],
     "1": [
+      "Target",
+      "target",
       "Single",
       "single",
       "Hit",
@@ -76,9 +84,9 @@
   },
   "sorting_policy": {
     "target_class_id": "1",
-    "target_display_label": "Hits",
+    "target_display_label": "Target",
     "waste_class_id": "0",
-    "waste_display_label": "Waste",
+    "waste_display_label": "Non-target",
     "trigger_rule": "trigger_on_target_class"
   },
   "input_size": [
@@ -114,14 +122,28 @@
     "variant": "1_1",
     "num_classes": 2
   },
+  "initialization": {
+    "source": "TorchVision SqueezeNet1_1_Weights.DEFAULT / ImageNet",
+    "source_checkpoint": "\\wsl.localhost\\Ubuntu\\home\\haeminjung\\CNN_Droplet_Sorting\\python_env\\.cache\\torch\\hub\\checkpoints\\squeezenet1_1-b8a52dc0.pth",
+    "source_checkpoint_role": "build_time_provenance_only",
+    "source_checkpoint_sha256": "b8a52dc049b60e4b6ab68ad0df457362afab8b6304b2febdc1650a5dab4d7e7b",
+    "runtime_dependency": false,
+    "backbone_weights_preserved": true,
+    "classifier_head_reset": true,
+    "classifier_head_num_classes": 2,
+    "classifier_head_init": "torch_default_after_manual_seed_42",
+    "not_droplet_trained": true
+  },
   "training_config": {
     "architecture": "squeezenet1_1",
-    "pretrained": false,
-    "source_checkpoint": null,
+    "pretrained": true,
+    "source_checkpoint": "\\wsl.localhost\\Ubuntu\\home\\haeminjung\\CNN_Droplet_Sorting\\python_env\\.cache\\torch\\hub\\checkpoints\\squeezenet1_1-b8a52dc0.pth",
+    "source_checkpoint_role": "build_time_provenance_only",
+    "runtime_dependency": false,
     "export_onnx": true,
     "onnx_opset": 18,
     "seed": 42,
-    "generation_method": "deterministic_reinitialized_release_graph",
+    "generation_method": "load_exact_torchvision_imagenet_checkpoint_then_reset_binary_head",
     "loss": null,
     "imbalance": {
       "mode": "none",
@@ -180,28 +202,40 @@
     "training_command": [],
     "export_command": [
       "python app/runtime/scripts/generate_blank_squeezenet.py",
+      "--checkpoint=/home/haeminjung/CNN_Droplet_Sorting/python_env/.cache/torch/hub/checkpoints/squeezenet1_1-b8a52dc0.pth",
+      "--checkpoint-record-path=\\wsl.localhost\\Ubuntu\\home\\haeminjung\\CNN_Droplet_Sorting\\python_env\\.cache\\torch\\hub\\checkpoints\\squeezenet1_1-b8a52dc0.pth",
+      "--output-model=/mnt/c/Users/goals/Codex/OpenDSS/0. Codebase/app/runtime/models/blank_squeezenet_template.onnx",
+      "--output-metadata=/mnt/c/Users/goals/Codex/OpenDSS/0. Codebase/app/runtime/models/blank_squeezenet_template_metadata.json",
       "--seed=42",
-      "--source-model=C:/Users/goals/Codex/OpenDSS/0. Codebase/app/runtime/models/squeezenet_final_new_condition.onnx",
-      "--output-model=C:/Users/goals/Codex/OpenDSS/0. Codebase/app/runtime/models/blank_squeezenet_template.onnx",
-      "--output-metadata=C:/Users/goals/Codex/OpenDSS/0. Codebase/app/runtime/models/blank_squeezenet_template_metadata.json"
+      "--num-classes=2",
+      "--onnx-opset=18"
     ],
     "validation_commands": [],
     "environment_file": null,
-    "python_version": null,
-    "package_versions": {},
+    "python_version": "3.10.19",
+    "package_versions": {
+      "torch": "2.5.1",
+      "torchvision": "0.20.1",
+      "onnx": "1.20.0"
+    },
     "hardware": {},
     "random_seed": 42,
     "split_manifest": null,
     "created_by": "generate_blank_squeezenet.py",
     "notes": [
-      "Blank template generated by preserving the trained release graph topology and deterministically reinitializing floating-point parameters.",
-      "This template is intentionally untrained and must not be treated as validated for live sorting."
+      "The recorded checkpoint and legacy script paths are build-time provenance only.",
+      "OpenDSS runtime and installed packages load the bundled ONNX starter asset and bundled metadata, not the WSL checkpoint path, TorchVision cache, Python environment, or internet.",
+      "Backbone weights were loaded from the exact TorchVision SqueezeNet 1.1 ImageNet checkpoint cache file.",
+      "The 1000-class classifier head was replaced with a new 2-class head to match the OpenDSS training-start flow.",
+      "This starter is not droplet-trained and must be trained and validated before any live sorting use.",
+      "Public redistribution of TorchVision/ImageNet weights should be reviewed before public release packaging."
     ]
   },
   "promotion": {
     "promotion_gate_status": "not_evaluated",
     "rejection_reasons": [
-      "blank_untrained_template",
+      "imagenet_transfer_start",
+      "training_starter_only",
       "not_validated_for_live_sorting"
     ],
     "reviewed_by": null,
@@ -211,10 +245,11 @@
   "export": {
     "format": "onnx",
     "opset": 18,
-    "sha256": "ce86d715a3339d8d65874561c91f142d46975ba042408520c9ca7d8d97bb0a8d"
+    "sha256": "9cf87bfc56962976845f9f62a121a37ef81751e8e8932b3366784b06a0be4528"
   },
   "limitations": [
-    "Blank/untrained SqueezeNet template generated for packaging and future training bootstrap only.",
-    "Do not use this template for live sorting or DAQ-triggered operation without separate training and validation."
+    "ImageNet-start training starter only; not droplet-trained.",
+    "Do not use this starter for live sorting or DAQ-triggered operation without separate training and validation.",
+    "Public redistribution of TorchVision/ImageNet weights should be reviewed before public release packaging."
   ]
 }

@@ -130,7 +130,7 @@ void ValidatorWorkspaceController::openImageValidationDialog() {
                                  validationOutput, trainerPythonPath);
     dialog.exec();
     if (deps_.pythonStatusItem) {
-        deps_.pythonStatusItem->setText("Python: validator configured");
+        deps_.pythonStatusItem->setText("Python: validation tool ready");
     }
 }
 

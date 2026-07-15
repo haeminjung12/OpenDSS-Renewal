@@ -166,6 +166,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                                      const QString& registryLoadWarning, QSplashScreen& splash,
                                      QElapsedTimer& splashTimer) {
     const AppOptions& options = context_.options;
+    const bool verifyDatasetWorkspace =
+        !qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_MANIFEST").trimmed().isEmpty();
+    const bool verifyTrainerLaunch = qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_LAUNCH") != 0;
     const DefaultWorkspacePaths& defaultWorkspacePaths = context_.paths.defaultWorkspacePaths;
     const QString& logPath = context_.paths.sessionLogPath;
     const QString initialDaqStatusText = appState.daqStatusText;
@@ -179,9 +182,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         runtimeSettings.value("shell/theme", "dark").toString().compare("light", Qt::CaseInsensitive) == 0
             ? desktop_app::theme::ThemeMode::Light
             : desktop_app::theme::ThemeMode::Dark;
+    std::function<void()> refreshThemeDependentChrome = []() {};
     auto applyShellTheme = [&]() {
         app.setPalette(desktop_app::theme::palette(currentThemeMode));
         this->setStyleSheet(desktop_app::theme::shellStyleSheet(currentThemeMode));
+        refreshThemeDependentChrome();
     };
     applyShellTheme();
 
@@ -269,19 +274,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto datasetMenu = this->menuBar()->addMenu("&Dataset");
     addDisabledAction(datasetMenu, "New Dataset", "DatasetNewDatasetAction",
                       "Dataset workflows are placeholder-only in this shell step.");
-    auto datasetOpenAction = datasetMenu->addAction("Open Dataset");
-    datasetOpenAction->setStatusTip("Open the Dataset Builder review workspace.");
-    auto datasetBuildAction = datasetMenu->addAction("Build Dataset");
-    datasetBuildAction->setStatusTip("Open collected crops for Dataset Builder manual review.");
+    auto datasetOpenAction = datasetMenu->addAction("Open Image Set");
+    datasetOpenAction->setStatusTip("Open the Image Set review workspace.");
+    auto datasetBuildAction = datasetMenu->addAction("Build Image Set");
+    datasetBuildAction->setStatusTip("Open collected images for Image Set review.");
     addDisabledAction(datasetMenu, "Import Images", "DatasetImportImagesAction",
                       "Dataset workflows are placeholder-only in this shell step.");
     auto datasetCaptureFromCameraAction = datasetMenu->addAction("Capture From Camera");
     nameAction(datasetCaptureFromCameraAction, "DatasetCaptureFromCameraAction");
-    datasetCaptureFromCameraAction->setStatusTip(
-        "Start a live Dataset Builder capture session from the camera stream.");
-    auto datasetLabelDatasetAction = datasetMenu->addAction("Label Dataset");
+    datasetCaptureFromCameraAction->setStatusTip("Start a live Image Set capture session from the camera stream.");
+    auto datasetLabelDatasetAction = datasetMenu->addAction("Review Image Set");
     datasetLabelDatasetAction->setStatusTip(
-        "Open the Dataset Builder review workspace. Builder manifests can save reviewed labels.");
+        "Open the Image Set review workspace. Image lists can save reviewed labels.");
     auto datasetReadinessAction = datasetMenu->addAction("Readiness Check");
 
     auto trainingMenu = this->menuBar()->addMenu("&Training");
@@ -333,8 +337,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto systemDiagnosticsAction = toolsMenu->addAction("System Diagnostics");
     addDisabledAction(toolsMenu, "Model Artifact Verification", "ToolsModelArtifactVerificationAction",
                       "Model verification is not wired in this shell step.");
-    addDisabledAction(toolsMenu, "Dataset Manifest Verification", "ToolsDatasetManifestVerificationAction",
-                      "Dataset verification is not wired in this shell step.");
+    addDisabledAction(toolsMenu, "Image List Check", "ToolsDatasetManifestVerificationAction",
+                      "Image list checks are not wired in this shell step.");
 
     auto helpMenu = this->menuBar()->addMenu("&Help");
     auto aboutAction = helpMenu->addAction("&About");
@@ -602,9 +606,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     targetClassCombo->setMinimumContentsLength(12);
     targetClassCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     auto saveCropCheck = new QCheckBox("Save crops");
+    auto sortNonTargetCheck = new QCheckBox("Sort Non-target");
+    sortNonTargetCheck->setToolTip("When checked, sorting triggers on every class except the selected target class.");
     auto saveOverlayCheck = new QCheckBox("Save overlays");
     auto liveConfigureSettingsBtn = new QPushButton("Configure");
     nameWidget(liveConfigureSettingsBtn, "LiveConfigureSettingsButton");
+    for (auto* check : {saveCropCheck, sortNonTargetCheck, saveOverlayCheck}) {
+        check->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    }
     auto datasetCaptureModeCombo = new QComboBox;
     datasetCaptureModeCombo->addItems({"mixed", "hit-only", "waste-only"});
     auto datasetBatchTargetSpin = new QSpinBox;
@@ -613,7 +622,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto datasetStartCaptureBtn = new QPushButton("Start Dataset Capture");
     auto datasetStopCaptureBtn = new QPushButton("Stop and Review");
     datasetStopCaptureBtn->setEnabled(false);
-    auto datasetCaptureStatusLabel = new QLabel("Dataset Builder capture: idle");
+    auto datasetCaptureStatusLabel = new QLabel("Image Set capture: idle");
     datasetCaptureStatusLabel->setWordWrap(true);
     auto loadPipelineBtn = new QPushButton("Load Pipeline");
 
@@ -653,12 +662,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     row++;
     pipelineLayout->addWidget(openLiveModelManagerBtn, row, 1);
     pipelineLayout->addWidget(refreshLiveModelsBtn, row++, 2);
-    pipelineLayout->addWidget(new QLabel("Model provenance"), row, 0);
+    pipelineLayout->addWidget(new QLabel("Selected model"), row, 0);
     pipelineLayout->addWidget(liveModelSummaryText, row++, 1, 1, 3);
-    pipelineLayout->addWidget(new QLabel("ONNX path"), row, 0);
+    pipelineLayout->addWidget(new QLabel("Model file"), row, 0);
     pipelineLayout->addWidget(onnxEdit, row, 1, 1, 2);
     pipelineLayout->addWidget(onnxBrowseBtn, row++, 3);
-    pipelineLayout->addWidget(new QLabel("Metadata path"), row, 0);
+    pipelineLayout->addWidget(new QLabel("Model details"), row, 0);
     pipelineLayout->addWidget(metaEdit, row, 1, 1, 2);
     pipelineLayout->addWidget(metaBrowseBtn, row++, 3);
     pipelineLayout->addWidget(new QLabel("Output dir"), row, 0);
@@ -667,7 +676,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     pipelineLayout->addWidget(new QLabel("Target class"), row, 0);
     pipelineLayout->addWidget(targetClassCombo, row++, 1, 1, 3);
     pipelineLayout->addWidget(saveCropCheck, row, 0);
-    pipelineLayout->addWidget(saveOverlayCheck, row++, 1, 1, 2);
+    pipelineLayout->addWidget(sortNonTargetCheck, row, 1);
+    pipelineLayout->addWidget(saveOverlayCheck, row++, 2, 1, 2);
     pipelineLayout->addWidget(new QLabel("Dataset capture"), row, 0);
     pipelineLayout->addWidget(datasetCaptureModeCombo, row, 1);
     pipelineLayout->addWidget(datasetBatchTargetSpin, row, 2);
@@ -684,7 +694,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto labviewStatusDot = new QLabel;
     labviewStatusDot->setFixedSize(14, 14);
-    labviewStatusDot->setStyleSheet("background:#666;border-radius:7px;border:1px solid #333;");
+    labviewStatusDot->setStyleSheet("background:#666;border-radius:7px;border:1px solid #94A3B8;");
     auto labviewStatusText = new QLabel("Disconnected");
     auto labviewStatusRow = new QHBoxLayout;
     labviewStatusRow->setContentsMargins(0, 0, 0, 0);
@@ -818,7 +828,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto statsEventsLabel = new QLabel("Events: 0");
     auto statsClassLabel = new QLabel("Classes:\n(none)");
-    auto statsHitLabel = new QLabel("Classified Hit: 0\nClassified Waste: 0\nWent to Hit: 0\nWent to Waste: 0");
+    auto statsHitLabel = new QLabel("Classified Sort: 0\nClassified Pass: 0\nWent to Sort: 0\nWent to Pass: 0");
     auto statsLastLabel = new QLabel("Last event: --");
     statsEventsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     statsClassLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
@@ -879,11 +889,22 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto trainerPythonEdit = new QLineEdit("python");
     auto trainerPythonBrowseBtn = new QPushButton("Browse");
+    auto trainerStartingModelCombo = new QComboBox;
+    trainerStartingModelCombo->setMinimumContentsLength(24);
+    trainerStartingModelCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    auto trainerTrainingModeCombo = new QComboBox;
+    trainerTrainingModeCombo->addItem("Start a new trained copy", "new_copy");
+    trainerTrainingModeCombo->addItem("Keep training this model", "continue_copy");
+    auto trainerStartingModelHintLabel =
+        new QLabel("Pick a starter or trained model from Model workspace. Training always saves a new copy.");
+    trainerStartingModelHintLabel->setWordWrap(true);
+    trainerStartingModelHintLabel->setProperty("mutedText", true);
+    trainerStartingModelHintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     auto trainerDatasetEdit = new QLineEdit;
-    trainerDatasetEdit->setPlaceholderText("Select the image set for Hit and Waste examples...");
+    trainerDatasetEdit->setPlaceholderText("Choose the training image set file (.json)...");
     auto trainerDatasetBrowseBtn = new QPushButton("Browse");
     auto trainerOutputEdit = new QLineEdit;
-    trainerOutputEdit->setPlaceholderText("Choose where to save the trained model...");
+    trainerOutputEdit->setPlaceholderText("Choose where to save the new trained model...");
     auto trainerOutputBrowseBtn = new QPushButton("Browse");
     for (auto* edit : {trainerPythonEdit, trainerDatasetEdit, trainerOutputEdit}) {
         edit->setMinimumWidth(0);
@@ -916,10 +937,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerPathsLayout->setColumnStretch(2, 0);
     trainerPathsLayout->setColumnStretch(3, 0);
     int trainerRow = 0;
-    trainerPathsLayout->addWidget(new QLabel("Training images"), trainerRow, 0);
+    trainerPathsLayout->addWidget(new QLabel("Start from"), trainerRow, 0);
+    trainerPathsLayout->addWidget(trainerStartingModelCombo, trainerRow++, 1, 1, 3);
+    trainerPathsLayout->addWidget(new QLabel("Training plan"), trainerRow, 0);
+    trainerPathsLayout->addWidget(trainerTrainingModeCombo, trainerRow++, 1, 1, 3);
+    trainerPathsLayout->addWidget(trainerStartingModelHintLabel, trainerRow++, 1, 1, 3);
+    trainerPathsLayout->addWidget(new QLabel("Training image set file"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerDatasetEdit, trainerRow, 1, 1, 2);
     trainerPathsLayout->addWidget(trainerDatasetBrowseBtn, trainerRow++, 3);
-    trainerPathsLayout->addWidget(new QLabel("Save model to"), trainerRow, 0);
+    trainerPathsLayout->addWidget(new QLabel("Save new model in"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerOutputEdit, trainerRow, 1, 1, 2);
     trainerPathsLayout->addWidget(trainerOutputBrowseBtn, trainerRow++, 3);
     auto trainerPathsGroup = new QGroupBox("Training setup");
@@ -1259,6 +1285,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(targetClassCombo, "PipelineTargetClassComboBox");
     nameWidget(frameSkipSpin, "PipelineFrameSkipSpinBox");
     nameWidget(saveCropCheck, "PipelineSaveCropsCheckBox");
+    nameWidget(sortNonTargetCheck, "PipelineSortNonTargetCheckBox");
     nameWidget(saveOverlayCheck, "PipelineSaveOverlaysCheckBox");
     nameWidget(datasetCaptureModeCombo, "DatasetCaptureModeComboBox");
     nameWidget(datasetBatchTargetSpin, "DatasetCaptureBatchTargetSpinBox");
@@ -1313,6 +1340,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(trainerPathsGroup, "TrainerReadinessInputsGroup");
     nameWidget(trainerPythonEdit, "TrainerPythonPathEdit");
     nameWidget(trainerPythonBrowseBtn, "TrainerPythonBrowseButton");
+    nameWidget(trainerStartingModelCombo, "TrainerStartingModelCombo");
+    nameWidget(trainerTrainingModeCombo, "TrainerTrainingModeCombo");
+    nameWidget(trainerStartingModelHintLabel, "TrainerStartingModelHintLabel");
     nameWidget(trainerDatasetEdit, "TrainerDatasetPathEdit");
     nameWidget(trainerDatasetBrowseBtn, "TrainerDatasetBrowseButton");
     nameWidget(trainerOutputEdit, "TrainerOutputDirEdit");
@@ -1379,7 +1409,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(blockersGroup, "BlockersGroup");
     auto blockersLayout = new QVBoxLayout;
     auto blockersLabel =
-        new QLabel("Camera, model, and DAQ readiness appear here when startup or run actions are blocked.");
+        new QLabel("Camera, model, and sorting hardware readiness appear here when startup or run actions are blocked.");
     blockersLabel->setWordWrap(true);
     blockersLayout->addWidget(blockersLabel);
     blockersGroup->setLayout(blockersLayout);
@@ -1807,10 +1837,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     metricGrid->setContentsMargins(0, 0, 0, 0);
     metricGrid->setSpacing(1);
     metricGrid->addWidget(makeMetric("Events", eventsMetricLabel), 0, 0);
-    metricGrid->addWidget(makeMetric("Classified Hit", classifiedHitMetricLabel), 0, 1);
-    metricGrid->addWidget(makeMetric("Classified Waste", classifiedWasteMetricLabel), 1, 0);
-    metricGrid->addWidget(makeMetric("Went to Hit", wentToHitMetricLabel), 1, 1);
-    metricGrid->addWidget(makeMetric("Went to Waste", wentToWasteMetricLabel), 2, 0);
+    metricGrid->addWidget(makeMetric("Classified Sort", classifiedHitMetricLabel), 0, 1);
+    metricGrid->addWidget(makeMetric("Classified Pass", classifiedWasteMetricLabel), 1, 0);
+    metricGrid->addWidget(makeMetric("Went to Sort", wentToHitMetricLabel), 1, 1);
+    metricGrid->addWidget(makeMetric("Went to Pass", wentToWasteMetricLabel), 2, 0);
     metricGrid->addWidget(makeMetric("Trig/s", trigMetricLabel), 2, 1);
     runBody->addLayout(metricGrid);
     auto runStateResetButton = new QPushButton("Reset Counters");
@@ -1827,7 +1857,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(lastDecisionThumb, "LiveLastDecisionThumbnail");
     lastDecisionThumb->setAlignment(Qt::AlignCenter);
     lastDecisionThumb->setFixedSize(54, 42);
-    lastDecisionThumb->setStyleSheet("background:#0A0A0A;color:#94A3B8;border-radius:3px;font-size:10px;");
     auto lastDecisionText = new QVBoxLayout;
     lastDecisionText->setContentsMargins(0, 0, 0, 0);
     lastDecisionText->setSpacing(1);
@@ -1855,7 +1884,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     pipelineGrid->setContentsMargins(0, 0, 0, 0);
     pipelineGrid->setHorizontalSpacing(8);
     pipelineGrid->setVerticalSpacing(8);
-    pipelineGrid->addWidget(new QLabel("Target"), 0, 0);
+    pipelineGrid->setColumnStretch(1, 1);
+    pipelineGrid->setColumnStretch(2, 1);
+    pipelineGrid->addWidget(new QLabel("Target class"), 0, 0);
     pipelineGrid->addWidget(targetClassCombo, 0, 1);
     pipelineGrid->addWidget(new QLabel("Model"), 1, 0);
     pipelineGrid->addWidget(liveModelCombo, 1, 1);
@@ -1863,9 +1894,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     pipelineGrid->addWidget(new QLabel("Output"), 2, 0);
     pipelineGrid->addWidget(outputEdit, 2, 1, 1, 2);
     pipelineGrid->addWidget(saveCropCheck, 3, 0);
-    pipelineGrid->addWidget(saveOverlayCheck, 3, 1);
-    pipelineGrid->addWidget(loadPipelineBtn, 3, 2);
-    pipelineGrid->addWidget(liveConfigureSettingsBtn, 4, 2);
+    pipelineGrid->addWidget(saveOverlayCheck, 3, 1, 1, 2);
+    pipelineGrid->addWidget(sortNonTargetCheck, 4, 0, 1, 3);
+    pipelineGrid->addWidget(loadPipelineBtn, 5, 1);
+    pipelineGrid->addWidget(liveConfigureSettingsBtn, 5, 2);
     pipelineBody->addLayout(pipelineGrid);
     pipelineBody->addWidget(pipelineStatusLabel);
 
@@ -1882,12 +1914,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(rightScroll, "LiveRightMetricsScrollArea");
     rightScroll->setWidgetResizable(true);
     rightScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-    rightScroll->setMinimumWidth(330);
-    rightScroll->setMaximumWidth(360);
+    rightScroll->setMinimumWidth(360);
+    rightScroll->setMaximumWidth(430);
     rightScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto rightStack = new QWidget;
     nameWidget(rightStack, "LiveRightMetricsStack");
-    rightStack->setMinimumWidth(310);
+    rightStack->setMinimumWidth(340);
     auto rightStackLayout = new QVBoxLayout;
     rightStackLayout->setContentsMargins(0, 0, 2, 0);
     rightStackLayout->setSpacing(12);
@@ -2102,7 +2134,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     validatorWorkspaceControls.outputPath =
         runtimeSettings
             .value("validator/outputFolder",
-                   QDir(defaultWorkspacePaths.runs)
+                   QDir(defaultWorkspacePaths.validationRuns)
                        .filePath("validation_gui_image_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")))
             .toString();
     validatorWorkspaceControls.trainerPythonPath = validatorTrainerPythonPath();
@@ -2214,6 +2246,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto shellMenuButton = new QToolButton;
     nameWidget(shellMenuButton, "OpenDssHeaderMenuButton");
     shellMenuButton->setProperty("headerIcon", true);
+    shellMenuButton->setProperty("brandIconKey", "menu");
     shellMenuButton->setIcon(makeBrandIcon("menu", QColor("#FFFFFF"), QColor("#7DD3FC")));
     shellMenuButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     shellMenuButton->setToolTip("Menu");
@@ -2227,6 +2260,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto diagnosticsHeaderButton = new QToolButton;
     nameWidget(diagnosticsHeaderButton, "OpenDssHeaderDiagnosticsButton");
     diagnosticsHeaderButton->setProperty("headerIcon", true);
+    diagnosticsHeaderButton->setProperty("brandIconKey", "info");
     diagnosticsHeaderButton->setIcon(makeBrandIcon("info", QColor("#FFFFFF"), QColor("#7DD3FC")));
     diagnosticsHeaderButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
     diagnosticsHeaderButton->setToolTip("Diagnostics");
@@ -2332,6 +2366,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         nameWidget(button, objectName);
         button->setCheckable(true);
         button->setProperty("railButton", true);
+        button->setProperty("brandIconKey", iconKey);
         button->setIcon(makeBrandIcon(iconKey, QColor("#FFFFFF"), QColor("#14B8A6")));
         button->setIconSize(QSize(18, 18));
         button->setToolTip(text);
@@ -2350,10 +2385,37 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto modelNavButton = addNavButton("Model", "model", modelWorkspacePage, "NavModelButton");
     auto datasetNavButton = addNavButton("Dataset", "dataset", datasetWorkspacePage, "NavDatasetButton");
     auto trainerNavButton = addNavButton("Trainer", "trainer", trainerWorkspacePage, "NavTrainerButton");
-    auto validatorNavButton = addNavButton("Validator", "validator", validatorWorkspacePage, "NavValidatorButton");
+    auto validatorNavButton = addNavButton("Validation", "validator", validatorWorkspacePage, "NavValidatorButton");
     auto reportsNavButton = addNavButton("Reports", "reports", reportsWorkspacePage, "NavReportsButton");
     navLayout->addStretch(1);
     auto settingsNavButton = addNavButton("Settings", "settings", settingsWorkspacePage, "NavSettingsButton");
+
+    refreshThemeDependentChrome = [&]() {
+        const auto shellColors = desktop_app::theme::colors(currentThemeMode);
+        const QColor headerAccent = shellColors.shellIconAccent;
+        const QColor railAccent = currentThemeMode == desktop_app::theme::ThemeMode::Light
+                                      ? shellColors.shellIconAccent
+                                      : shellColors.brandAqua;
+        const auto applyIcon = [&](QAbstractButton* button, const QColor& accent) {
+            if (!button)
+                return;
+            const QString iconKey = button->property("brandIconKey").toString().trimmed();
+            if (iconKey.isEmpty())
+                return;
+            button->setIcon(makeBrandIcon(iconKey, shellColors.shellIconFg, accent));
+        };
+
+        applyIcon(shellMenuButton, headerAccent);
+        applyIcon(diagnosticsHeaderButton, headerAccent);
+        applyIcon(liveNavButton, railAccent);
+        applyIcon(modelNavButton, railAccent);
+        applyIcon(datasetNavButton, railAccent);
+        applyIcon(trainerNavButton, railAccent);
+        applyIcon(validatorNavButton, railAccent);
+        applyIcon(reportsNavButton, railAccent);
+        applyIcon(settingsNavButton, railAccent);
+    };
+    refreshThemeDependentChrome();
     auto wireHeaderChipNavigation = [&](QLabel* chip, QPushButton* destination, const QString& tooltip) {
         chip->setCursor(Qt::PointingHandCursor);
         chip->setToolTip(tooltip);
@@ -2387,8 +2449,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         trainerNavButton->setChecked(true);
     } else if (options.initialWorkspace == "validator") {
         workspaceStack->setCurrentWidget(validatorWorkspacePage);
-        headerTitleLabel->setText("/ Validator");
-        headerStatusText->setText("Validator workspace");
+        headerTitleLabel->setText("/ Validation");
+        headerStatusText->setText("Validation workspace");
         validatorNavButton->setChecked(true);
     } else if (options.initialWorkspace == "reports") {
         workspaceStack->setCurrentWidget(reportsWorkspacePage);
@@ -2629,10 +2691,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             return match.hasMatch() ? match.captured(1) : fallback;
         };
         eventsMetricLabel->setText(firstNumberAfter(statsEventsLabel->text(), "Events:", "0"));
-        classifiedHitMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Classified Hit:", "0"));
-        classifiedWasteMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Classified Waste:", "0"));
-        wentToHitMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Went to Hit:", "0"));
-        wentToWasteMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Went to Waste:", "0"));
+        classifiedHitMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Classified Sort:", "0"));
+        classifiedWasteMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Classified Pass:", "0"));
+        wentToHitMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Went to Sort:", "0"));
+        wentToWasteMetricLabel->setText(firstNumberAfter(statsHitLabel->text(), "Went to Pass:", "0"));
         trigMetricLabel->setText(pipelineEnableCheck->isChecked() ? "live" : "--");
         lastDecisionValue->setText(statsLastLabel->text().contains("--") ? "--" : statsLastLabel->text().simplified());
     });
@@ -2812,11 +2874,21 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
         return QString();
     };
+    const auto trainerModulePath = [&]() -> QString { return validatorTrainerPythonPath(); };
     QString projectRoot = findProjectRootUpwards();
+    if (projectRoot.isEmpty()) {
+        const QString trainerPythonPath = trainerModulePath();
+        if (!trainerPythonPath.isEmpty()) {
+            QDir dir(trainerPythonPath);
+            dir.cdUp();
+            dir.cdUp();
+            projectRoot = dir.absolutePath();
+        }
+    }
     auto projectPath = [&](const QString& rel) -> QString {
         return projectRoot.isEmpty() ? QString() : QDir(projectRoot).absoluteFilePath(rel);
     };
-    QString defaultTrainerOutput = defaultWorkspacePaths.runs;
+    QString defaultTrainerOutput = defaultWorkspacePaths.trainingRuns;
     QString defaultTrainerDataset = defaultWorkspacePaths.preparedDataset;
     auto* datasetController = new DatasetWorkspaceController(
         DatasetWorkspaceController::Dependencies{
@@ -2837,6 +2909,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             trainerStatusLabel,
             trainerResultText,
             trainerProgressBar,
+            &registryEntries,
+            registryFilePath,
+            trainerStartingModelCombo,
+            trainerTrainingModeCombo,
+            trainerStartingModelHintLabel,
             trainerArchitectureCombo,
             trainerPretrainedImageNetBtn,
             trainerPretrainedNoneBtn,
@@ -2864,6 +2941,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return datasetController->trainerCommandPreview(program, args);
     };
     auto saveTrainerSettings = [datasetController]() { datasetController->saveTrainerSettings(); };
+    auto refreshTrainerUi = [datasetController]() { datasetController->refreshTrainerUi(); };
     auto setTrainerBusy = [datasetController, &trainerCommandWasTraining](bool busy) {
         datasetController->setTrainerBusy(busy, trainerCommandWasTraining);
     };
@@ -2873,8 +2951,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
     auto trainerTrainArgs = [datasetController](bool dryRun) { return datasetController->trainerTrainArgs(dryRun); };
     auto startTrainerCommand = [&](const QString& label, const QStringList& args, bool isTraining, bool isDryRun) {
+        refreshTrainerUi();
         if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
             setTrainerSummary("A setup or training task is already running.");
+            return;
+        }
+        const QString trainerPythonPath = trainerModulePath();
+        if (trainerPythonPath.isEmpty()) {
+            setTrainerSummary("Could not find the training helper files.",
+                              "Expected a package-relative training/python folder for droplet_trainer.");
             return;
         }
         QString python = trainerPythonEdit->text().trimmed();
@@ -2884,7 +2969,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
         if ((isTraining || isDryRun) &&
             (trainerDatasetEdit->text().trimmed().isEmpty() || trainerOutputEdit->text().trimmed().isEmpty())) {
-            setTrainerSummary("Choose training images and a save location before continuing.");
+            setTrainerSummary("Choose a training image set file and a save location before continuing.");
             return;
         }
         if ((isTraining || isDryRun) && args.contains(QString())) {
@@ -2911,15 +2996,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         auto* process = new QProcess(this);
         trainerProcess = process;
         QProcessEnvironment env = QProcessEnvironment::systemEnvironment();
-        QString trainingPython = projectPath("training/python");
-        if (QFileInfo(trainingPython).isDir()) {
+        if (QFileInfo(trainerPythonPath).isDir()) {
             QString existing = env.value("PYTHONPATH");
             env.insert("PYTHONPATH",
-                       existing.isEmpty() ? trainingPython : trainingPython + QDir::listSeparator() + existing);
+                       existing.isEmpty() ? trainerPythonPath : trainerPythonPath + QDir::listSeparator() + existing);
         }
         process->setProcessEnvironment(env);
         if (!projectRoot.isEmpty()) {
             process->setWorkingDirectory(projectRoot);
+        } else {
+            process->setWorkingDirectory(trainerPythonPath);
         }
         QObject::connect(process, &QProcess::readyReadStandardOutput, this, [&, process]() {
             if (trainerProcess != process)
@@ -3001,7 +3087,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             }
         });
     });
+    QObject::connect(trainerNavButton, &QPushButton::clicked, [&]() { refreshTrainerUi(); });
     QObject::connect(datasetReadinessAction, &QAction::triggered, [&]() {
+        refreshTrainerUi();
         workspaceStack->setCurrentWidget(trainerWorkspacePage);
         headerTitleLabel->setText("/ Trainer");
         headerStatusText->setText("Trainer workspace");
@@ -3016,12 +3104,212 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         trainerPythonEdit->setFocus();
     });
     QObject::connect(trainingEnvironmentSettingsAction, &QAction::triggered, [&]() {
+        refreshTrainerUi();
         workspaceStack->setCurrentWidget(trainerWorkspacePage);
         headerTitleLabel->setText("/ Trainer");
         headerStatusText->setText("Trainer workspace");
         trainerNavButton->setChecked(true);
         trainerPythonEdit->setFocus();
     });
+    if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_MODEL_SELECTION") != 0) {
+        QTimer::singleShot(0, this, [=]() {
+            refreshTrainerUi();
+            workspaceStack->setCurrentWidget(trainerWorkspacePage);
+
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures.push_back(message);
+                }
+            };
+
+            require(trainerStartingModelCombo->count() > 0, "Trainer starting-model list is present");
+            require(!trainerStartingModelCombo->currentData().toString().trimmed().isEmpty(),
+                    "Trainer starting-model default selection is non-empty");
+            require(trainerTrainingModeCombo->currentData().toString() == "new_copy",
+                    "Trainer training-plan default is the safe new-copy mode");
+            require(trainerStartingModelHintLabel->text().contains("new copy", Qt::CaseInsensitive),
+                    "Trainer hint explains that training saves a new copy");
+            require(trainerStatusLabel->text().contains("Start from:", Qt::CaseInsensitive),
+                    "Trainer summary reports the selected starting model");
+            require(trainerStatusLabel->text().contains("unchanged", Qt::CaseInsensitive),
+                    "Trainer summary keeps the original model unchanged");
+            require(trainerOutputEdit->placeholderText().contains("new trained model", Qt::CaseInsensitive),
+                    "Trainer output text describes saving a new trained model");
+
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            if (failures.isEmpty()) {
+                qInfo().noquote() << "Trainer model-selection verifier passed.";
+            } else {
+                qWarning().noquote() << "Trainer model-selection verifier failed:" << failures.join("; ");
+            }
+            QCoreApplication::exit(exitCode);
+        });
+    }
+    if (verifyTrainerLaunch) {
+        QTimer::singleShot(0, this, [&, datasetController]() {
+            const QString verifierPrefix = QStringLiteral("TRAINER LAUNCH VERIFY");
+            const QString datasetPath = qEnvironmentVariable("OVDS_VERIFY_TRAINER_DATASET").trimmed();
+            const QString outputPath = qEnvironmentVariable("OVDS_VERIFY_TRAINER_OUTPUT").trimmed();
+            const QString pythonPath = qEnvironmentVariable("OVDS_VERIFY_TRAINER_PYTHON").trimmed();
+            const QString requestedModel = qEnvironmentVariable("OVDS_VERIFY_TRAINER_MODEL").trimmed();
+            const QString requestedMode = qEnvironmentVariable("OVDS_VERIFY_TRAINER_MODE").trimmed();
+            const QByteArray timeoutEnv = qgetenv("OVDS_VERIFY_TRAINER_TIMEOUT_MS");
+            const int timeoutMs = timeoutEnv.trimmed().isEmpty() ? 30000 : qMax(1000, timeoutEnv.toInt());
+
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures.push_back(message);
+                    qCritical().noquote() << verifierPrefix << "FAIL:" << message;
+                } else {
+                    qInfo().noquote() << verifierPrefix << "PASS:" << message;
+                }
+            };
+            auto waitForUi = [&](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+                app.processEvents();
+            };
+            auto finish = [&](int exitCode) {
+                qInfo().noquote() << verifierPrefix << "INFO: HelperPath=" << trainerModulePath();
+                qInfo().noquote() << verifierPrefix << "INFO: Python=" << trainerPythonEdit->text().trimmed();
+                qInfo().noquote() << verifierPrefix << "INFO: Dataset=" << trainerDatasetEdit->text().trimmed();
+                qInfo().noquote() << verifierPrefix << "INFO: Output=" << trainerOutputEdit->text().trimmed();
+                qInfo().noquote() << verifierPrefix << "INFO: Model="
+                                  << trainerStartingModelCombo->currentText().trimmed();
+                qInfo().noquote() << verifierPrefix << "INFO: TrainingMode="
+                                  << trainerTrainingModeCombo->currentData().toString().trimmed();
+                qInfo().noquote() << verifierPrefix << "INFO: Status=" << trainerStatusLabel->text().trimmed();
+                qInfo().noquote() << verifierPrefix << "INFO: LogBegin";
+                qInfo().noquote() << trainerResultText->toPlainText().trimmed();
+                qInfo().noquote() << verifierPrefix << "INFO: LogEnd";
+                QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+            };
+            auto findComboTextContains = [](QComboBox* combo, const QString& text) {
+                if (!combo)
+                    return -1;
+                const QString needle = text.trimmed();
+                if (needle.isEmpty())
+                    return combo->currentIndex();
+                const int exact = combo->findText(needle, Qt::MatchFixedString);
+                if (exact >= 0)
+                    return exact;
+                for (int i = 0; i < combo->count(); ++i) {
+                    if (combo->itemText(i).contains(needle, Qt::CaseInsensitive))
+                        return i;
+                }
+                return -1;
+            };
+
+            refreshTrainerUi();
+            workspaceStack->setCurrentWidget(trainerWorkspacePage);
+            headerTitleLabel->setText("/ Trainer");
+            headerStatusText->setText("Trainer workspace");
+            trainerNavButton->setChecked(true);
+            app.processEvents();
+            waitForUi(250);
+
+            require(!datasetPath.isEmpty(), "Dataset path env is provided");
+            require(!outputPath.isEmpty(), "Output path env is provided");
+            require(!pythonPath.isEmpty(), "Python path env is provided");
+            require(QFileInfo(datasetPath).isFile(), "Dataset manifest path exists");
+            require(QFileInfo(outputPath).isDir(), "Training output folder exists");
+            require(QFileInfo(pythonPath).isFile(), "Python executable path exists");
+            require(!trainerModulePath().isEmpty(), "Trainer helper folder resolves from the app");
+            require(trainerStartingModelCombo->count() > 0, "Trainer starting-model list is populated");
+            require(trainerTrainingModeCombo->count() > 0, "Trainer training-mode list is populated");
+
+            if (!failures.isEmpty()) {
+                finish(2);
+                return;
+            }
+
+            trainerPythonEdit->setText(QDir::toNativeSeparators(pythonPath));
+            trainerDatasetEdit->setText(QDir::toNativeSeparators(datasetPath));
+            trainerOutputEdit->setText(QDir::toNativeSeparators(outputPath));
+
+            const int modelIndex = findComboTextContains(trainerStartingModelCombo, requestedModel);
+            require(modelIndex >= 0, "Requested trainer model is available");
+            if (modelIndex >= 0)
+                trainerStartingModelCombo->setCurrentIndex(modelIndex);
+
+            const QString modeValue = requestedMode.isEmpty() ? QStringLiteral("new_copy") : requestedMode;
+            const int modeIndex = trainerTrainingModeCombo->findData(modeValue);
+            require(modeIndex >= 0, "Requested trainer mode is available");
+            if (modeIndex >= 0)
+                trainerTrainingModeCombo->setCurrentIndex(modeIndex);
+
+            refreshTrainerUi();
+            app.processEvents();
+            waitForUi(250);
+
+            const QStringList trainArgs = trainerTrainArgs(false);
+            require(!trainArgs.isEmpty(), "Trainer arguments are generated");
+            require(!trainArgs.contains(QString()), "Trainer arguments do not contain empty values");
+
+            if (!failures.isEmpty()) {
+                finish(2);
+                return;
+            }
+
+            qInfo().noquote() << verifierPrefix << "INFO: CommandPreview="
+                              << datasetController->trainerCommandPreview(trainerPythonEdit->text().trimmed(), trainArgs);
+
+            trainerStartTrainingBtn->click();
+            app.processEvents();
+            QElapsedTimer launchTimer;
+            launchTimer.start();
+            QString launchLog;
+            while (launchTimer.elapsed() < 5000) {
+                waitForUi(100);
+                launchLog = trainerResultText->toPlainText();
+                if (launchLog.contains(QStringLiteral("-m droplet_trainer train"), Qt::CaseInsensitive) ||
+                    launchLog.contains(QStringLiteral("\"event\": \"run_started\""), Qt::CaseInsensitive) ||
+                    (trainerProcess && trainerProcess->state() != QProcess::Starting)) {
+                    break;
+                }
+            }
+
+            require(trainerProcess != nullptr || launchLog.contains(QStringLiteral("Process finished:"), Qt::CaseInsensitive) ||
+                        launchLog.contains(QStringLiteral("\"event\": \"run_started\""), Qt::CaseInsensitive),
+                    "Trainer launch progressed past the Train click");
+            require(launchLog.contains(QStringLiteral("-m droplet_trainer train"), Qt::CaseInsensitive) ||
+                        launchLog.contains(QStringLiteral("\"event\": \"run_started\""), Qt::CaseInsensitive),
+                    "Trainer log shows python -m droplet_trainer train");
+
+            if (!failures.isEmpty()) {
+                finish(2);
+                return;
+            }
+
+            QElapsedTimer timer;
+            timer.start();
+            while (trainerProcess && trainerProcess->state() != QProcess::NotRunning && timer.elapsed() < timeoutMs) {
+                waitForUi(200);
+            }
+
+            if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
+                qInfo().noquote() << verifierPrefix << "INFO: Process still running after" << timeoutMs
+                                  << "ms; stopping verifier wait window.";
+                trainerProcess->terminate();
+                waitForUi(3000);
+                if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
+                    trainerProcess->kill();
+                    waitForUi(1000);
+                }
+                finish(0);
+                return;
+            }
+
+            const QString finalLog = trainerResultText->toPlainText();
+            const bool launchedTrain =
+                finalLog.contains(QStringLiteral("-m droplet_trainer train"), Qt::CaseInsensitive);
+            require(launchedTrain, "Trainer launch log still shows the train command after process exit");
+            finish(failures.isEmpty() ? 0 : 2);
+        });
+    }
     QObject::connect(trainingValidateEnvironmentAction, &QAction::triggered, [&]() {
         workspaceStack->setCurrentWidget(trainerWorkspacePage);
         headerTitleLabel->setText("/ Trainer");
@@ -3078,15 +3366,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     constexpr int kLiveModelOnnxHashRole = Qt::UserRole + 8;
     constexpr int kLiveModelMetadataHashRole = Qt::UserRole + 9;
 
-    auto addLiveModelRow = [&](const QString& label, const QString& id, const QString& onnxPath,
-                               const QString& metadataPath, const QString& state, const QString& mode,
-                               const QString& targetClassId, const QString& summary, const QString& onnxSha256,
-                               const QString& metadataSha256, bool selectable) {
-        liveModelCombo->addItem(label);
-        const int index = liveModelCombo->count() - 1;
-        liveModelCombo->setItemData(index, id, kLiveModelIdRole);
-        liveModelCombo->setItemData(index, onnxPath, kLiveModelOnnxRole);
-        liveModelCombo->setItemData(index, metadataPath, kLiveModelMetadataRole);
+    auto addLiveModelRow = [&](const QString& label, const QString& id, const QString& onnxPath, 
+                               const QString& metadataPath, const QString& state, const QString& mode, 
+                               const QString& targetClassId, const QString& summary, const QString& onnxSha256, 
+                               const QString& metadataSha256, bool selectable) { 
+        liveModelCombo->addItem(label); 
+        const int index = liveModelCombo->count() - 1; 
+        if (!targetClassId.trimmed().isEmpty())
+            liveModelCombo->setItemIcon(index, desktop_app::theme::semanticClassIcon(targetClassId, currentThemeMode));
+        liveModelCombo->setItemData(index, id, kLiveModelIdRole); 
+        liveModelCombo->setItemData(index, onnxPath, kLiveModelOnnxRole); 
+        liveModelCombo->setItemData(index, metadataPath, kLiveModelMetadataRole); 
         liveModelCombo->setItemData(index, state, kLiveModelStateRole);
         liveModelCombo->setItemData(index, mode, kLiveModelModeRole);
         liveModelCombo->setItemData(index, targetClassId, kLiveModelTargetRole);
@@ -3153,6 +3443,26 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         classId = targetClassCombo->currentText().trimmed();
         return classId.isEmpty() ? appState.targetClassId : classId;
     };
+    auto sortNonTargetEnabled = [&]() -> bool { return sortNonTargetCheck && sortNonTargetCheck->isChecked(); };
+    auto currentTargetDisplayText = [&]() -> QString {
+        const QString targetText = targetClassCombo ? targetClassCombo->currentText().trimmed() : QString();
+        if (!targetText.isEmpty())
+            return targetText;
+        const QString classId = selectedTargetClassId().trimmed();
+        return classId.isEmpty() ? QStringLiteral("target") : classId;
+    };
+    auto currentTriggerPolicyText = [&]() -> QString {
+        const QString targetText = currentTargetDisplayText();
+        return sortNonTargetEnabled() ? QString("Sort Non-target: not %1").arg(targetText)
+                                      : QString("Sort Target: %1").arg(targetText);
+    };
+    auto displayDecisionDirection = [](const QString& direction) {
+        if (direction.compare("Hit", Qt::CaseInsensitive) == 0)
+            return QStringLiteral("Sort");
+        if (direction.compare("Waste", Qt::CaseInsensitive) == 0)
+            return QStringLiteral("Pass");
+        return direction;
+    };
 
     auto setSelectedTargetClassId = [&](const QString& classId) {
         pendingTargetClassId = classId.trimmed();
@@ -3172,7 +3482,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         runtimeSettings.setValue("runtime/v1/model/path", onnxEdit->text().trimmed());
         runtimeSettings.setValue("runtime/v1/model/metadataPath", metaEdit->text().trimmed());
         appState.targetClassId = selectedTargetClassId();
+        appState.sortNonTarget = sortNonTargetEnabled();
         runtimeSettings.setValue("runtime/v1/model/targetClassId", appState.targetClassId);
+        runtimeSettings.setValue("runtime/v1/sorting/sortNonTarget", appState.sortNonTarget);
         runtimeSettings.setValue("runtime/v1/output/baseDir", runOutputBaseForSettings(outputEdit->text()));
         runtimeSettings.setValue("runtime/v1/output/saveCrops", saveCropCheck->isChecked());
         runtimeSettings.setValue("runtime/v1/output/saveOverlays", saveOverlayCheck->isChecked());
@@ -3218,6 +3530,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         setSelectedTargetClassId(
             runtimeSettings.value("runtime/v1/model/targetClassId", pendingTargetClassId).toString());
         outputEdit->setText(runtimeSettings.value("runtime/v1/output/baseDir", outputEdit->text()).toString());
+        sortNonTargetCheck->setChecked(
+            runtimeSettings.value("runtime/v1/sorting/sortNonTarget", appState.sortNonTarget).toBool());
         saveCropCheck->setChecked(
             runtimeSettings.value("runtime/v1/output/saveCrops", saveCropCheck->isChecked()).toBool());
         saveOverlayCheck->setChecked(
@@ -3277,6 +3591,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         model["metadata_sha256"] = liveModelCombo->currentData(kLiveModelMetadataHashRole).toString();
         model["target_class_id"] = selectedTargetClassId();
         model["target_display_label"] = targetClassCombo->currentText().trimmed();
+        model["sort_non_target"] = sortNonTargetEnabled();
+        model["trigger_policy"] = currentTriggerPolicyText();
         model["selection_summary"] = liveModelCombo->currentData(kLiveModelSummaryRole).toString();
         root["model"] = model;
 
@@ -3364,23 +3680,25 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         const bool loaded = LoadMetadata(metadataPath.toStdString(), metadata, err);
 
         QSignalBlocker blocker(targetClassCombo);
-        targetClassCombo->clear();
-
-        if (!loaded || metadata.classes.empty()) {
-            const QString fallbackId = requestedClassId.isEmpty() ? QStringLiteral("Single") : requestedClassId;
-            targetClassCombo->addItem(fallbackId, fallbackId);
-            pendingTargetClassId = fallbackId;
-            logMessage(QString("Target selector using legacy fallback class id '%1': %2")
-                           .arg(fallbackId, QString::fromStdString(err)));
-            return;
-        }
-
-        for (const std::string& classIdStd : metadata.classes) {
-            const std::string displayLabel = DisplayLabelForClassId(metadata, classIdStd);
-            const QString classId = QString::fromStdString(classIdStd);
-            const QString displayText = QString::fromStdString(FormatClassForDisplay(classIdStd, displayLabel));
-            targetClassCombo->addItem(displayText, classId);
-        }
+        targetClassCombo->clear(); 
+ 
+        if (!loaded || metadata.classes.empty()) { 
+            const QString fallbackId = requestedClassId.isEmpty() ? QStringLiteral("Single") : requestedClassId; 
+            targetClassCombo->addItem(desktop_app::theme::semanticClassIcon(fallbackId, currentThemeMode), fallbackId,
+                                      fallbackId); 
+            pendingTargetClassId = fallbackId; 
+            logMessage(QString("Target selector using legacy fallback class id '%1': %2") 
+                           .arg(fallbackId, QString::fromStdString(err))); 
+            return; 
+        } 
+ 
+        for (const std::string& classIdStd : metadata.classes) { 
+            const std::string displayLabel = DisplayLabelForClassId(metadata, classIdStd); 
+            const QString classId = QString::fromStdString(classIdStd); 
+            const QString displayText = QString::fromStdString(FormatClassForDisplay(classIdStd, displayLabel)); 
+            targetClassCombo->addItem(desktop_app::theme::semanticClassIcon(classId, currentThemeMode), displayText,
+                                      classId); 
+        } 
 
         std::string resolvedClassId;
         std::string resolvedDisplayLabel;
@@ -3490,7 +3808,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     validatorWorkspaceControllerDeps.workspaceStack = workspaceStack;
     validatorWorkspaceControllerDeps.validatorWorkspace = validatorWorkspacePage;
     validatorWorkspaceControllerDeps.preparedDatasetPath = defaultWorkspacePaths.preparedDataset;
-    validatorWorkspaceControllerDeps.validationRunsRoot = defaultWorkspacePaths.runs;
+    validatorWorkspaceControllerDeps.validationRunsRoot = defaultWorkspacePaths.validationRuns;
     validatorWorkspaceControllerDeps.appDir = appDir;
     validatorWorkspaceControllerDeps.resolveAppRelative = resolveAppRelative;
     validatorWorkspaceControllerDeps.seqFolderEdit = seqFolderEdit;
@@ -3645,7 +3963,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     });
 
     QObject::connect(onnxBrowseBtn, &QPushButton::clicked, [&]() {
-        QString file = QFileDialog::getOpenFileName(this, "Select ONNX model", onnxEdit->text(), "ONNX Model (*.onnx)");
+        const QString startPath = chooseOpenFileDialogPath(onnxEdit->text(), defaultWorkspacePaths.activeModel.isEmpty()
+                                                                               ? defaultWorkspacePaths.models
+                                                                               : defaultWorkspacePaths.activeModel,
+                                                           findPackagedAppPath("models"));
+        QString file = QFileDialog::getOpenFileName(this, "Select ONNX model", startPath, "ONNX Model (*.onnx)");
         if (!file.isEmpty()) {
             onnxEdit->setText(file);
             syncValidatorWorkspaceRuntimeModel();
@@ -3653,7 +3975,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
     });
     QObject::connect(metaBrowseBtn, &QPushButton::clicked, [&]() {
-        QString file = QFileDialog::getOpenFileName(this, "Select metadata JSON", metaEdit->text(), "JSON (*.json)");
+        const QString startPath = chooseOpenFileDialogPath(
+            metaEdit->text(),
+            defaultWorkspacePaths.activeMetadata.isEmpty() ? defaultWorkspacePaths.models : defaultWorkspacePaths.activeMetadata,
+            findPackagedAppPath("models"));
+        QString file = QFileDialog::getOpenFileName(this, "Select metadata JSON", startPath, "JSON (*.json)");
         if (!file.isEmpty()) {
             metaEdit->setText(file);
             syncValidatorWorkspaceRuntimeModel();
@@ -3662,7 +3988,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
     });
     QObject::connect(outputBrowseBtn, &QPushButton::clicked, [&]() {
-        QString dir = QFileDialog::getExistingDirectory(this, "Select output directory", outputEdit->text());
+        const QString startDir =
+            chooseExistingDirectoryDialogPath(outputEdit->text(), defaultWorkspacePaths.runs);
+        QString dir = QFileDialog::getExistingDirectory(this, "Select output directory", startDir);
         if (!dir.isEmpty()) {
             outputEdit->setText(dir);
             saveRuntimeSettings();
@@ -3691,6 +4019,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         });
         QObject::connect(savePathEdit, &QLineEdit::editingFinished, saveRuntimeSettings);
         QObject::connect(saveCropCheck, &QCheckBox::toggled, saveRuntimeSettings);
+        QObject::connect(sortNonTargetCheck, &QCheckBox::toggled, saveRuntimeSettings);
         QObject::connect(saveOverlayCheck, &QCheckBox::toggled, saveRuntimeSettings);
 
         QObject::connect(presetCombo, qOverload<int>(&QComboBox::currentIndexChanged), saveRuntimeSettings);
@@ -3784,7 +4113,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         cfg.onnxPath = onnxResolved.toStdString();
         cfg.metadataPath = metaResolved.toStdString();
         appState.targetClassId = selectedTargetClassId();
+        appState.sortNonTarget = sortNonTargetEnabled();
         cfg.targetClassId = appState.targetClassId.toStdString();
+        cfg.sortNonTarget = appState.sortNonTarget;
         cfg.outputDir = outputEdit->text().toStdString();
         cfg.saveCrop = saveCropCheck->isChecked();
         cfg.saveOverlay = saveOverlayCheck->isChecked();
@@ -3817,6 +4148,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
         logMessage(QString("Pipeline init paths: onnx=%1 meta=%2").arg(onnxEdit->text(), metaEdit->text()));
         logMessage(QString("Pipeline init resolved paths: onnx=%1 meta=%2").arg(onnxResolved, metaResolved));
+        logMessage("Pipeline trigger policy: " + currentTriggerPolicyText());
         if (forceNoDaq) {
             logMessage("DAQ config: disabled for recorded sequence replay");
         } else {
@@ -3836,7 +4168,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
 
         std::string err;
-        QString resolvedTargetText;
         {
             QMutexLocker locker(&pipelineMutex);
             try {
@@ -3855,7 +4186,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 }
                 pipeline.reset();
                 labviewTriggerReady = pipeline.isTriggerReady();
-                resolvedTargetText = QString::fromStdString(pipeline.targetDisplayText());
                 cfg.targetClassId = pipeline.targetClassId();
             } catch (const std::exception& e) {
                 const QString exceptionText = QString::fromLocal8Bit(e.what());
@@ -3900,8 +4230,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
 
         if (!err.empty()) {
-            pipelineStatusLabel->setText(QString("Pipeline ready (DAQ off), target %1: %2")
-                                             .arg(resolvedTargetText, QString::fromStdString(err)));
             modelStatusItem->setText("Model: loaded");
             daqStatusItem->setText("DAQ: unavailable");
             appState.daqAvailable = false;
@@ -3913,7 +4241,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             this->statusBar()->showMessage("Pipeline ready with DAQ warning");
             logMessage(QString("Pipeline init warning: %1").arg(QString::fromStdString(err)));
         } else {
-            pipelineStatusLabel->setText(QString("Pipeline ready, target %1").arg(resolvedTargetText));
             modelStatusItem->setText("Model: loaded");
             daqStatusItem->setText("DAQ: available");
             appState.daqAvailable = true;
@@ -3927,6 +4254,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         setSelectedTargetClassId(QString::fromStdString(cfg.targetClassId));
         appState.targetClassId = QString::fromStdString(cfg.targetClassId);
         saveRuntimeSettings();
+        const QString triggerPolicyText = currentTriggerPolicyText();
+        if (!err.empty()) {
+            pipelineStatusLabel->setText(
+                QString("Pipeline ready (DAQ off), %1: %2").arg(triggerPolicyText, QString::fromStdString(err)));
+        } else {
+            pipelineStatusLabel->setText(QString("Pipeline ready, %1").arg(triggerPolicyText));
+        }
+        logMessage("Pipeline ready with trigger policy: " + triggerPolicyText);
         pipelineStartBtn->setEnabled(!enableAfter && !sequenceRunning.load());
         pipelineEnabled.store(enableAfter);
         if (enableAfter) {
@@ -4043,7 +4378,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 return;
             datasetCaptureSession.setStopReason(reason.toStdString());
             if (!datasetCaptureSession.finalize(err)) {
-                logMessage(QString("Dataset Builder capture finalize failed: %1").arg(QString::fromStdString(err)));
+                logMessage(QString("Image Set capture finalize failed: %1").arg(QString::fromStdString(err)));
             }
             reviewPath = datasetCaptureManifestPath;
             datasetCaptureActive.store(false);
@@ -4051,9 +4386,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         datasetStartCaptureBtn->setEnabled(true);
         datasetStopCaptureBtn->setEnabled(false);
         datasetCaptureStatusLabel->setText(
-            QString("Dataset Builder capture stopped: %1\nManifest: %2").arg(reason, reviewPath));
-        statusLabel->setText("Dataset Builder capture stopped. Review required before trainer handoff.");
-        trainerDatasetEdit->setText(datasetCaptureDir);
+            QString("Image Set capture stopped: %1\nImage set file: %2").arg(reason, reviewPath));
+        statusLabel->setText("Image Set capture stopped. Review required before trainer handoff.");
+        trainerDatasetEdit->setText(reviewPath);
         if (openReview && QFileInfo::exists(reviewPath)) {
             openDatasetLabelerPath(reviewPath);
         }
@@ -4066,7 +4401,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         std::string modeText = datasetCaptureModeCombo->currentText().toStdString();
         std::string err;
         if (!DatasetCaptureSession::parseCollectionMode(modeText, mode)) {
-            datasetCaptureStatusLabel->setText("Invalid Dataset Builder collection mode.");
+            datasetCaptureStatusLabel->setText("Invalid image-set collection mode.");
             return;
         }
         if (liveModelCombo->currentData(kLiveModelModeRole).toString() == "blocked") {
@@ -4090,7 +4425,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         {
             QMutexLocker lock(&datasetCaptureMutex);
             if (!datasetCaptureSession.start(cfg, err)) {
-                datasetCaptureStatusLabel->setText("Dataset Builder capture failed: " + QString::fromStdString(err));
+                datasetCaptureStatusLabel->setText("Image Set capture failed: " + QString::fromStdString(err));
                 return;
             }
             datasetCaptureDir = sessionDir;
@@ -4111,12 +4446,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
         datasetStartCaptureBtn->setEnabled(false);
         datasetStopCaptureBtn->setEnabled(true);
-        datasetCaptureStatusLabel->setText(QString("Dataset Builder capture active: 0 / %1 crops\n%2")
+        datasetCaptureStatusLabel->setText(QString("Image Set capture active: 0 / %1 images\n%2")
                                                .arg(datasetBatchTargetSpin->value())
                                                .arg(sessionDir));
-        trainerDatasetEdit->setText(sessionDir);
-        statusLabel->setText("Dataset Builder capture active. Crops remain unreviewed until manual review.");
-        logMessage("Dataset Builder live capture started: " + sessionDir);
+        trainerDatasetEdit->setText(datasetCaptureManifestPath);
+        statusLabel->setText("Image Set capture is active. Images remain unreviewed until manual review.");
+        logMessage("Image Set live capture started: " + sessionDir);
     };
 
     QObject::connect(datasetStartCaptureBtn, &QPushButton::clicked, startDatasetCapture);
@@ -4468,7 +4803,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         snap.lastDecisionFrame = s.lastDecisionFrame;
         snap.lastDecisionEventId = s.lastDecisionEventId;
         if (!s.lastEventLabel.isEmpty()) {
-            snap.lastText = QString("Last event: %1 (%2)").arg(s.lastEventLabel, s.lastEventDir);
+            snap.lastText = QString("Last event: %1 (%2)").arg(s.lastEventLabel, displayDecisionDirection(s.lastEventDir));
         } else {
             snap.lastText = QString("Last event: --");
         }
@@ -4483,7 +4818,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto buildStatsFigures = [&](const StatsSnapshot& snap) {
         int hit = snap.wentToHitCount;
         int waste = snap.wentToWasteCount;
-        QImage hitWaste = renderPieChart("Went to Hit vs Waste", {"Went to Hit", "Went to Waste"},
+        QImage hitWaste = renderPieChart("Went to Sort vs Pass", {"Went to Sort", "Went to Pass"},
                                          {static_cast<double>(hit), static_cast<double>(waste)},
                                          {QColor(46, 204, 113), QColor(192, 57, 43)});
 
@@ -4503,12 +4838,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 more += count;
             }
         }
-        QImage classImg =
-            renderPieChart("Class Distribution", {"0", "1", ">2"},
-                           {static_cast<double>(empty), static_cast<double>(single), static_cast<double>(more)},
-                           {QColor(52, 152, 219), QColor(241, 196, 15), QColor(155, 89, 182)});
-        return std::pair<QImage, QImage>(hitWaste, classImg);
-    };
+        QImage classImg = 
+            renderPieChart("Class Distribution", {"0", "1", ">2"}, 
+                           {static_cast<double>(empty), static_cast<double>(single), static_cast<double>(more)}, 
+                           {desktop_app::theme::semanticClassColor("0"), desktop_app::theme::semanticClassColor("1"),
+                            desktop_app::theme::semanticClassColor("2")}); 
+        return std::pair<QImage, QImage>(hitWaste, classImg); 
+    }; 
 
     auto saveStatsFigures = [&](const QString& outDir, const QString& prefix, const StatsSnapshot& snap) -> bool {
         if (outDir.isEmpty())
@@ -4536,8 +4872,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             [=]() {
                 statsEventsLabel->setText(
                     QString("Events: %1  Active: %2").arg(snap.totalEvents).arg(snap.eventActive ? "Yes" : "No"));
-                statsHitLabel->setText(QString("Classified Hit: %1\nClassified Waste: %2\nWent to Hit: %3\nWent to "
-                                               "Waste: %4")
+                statsHitLabel->setText(QString("Classified Sort: %1\nClassified Pass: %2\nWent to Sort: %3\nWent to "
+                                               "Pass: %4")
                                            .arg(snap.classifiedHitCount)
                                            .arg(snap.classifiedWasteCount)
                                            .arg(snap.wentToHitCount)
@@ -5251,15 +5587,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     [&, addError]() {
                         datasetStartCaptureBtn->setEnabled(true);
                         datasetStopCaptureBtn->setEnabled(false);
-                        datasetCaptureStatusLabel->setText("Dataset Builder capture stopped after error: " + addError);
-                        statusLabel->setText("Dataset Builder capture stopped after error.");
+                        datasetCaptureStatusLabel->setText("Image Set capture stopped after an error: " + addError);
+                        statusLabel->setText("Image Set capture stopped after an error.");
                     },
                     Qt::QueuedConnection);
             } else {
                 QMetaObject::invokeMethod(
                     this,
                     [&, collected, target]() {
-                        datasetCaptureStatusLabel->setText(QString("Dataset Builder capture active: %1 / %2 crops\n%3")
+                        datasetCaptureStatusLabel->setText(QString("Image Set capture active: %1 / %2 images\n%3")
                                                                .arg(static_cast<qulonglong>(collected))
                                                                .arg(static_cast<qulonglong>(target))
                                                                .arg(datasetCaptureDir));
@@ -5271,9 +5607,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     this,
                     [&, collected]() {
                         QMessageBox prompt(this);
-                        prompt.setWindowTitle("Dataset Builder Batch Target Reached");
+                        prompt.setWindowTitle("Image Set Batch Target Reached");
                         prompt.setText(
-                            QString("Dataset Builder collected %1 crops. Continue collecting or stop and review?")
+                            QString("The image set collected %1 images. Continue collecting or stop and review?")
                                 .arg(static_cast<qulonglong>(collected)));
                         QPushButton* continueButton = prompt.addButton("Continue Collecting", QMessageBox::AcceptRole);
                         QPushButton* reviewButton = prompt.addButton("Stop and Review", QMessageBox::RejectRole);
@@ -5295,15 +5631,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         }
                         if (continueCollecting) {
                             datasetCaptureStatusLabel->setText(
-                                QString("Dataset Builder capture continuing to %1 crops\n%2")
+                                QString("Image Set capture continuing to %1 images\n%2")
                                     .arg(static_cast<qulonglong>(datasetCaptureSession.currentBatchTarget()))
                                     .arg(datasetCaptureDir));
                         } else {
                             datasetStartCaptureBtn->setEnabled(true);
                             datasetStopCaptureBtn->setEnabled(false);
                             datasetCaptureStatusLabel->setText(
-                                "Dataset Builder capture stopped for review.\nManifest: " + datasetCaptureManifestPath);
-                            trainerDatasetEdit->setText(datasetCaptureDir);
+                                "Image Set capture stopped for review.\nImage set file: " + datasetCaptureManifestPath);
+                            trainerDatasetEdit->setText(datasetCaptureManifestPath);
                             if (QFileInfo::exists(datasetCaptureManifestPath)) {
                                 openDatasetLabelerPath(datasetCaptureManifestPath);
                             }
@@ -5423,17 +5759,37 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     splash.finish(this);
     if (options.verifyDirectDaqManualTrigger || options.verifyLiveViewManualTrigger) {
         logMessage("Manual DAQ verifier: camera startup skipped while preserving hardware-required DAQ checks.");
+    } else if (options.verifyLiveViewSortPolicy) {
+        logMessage("Live View sort policy verifier: camera startup skipped to keep checks no-hardware.");
     } else if (options.verifyValidationWorkspace) {
         logMessage("Validation workspace verifier: camera startup skipped to keep checks no-hardware.");
+    } else if (verifyTrainerLaunch) {
+        logMessage("Trainer launch verifier: camera startup skipped to keep checks no-hardware.");
+    } else if (verifyDatasetWorkspace) {
+        logMessage("Dataset workspace verifier: camera startup skipped to keep checks no-hardware.");
     } else {
         cameraController->initializeCamera();
     }
-    if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger && !options.verifyValidationWorkspace) {
+    if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger && !options.verifyLiveViewSortPolicy &&
+        !options.verifyValidationWorkspace && !verifyTrainerLaunch && !verifyDatasetWorkspace) {
         QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
+    }
+    if (verifyDatasetWorkspace) {
+        auto* datasetVerifierExitTimer = new QTimer(this);
+        datasetVerifierExitTimer->setInterval(50);
+        QObject::connect(datasetVerifierExitTimer, &QTimer::timeout, this, [&app, datasetVerifierExitTimer]() {
+            const QVariant exitCode = qApp->property("ovdsDatasetWorkspaceVerifyExitCode");
+            if (!exitCode.isValid())
+                return;
+            datasetVerifierExitTimer->stop();
+            datasetVerifierExitTimer->deleteLater();
+            QTimer::singleShot(0, &app, [code = exitCode.toInt()]() { QCoreApplication::exit(code); });
+        });
+        datasetVerifierExitTimer->start();
     }
     if (!options.datasetBuilderReviewPath.trimmed().isEmpty()) {
         QTimer::singleShot(0, [&]() {
-            logMessage("Opening Dataset Builder review manifest from command line: " +
+            logMessage("Opening Image Set review file from command line: " +
                        options.datasetBuilderReviewPath);
             openDatasetLabelerPath(options.datasetBuilderReviewPath);
         });
@@ -5544,6 +5900,73 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
         });
     }
+    if (options.verifyLiveViewSortPolicy) {
+        QTimer::singleShot(0, [&]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures.push_back(message);
+                    qCritical().noquote() << "LIVE VIEW SORT VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "LIVE VIEW SORT VERIFY PASS:" << message;
+                }
+            };
+            auto waitForUi = [&](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+                app.processEvents();
+            };
+
+            workspaceStack->setCurrentWidget(liveWorkspacePage);
+            if (liveNavButton)
+                liveNavButton->setChecked(true);
+            headerTitleLabel->setText("/ Live View");
+            headerStatusText->setText("Live View workspace");
+            app.processEvents();
+            waitForUi(150);
+
+            auto* policyCheck = this->findChild<QCheckBox*>("PipelineSortNonTargetCheckBox");
+            auto* cropsCheck = this->findChild<QCheckBox*>("PipelineSaveCropsCheckBox");
+            auto* overlaysCheck = this->findChild<QCheckBox*>("PipelineSaveOverlaysCheckBox");
+            auto* policyTargetCombo = this->findChild<QComboBox*>("PipelineTargetClassComboBox");
+            require(policyCheck != nullptr, "PipelineSortNonTargetCheckBox exists");
+            require(policyCheck && policyCheck->text() == "Sort Non-target", "Sort Non-target checkbox label is correct");
+            require(cropsCheck != nullptr, "PipelineSaveCropsCheckBox exists");
+            require(overlaysCheck != nullptr, "PipelineSaveOverlaysCheckBox exists");
+            require(policyTargetCombo != nullptr, "PipelineTargetClassComboBox exists");
+
+            const QString sortPolicyKey = QStringLiteral("runtime/v1/sorting/sortNonTarget");
+            const bool originalChecked = policyCheck ? policyCheck->isChecked() : false;
+            if (policyCheck) {
+                policyCheck->setChecked(false);
+                app.processEvents();
+                require(!runtimeSettings.value(sortPolicyKey, true).toBool(), "Unchecked Sort Non-target persists false");
+
+                policyCheck->setChecked(true);
+                app.processEvents();
+                require(runtimeSettings.value(sortPolicyKey, false).toBool(), "Checked Sort Non-target persists true");
+
+                policyCheck->setChecked(originalChecked);
+                app.processEvents();
+            }
+
+            require(liveSortShouldTrigger("1", "1", false), "Target mode triggers the configured target class");
+            require(!liveSortShouldTrigger("0", "1", false), "Target mode does not trigger class 0 when target is 1");
+            require(!liveSortShouldTrigger("1", "1", true), "Non-target mode excludes the configured target class");
+            require(liveSortShouldTrigger("0", "1", true), "Non-target mode triggers class 0 when target is 1");
+            require(liveSortShouldTrigger("2", "1", true), "Non-target mode triggers class 2 when target is 1");
+            require(!liveSortShouldTrigger("", "1", true), "Empty predicted class never triggers");
+
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            if (failures.isEmpty()) {
+                logMessage("Live View sort policy verifier passed.");
+            } else {
+                logMessage("Live View sort policy verifier failed: " + failures.join("; "));
+            }
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+        });
+    }
     if (options.verifyCameraWorkspace) {
         QTimer::singleShot(0, [&]() {
             QStringList failures;
@@ -5575,14 +5998,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 return predicate();
             };
 
-            workspaceStack->setCurrentWidget(liveWorkspacePage);
-            liveNavButton->setChecked(true);
-            headerTitleLabel->setText("/ Live View");
-            headerStatusText->setText("Live View workspace");
-            rightScroll->setMinimumWidth(336);
-            rightScroll->setMaximumWidth(336);
-            mainSplitter->setSizes({qMax(760, this->width() - 336), 336});
-            app.processEvents();
+            workspaceStack->setCurrentWidget(liveWorkspacePage); 
+            liveNavButton->setChecked(true); 
+            headerTitleLabel->setText("/ Live View"); 
+            headerStatusText->setText("Live View workspace"); 
+            const int verifierRightWidth = qMax(430, rightScroll ? rightScroll->minimumWidth() : 430);
+            rightScroll->setMinimumWidth(verifierRightWidth); 
+            rightScroll->setMaximumWidth(verifierRightWidth); 
+            mainSplitter->setSizes({qMax(760, this->width() - verifierRightWidth), verifierRightWidth}); 
+            app.processEvents(); 
 
             require(workspaceStack->currentWidget() == liveWorkspacePage,
                     "Live View workspace opens as the active page");
@@ -5763,22 +6187,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(cameraBitsCombo && cameraBitsCombo->count() == 3 && cameraBitsCombo->itemText(0) == "8" &&
                         cameraBitsCombo->itemText(1) == "12" && cameraBitsCombo->itemText(2) == "16",
                     "CameraBitsComboBox offers 8, 12, and 16-bit choices");
-            require(cameraBitsCombo && cameraBitsCombo->currentText() == "8",
-                    "CameraBitsComboBox defaults to 8-bit");
-            require(cameraReadoutCombo && cameraReadoutCombo->count() == 1 &&
-                        cameraReadoutCombo->itemText(0).compare("Fast", Qt::CaseInsensitive) == 0 &&
-                        !cameraReadoutCombo->isEnabled(),
-                    "CameraReadoutSpeedComboBox is fixed to disabled Fast");
-            const bool realCameraVerifier = !options.noStartupPrompts;
-            require(realCameraVerifier, "Camera workspace verifier requires normal camera startup");
-            if (!realCameraVerifier) {
-                require(pipelineStartButton && !pipelineStartButton->isEnabled(),
-                        "Start Sorting stays disabled until a valid pipeline is ready");
-                require(pipelineStartButton && pipelineStartButton->isVisibleTo(this),
-                        "Sorting action starts as Start Sorting");
-                require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this),
-                        "Stop Sorting action starts hidden until sorting is active");
-            } else {
+            require(cameraBitsCombo && cameraBitsCombo->currentText() == "8", 
+                    "CameraBitsComboBox defaults to 8-bit"); 
+            require(cameraReadoutCombo && cameraReadoutCombo->count() == 1 && 
+                        cameraReadoutCombo->itemText(0).compare("Fast", Qt::CaseInsensitive) == 0 && 
+                        !cameraReadoutCombo->isEnabled(), 
+                    "CameraReadoutSpeedComboBox is fixed to disabled Fast"); 
+            const bool realCameraVerifier = !options.noStartupPrompts; 
+            if (!realCameraVerifier) { 
+                require(pipelineStartButton != nullptr, "Start Sorting control exists in no-hardware verifier"); 
+                require(pipelineStartButton && pipelineStartButton->isVisibleTo(this), 
+                        "Sorting action starts as Start Sorting"); 
+                require(pipelineStopButton && !pipelineStopButton->isVisibleTo(this), 
+                        "Stop Sorting action starts hidden until sorting is active"); 
+            } else { 
                 require(pipelineStartButton != nullptr, "Start Sorting control exists in real camera verifier");
                 require(pipelineStopButton != nullptr, "Stop Sorting control exists in real camera verifier");
             }
@@ -6027,12 +6449,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         "LiveRunClassifiedWasteMetricLabel reflects seeded waste count before reset");
                 require(liveRunWentToHitMetricLabel && liveRunWentToHitMetricLabel->text() == "2",
                         "LiveRunWentToHitMetricLabel reflects seeded went-to-hit count before reset");
-                require(liveRunWentToWasteMetricLabel && liveRunWentToWasteMetricLabel->text() == "7",
-                        "LiveRunWentToWasteMetricLabel reflects seeded went-to-waste count before reset");
-                require(statsClassTextLabel && statsClassTextLabel->text().contains("Single: 4"),
-                        "StatsClassCountsLabel reflects seeded class counts before reset");
-                require(statsLastEventLabel && statsLastEventLabel->text().contains("Single (Hit)"),
-                        "StatsLastEventLabel reflects seeded last event before reset");
+                require(liveRunWentToWasteMetricLabel && liveRunWentToWasteMetricLabel->text() == "7", 
+                        "LiveRunWentToWasteMetricLabel reflects seeded went-to-waste count before reset"); 
+                require(statsClassTextLabel && statsClassTextLabel->text().contains("Single: 4"), 
+                        "StatsClassCountsLabel reflects seeded class counts before reset"); 
+                require(statsLastEventLabel && statsLastEventLabel->text().contains("Single (Sort)"), 
+                        "StatsLastEventLabel reflects seeded last event before reset"); 
 
                 if (runStateResetButton)
                     runStateResetButton->click();

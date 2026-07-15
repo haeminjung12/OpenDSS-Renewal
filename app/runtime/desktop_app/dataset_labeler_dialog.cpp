@@ -3,6 +3,7 @@
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QComboBox>
+#include <QColorDialog>
 #include <QDateTime>
 #include <QFile>
 #include <QFileDialog>
@@ -21,6 +22,7 @@
 #include <QModelIndex>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QShortcut>
 #include <QSplitter>
 #include <QSet>
@@ -33,81 +35,159 @@
 #include <algorithm>
 
 #include "app_utils.h"
+#include "model_registry_service.h"
 #include "object_names.h"
+#include "theme.h"
 
-DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initialPath) : QDialog(parent) {
-    setWindowTitle("Dataset Builder Review");
+namespace {
+
+QString canonicalLegacyLabel(const QString& label) {
+    const QString lower = label.trimmed().toLower();
+    if (lower == "hits" || lower == "hit" || lower == "target" || lower == "1")
+        return "1";
+    if (lower == "waste" || lower == "empty" || lower == "non-target" || lower == "non_target" || lower == "0")
+        return "0";
+    if (lower == "2")
+        return "2";
+    if (lower == "exclude" || lower == "excluded" || lower == "reject" || lower == "rejected")
+        return "exclude";
+    if (lower == "unreviewed")
+        return "unreviewed";
+    return lower;
+}
+
+QString defaultClassDisplayName(int mode, const QString& id) {
+    if (id == "1")
+        return "Target";
+    if (id == "2")
+        return "Non-target B";
+    return mode >= 3 ? "Non-target A" : "Non-target";
+}
+
+QString defaultClassFolder(const QString& id) {
+    return QString("reviewed/class_%1").arg(id);
+}
+
+QString classSchemaColorValue(const QJsonObject& cls) {
+    const QString displayColor = cls.value("display_color").toString().trimmed();
+    if (!displayColor.isEmpty())
+        return displayColor;
+    return cls.value("color").toString().trimmed();
+}
+
+QString filterValueForClassId(const QString& classId) {
+    return "class:" + classId;
+}
+
+QString preferredDatasetMetadataPath(const QString& path) {
+    const QFileInfo info(path.trimmed());
+    if (!info.exists()) {
+        return path.trimmed();
+    }
+    if (info.isFile()) {
+        return info.absoluteFilePath();
+    }
+    const QDir dir(info.absoluteFilePath());
+    const QString metadataManifest = dir.filePath("metadata/dataset_manifest.json");
+    if (QFileInfo::exists(metadataManifest)) {
+        return metadataManifest;
+    }
+    const QString rootManifest = dir.filePath("manifest.json");
+    if (QFileInfo::exists(rootManifest)) {
+        return rootManifest;
+    }
+    for (const QString& starterName : {QString("droplet_target_nontarget_binary_starter"),
+                                       QString("droplet_target_nontarget_3class_starter")}) {
+        const QString starterManifest = dir.filePath(starterName + "/metadata/dataset_manifest.json");
+        if (QFileInfo::exists(starterManifest)) {
+            return starterManifest;
+        }
+    }
+    return info.absoluteFilePath();
+}
+
+} // namespace
+
+DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initialPath, const QString& defaultPath)
+    : QDialog(parent), defaultDatasetRoot(defaultPath) {
+    setWindowTitle("Image Set Review");
     resize(1280, 780);
     setMinimumSize(980, 620);
     nameWidget(this, "datasetLabelerWorkspace");
+    resetClassSchema(2);
 
-    auto* openFolderButton = new QPushButton("Open Dataset Folder");
-    auto* openManifestButton = new QPushButton("Open Manifest");
-    hitButton = new QPushButton("Hit");
-    wasteButton = new QPushButton("Waste");
+    auto* openManifestButton = new QPushButton("Open Image Set File");
+    classModeCombo = new QComboBox;
+    classModeCombo->addItem("2 labels", 2);
+    classModeCombo->addItem("3 labels", 3);
+    classZeroEdit = new QLineEdit;
+    classOneEdit = new QLineEdit;
+    classTwoEdit = new QLineEdit;
+    classTwoLabel = new QLabel("Second non-target label");
+    classZeroColorButton = new QPushButton;
+    classOneColorButton = new QPushButton;
+    classTwoColorButton = new QPushButton;
+    classZeroButton = new QPushButton;
+    classOneButton = new QPushButton;
+    classTwoButton = new QPushButton;
     excludeButton = new QPushButton("Exclude");
-    acceptButton = new QPushButton("Accept Auto-label");
     undoButton = new QPushButton("Undo");
-    saveButton = new QPushButton("Save Review");
-    excludeReasonCombo = new QComboBox;
-    excludeReasonCombo->addItems(
-        {"edge_case", "artifact", "ambiguous", "partial_droplet", "bad_crop", "not_for_training", "other"});
+    saveButton = new QPushButton("Save Labels");
     notesEdit = new QPlainTextEdit;
     notesEdit->setPlaceholderText("Review notes");
     notesEdit->setMaximumHeight(74);
-    for (auto* button : {hitButton, wasteButton, excludeButton, acceptButton, undoButton, saveButton}) {
+    for (auto* button : {classZeroButton, classOneButton, classTwoButton, excludeButton, undoButton, saveButton}) {
         button->setEnabled(false);
+        button->setMinimumHeight(30);
+        button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
     }
-    excludeReasonCombo->setEnabled(false);
     notesEdit->setEnabled(false);
 
     pathLabel = new QLabel("No dataset selected.");
     pathLabel->setWordWrap(true);
     pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    bannerLabel = new QLabel("Open a Dataset Builder manifest to review crops. Auto-labels remain suggestions until a "
-                             "reviewed label is saved.");
+    bannerLabel = new QLabel("Open an image set file to review and label images.");
     bannerLabel->setWordWrap(true);
     bannerLabel->setStyleSheet("color:#6b4f00;");
-    loadStatusLabel = new QLabel("Dataset Builder review load status: no manifest loaded");
+    loadStatusLabel = new QLabel("Image set review load status: no image set file loaded");
     loadStatusLabel->setWordWrap(true);
     loadStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    loadStatusEdit = new QLineEdit("Dataset Builder review load status: no manifest loaded");
+    loadStatusEdit = new QLineEdit("Image set review load status: no image set file loaded");
     loadStatusEdit->setReadOnly(true);
     loadStatusEdit->setFrame(false);
     loadStatusEdit->setFocusPolicy(Qt::NoFocus);
     filterCombo = new QComboBox;
-    filterCombo->addItems(
-        {"All crops", "Unreviewed", "Reviewed", "Excluded", "Auto hit", "Auto waste", "Low confidence", "Warnings"});
     searchEdit = new QLineEdit;
-    searchEdit->setPlaceholderText("Filter by image id, path, auto-label, reviewed label, state, or warning");
+    searchEdit->setPlaceholderText("Filter by image id, path, label, state, or warning");
     prevButton = new QPushButton("Previous");
     nextButton = new QPushButton("Next");
     prevButton->setEnabled(false);
     nextButton->setEnabled(false);
-    browserTable = new QTableWidget(0, 7);
-    browserTable->setHorizontalHeaderLabels({"Image ID", "Crop", "Auto", "Reviewed", "State", "Eligible", "Warnings"});
+    for (auto* button : {openManifestButton, prevButton, nextButton}) {
+        button->setMinimumHeight(30);
+        button->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Fixed);
+    }
+    browserTable = new QTableWidget(0, 6);
+    browserTable->setHorizontalHeaderLabels({"Image ID", "Image", "Label", "State", "Ready", "Warnings"});
     browserTable->horizontalHeader()->setStretchLastSection(true);
     browserTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
     browserTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     browserTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    classBalanceTable = new QTableWidget(0, 6);
-    classBalanceTable->setHorizontalHeaderLabels(
-        {"Label", "Reviewed", "Trainer Eligible", "Auto", "Warning", "Policy"});
+    classBalanceTable = new QTableWidget(0, 5);
+    classBalanceTable->setHorizontalHeaderLabels({"Label", "Reviewed", "Ready", "Warning", "Policy"});
     classBalanceTable->horizontalHeader()->setStretchLastSection(true);
     classBalanceTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    previewLabel = new QLabel("Select a dataset to inspect manifest entries and available summary artifacts.");
+    previewLabel = new QLabel("Select an image to review its label, state, and saved details.");
     previewLabel->setAlignment(Qt::AlignCenter);
     previewLabel->setMinimumSize(320, 220);
     previewLabel->setStyleSheet("background:#111;color:#ddd;border:1px solid #555;");
-    previewDetailsLabel = new QLabel("No crop selected.");
+    previewDetailsLabel = new QLabel("No image selected.");
     previewDetailsLabel->setWordWrap(true);
     previewDetailsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     outputText = new QPlainTextEdit;
     outputText->setReadOnly(true);
-    outputText->setPlainText("Accepted inputs: Dataset Builder metadata/dataset_manifest.json, older dataset "
-                             "manifests, metadata/labels.csv, or metadata/crops.csv.");
+    outputText->setPlainText("Accepted inputs: an image set file (.json) or older labels/crops CSV files.");
 
-    nameWidget(openFolderButton, "datasetLabelerOpenDatasetAction");
     nameWidget(openManifestButton, "datasetLabelerOpenManifestButton");
     nameWidget(pathLabel, "datasetLabelerDatasetPathLabel");
     nameWidget(filterCombo, "datasetLabelerCropFilterCombo");
@@ -117,13 +197,19 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     nameWidget(browserTable, "datasetLabelerCropBrowser");
     nameWidget(previewLabel, "datasetLabelerCropPreview");
     nameWidget(previewDetailsLabel, "datasetLabelerCropDetailsLabel");
-    nameWidget(hitButton, "datasetBuilderReviewHitButton");
-    nameWidget(wasteButton, "datasetBuilderReviewWasteButton");
+    nameWidget(classModeCombo, "datasetLabelerClassModeCombo");
+    nameWidget(classZeroEdit, "datasetLabelerClassZeroEdit");
+    nameWidget(classOneEdit, "datasetLabelerClassOneEdit");
+    nameWidget(classTwoEdit, "datasetLabelerClassTwoEdit");
+    nameWidget(classZeroColorButton, "datasetLabelerClassZeroColorButton");
+    nameWidget(classOneColorButton, "datasetLabelerClassOneColorButton");
+    nameWidget(classTwoColorButton, "datasetLabelerClassTwoColorButton");
+    nameWidget(classZeroButton, "datasetBuilderReviewClassZeroButton");
+    nameWidget(classOneButton, "datasetBuilderReviewClassOneButton");
+    nameWidget(classTwoButton, "datasetBuilderReviewClassTwoButton");
     nameWidget(excludeButton, "datasetBuilderReviewExcludeButton");
-    nameWidget(acceptButton, "datasetBuilderReviewAcceptAutoButton");
     nameWidget(undoButton, "datasetLabelerUndoButton");
     nameWidget(saveButton, "datasetBuilderSaveReviewButton");
-    nameWidget(excludeReasonCombo, "datasetBuilderExcludeReasonCombo");
     nameWidget(notesEdit, "datasetBuilderReviewNotesEdit");
     nameWidget(classBalanceTable, "datasetLabelerClassBalanceTable");
     nameWidget(bannerLabel, "datasetLabelerReadinessBanner");
@@ -132,26 +218,49 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     nameWidget(outputText, "datasetLabelerBackendOutputText");
 
     auto* topButtons = new QHBoxLayout;
-    topButtons->addWidget(openFolderButton);
     topButtons->addWidget(openManifestButton);
     topButtons->addStretch(1);
 
+    for (auto* button : {classZeroColorButton, classOneColorButton, classTwoColorButton}) {
+        button->setFixedWidth(34);
+        button->setMinimumHeight(28);
+        button->setText(QString());
+        button->setToolTip("Choose label color");
+    }
+
+    auto* classSchemaLayout = new QGridLayout;
+    classSchemaLayout->addWidget(new QLabel("Class setup"), 0, 0);
+    classSchemaLayout->addWidget(classModeCombo, 0, 1, 1, 2);
+    classSchemaLayout->addWidget(new QLabel("Non-target label"), 1, 0);
+    classSchemaLayout->addWidget(classZeroEdit, 1, 1);
+    classSchemaLayout->addWidget(classZeroColorButton, 1, 2);
+    classSchemaLayout->addWidget(new QLabel("Target label"), 2, 0);
+    classSchemaLayout->addWidget(classOneEdit, 2, 1);
+    classSchemaLayout->addWidget(classOneColorButton, 2, 2);
+    classSchemaLayout->addWidget(classTwoLabel, 3, 0);
+    classSchemaLayout->addWidget(classTwoEdit, 3, 1);
+    classSchemaLayout->addWidget(classTwoColorButton, 3, 2);
+
     auto* actionsLayout = new QGridLayout;
-    actionsLayout->addWidget(hitButton, 0, 0);
-    actionsLayout->addWidget(wasteButton, 0, 1);
-    actionsLayout->addWidget(excludeButton, 0, 2);
-    actionsLayout->addWidget(acceptButton, 1, 0, 1, 3);
-    actionsLayout->addWidget(new QLabel("Exclude reason"), 2, 0);
-    actionsLayout->addWidget(excludeReasonCombo, 2, 1, 1, 2);
-    actionsLayout->addWidget(notesEdit, 3, 0, 1, 3);
-    actionsLayout->addWidget(undoButton, 4, 0);
-    actionsLayout->addWidget(saveButton, 4, 1, 1, 2);
+    actionsLayout->setHorizontalSpacing(8);
+    actionsLayout->setVerticalSpacing(8);
+    actionsLayout->setColumnStretch(0, 1);
+    actionsLayout->setColumnStretch(1, 1);
+    actionsLayout->setColumnStretch(2, 1);
+    actionsLayout->addWidget(classZeroButton, 0, 0);
+    actionsLayout->addWidget(classOneButton, 0, 1);
+    actionsLayout->addWidget(classTwoButton, 0, 2);
+    actionsLayout->addWidget(excludeButton, 1, 0, 1, 3);
+    actionsLayout->addWidget(notesEdit, 2, 0, 1, 3);
+    actionsLayout->addWidget(undoButton, 3, 0);
+    actionsLayout->addWidget(saveButton, 3, 1, 1, 2);
     auto* actionsGroup = new QGroupBox("Manual Review");
     actionsGroup->setLayout(actionsLayout);
 
     auto* leftLayout = new QVBoxLayout;
     leftLayout->addLayout(topButtons);
     leftLayout->addWidget(pathLabel);
+    leftLayout->addLayout(classSchemaLayout);
     auto* filterLayout = new QGridLayout;
     filterLayout->addWidget(new QLabel("View"), 0, 0);
     filterLayout->addWidget(filterCombo, 0, 1);
@@ -178,8 +287,11 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     rightWidget->setLayout(rightLayout);
     splitter->addWidget(leftWidget);
     splitter->addWidget(rightWidget);
+    splitter->setChildrenCollapsible(false);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
+    leftWidget->setMinimumWidth(430);
+    rightWidget->setMinimumWidth(420);
 
     auto* layout = new QVBoxLayout;
     layout->addWidget(bannerLabel);
@@ -190,14 +302,13 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     layout->addWidget(outputText, 1);
     setLayout(layout);
 
-    QObject::connect(openFolderButton, &QPushButton::clicked, [this]() {
-        const QString selected = QFileDialog::getExistingDirectory(this, "Select dataset folder", currentDatasetPath);
-        if (!selected.isEmpty())
-            loadDatasetPath(selected);
-    });
     QObject::connect(openManifestButton, &QPushButton::clicked, [this]() {
-        const QString selected = QFileDialog::getOpenFileName(this, "Select dataset manifest", currentDatasetPath,
-                                                              "JSON manifest (*.json);;All files (*.*)");
+        const QString startPath =
+            chooseOpenFileDialogPath(preferredDatasetMetadataPath(currentDatasetPath),
+                                     preferredDatasetMetadataPath(defaultDatasetRoot),
+                                     findPackagedAppPath("datasets/prepared"));
+        const QString selected = QFileDialog::getOpenFileName(
+            this, "Select image set file", startPath, "Image set files (*.json);;All files (*.*)");
         if (!selected.isEmpty())
             loadDatasetPath(selected);
     });
@@ -206,37 +317,44 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     QObject::connect(prevButton, &QPushButton::clicked, [this]() { selectRelativeRow(-1); });
     QObject::connect(nextButton, &QPushButton::clicked, [this]() { selectRelativeRow(1); });
     QObject::connect(browserTable, &QTableWidget::itemSelectionChanged, [this]() { updatePreviewFromSelection(); });
-    QObject::connect(hitButton, &QPushButton::clicked, [this]() { applyReviewLabel("hit", true); });
-    QObject::connect(wasteButton, &QPushButton::clicked, [this]() { applyReviewLabel("waste", true); });
+    QObject::connect(classModeCombo, &QComboBox::currentIndexChanged, [this]() { handleClassModeChanged(); });
+    QObject::connect(classZeroEdit, &QLineEdit::editingFinished, [this]() { handleClassLabelEdited(0); });
+    QObject::connect(classOneEdit, &QLineEdit::editingFinished, [this]() { handleClassLabelEdited(1); });
+    QObject::connect(classTwoEdit, &QLineEdit::editingFinished, [this]() { handleClassLabelEdited(2); });
+    QObject::connect(classZeroColorButton, &QPushButton::clicked, [this]() { chooseClassColor(0); });
+    QObject::connect(classOneColorButton, &QPushButton::clicked, [this]() { chooseClassColor(1); });
+    QObject::connect(classTwoColorButton, &QPushButton::clicked, [this]() { chooseClassColor(2); });
+    QObject::connect(classZeroButton, &QPushButton::clicked, [this]() { applyReviewLabelByIndex(0, true); });
+    QObject::connect(classOneButton, &QPushButton::clicked, [this]() { applyReviewLabelByIndex(1, true); });
+    QObject::connect(classTwoButton, &QPushButton::clicked, [this]() { applyReviewLabelByIndex(2, true); });
     QObject::connect(excludeButton, &QPushButton::clicked, [this]() { applyReviewLabel("exclude", true); });
-    QObject::connect(acceptButton, &QPushButton::clicked, [this]() { acceptAutoLabel(); });
     QObject::connect(saveButton, &QPushButton::clicked, [this]() { saveManifestAndLabels(); });
     QObject::connect(undoButton, &QPushButton::clicked, [this]() { undoLastReviewEdit(); });
     auto* prevShortcut = new QShortcut(QKeySequence(Qt::Key_Left), this);
     auto* nextShortcut = new QShortcut(QKeySequence(Qt::Key_Right), this);
-    auto* hitShortcut = new QShortcut(QKeySequence(Qt::Key_H), this);
-    auto* wasteShortcut = new QShortcut(QKeySequence(Qt::Key_W), this);
+    auto* classZeroShortcut = new QShortcut(QKeySequence(Qt::Key_1), this);
+    auto* classOneShortcut = new QShortcut(QKeySequence(Qt::Key_2), this);
+    auto* classTwoShortcut = new QShortcut(QKeySequence(Qt::Key_3), this);
     auto* excludeShortcut = new QShortcut(QKeySequence(Qt::Key_E), this);
-    auto* acceptShortcut = new QShortcut(QKeySequence(Qt::Key_Space), this);
     auto* undoShortcut = new QShortcut(QKeySequence::Undo, this);
     auto* saveShortcut = new QShortcut(QKeySequence(Qt::Key_Return), this);
     QObject::connect(prevShortcut, &QShortcut::activated, [this]() { selectRelativeRow(-1); });
     QObject::connect(nextShortcut, &QShortcut::activated, [this]() { selectRelativeRow(1); });
-    QObject::connect(hitShortcut, &QShortcut::activated, [this]() {
+    QObject::connect(classZeroShortcut, &QShortcut::activated, [this]() {
         if (reviewShortcutAllowed())
-            applyReviewLabel("hit", true);
+            applyReviewLabelByIndex(0, true);
     });
-    QObject::connect(wasteShortcut, &QShortcut::activated, [this]() {
+    QObject::connect(classOneShortcut, &QShortcut::activated, [this]() {
         if (reviewShortcutAllowed())
-            applyReviewLabel("waste", true);
+            applyReviewLabelByIndex(1, true);
+    });
+    QObject::connect(classTwoShortcut, &QShortcut::activated, [this]() {
+        if (reviewShortcutAllowed())
+            applyReviewLabelByIndex(2, true);
     });
     QObject::connect(excludeShortcut, &QShortcut::activated, [this]() {
         if (reviewShortcutAllowed())
             applyReviewLabel("exclude", true);
-    });
-    QObject::connect(acceptShortcut, &QShortcut::activated, [this]() {
-        if (reviewShortcutAllowed())
-            acceptAutoLabel();
     });
     QObject::connect(undoShortcut, &QShortcut::activated, [this]() {
         if (reviewShortcutAllowed())
@@ -246,9 +364,306 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
         if (reviewShortcutAllowed())
             saveManifestAndLabels();
     });
+    updateClassModeUi();
+    updateFilterChoices();
+    updateReviewControls();
 
     if (!initialPath.isEmpty())
         loadDatasetPath(initialPath);
+}
+
+void DatasetLabelerDialog::resetClassSchema(int mode) {
+    classEntries.clear();
+    classEntries.push_back({"0", defaultClassDisplayName(mode, "0"), defaultClassFolder("0"), defaultClassColorHex("0")});
+    classEntries.push_back({"1", defaultClassDisplayName(mode, "1"), defaultClassFolder("1"), defaultClassColorHex("1")});
+    if (mode >= 3)
+        classEntries.push_back({"2", defaultClassDisplayName(mode, "2"), defaultClassFolder("2"), defaultClassColorHex("2")});
+    excludedLabelDisplay = "Exclude";
+}
+
+void DatasetLabelerDialog::loadClassSchema(const QJsonObject& root) {
+    QJsonObject schema = root.value("class_schema").toObject();
+    QJsonArray classes = schema.value("classes").toArray();
+    const bool schemaUsesObjects = !classes.isEmpty() && classes.first().isObject();
+    if (classes.isEmpty() || !schemaUsesObjects)
+        classes = root.value("classes").toArray();
+    const int mode = classes.size() >= 3 ? 3 : 2;
+    resetClassSchema(mode);
+    for (int index = 0; index < classEntries.size() && index < classes.size(); ++index) {
+        const QJsonObject cls = classes.at(index).toObject();
+        const QString displayName = cls.value("display_name").toString().trimmed();
+        if (!displayName.isEmpty())
+            classEntries[index].displayName = displayName;
+        const QString folder = cls.value("folder").toString().trimmed();
+        if (!folder.isEmpty())
+            classEntries[index].folder = folder;
+        classEntries[index].colorHex =
+            normalizedClassColorHex(classSchemaColorValue(cls), classEntries.at(index).colorHex);
+    }
+    const QJsonObject excluded = schema.value("excluded_label").toObject();
+    const QString excludedDisplay = excluded.value("display_name").toString().trimmed();
+    if (!excludedDisplay.isEmpty())
+        excludedLabelDisplay = excludedDisplay;
+}
+
+void DatasetLabelerDialog::storeClassSchema(QJsonObject& root) const {
+    QJsonObject schema;
+    schema["kind"] = classEntries.size() >= 3 ? "target-nontarget-ternary" : "target-nontarget-binary";
+    schema["mode"] = classEntries.size();
+    schema["target_class_id"] = "1";
+    QJsonArray classes;
+    for (int index = 0; index < classEntries.size(); ++index) {
+        const ClassEntry& entry = classEntries.at(index);
+        QJsonObject cls;
+        cls["id"] = entry.id;
+        cls["index"] = index;
+        cls["display_name"] = entry.displayName;
+        cls["folder"] = entry.folder;
+        cls["display_color"] = entry.colorHex;
+        classes.append(cls);
+    }
+    QJsonObject excluded;
+    excluded["id"] = "exclude";
+    excluded["display_name"] = excludedLabelDisplay;
+    excluded["folder"] = "reviewed/exclude";
+    schema["classes"] = classes;
+    schema["excluded_label"] = excluded;
+    root["class_schema"] = schema;
+    root["classes"] = classes;
+}
+
+void DatasetLabelerDialog::updateClassModeUi() {
+    if (!classModeCombo || !classZeroEdit || !classOneEdit || !classTwoEdit || !classZeroButton || !classOneButton ||
+        !classTwoButton) {
+        return;
+    }
+
+    const int mode = classEntries.size() >= 3 ? 3 : 2;
+    {
+        QSignalBlocker blocker(classModeCombo);
+        const int index = classModeCombo->findData(mode);
+        if (index >= 0)
+            classModeCombo->setCurrentIndex(index);
+    }
+    {
+        QSignalBlocker blocker(classZeroEdit);
+        classZeroEdit->setText(classEntries.value(0).displayName);
+    }
+    {
+        QSignalBlocker blocker(classOneEdit);
+        classOneEdit->setText(classEntries.value(1).displayName);
+    }
+    {
+        QSignalBlocker blocker(classTwoEdit);
+        classTwoEdit->setText(mode >= 3 ? classEntries.value(2).displayName : QString());
+    }
+    classTwoEdit->setVisible(mode >= 3);
+    if (classTwoLabel)
+        classTwoLabel->setVisible(mode >= 3);
+    if (classTwoColorButton)
+        classTwoColorButton->setVisible(mode >= 3);
+    classZeroButton->setText(classEntries.value(0).displayName);
+    classOneButton->setText(classEntries.value(1).displayName);
+    classTwoButton->setText(mode >= 3 ? classEntries.value(2).displayName : "Second non-target");
+    classTwoButton->setVisible(mode >= 3);
+    applyReviewButtonStyles();
+    updateColorSelectorButton(classZeroColorButton, 0);
+    updateColorSelectorButton(classOneColorButton, 1);
+    updateColorSelectorButton(classTwoColorButton, 2);
+}
+
+void DatasetLabelerDialog::updateFilterChoices() {
+    if (!filterCombo)
+        return;
+    const QString previous = filterCombo->currentData().toString();
+    QSignalBlocker blocker(filterCombo);
+    filterCombo->clear();
+    filterCombo->addItem("All images", "all");
+    filterCombo->addItem("Unreviewed", "unreviewed");
+    filterCombo->addItem("Reviewed", "reviewed");
+    for (const ClassEntry& entry : classEntries)
+        filterCombo->addItem(entry.displayName, filterValueForClassId(entry.id));
+    filterCombo->addItem(excludedLabelDisplay, "exclude");
+    filterCombo->addItem("Warnings", "warnings");
+    const int restoreIndex = filterCombo->findData(previous);
+    filterCombo->setCurrentIndex(restoreIndex >= 0 ? restoreIndex : 0);
+}
+
+void DatasetLabelerDialog::handleClassModeChanged() {
+    if (!classModeCombo)
+        return;
+    const int mode = classModeCombo->currentData().toInt();
+    if (mode == classEntries.size())
+        return;
+    resetClassSchema(mode);
+    updateClassModeUi();
+    updateFilterChoices();
+    if (manifestDoc.isObject()) {
+        QJsonObject root = manifestDoc.object();
+        storeClassSchema(root);
+        root["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        manifestDoc = QJsonDocument(root);
+        rebuildRowsFromCurrentManifest();
+        applyBrowserFilter();
+        saveManifestAndLabels(false);
+    }
+}
+
+void DatasetLabelerDialog::handleClassLabelEdited(int index) {
+    if (index < 0 || index >= classEntries.size())
+        return;
+    QLineEdit* edit = index == 0 ? classZeroEdit : (index == 1 ? classOneEdit : classTwoEdit);
+    if (!edit)
+        return;
+    QString updated = edit->text().trimmed();
+    if (updated.isEmpty())
+        updated = defaultClassDisplayName(classEntries.size() >= 3 ? 3 : 2, classEntries.at(index).id);
+    if (updated == classEntries.at(index).displayName)
+        return;
+    classEntries[index].displayName = updated;
+    updateClassModeUi();
+    updateFilterChoices();
+    rebuildRowsFromCurrentManifest();
+    applyBrowserFilter();
+    if (manifestDoc.isObject()) {
+        QJsonObject root = manifestDoc.object();
+        storeClassSchema(root);
+        root["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        manifestDoc = QJsonDocument(root);
+        saveManifestAndLabels(false);
+    }
+}
+
+void DatasetLabelerDialog::chooseClassColor(int index) {
+    if (index < 0 || index >= classEntries.size())
+        return;
+    const QColor current(classEntries.at(index).colorHex);
+    const QColor chosen = QColorDialog::getColor(current, this, "Choose label color");
+    if (chosen.isValid())
+        setClassColor(index, chosen);
+}
+
+void DatasetLabelerDialog::setClassColor(int index, const QColor& color, bool persist) {
+    if (index < 0 || index >= classEntries.size() || !color.isValid())
+        return;
+    const QString normalized = color.name(QColor::HexRgb);
+    if (normalized == classEntries.at(index).colorHex)
+        return;
+    classEntries[index].colorHex = normalized;
+    updateClassModeUi();
+    if (manifestDoc.isObject()) {
+        QJsonObject root = manifestDoc.object();
+        storeClassSchema(root);
+        root["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        manifestDoc = QJsonDocument(root);
+        if (persist)
+            saveManifestAndLabels(false);
+    }
+    applyBrowserFilter();
+    updatePreviewFromSelection();
+}
+
+QString DatasetLabelerDialog::defaultClassColorHex(const QString& classId) const {
+    return desktop_app::theme::reviewClassColors(classId).fill.name(QColor::HexRgb);
+}
+
+QString DatasetLabelerDialog::normalizedClassColorHex(const QString& raw, const QString& fallback) const {
+    const QColor color(raw.trimmed());
+    if (color.isValid())
+        return color.name(QColor::HexRgb);
+    const QColor fallbackColor(fallback);
+    return fallbackColor.isValid() ? fallbackColor.name(QColor::HexRgb) : defaultClassColorHex("0");
+}
+
+QColor DatasetLabelerDialog::classColorForId(const QString& id) const {
+    const QString canonical = canonicalLabel(id);
+    for (const ClassEntry& entry : classEntries) {
+        if (entry.id == canonical) {
+            const QColor color(entry.colorHex);
+            if (color.isValid())
+                return color;
+        }
+    }
+    return desktop_app::theme::reviewClassColors(canonical).fill;
+}
+
+QString DatasetLabelerDialog::classColorHexForId(const QString& id) const {
+    return classColorForId(id).name(QColor::HexRgb);
+}
+
+void DatasetLabelerDialog::applyReviewButtonStyles() {
+    const auto mode = useDarkThemeStyles() ? desktop_app::theme::ThemeMode::Dark : desktop_app::theme::ThemeMode::Light;
+    auto styleButton = [mode](QPushButton* button, const QColor& color, const QString& classId) {
+        if (!button)
+            return;
+        button->setProperty("reviewClassId", classId);
+        button->setProperty("reviewClassColorHex", color.name(QColor::HexRgb));
+        button->setStyleSheet(desktop_app::theme::reviewClassButtonStyle(color, mode));
+    };
+
+    styleButton(classZeroButton, classColorForId("0"), "0");
+    styleButton(classOneButton, classColorForId("1"), "1");
+    styleButton(classTwoButton, classColorForId("2"), "2");
+    styleButton(excludeButton, desktop_app::theme::reviewClassColors("exclude", mode).fill, "exclude");
+}
+
+void DatasetLabelerDialog::updateColorSelectorButton(QPushButton* button, int index) {
+    if (!button)
+        return;
+    const bool visible = index >= 0 && index < classEntries.size();
+    button->setVisible(visible);
+    if (!visible)
+        return;
+    const QColor color(classEntries.at(index).colorHex);
+    button->setProperty("selectedColorHex", color.name(QColor::HexRgb));
+    button->setToolTip(QString("Choose %1 color").arg(classEntries.at(index).displayName));
+    button->setStyleSheet(QStringLiteral("QPushButton { background:%1; border:1px solid %2; border-radius:5px; }"
+                                         "QPushButton:disabled { background:%3; border:1px solid %4; }")
+                              .arg(color.name(QColor::HexRgb),
+                                   color.darker(150).name(QColor::HexRgb),
+                                   color.name(QColor::HexRgb),
+                                   color.darker(150).name(QColor::HexRgb)));
+}
+
+bool DatasetLabelerDialog::useDarkThemeStyles() const {
+    return palette().color(QPalette::Window).lightness() < 128;
+}
+
+QString DatasetLabelerDialog::canonicalLabel(const QString& label) const {
+    const QString canonical = canonicalLegacyLabel(label);
+    if (canonical.isEmpty() || canonical == "0" || canonical == "1" || canonical == "2" || canonical == "exclude" ||
+        canonical == "unreviewed") {
+        return canonical;
+    }
+    for (const ClassEntry& entry : classEntries) {
+        if (canonical == entry.id || canonical == entry.displayName.trimmed().toLower())
+            return entry.id;
+    }
+    if (canonical == excludedLabelDisplay.trimmed().toLower())
+        return "exclude";
+    return canonical;
+}
+
+QString DatasetLabelerDialog::displayNameForLabel(const QString& label) const {
+    const QString canonical = canonicalLabel(label);
+    if (canonical.isEmpty() || canonical == "unreviewed")
+        return "Unreviewed";
+    if (canonical == "exclude")
+        return excludedLabelDisplay;
+    for (const ClassEntry& entry : classEntries) {
+        if (entry.id == canonical)
+            return entry.displayName;
+    }
+    return canonical;
+}
+
+bool DatasetLabelerDialog::isTrainerClassId(const QString& label) const {
+    const QString canonical = canonicalLabel(label);
+    for (const ClassEntry& entry : classEntries) {
+        if (entry.id == canonical)
+            return true;
+    }
+    return false;
 }
 
 void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
@@ -258,12 +673,15 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
     manifestDoc = QJsonDocument();
     manifestPath.clear();
     isBuilderManifest = false;
+    resetClassSchema(2);
+    updateClassModeUi();
+    updateFilterChoices();
     browserTable->setRowCount(0);
     classBalanceTable->setRowCount(0);
     previewLabel->setPixmap(QPixmap());
-    previewLabel->setText("No crop selected.");
-    previewDetailsLabel->setText("No crop selected.");
-    setLoadStatusText("Dataset Builder review load status: loading " + QDir::toNativeSeparators(currentDatasetPath));
+    previewLabel->setText("No image selected.");
+    previewDetailsLabel->setText("No image selected.");
+    setLoadStatusText("Image set review load status: loading " + QDir::toNativeSeparators(currentDatasetPath));
 
     QFileInfo info(currentDatasetPath);
     const bool isManifest = info.isFile();
@@ -273,7 +691,7 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
         root.cdUp();
         datasetRoot = root.absolutePath();
     }
-    pathLabel->setText("Dataset: " + QDir::toNativeSeparators(datasetRoot));
+    pathLabel->setText("Image set: " + QDir::toNativeSeparators(datasetRoot));
 
     QStringList report;
     report << "Load: " + currentDatasetPath;
@@ -285,7 +703,7 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
         if (QFileInfo::exists(manifest))
             loaded = loadManifest(manifest, report);
         else
-            report << "No dataset_manifest.json found.";
+            report << "No image set file was found.";
     }
     loadSummaryArtifacts(report);
     if (!loaded)
@@ -293,7 +711,7 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
     applyBrowserFilter();
     updateReviewControls();
     if (browserRows.isEmpty())
-        report << "No crop/item rows were available for browsing.";
+        report << "No images were available for review.";
     else
         report << QString("Browser rows available: %1; visible after filter: %2")
                       .arg(browserRows.size())
@@ -305,23 +723,26 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
 bool DatasetLabelerDialog::loadManifest(const QString& manifestPath, QStringList& report) {
     QFile file(manifestPath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        report << "Manifest unreadable: " + manifestPath;
+        report << "Image list could not be opened: " + manifestPath;
         return false;
     }
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        report << QString("Manifest parse failed at offset %1: %2").arg(err.offset).arg(err.errorString());
+        report << QString("Image set file is not valid JSON (offset %1): %2").arg(err.offset).arg(err.errorString());
         return false;
     }
     QJsonObject root = doc.object();
     manifestDoc = doc;
     this->manifestPath = QFileInfo(manifestPath).absoluteFilePath();
     isBuilderManifest = isDatasetBuilderManifest(root);
-    report << "Manifest: " + manifestPath;
+    loadClassSchema(root);
+    updateClassModeUi();
+    updateFilterChoices();
+    report << "Image set file: " + manifestPath;
     report << "Dataset id: " + root.value("dataset_id").toString("--");
-    report << (isBuilderManifest ? "Mode: Dataset Builder review; reviewed_label is editable."
-                                 : "Mode: read-only legacy dataset inspection.");
+    report << (isBuilderManifest ? "Mode: image-set review; reviewed labels are editable."
+                                 : "Mode: read-only legacy image-set inspection.");
 
     if (isBuilderManifest) {
         loadBuilderManifest(root, report);
@@ -329,15 +750,9 @@ bool DatasetLabelerDialog::loadManifest(const QString& manifestPath, QStringList
     }
 
     QMap<QString, QString> displayByClass;
-    QJsonArray classes = root.value("classes").toArray();
-    if (classes.isEmpty())
-        classes = root.value("schema").toObject().value("classes").toArray();
-    for (const QJsonValue& value : classes) {
-        QJsonObject cls = value.toObject();
-        const QString id = cls.value("id").toVariant().toString();
-        if (!id.isEmpty())
-            displayByClass[id] = cls.value("display_name").toString(id);
-    }
+    for (const ClassEntry& entry : classEntries)
+        displayByClass[entry.id] = entry.displayName;
+    displayByClass["exclude"] = excludedLabelDisplay;
     QMap<QString, int> includedCounts;
     QMap<QString, int> statusCounts;
     int seedCount = 0;
@@ -348,7 +763,7 @@ bool DatasetLabelerDialog::loadManifest(const QString& manifestPath, QStringList
     for (int i = 0; i < items.size(); ++i) {
         const QJsonObject item = items.at(i).toObject();
         const QString path = item.value("path").toString(item.value("source_relative_path").toString());
-        const QString label = item.value("label").toVariant().toString();
+        const QString label = canonicalLabel(item.value("label").toVariant().toString());
         const QString status = item.value("status").toString("--");
         const QJsonObject provenance = item.value("provenance").toObject();
         const QString origin = provenance.value("origin").toString(provenance.value("source").toString("--"));
@@ -367,7 +782,7 @@ bool DatasetLabelerDialog::loadManifest(const QString& manifestPath, QStringList
         if (i < maxRows)
             addLegacyBrowserRow(path, label, status, origin, seed ? "yes" : (demo ? "demo" : "no"));
     }
-    report << QString("Manifest items: %1; displayed rows: %2").arg(items.size()).arg(maxRows);
+    report << QString("Image list items: %1; displayed rows: %2").arg(items.size()).arg(maxRows);
     if (!statusCounts.isEmpty()) {
         QStringList parts;
         for (auto it = statusCounts.begin(); it != statusCounts.end(); ++it)
@@ -399,19 +814,14 @@ void DatasetLabelerDialog::loadBuilderManifest(const QJsonObject& root, QStringL
     QMap<QString, int> autoCounts;
     QMap<QString, int> reviewedCounts;
     QMap<QString, int> eligibleCounts;
-    int lowConfidenceCount = 0;
     const QJsonArray items = root.value("items").toArray();
     const int maxRows = std::min(static_cast<int>(items.size()), 1000);
     for (int i = 0; i < items.size(); ++i) {
         const QJsonObject item = items.at(i).toObject();
-        const QString autoLabel = normalizedLabel(item.value("auto_label").toString("unknown"));
-        const QString reviewedLabel = normalizedLabel(item.value("reviewed_label").toString());
+        const QString autoLabel = canonicalLabel(item.value("auto_label").toString("unknown"));
+        const QString reviewedLabel = canonicalLabel(item.value("reviewed_label").toString());
         const QString reviewState = item.value("review_state").toString("unreviewed");
         const bool eligible = item.value("trainer_eligible").toBool(false);
-        const double confidence = item.value("auto_label_confidence").toDouble(-1.0);
-        if (confidence >= 0.0 && confidence < 0.80) {
-            lowConfidenceCount++;
-        }
         autoCounts[autoLabel]++;
         if (reviewState == "unreviewed")
             reviewedCounts["unreviewed"]++;
@@ -423,14 +833,13 @@ void DatasetLabelerDialog::loadBuilderManifest(const QJsonObject& root, QStringL
             browserRows.push_back(browserRowFromBuilderItem(i, item));
         }
     }
-    report << QString("Builder manifest items: %1; displayed rows: %2").arg(items.size()).arg(maxRows);
-    report << QString("Trainer eligible reviewed hit=%1 waste=%2; exclude=%3; unreviewed=%4")
-                  .arg(eligibleCounts.value("hit"))
-                  .arg(eligibleCounts.value("waste"))
-                  .arg(reviewedCounts.value("exclude"))
-                  .arg(reviewedCounts.value("unreviewed"));
-    if (lowConfidenceCount)
-        report << QString("Low-confidence auto-label suggestions: %1").arg(lowConfidenceCount);
+    report << QString("Image list items: %1; displayed rows: %2").arg(items.size()).arg(maxRows);
+    QStringList eligibleSummary;
+    for (const ClassEntry& entry : classEntries)
+        eligibleSummary << QString("%1=%2").arg(entry.displayName).arg(eligibleCounts.value(entry.id));
+    eligibleSummary << QString("%1=%2").arg(excludedLabelDisplay).arg(reviewedCounts.value("exclude"))
+                    << QString("Unreviewed=%1").arg(reviewedCounts.value("unreviewed"));
+    report << "Ready counts: " + eligibleSummary.join(", ");
     populateBuilderBalanceTable(autoCounts, reviewedCounts, eligibleCounts, items.size());
     updateBannerFromBuilderCounts(reviewedCounts, eligibleCounts, items.size());
 }
@@ -476,7 +885,7 @@ void DatasetLabelerDialog::loadClassBalanceCsv(const QString& path) {
         const QStringList cells = line.split(',');
         const int row = classBalanceTable->rowCount();
         classBalanceTable->insertRow(row);
-        for (int col = 0; col < 6; ++col) {
+        for (int col = 0; col < 5; ++col) {
             classBalanceTable->setItem(row, col,
                                        new QTableWidgetItem(col < cells.size() ? cells.at(col).trimmed() : QString()));
         }
@@ -506,8 +915,18 @@ bool DatasetLabelerDialog::loadCropsCsv(QStringList& report) {
         auto cell = [&](int index) {
             return (index >= 0 && index < cells.size()) ? cells.at(index).trimmed() : QString("--");
         };
-        browserRows.push_back({-1, cell(columns.indexOf("image_id")), cell(pathCol), cell(autoCol), "--",
-                               cell(labelCol), cell(statusCol), "no", "--", "--", "--", "--", "--"});
+        browserRows.push_back({-1,
+                               cell(columns.indexOf("image_id")),
+                               cell(pathCol),
+                               cell(autoCol),
+                               "--",
+                               canonicalLabel(cell(labelCol)),
+                               cell(statusCol),
+                               "no",
+                               "--",
+                               "--",
+                               "--",
+                               "--"});
         count++;
     }
     report << QString("Loaded CSV rows for browsing: %1").arg(count);
@@ -521,10 +940,10 @@ void DatasetLabelerDialog::populateCountsFromMap(const QMap<QString, int>& count
     for (auto it = counts.begin(); it != counts.end(); ++it) {
         const int row = classBalanceTable->rowCount();
         classBalanceTable->insertRow(row);
-        classBalanceTable->setItem(row, 0, new QTableWidgetItem(it.key()));
-        classBalanceTable->setItem(row, 1, new QTableWidgetItem(displayByClass.value(it.key(), it.key())));
+        classBalanceTable->setItem(row, 0, new QTableWidgetItem(displayByClass.value(it.key(), it.key())));
+        classBalanceTable->setItem(row, 1, new QTableWidgetItem(QString::number(it.value())));
         classBalanceTable->setItem(row, 2, new QTableWidgetItem(QString::number(it.value())));
-        for (int col = 3; col < 6; ++col)
+        for (int col = 3; col < 5; ++col)
             classBalanceTable->setItem(row, col, new QTableWidgetItem("--"));
     }
 }
@@ -533,81 +952,96 @@ void DatasetLabelerDialog::populateBuilderBalanceTable(const QMap<QString, int>&
                                                        const QMap<QString, int>& reviewedCounts,
                                                        const QMap<QString, int>& eligibleCounts, int totalItems) {
     classBalanceTable->setRowCount(0);
-    const QStringList labels = {"hit", "waste", "exclude", "unreviewed"};
-    for (const QString& label : labels) {
+    for (const ClassEntry& entry : classEntries) {
         const int row = classBalanceTable->rowCount();
         classBalanceTable->insertRow(row);
-        const bool trainingLabel = label == "hit" || label == "waste";
-        const int reviewed = reviewedCounts.value(label);
-        const int eligible = eligibleCounts.value(label);
+        const int reviewed = reviewedCounts.value(entry.id);
+        const int eligible = eligibleCounts.value(entry.id);
         QString warning;
-        if (trainingLabel && eligible == 0)
-            warning = "blocks handoff";
-        if (label == "exclude" && totalItems > 0 && reviewed * 4 > totalItems)
-            warning = ">25% excluded";
-        classBalanceTable->setItem(row, 0, new QTableWidgetItem(label));
+        if (eligible == 0)
+            warning = "no labeled items";
+        classBalanceTable->setItem(row, 0, new QTableWidgetItem(entry.displayName));
         classBalanceTable->setItem(row, 1, new QTableWidgetItem(QString::number(reviewed)));
         classBalanceTable->setItem(row, 2, new QTableWidgetItem(QString::number(eligible)));
-        classBalanceTable->setItem(row, 3, new QTableWidgetItem(QString::number(autoCounts.value(label))));
-        classBalanceTable->setItem(row, 4, new QTableWidgetItem(warning));
-        classBalanceTable->setItem(row, 5,
-                                   new QTableWidgetItem(trainingLabel ? "trainer class" : "not trainer-eligible"));
+        classBalanceTable->setItem(row, 3, new QTableWidgetItem(warning));
+        classBalanceTable->setItem(row, 4, new QTableWidgetItem(QString("class %1").arg(entry.id)));
+    }
+
+    {
+        const int row = classBalanceTable->rowCount();
+        classBalanceTable->insertRow(row);
+        const int reviewed = reviewedCounts.value("exclude");
+        QString warning;
+        if (totalItems > 0 && reviewed * 4 > totalItems)
+            warning = ">25% excluded";
+        classBalanceTable->setItem(row, 0, new QTableWidgetItem(excludedLabelDisplay));
+        classBalanceTable->setItem(row, 1, new QTableWidgetItem(QString::number(reviewed)));
+        classBalanceTable->setItem(row, 2, new QTableWidgetItem("0"));
+        classBalanceTable->setItem(row, 3, new QTableWidgetItem(warning));
+        classBalanceTable->setItem(row, 4, new QTableWidgetItem("excluded"));
+    }
+
+    {
+        const int row = classBalanceTable->rowCount();
+        classBalanceTable->insertRow(row);
+        classBalanceTable->setItem(row, 0, new QTableWidgetItem("Unreviewed"));
+        classBalanceTable->setItem(row, 1, new QTableWidgetItem(QString::number(reviewedCounts.value("unreviewed"))));
+        classBalanceTable->setItem(row, 2, new QTableWidgetItem("0"));
+        classBalanceTable->setItem(row, 3, new QTableWidgetItem("needs review"));
+        classBalanceTable->setItem(row, 4, new QTableWidgetItem("review queue"));
     }
 }
 
 void DatasetLabelerDialog::updateBannerFromBuilderCounts(const QMap<QString, int>& reviewedCounts,
                                                          const QMap<QString, int>& eligibleCounts, int totalItems) {
-    const int hit = eligibleCounts.value("hit");
-    const int waste = eligibleCounts.value("waste");
     const int exclude = reviewedCounts.value("exclude");
     const int unreviewed = reviewedCounts.value("unreviewed");
     QStringList warnings;
     if (unreviewed > 0)
-        warnings << QString("%1 crops still need manual review").arg(unreviewed);
-    if (hit == 0 || waste == 0)
-        warnings << "trainer handoff blocked until reviewed hit and waste both exist";
-    const int minority = std::min(hit, waste);
-    const int majority = std::max(hit, waste);
-    if (minority > 0 && majority > 3 * minority)
-        warnings << QString("class imbalance %1:%2").arg(majority).arg(minority);
+        warnings << QString("%1 images still need review").arg(unreviewed);
+    for (const ClassEntry& entry : classEntries) {
+        if (eligibleCounts.value(entry.id) == 0)
+            warnings << QString("%1 has no labeled images").arg(entry.displayName);
+    }
     if (totalItems > 0 && exclude * 4 > totalItems)
         warnings << "more than 25% excluded";
     if (warnings.isEmpty())
-        bannerLabel->setText("Review status: reviewed hit/waste items are trainer-eligible; exclude and unreviewed "
-                             "items are retained but not handed to training.");
+        bannerLabel->setText("Review status: labeled classes are ready; excluded and unreviewed images stay out of "
+                             "training exports.");
     else
         bannerLabel->setText("Review warnings: " + warnings.join("; "));
 }
 
 void DatasetLabelerDialog::addLegacyBrowserRow(const QString& path, const QString& label, const QString& status,
                                                const QString& origin, const QString& seed) {
-    browserRows.push_back(
-        {-1, QFileInfo(path).fileName(), path, "--", origin, label, status, "no", seed, "--", "--", "--", "--"});
+    browserRows.push_back({-1, QFileInfo(path).fileName(), path, "--", origin, label, status, "no", seed, "--", "--",
+                           "--"});
 }
 
 bool DatasetLabelerDialog::rowMatchesFilter(const BrowserRow& row) const {
-    const QString mode = filterCombo ? filterCombo->currentText() : QString("All crops");
+    const QString mode = filterCombo ? filterCombo->currentData().toString() : QString("all");
     const QString stateLower = row.reviewState.toLower();
-    if (mode == "Unreviewed" && stateLower != "unreviewed")
+    if (mode == "unreviewed" && stateLower != "unreviewed")
         return false;
-    if (mode == "Reviewed" && stateLower == "unreviewed")
+    if (mode == "reviewed" && stateLower == "unreviewed")
         return false;
-    if (mode == "Excluded" && row.reviewedLabel != "exclude" && stateLower != "excluded")
+    if (mode == "exclude" && canonicalLabel(row.reviewedLabel) != "exclude" && stateLower != "excluded")
         return false;
-    if (mode == "Auto hit" && row.autoLabel != "hit")
+    if (mode.startsWith("class:") && canonicalLabel(row.reviewedLabel) != mode.mid(QString("class:").size()))
         return false;
-    if (mode == "Auto waste" && row.autoLabel != "waste")
-        return false;
-    if (mode == "Low confidence" && !row.warnings.contains("low confidence", Qt::CaseInsensitive))
-        return false;
-    if (mode == "Warnings" && row.warnings.trimmed().isEmpty())
+    if (mode == "warnings" && row.warnings.trimmed().isEmpty())
         return false;
 
     const QString needle = searchEdit ? searchEdit->text().trimmed().toLower() : QString();
     if (needle.isEmpty())
         return true;
-    const QString haystack = QStringList{row.imageId,     row.cropPath, row.autoLabel, row.reviewedLabel,
-                                         row.reviewState, row.eligible, row.warnings}
+    const QString haystack = QStringList{row.imageId,
+                                         row.cropPath,
+                                         displayNameForLabel(row.reviewedLabel),
+                                         row.reviewedLabel,
+                                         row.reviewState,
+                                         row.eligible,
+                                         row.warnings}
                                  .join(" ")
                                  .toLower();
     return haystack.contains(needle);
@@ -622,8 +1056,12 @@ void DatasetLabelerDialog::applyBrowserFilter() {
             continue;
         const int row = browserTable->rowCount();
         browserTable->insertRow(row);
-        const QStringList values = {rowData.imageId,     rowData.cropPath, rowData.autoLabel, rowData.reviewedLabel,
-                                    rowData.reviewState, rowData.eligible, rowData.warnings};
+        const QStringList values = {rowData.imageId,
+                                    rowData.cropPath,
+                                    displayNameForLabel(rowData.reviewedLabel),
+                                    rowData.reviewState,
+                                    rowData.eligible,
+                                    rowData.warnings};
         for (int col = 0; col < values.size(); ++col)
             browserTable->setItem(row, col, new QTableWidgetItem(values.at(col)));
         browserTable->item(row, 0)->setData(Qt::UserRole, rowData.manifestIndex);
@@ -637,8 +1075,8 @@ void DatasetLabelerDialog::applyBrowserFilter() {
         browserTable->selectRow(0);
     } else {
         previewLabel->setPixmap(QPixmap());
-        previewLabel->setText("No crop matches the current filter.");
-        previewDetailsLabel->setText("No crop selected.");
+        previewLabel->setText("No images match the current filter.");
+        previewDetailsLabel->setText("No image selected.");
         updateNavigationButtons();
     }
     updateLoadStatus();
@@ -646,14 +1084,14 @@ void DatasetLabelerDialog::applyBrowserFilter() {
 
 void DatasetLabelerDialog::updateLoadStatus() {
     if (manifestPath.isEmpty()) {
-        setLoadStatusText("Dataset Builder review load status: no manifest loaded");
+        setLoadStatusText("Image set review load status: no image set file loaded");
         return;
     }
     QString datasetId = "--";
     if (manifestDoc.isObject()) {
         datasetId = manifestDoc.object().value("dataset_id").toString("--");
     }
-    setLoadStatusText(QString("Dataset Builder manifest loaded: dataset_id=%1; items=%2; visible=%3; manifest=%4")
+    setLoadStatusText(QString("Image set file loaded: image_set_id=%1; items=%2; visible=%3; file=%4")
                           .arg(datasetId)
                           .arg(browserRows.size())
                           .arg(browserTable ? browserTable->rowCount() : 0)
@@ -676,22 +1114,22 @@ void DatasetLabelerDialog::updatePreviewFromSelection() {
     const int row = selected.first()->row();
     const QString relPath = browserTable->item(row, 1) ? browserTable->item(row, 1)->text() : QString();
     const QString imageId = browserTable->item(row, 0) ? browserTable->item(row, 0)->text() : QString("--");
-    const QString autoLabel = browserTable->item(row, 2) ? browserTable->item(row, 2)->text() : QString("--");
-    const QString reviewedLabel = browserTable->item(row, 3) ? browserTable->item(row, 3)->text() : QString("--");
-    const QString state = browserTable->item(row, 4) ? browserTable->item(row, 4)->text() : QString("--");
-    const QString eligible = browserTable->item(row, 5) ? browserTable->item(row, 5)->text() : QString("--");
-    const QString warnings = browserTable->item(row, 6) ? browserTable->item(row, 6)->text() : QString("--");
+    const QString reviewedLabel = browserTable->item(row, 2) ? browserTable->item(row, 2)->text() : QString("--");
+    const QString state = browserTable->item(row, 3) ? browserTable->item(row, 3)->text() : QString("--");
+    const QString eligible = browserTable->item(row, 4) ? browserTable->item(row, 4)->text() : QString("--");
+    const QString warnings = browserTable->item(row, 5) ? browserTable->item(row, 5)->text() : QString("--");
     const QString imagePath = QFileInfo(relPath).isAbsolute() ? relPath : QDir(datasetRoot).filePath(relPath);
     const BrowserRow data = rowDataForVisibleRow(row);
-    previewDetailsLabel->setText(QString("Image ID: %1\nCrop: %2\nAuto-label: %3 (%4, confidence %5)\nReviewed label: "
-                                         "%6\nReview state: %7\nTrainer eligible: %8\nWarnings: %9")
-                                     .arg(imageId, QDir::toNativeSeparators(relPath), autoLabel, data.autoSource,
-                                          data.confidence, reviewedLabel.isEmpty() ? "--" : reviewedLabel, state,
-                                          eligible, warnings.isEmpty() ? "--" : warnings));
+    previewDetailsLabel->setText(QString("Image ID: %1\nImage: %2\nAssigned label: %3\nReview state: %4\nReady: %5\n"
+                                         "Warnings: %6")
+                                     .arg(imageId,
+                                          QDir::toNativeSeparators(relPath),
+                                          reviewedLabel.isEmpty() ? "Unreviewed" : reviewedLabel,
+                                          state,
+                                          eligible,
+                                          warnings.isEmpty() ? "--" : warnings));
     if (notesEdit && !notesEdit->hasFocus())
         notesEdit->setPlainText(data.notes);
-    if (excludeReasonCombo && !data.excludeReason.isEmpty())
-        setComboTextIfPresent(excludeReasonCombo, data.excludeReason);
     QImageReader reader(imagePath);
     reader.setAutoTransform(true);
     QImage img = reader.read();
@@ -800,36 +1238,31 @@ DatasetLabelerDialog::BrowserRow DatasetLabelerDialog::rowDataForVisibleRow(int 
 
 DatasetLabelerDialog::BrowserRow DatasetLabelerDialog::browserRowFromBuilderItem(int manifestIndex,
                                                                                  const QJsonObject& item) const {
-    const QString autoLabel = normalizedLabel(item.value("auto_label").toString("unknown"));
-    const QString reviewedLabel = normalizedLabel(item.value("reviewed_label").toString());
+    const QString autoLabel = canonicalLabel(item.value("auto_label").toString("unknown"));
+    const QString reviewedLabel = canonicalLabel(item.value("reviewed_label").toString());
     const QString reviewState = item.value("review_state").toString("unreviewed");
-    const bool eligible = item.value("trainer_eligible").toBool(false);
-    const double confidence = item.value("auto_label_confidence").toDouble(-1.0);
+    const bool eligible = item.value("trainer_eligible").toBool(false) && isTrainerClassId(reviewedLabel);
+    const QString displayReviewed = displayNameForLabel(reviewedLabel);
     QStringList warnings;
     if (reviewState == "unreviewed")
         warnings << "needs review";
-    if (reviewedLabel == "exclude" && item.value("exclude_reason").toString().isEmpty())
-        warnings << "missing exclude reason";
-    if (eligible && reviewedLabel != "hit" && reviewedLabel != "waste")
+    if (eligible && !isTrainerClassId(reviewedLabel))
         warnings << "eligible label invalid";
-    if ((reviewState == "confirmed" || reviewState == "relabeled") && !eligible)
-        warnings << "reviewed class not trainer-eligible";
-    if (confidence >= 0.0 && confidence < 0.80)
-        warnings << "low confidence";
+    if ((reviewState == "confirmed" || reviewState == "relabeled") && reviewedLabel != "exclude" && !eligible)
+        warnings << "reviewed class not active in this mode";
 
     return {manifestIndex,
             item.value("image_id").toString(QString("item_%1").arg(manifestIndex + 1)),
             item.value("crop_path").toString(item.value("path").toString()),
             autoLabel,
             item.value("auto_label_source").toString("--"),
-            reviewedLabel,
+            displayReviewed == "Unreviewed" ? QString() : reviewedLabel,
             reviewState,
             eligible ? "yes" : "no",
             warnings.join("; "),
-            confidence >= 0.0 ? QString::number(confidence, 'f', 3) : QString("--"),
+            QString("--"),
             item.value("source_frame_path").toString(),
-            item.value("notes").toString(),
-            item.value("exclude_reason").toString()};
+            item.value("notes").toString()};
 }
 
 int DatasetLabelerDialog::visibleRowForManifestIndex(int manifestIndex) const {
@@ -845,8 +1278,12 @@ int DatasetLabelerDialog::visibleRowForManifestIndex(int manifestIndex) const {
 void DatasetLabelerDialog::updateVisibleBrowserRow(int visibleRow, const BrowserRow& rowData) {
     if (!browserTable || visibleRow < 0 || visibleRow >= browserTable->rowCount())
         return;
-    const QStringList values = {rowData.imageId,     rowData.cropPath, rowData.autoLabel, rowData.reviewedLabel,
-                                rowData.reviewState, rowData.eligible, rowData.warnings};
+    const QStringList values = {rowData.imageId,
+                                rowData.cropPath,
+                                displayNameForLabel(rowData.reviewedLabel),
+                                rowData.reviewState,
+                                rowData.eligible,
+                                rowData.warnings};
     for (int col = 0; col < values.size(); ++col) {
         if (!browserTable->item(visibleRow, col))
             browserTable->setItem(visibleRow, col, new QTableWidgetItem);
@@ -898,10 +1335,10 @@ void DatasetLabelerDialog::refreshBuilderReviewSummary() {
     const QJsonArray items = manifestDoc.object().value("items").toArray();
     for (const QJsonValue& value : items) {
         const QJsonObject item = value.toObject();
-        const QString autoLabel = normalizedLabel(item.value("auto_label").toString("unknown"));
-        const QString reviewedLabel = normalizedLabel(item.value("reviewed_label").toString());
+        const QString autoLabel = canonicalLabel(item.value("auto_label").toString("unknown"));
+        const QString reviewedLabel = canonicalLabel(item.value("reviewed_label").toString());
         const QString reviewState = item.value("review_state").toString("unreviewed");
-        const bool eligible = item.value("trainer_eligible").toBool(false);
+        const bool eligible = item.value("trainer_eligible").toBool(false) && isTrainerClassId(reviewedLabel);
         autoCounts[autoLabel]++;
         if (reviewState == "unreviewed")
             reviewedCounts["unreviewed"]++;
@@ -916,71 +1353,42 @@ void DatasetLabelerDialog::refreshBuilderReviewSummary() {
 
 void DatasetLabelerDialog::updateReviewControls() {
     const bool canReview = isBuilderManifest && !selectedManifestIndexes().isEmpty();
-    for (auto* button : {hitButton, wasteButton, excludeButton, acceptButton, saveButton}) {
+    const bool canEditSchema = isBuilderManifest;
+    if (classModeCombo)
+        classModeCombo->setEnabled(canEditSchema);
+    if (classZeroEdit)
+        classZeroEdit->setEnabled(canEditSchema);
+    if (classOneEdit)
+        classOneEdit->setEnabled(canEditSchema);
+    if (classTwoEdit)
+        classTwoEdit->setEnabled(canEditSchema && classEntries.size() >= 3);
+    if (classZeroColorButton)
+        classZeroColorButton->setEnabled(canEditSchema);
+    if (classOneColorButton)
+        classOneColorButton->setEnabled(canEditSchema);
+    if (classTwoColorButton)
+        classTwoColorButton->setEnabled(canEditSchema && classEntries.size() >= 3);
+    for (auto* button : {classZeroButton, classOneButton, classTwoButton, excludeButton, saveButton}) {
         if (button)
             button->setEnabled(canReview);
     }
+    if (classTwoButton)
+        classTwoButton->setEnabled(canReview && classEntries.size() >= 3);
     if (undoButton)
         undoButton->setEnabled(canReview && !undoStack.isEmpty());
-    if (excludeReasonCombo)
-        excludeReasonCombo->setEnabled(canReview);
     if (notesEdit)
         notesEdit->setEnabled(canReview);
     if (!canReview && isBuilderManifest) {
-        bannerLabel->setText("Select a crop row to review. Auto-labels are suggestions; only reviewed hit/waste rows "
-                             "are trainer-eligible.");
+        bannerLabel->setText("Select an image row to assign a class label.");
     } else if (!isBuilderManifest && !manifestDoc.isNull()) {
-        bannerLabel->setText(
-            "Read-only legacy manifest inspection. Open a Dataset Builder manifest to edit reviewed_label.");
+        bannerLabel->setText("Read-only legacy image-set review. Open an image set file to edit labels.");
     }
 }
 
-void DatasetLabelerDialog::acceptAutoLabel() {
-    const QVector<int> indexes = selectedManifestIndexes();
-    if (indexes.isEmpty())
+void DatasetLabelerDialog::applyReviewLabelByIndex(int index, bool advance) {
+    if (index < 0 || index >= classEntries.size())
         return;
-    QJsonArray items = manifestDoc.object().value("items").toArray();
-    QVector<int> hitWasteIndexes;
-    for (const int index : indexes) {
-        if (index < 0 || index >= items.size())
-            continue;
-        const QString autoLabel = normalizedLabel(items.at(index).toObject().value("auto_label").toString());
-        if (autoLabel == "hit" || autoLabel == "waste")
-            hitWasteIndexes.push_back(index);
-    }
-    if (hitWasteIndexes.isEmpty())
-        return;
-
-    QJsonObject root = manifestDoc.object();
-    const QString reviewedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-    bool needsFilterRefresh = false;
-    for (const int index : hitWasteIndexes) {
-        QJsonObject item = items.at(index).toObject();
-        undoStack.push_back({index, item});
-        const QString autoLabel = normalizedLabel(item.value("auto_label").toString());
-        item["reviewed_label"] = autoLabel;
-        item["reviewed_at"] = reviewedAt;
-        item["review_state"] = "confirmed";
-        item["trainer_eligible"] = true;
-        item["notes"] = notesEdit ? notesEdit->toPlainText().trimmed() : QString();
-        item.remove("exclude_reason");
-        items.replace(index, item);
-        const BrowserRow rowData = browserRowFromBuilderItem(index, item);
-        needsFilterRefresh = needsFilterRefresh || !rowMatchesFilter(rowData);
-    }
-    root["items"] = items;
-    root["updated_at"] = reviewedAt;
-    manifestDoc = QJsonDocument(root);
-    for (const int index : hitWasteIndexes)
-        refreshBrowserRowFromManifestItem(index, items.at(index).toObject());
-    refreshBuilderReviewSummary();
-    if (needsFilterRefresh)
-        applyBrowserFilter();
-    else
-        selectManifestIndexes(hitWasteIndexes);
-    saveManifestAndLabels(false);
-    if (hitWasteIndexes.size() == 1)
-        selectRelativeRow(1);
+    applyReviewLabel(classEntries.at(index).id, advance);
 }
 
 void DatasetLabelerDialog::applyReviewLabel(const QString& label, bool advance) {
@@ -991,7 +1399,7 @@ void DatasetLabelerDialog::applyReviewLabel(const QString& label, bool advance) 
         return;
     QJsonObject root = manifestDoc.object();
     QJsonArray items = root.value("items").toArray();
-    const QString normalized = normalizedLabel(label);
+    const QString normalized = canonicalLabel(label);
     const QString reviewedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     bool needsFilterRefresh = false;
     QVector<int> changedIndexes;
@@ -1000,15 +1408,16 @@ void DatasetLabelerDialog::applyReviewLabel(const QString& label, bool advance) 
             continue;
         QJsonObject item = items.at(index).toObject();
         undoStack.push_back({index, item});
-        const QString autoLabel = normalizedLabel(item.value("auto_label").toString());
+        const QString autoLabel = canonicalLabel(item.value("auto_label").toString());
         item["reviewed_label"] = normalized;
         item["reviewed_at"] = reviewedAt;
         item["review_state"] =
             normalized == "exclude" ? "excluded" : (normalized == autoLabel ? "confirmed" : "relabeled");
-        item["trainer_eligible"] = (normalized == "hit" || normalized == "waste");
+        item["trainer_eligible"] = isTrainerClassId(normalized);
         item["notes"] = notesEdit ? notesEdit->toPlainText().trimmed() : QString();
         if (normalized == "exclude") {
-            item["exclude_reason"] = excludeReasonCombo ? excludeReasonCombo->currentText() : QString("other");
+            const QString existingExcludeReason = item.value("exclude_reason").toString().trimmed();
+            item["exclude_reason"] = existingExcludeReason.isEmpty() ? QString("other") : existingExcludeReason;
         } else {
             item.remove("exclude_reason");
         }
@@ -1021,6 +1430,7 @@ void DatasetLabelerDialog::applyReviewLabel(const QString& label, bool advance) 
         return;
     root["items"] = items;
     root["updated_at"] = reviewedAt;
+    storeClassSchema(root);
     manifestDoc = QJsonDocument(root);
     for (const int index : changedIndexes)
         refreshBrowserRowFromManifestItem(index, items.at(index).toObject());
@@ -1045,6 +1455,7 @@ void DatasetLabelerDialog::undoLastReviewEdit() {
     items.replace(undo.manifestIndex, undo.previousItem);
     root["items"] = items;
     root["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+    storeClassSchema(root);
     manifestDoc = QJsonDocument(root);
     rebuildRowsFromCurrentManifest();
     applyBrowserFilter();
@@ -1061,17 +1472,22 @@ void DatasetLabelerDialog::rebuildRowsFromCurrentManifest() {
 bool DatasetLabelerDialog::saveManifestAndLabels(bool showMessage) {
     if (!isBuilderManifest || manifestPath.isEmpty())
         return false;
+    if (manifestDoc.isObject()) {
+        QJsonObject root = manifestDoc.object();
+        storeClassSchema(root);
+        manifestDoc = QJsonDocument(root);
+    }
     QFile file(manifestPath);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         if (showMessage)
-            QMessageBox::warning(this, "Save failed", "Could not write manifest:\n" + manifestPath);
+            QMessageBox::warning(this, "Save failed", "Could not save the image set file:\n" + manifestPath);
         return false;
     }
     file.write(manifestDoc.toJson(QJsonDocument::Indented));
     file.close();
     writeLabelsCsv();
     if (showMessage)
-        outputText->setPlainText("Saved Dataset Builder review manifest and labels.csv:\n" + manifestPath);
+        outputText->setPlainText("Saved image set file and labels.csv:\n" + manifestPath);
     return true;
 }
 
@@ -1101,25 +1517,12 @@ void DatasetLabelerDialog::writeLabelsCsv() {
              << item.value("auto_label_confidence").toVariant().toString()
              << item.value("auto_label_model_id").toString() << item.value("review_state").toString("unreviewed")
              << item.value("reviewed_label").toString() << item.value("exclude_reason").toString()
-             << (item.value("trainer_eligible").toBool(false) ? "true" : "false")
+             << (isTrainerClassId(item.value("reviewed_label").toString()) ? "true" : "false")
              << item.value("hash_sha256").toString();
         for (int i = 0; i < cols.size(); ++i)
             cols[i] = csvEscape(cols.at(i));
         ts << cols.join(',') << "\n";
     }
-}
-
-QString DatasetLabelerDialog::normalizedLabel(const QString& label) const {
-    const QString lower = label.trimmed().toLower();
-    if (lower == "hits" || lower == "hit" || lower == "1")
-        return "hit";
-    if (lower == "waste" || lower == "empty" || lower == "0")
-        return "waste";
-    if (lower == "exclude" || lower == "excluded" || lower == "reject" || lower == "rejected")
-        return "exclude";
-    if (lower.isEmpty())
-        return QString();
-    return lower;
 }
 
 QString DatasetLabelerDialog::csvEscape(QString text) const {

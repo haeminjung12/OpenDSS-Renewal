@@ -30,8 +30,10 @@ class ImageValidationWidget : public QWidget {
 
   private:
     void addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit, bool directory,
-                    const QString& dialogTitle);
+                    const QString& dialogTitle, const QString& workspacePath = QString(),
+                    const QString& packagedPath = QString());
     QStringList commandArguments() const;
+    void syncSchemaFromMetadata();
     QString missingInputs() const;
     void updatePreviewAndGate();
     void loadSettings();

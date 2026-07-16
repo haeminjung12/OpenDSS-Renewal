@@ -31,7 +31,7 @@ class ImageValidationWidget : public QWidget {
   private:
     void addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit, bool directory,
                     const QString& dialogTitle, const QString& workspacePath = QString(),
-                    const QString& packagedPath = QString());
+                    const QString& packagedPath = QString(), const QString& fileFilter = QString());
     QStringList commandArguments() const;
     void syncSchemaFromMetadata();
     QString missingInputs() const;
@@ -43,7 +43,7 @@ class ImageValidationWidget : public QWidget {
     void stopProcess(int timeoutMs);
     void finishValidation(int exitCode, QProcess::ExitStatus exitStatus);
     void appendLog(const QString& text);
-    bool loadSummaryArtifacts();
+    bool loadSummaryArtifacts(bool notifySummaryChanged);
 
     QLineEdit* pythonEdit = nullptr;
     QLineEdit* modelEdit = nullptr;

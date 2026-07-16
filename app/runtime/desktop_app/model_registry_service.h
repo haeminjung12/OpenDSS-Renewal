@@ -15,6 +15,7 @@ struct DefaultWorkspacePaths {
     QString activeModel;
     QString activeMetadata;
     QString preparedDataset;
+    QString preparedDatasetManifest;
 };
 
 QString defaultOpenDssRootPath();
@@ -44,6 +45,8 @@ QString registryNestedString(const QJsonObject& entry, const QString& objectKey,
 bool registerTrainedModelArtifacts(const QString& registryFilePath, const QString& runDir,
                                    const QString& modelOnnxPath, const QString& metadataJsonPath,
                                    QString* registeredEntryId = nullptr, QString* error = nullptr);
+bool updateModelRegistryImageValidationSummary(const QString& registryFilePath, const QString& validationSummaryPath,
+                                               QString* updatedEntryId = nullptr, QString* error = nullptr);
 bool renameRegistryEntryDisplayName(const QString& registryFilePath, const QString& registryEntryId,
                                     const QString& displayName, QString* error = nullptr);
 QString runtimePathFromRegistryPath(const QString& path);

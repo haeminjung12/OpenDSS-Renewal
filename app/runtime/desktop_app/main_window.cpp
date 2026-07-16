@@ -343,6 +343,124 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     std::exit(exitCode);
 }
 
+void verifyValidationWritebackToModelRegistry(const std::function<void(bool, const QString&)>& require) {
+    QTemporaryDir tempDir(QDir::tempPath() + "/ovds_validation_writeback_verify_XXXXXX");
+    require(tempDir.isValid(), "Validation writeback verifier temp directory is available");
+    if (!tempDir.isValid())
+        return;
+
+    const QString modelPath = QDir(tempDir.path()).filePath("validated_model.onnx");
+    const QString metadataPath = QDir(tempDir.path()).filePath("metadata.json");
+    const QString registryPath = QDir(tempDir.path()).filePath("model_registry.json");
+    const QString summaryPath = QDir(tempDir.path()).filePath("validation_summary.json");
+    const QString failedSummaryPath = QDir(tempDir.path()).filePath("failed_validation_summary.json");
+    const QString errorSummaryPath = QDir(tempDir.path()).filePath("error_validation_summary.json");
+
+    QFile modelFile(modelPath);
+    require(modelFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "Validation writeback verifier can write model");
+    if (modelFile.isOpen()) {
+        modelFile.write("synthetic validation model");
+        modelFile.close();
+    }
+
+    QJsonObject metadata;
+    metadata["schema_version"] = "model-metadata-v1";
+    metadata["model_id"] = "validation_writeback_verifier";
+    metadata["model_name"] = "Validation writeback verifier model";
+    metadata["classes"] = QJsonArray{"0", "1"};
+    metadata["display_labels"] = QJsonObject{{"0", "Non-target"}, {"1", "Target"}};
+    QFile metadataFile(metadataPath);
+    require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Validation writeback verifier can write metadata");
+    if (metadataFile.isOpen()) {
+        metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
+        metadataFile.close();
+    }
+
+    QJsonObject entry;
+    entry["registry_entry_id"] = "validation_writeback_verifier";
+    entry["display_name"] = "Validation writeback verifier model";
+    entry["model_path"] = modelPath;
+    entry["metadata_path"] = metadataPath;
+    entry["validation_status"] = "Not validated";
+    QJsonObject registry;
+    registry["schema_version"] = "model-registry-v1";
+    registry["entries"] = QJsonArray{entry};
+    QFile registryFile(registryPath);
+    require(registryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Validation writeback verifier can write registry");
+    if (registryFile.isOpen()) {
+        registryFile.write(QJsonDocument(registry).toJson(QJsonDocument::Indented));
+        registryFile.close();
+    }
+
+    QJsonObject summary;
+    summary["schema_version"] = "validator.v1";
+    summary["status"] = "completed_with_errors";
+    summary["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    summary["model"] = QJsonObject{{"model_path", modelPath}, {"metadata_path", metadataPath}};
+    summary["dataset"] = QJsonObject{{"samples_total", 5}, {"samples_evaluated", 5}, {"samples_failed", 1}};
+    summary["metrics"] = QJsonObject{{"accuracy", 0.8}, {"macro_f1", 0.75}, {"samples_incorrect", 1}};
+    QFile summaryFile(summaryPath);
+    require(summaryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Validation writeback verifier can write successful summary");
+    if (summaryFile.isOpen()) {
+        summaryFile.write(QJsonDocument(summary).toJson(QJsonDocument::Indented));
+        summaryFile.close();
+    }
+
+    QString updatedEntryId;
+    QString error;
+    require(updateModelRegistryImageValidationSummary(registryPath, summaryPath, &updatedEntryId, &error),
+            "Successful image validation summary writes back to model registry: " + error);
+    require(updatedEntryId == "validation_writeback_verifier",
+            "Validation writeback returns the matched registry entry id");
+
+    const QJsonObject updatedMetadata = loadRegistryObjectForVerifier(metadataPath);
+    const QJsonObject imageValidation =
+        updatedMetadata.value("validation_summary").toObject().value("image_validation").toObject();
+    require(imageValidation.value("accuracy").toDouble() == 0.8,
+            "Validation writeback stores accuracy in model metadata");
+    require(imageValidation.value("macro_f1").toDouble() == 0.75,
+            "Validation writeback stores macro F1 in model metadata");
+    require(imageValidation.value("status").toString() == "completed_with_errors",
+            "Completed validation with mismatches remains a completed image result");
+
+    const QJsonObject updatedRegistry = loadRegistryObjectForVerifier(registryPath);
+    const QJsonObject updatedEntry =
+        registryEntryByIdForVerifier(updatedRegistry.value("entries").toArray(), "validation_writeback_verifier");
+    require(!registryString(updatedEntry, "validation_status").contains("Not validated", Qt::CaseInsensitive),
+            "Validation writeback clears Not validated registry status");
+    require(updatedEntry.value("validation_evidence").toObject().value("image_validation").isObject(),
+            "Validation writeback stores image evidence in registry");
+
+    QJsonObject failedSummary = summary;
+    failedSummary["status"] = "failed";
+    QFile failedSummaryFile(failedSummaryPath);
+    require(failedSummaryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Validation writeback verifier can write failed summary");
+    if (failedSummaryFile.isOpen()) {
+        failedSummaryFile.write(QJsonDocument(failedSummary).toJson(QJsonDocument::Indented));
+        failedSummaryFile.close();
+    }
+    error.clear();
+    require(!updateModelRegistryImageValidationSummary(registryPath, failedSummaryPath, nullptr, &error),
+            "Failed image validation summary is not written back as validated");
+
+    QJsonObject errorSummary = summary;
+    errorSummary["status"] = "error";
+    QFile errorSummaryFile(errorSummaryPath);
+    require(errorSummaryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Validation writeback verifier can write error summary");
+    if (errorSummaryFile.isOpen()) {
+        errorSummaryFile.write(QJsonDocument(errorSummary).toJson(QJsonDocument::Indented));
+        errorSummaryFile.close();
+    }
+    error.clear();
+    require(!updateModelRegistryImageValidationSummary(registryPath, errorSummaryPath, nullptr, &error),
+            "Errored image validation summary is not written back as validated");
+}
+
 QMutex liveEventMutex;
 SequenceEventTracker liveEventTracker;
 
@@ -2325,13 +2443,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return QString();
     };
 
+    QWidget* modelWorkspacePage = nullptr;
     desktop_app::workspace::ValidatorWorkspaceControls validatorWorkspaceControls;
     validatorWorkspaceControls.modelPath = validatorResolveAppRelative(onnxEdit->text().trimmed());
     validatorWorkspaceControls.metadataPath = validatorResolveAppRelative(metaEdit->text().trimmed());
     validatorWorkspaceControls.pythonExecutable =
         runtimeSettings.value("validator/pythonExecutable", "python").toString();
     validatorWorkspaceControls.datasetPath =
-        runtimeSettings.value("validator/imageDataset", defaultWorkspacePaths.preparedDataset).toString();
+        runtimeSettings.value("validator/imageDataset", defaultWorkspacePaths.preparedDatasetManifest).toString();
     validatorWorkspaceControls.outputPath =
         runtimeSettings
             .value("validator/outputFolder",
@@ -2340,6 +2459,19 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             .toString();
     validatorWorkspaceControls.trainerPythonPath = validatorTrainerPythonPath();
     validatorWorkspaceControls.imageValidationAction = imageValidationAction;
+    validatorWorkspaceControls.imageSummaryChangedCallback = [registryFilePath, &modelWorkspacePage](const QString& summaryPath) {
+        QString updatedEntryId;
+        QString error;
+        if (!updateModelRegistryImageValidationSummary(registryFilePath, summaryPath, &updatedEntryId, &error)) {
+            qWarning().noquote() << "Model registry validation writeback skipped:" << error;
+            return;
+        }
+        qInfo().noquote() << "Model registry validation writeback updated" << updatedEntryId;
+        if (modelWorkspacePage) {
+            if (auto* refreshButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton"))
+                refreshButton->click();
+        }
+    };
     auto validatorWorkspacePage = desktop_app::workspace::buildValidatorWorkspace(validatorWorkspaceControls);
     auto* validatorWorkspaceModelEdit = validatorWorkspacePage->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit");
     auto* validatorWorkspaceMetadataEdit =
@@ -2359,7 +2491,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     modelWorkspaceControls.imageValidationAction = imageValidationAction;
     modelWorkspaceControls.validatorWorkspace = validatorWorkspacePage;
     modelWorkspaceControls.appState = &appState;
-    auto modelWorkspacePage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
+    modelWorkspacePage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
 
     desktop_app::workspace::ReportsWorkspaceControls reportsWorkspaceControls;
     reportsWorkspaceControls.logPath = logPath;
@@ -4021,7 +4153,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     validatorWorkspaceControllerDeps.validatorNavButton = validatorNavButton;
     validatorWorkspaceControllerDeps.workspaceStack = workspaceStack;
     validatorWorkspaceControllerDeps.validatorWorkspace = validatorWorkspacePage;
-    validatorWorkspaceControllerDeps.preparedDatasetPath = defaultWorkspacePaths.preparedDataset;
+    validatorWorkspaceControllerDeps.preparedDatasetPath = defaultWorkspacePaths.preparedDatasetManifest;
     validatorWorkspaceControllerDeps.validationRunsRoot = defaultWorkspacePaths.validationRuns;
     validatorWorkspaceControllerDeps.appDir = appDir;
     validatorWorkspaceControllerDeps.resolveAppRelative = resolveAppRelative;
@@ -6116,6 +6248,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* validatorWorkspace = this->findChild<QWidget*>("ValidatorWorkspace");
             auto* validatorRunButton = this->findChild<QPushButton*>("ValidatorWorkspaceOpenImageValidationButton");
             auto* validatorModelEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit");
+            auto* validatorDatasetEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceDatasetEdit");
+            auto* validatorDatasetBrowseButton =
+                this->findChild<QPushButton*>("ValidatorWorkspaceDatasetEditBrowseButton");
+            auto* validatorStatusLabel = this->findChild<QLabel*>("ValidatorWorkspaceStatusLabel");
             auto* commandPreview = this->findChild<QPlainTextEdit*>("ValidatorWorkspaceCommandPreview");
             auto* pythonEdit = this->findChild<QLineEdit*>("ValidatorWorkspacePythonExecutableEdit");
             auto* metadataEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit");
@@ -6136,6 +6272,41 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "Validator workspace uses Run Validation as the primary action");
             require(validatorModelEdit && !validatorModelEdit->text().trimmed().isEmpty(),
                     "Selected model is carried into the Validator workspace");
+            const QString validatorDatasetPath =
+                validatorDatasetEdit ? validatorDatasetEdit->text().trimmed() : QString();
+            const QString normalizedValidatorDatasetPath =
+                QDir::fromNativeSeparators(QDir::cleanPath(validatorDatasetPath)).toLower();
+            const QString normalizedPreparedDatasetsPath =
+                QDir::fromNativeSeparators(QDir::cleanPath(defaultWorkspacePaths.preparedDatasets)).toLower();
+            require(validatorDatasetEdit != nullptr, "Validator workspace Training images field exists");
+            require(validatorDatasetBrowseButton != nullptr,
+                    "Validator workspace Training images Browse button is named for direct Qt verification");
+            require(validatorDatasetBrowseButton &&
+                        validatorDatasetBrowseButton->property("pathSelectionMode").toString() == "file",
+                    "Validator workspace Training images Browse uses a file selector");
+            require(validatorDatasetBrowseButton &&
+                        validatorDatasetBrowseButton->property("fileDialogFilter").toString().contains("*.json"),
+                    "Validator workspace Training images Browse filters for JSON manifests");
+            require(normalizedValidatorDatasetPath.endsWith("/metadata/dataset_manifest.json"),
+                    "Validator workspace Training images defaults to dataset_manifest.json");
+            require(normalizedValidatorDatasetPath.startsWith(normalizedPreparedDatasetsPath),
+                    "Validator workspace Training images default starts in Documents/OpenDSS prepared datasets");
+            require(validatorDatasetEdit && !QFileInfo(validatorDatasetPath).isDir(),
+                    "Validator workspace Training images field does not prefer a folder path");
+            if (validatorDatasetEdit && QFileInfo(defaultWorkspacePaths.preparedDataset).isDir()) {
+                const QString manifestPath = validatorDatasetEdit->text();
+                validatorDatasetEdit->setText(defaultWorkspacePaths.preparedDataset);
+                waitForUi(100);
+                require(validatorStatusLabel &&
+                            validatorStatusLabel->text().contains("training images JSON manifest", Qt::CaseInsensitive),
+                        "Folder-only Training images selection is blocked as a missing JSON manifest");
+                if (validatorRunButton) {
+                    require(!validatorRunButton->isEnabled(),
+                            "Folder-only Training images selection does not enable validation");
+                }
+                validatorDatasetEdit->setText(manifestPath);
+                waitForUi(100);
+            }
             require(commandPreview && !commandPreview->isVisible(), "Command preview is hidden in the Validator workspace");
             require(pythonEdit && !pythonEdit->isVisible(), "Python path is hidden in the Validator workspace");
             require(metadataEdit && !metadataEdit->isVisible(), "Metadata path is hidden in the Validator workspace");
@@ -6149,6 +6320,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "Validator workspace no longer shows latency by default");
             require(!workspaceContainsText(validatorWorkspace, "Sequence validation remains disabled"),
                     "Validator workspace no longer shows sequence validation placeholder notes");
+            verifyValidationWritebackToModelRegistry(require);
 
             workspaceStack->setCurrentWidget(liveWorkspacePage);
             if (liveNavButton)

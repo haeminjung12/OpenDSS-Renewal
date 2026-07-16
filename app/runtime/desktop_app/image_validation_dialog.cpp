@@ -31,6 +31,9 @@
 
 namespace {
 
+constexpr auto kDatasetManifestRelativePath = "metadata/dataset_manifest.json";
+constexpr auto kJsonManifestFileFilter = "JSON Manifest (*.json);;JSON Files (*.json);;All Files (*)";
+
 QStringList jsonStringList(const QJsonArray& values) {
     QStringList result;
     for (const QJsonValue& value : values)
@@ -67,6 +70,51 @@ QString defaultDisplayLabelForClassId(const QStringList& classIds, const QString
     return classId;
 }
 
+bool isJsonManifestFile(const QString& path) {
+    const QFileInfo info(path.trimmed());
+    return info.isFile() && info.suffix().compare("json", Qt::CaseInsensitive) == 0;
+}
+
+QString manifestPathForDatasetFolder(const QString& path) {
+    const QFileInfo info(path.trimmed());
+    if (!info.isDir())
+        return {};
+    const QString candidate = QDir(info.absoluteFilePath()).filePath(kDatasetManifestRelativePath);
+    if (isJsonManifestFile(candidate))
+        return QFileInfo(candidate).absoluteFilePath();
+    QDir selectedDir(info.absoluteFilePath());
+    if (selectedDir.dirName().compare("images", Qt::CaseInsensitive) == 0 && selectedDir.cdUp()) {
+        const QString siblingMetadataCandidate = selectedDir.filePath(kDatasetManifestRelativePath);
+        if (isJsonManifestFile(siblingMetadataCandidate))
+            return QFileInfo(siblingMetadataCandidate).absoluteFilePath();
+    }
+    return {};
+}
+
+QString defaultPreparedDatasetManifestPath() {
+    return QDir(defaultOpenDssPreparedDatasetsPath())
+        .filePath(QString("droplet_target_nontarget_binary_starter/%1").arg(kDatasetManifestRelativePath));
+}
+
+QString resolveValidationDatasetManifestPath(const QString& path) {
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty())
+        return {};
+    if (isJsonManifestFile(trimmed))
+        return QFileInfo(trimmed).absoluteFilePath();
+    const QString manifestPath = manifestPathForDatasetFolder(trimmed);
+    if (!manifestPath.isEmpty())
+        return manifestPath;
+    const QFileInfo info(trimmed);
+    const QString normalizedFolder = QDir::fromNativeSeparators(QDir::cleanPath(info.absoluteFilePath())).toLower();
+    const QString normalizedPreparedRoot =
+        QDir::fromNativeSeparators(QDir::cleanPath(defaultOpenDssPreparedDatasetsPath())).toLower();
+    const QString defaultManifest = defaultPreparedDatasetManifestPath();
+    if (info.isDir() && normalizedFolder == normalizedPreparedRoot && isJsonManifestFile(defaultManifest))
+        return QFileInfo(defaultManifest).absoluteFilePath();
+    return trimmed;
+}
+
 } // namespace
 
 ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& initialPython, const QString& initialModel,
@@ -99,8 +147,9 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
     if (workspaceMode) {
         addPathRow(form, 0, "Model", modelEdit, false, "Model file", defaultOpenDssModelsPath(),
                    findPackagedAppPath("models"));
-        addPathRow(form, 1, "Training images", datasetEdit, true, "Training images folder",
-                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"));
+        addPathRow(form, 1, "Training images", datasetEdit, false, "Training images JSON manifest",
+                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"),
+                   kJsonManifestFileFilter);
         addPathRow(form, 2, "Results folder", outputEdit, true, "Validation output folder",
                    defaultOpenDssValidationRunsPath());
     } else {
@@ -109,8 +158,9 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
                    findPackagedAppPath("models"));
         addPathRow(form, 2, "Model details", metadataEdit, false, "Model details JSON", defaultOpenDssModelsPath(),
                    findPackagedAppPath("models"));
-        addPathRow(form, 3, "Training images", datasetEdit, true, "Training images folder",
-                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"));
+        addPathRow(form, 3, "Training images", datasetEdit, false, "Training images JSON manifest",
+                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"),
+                   kJsonManifestFileFilter);
         addPathRow(form, 4, "Results folder", outputEdit, true, "Validation output folder",
                    defaultOpenDssValidationRunsPath());
         form->addWidget(new QLabel("Device"), 5, 0);
@@ -244,13 +294,21 @@ void ImageValidationWidget::setSummaryChangedCallback(SummaryChangedCallback cal
 
 void ImageValidationWidget::addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit,
                                        bool directory, const QString& dialogTitle, const QString& workspacePath,
-                                       const QString& packagedPath) {
+                                       const QString& packagedPath, const QString& fileFilter) {
     auto* browse = new QPushButton("Browse");
+    if (edit && !edit->objectName().isEmpty()) {
+        const QString browseName = edit->objectName() + "BrowseButton";
+        browse->setObjectName(browseName);
+        browse->setAccessibleName(browseName);
+    }
+    browse->setProperty("pathSelectionMode", directory ? "directory" : "file");
+    browse->setProperty("fileDialogFilter", fileFilter);
+    browse->setProperty("workspacePath", workspacePath);
     layout->addWidget(new QLabel(label), row, 0);
     layout->addWidget(edit, row, 1);
     layout->addWidget(browse, row, 2);
     QObject::connect(browse, &QPushButton::clicked,
-                     this, [this, edit, directory, dialogTitle, workspacePath, packagedPath]() {
+                     this, [this, edit, directory, dialogTitle, workspacePath, packagedPath, fileFilter]() {
         const QString current = edit->text().trimmed();
         QString selected;
         if (directory) {
@@ -258,7 +316,7 @@ void ImageValidationWidget::addPathRow(QGridLayout* layout, int row, const QStri
             selected = QFileDialog::getExistingDirectory(this, dialogTitle, startDir);
         } else {
             const QString startPath = chooseOpenFileDialogPath(current, workspacePath, packagedPath);
-            selected = QFileDialog::getOpenFileName(this, dialogTitle, startPath);
+            selected = QFileDialog::getOpenFileName(this, dialogTitle, startPath, fileFilter);
         }
         if (!selected.isEmpty())
             edit->setText(QDir::toNativeSeparators(selected));
@@ -329,8 +387,8 @@ QString ImageValidationWidget::missingInputs() const {
         missing << "model file";
     if (!QFileInfo(metadataEdit->text().trimmed()).isFile())
         missing << "model details file";
-    if (!QFileInfo(datasetEdit->text().trimmed()).isDir())
-        missing << "training images folder";
+    if (!isJsonManifestFile(datasetEdit->text().trimmed()))
+        missing << "training images JSON manifest";
     if (outputEdit->text().trimmed().isEmpty())
         missing << "output folder";
     if (schemaCombo->currentIndex() == 2 && classesEdit->text().trimmed().isEmpty())
@@ -372,7 +430,9 @@ void ImageValidationWidget::updatePreviewAndGate() {
 void ImageValidationWidget::loadSettings() {
     QSettings settings;
     pythonEdit->setText(settings.value("validator/pythonExecutable", pythonEdit->text()).toString());
-    datasetEdit->setText(settings.value("validator/imageDataset", datasetEdit->text()).toString());
+    datasetEdit->setText(
+        QDir::toNativeSeparators(resolveValidationDatasetManifestPath(
+            settings.value("validator/imageDataset", datasetEdit->text()).toString())));
     outputEdit->setText(settings.value("validator/outputFolder", outputEdit->text()).toString());
     const QString device = settings.value("validator/device", deviceCombo->currentText()).toString();
     int index = deviceCombo->findText(device);
@@ -473,8 +533,9 @@ void ImageValidationWidget::finishValidation(int exitCode, QProcess::ExitStatus 
         terminalStatus = QString("Failed: the validation tool exited with code %1.").arg(exitCode);
     }
     statusLabel->setText(terminalStatus);
-    const bool summaryLoaded = loadSummaryArtifacts();
-    if (!canceled && !crashed && exitCode == 0 && !summaryLoaded) {
+    const bool validationSucceeded = !canceled && !crashed && exitCode == 0;
+    const bool summaryLoaded = loadSummaryArtifacts(validationSucceeded);
+    if (validationSucceeded && !summaryLoaded) {
         terminalStatus = "Failed: validation_summary.json was not found.";
         statusLabel->setText(terminalStatus);
     }
@@ -495,7 +556,7 @@ void ImageValidationWidget::appendLog(const QString& text) {
     logText->moveCursor(QTextCursor::End);
 }
 
-bool ImageValidationWidget::loadSummaryArtifacts() {
+bool ImageValidationWidget::loadSummaryArtifacts(bool notifySummaryChanged) {
     QString discovered = QDir(outputEdit->text().trimmed()).filePath("image_validation/validation_summary.json");
     if (!QFileInfo::exists(discovered)) {
         QRegularExpression re("\"summary_path\"\\s*:\\s*\"([^\"]+)\"");
@@ -556,7 +617,7 @@ bool ImageValidationWidget::loadSummaryArtifacts() {
     }
     openSummaryButton->setEnabled(true);
     openOutputButton->setEnabled(true);
-    if (summaryChangedCallback)
+    if (notifySummaryChanged && summaryChangedCallback)
         summaryChangedCallback(summaryPath);
     return true;
 }

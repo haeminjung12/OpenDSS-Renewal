@@ -155,6 +155,57 @@ QString trainedValidationStatus(const QJsonObject& metadata) {
     return parts.join("; ");
 }
 
+QString packagedPathCandidate(const QString& relativePath);
+
+QString resolvedRegistryArtifactPathForComparison(const QString& path) {
+    const QString trimmed = path.trimmed();
+    if (trimmed.isEmpty())
+        return {};
+    if (QFileInfo(trimmed).isAbsolute())
+        return normalizedPathForComparison(absoluteCleanPath(trimmed));
+    const QString packagedPath = packagedPathCandidate(trimmed);
+    if (!packagedPath.isEmpty())
+        return normalizedPathForComparison(absoluteCleanPath(packagedPath));
+    return normalizedPathForComparison(absoluteCleanPath(trimmed));
+}
+
+QJsonObject imageValidationSummaryFromValidatorSummary(const QJsonObject& summary, const QString& summaryPath) {
+    const QJsonObject metrics = summary.value("metrics").toObject();
+    QJsonObject imageValidation;
+    const QString status = summary.value("status").toString().trimmed();
+    imageValidation["status"] = status.isEmpty() ? QString("completed") : status;
+    imageValidation["summary_path"] = QFileInfo(summaryPath).absoluteFilePath();
+    imageValidation["validated_at"] = summary.value("created_at").toString(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    imageValidation["samples_total"] = summary.value("dataset").toObject().value("samples_total").toInt();
+    imageValidation["samples_evaluated"] = summary.value("dataset").toObject().value("samples_evaluated").toInt();
+    imageValidation["samples_failed"] = summary.value("dataset").toObject().value("samples_failed").toInt();
+    imageValidation["samples_incorrect"] = metrics.value("samples_incorrect").toInt();
+    if (metrics.value("accuracy").isDouble())
+        imageValidation["accuracy"] = metrics.value("accuracy").toDouble();
+    if (metrics.value("macro_f1").isDouble())
+        imageValidation["macro_f1"] = metrics.value("macro_f1").toDouble();
+    if (metrics.value("loss").isDouble())
+        imageValidation["loss"] = metrics.value("loss").toDouble();
+    const QJsonObject latency = summary.value("latency").toObject();
+    if (latency.value("mean_ms").isDouble())
+        imageValidation["mean_latency_ms"] = latency.value("mean_ms").toDouble();
+    if (latency.value("max_ms").isDouble())
+        imageValidation["p99_latency_ms"] = latency.value("max_ms").toDouble();
+    return imageValidation;
+}
+
+bool validationSummaryHasReadableResult(const QJsonObject& summary) {
+    const QString status = summary.value("status").toString().trimmed();
+    if (status.isEmpty() || status.compare("not_run", Qt::CaseInsensitive) == 0 ||
+        status.compare("error", Qt::CaseInsensitive) == 0 ||
+        status.contains("failed", Qt::CaseInsensitive) || status.contains("canceled", Qt::CaseInsensitive) ||
+        status.contains("cancelled", Qt::CaseInsensitive)) {
+        return false;
+    }
+    const QJsonObject metrics = summary.value("metrics").toObject();
+    return metrics.value("accuracy").isDouble() || metrics.value("macro_f1").isDouble();
+}
+
 QJsonObject targetPolicyFromMetadata(const QJsonObject& metadata) {
     QJsonObject targetPolicy = metadata.value("sorting_policy").toObject();
     if (!targetPolicy.isEmpty())
@@ -721,6 +772,140 @@ bool registerTrainedModelArtifacts(const QString& registryFilePath, const QStrin
     return true;
 }
 
+bool updateModelRegistryImageValidationSummary(const QString& registryFilePath, const QString& validationSummaryPath,
+                                               QString* updatedEntryId, QString* error) {
+    if (updatedEntryId)
+        updatedEntryId->clear();
+    if (error)
+        error->clear();
+
+    const QString path = registryFilePath.trimmed();
+    const QString summaryPath = absoluteCleanPath(validationSummaryPath);
+    if (path.isEmpty()) {
+        if (error)
+            *error = "No model registry file path is available.";
+        return false;
+    }
+    if (!QFileInfo(summaryPath).isFile()) {
+        if (error)
+            *error = "Validation summary is missing: " + summaryPath;
+        return false;
+    }
+
+    QString summaryError;
+    const QJsonObject summary = readJsonObjectFile(summaryPath, &summaryError);
+    if (summary.isEmpty() || !validationSummaryHasReadableResult(summary)) {
+        if (error)
+            *error = summaryError.isEmpty() ? "Validation summary did not contain readable image metrics." : summaryError;
+        return false;
+    }
+
+    const QJsonObject summaryModel = summary.value("model").toObject();
+    const QString validatedModelPath = summaryModel.value("model_path").toString();
+    const QString validatedMetadataPath = summaryModel.value("metadata_path").toString();
+    const QString normalizedValidatedModel = resolvedRegistryArtifactPathForComparison(validatedModelPath);
+    const QString normalizedValidatedMetadata = resolvedRegistryArtifactPathForComparison(validatedMetadataPath);
+    if (normalizedValidatedModel.isEmpty() && normalizedValidatedMetadata.isEmpty()) {
+        if (error)
+            *error = "Validation summary does not identify a model or metadata file.";
+        return false;
+    }
+
+    QFile existing(path);
+    if (!existing.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error)
+            *error = "Registry file not readable: " + path;
+        return false;
+    }
+    QJsonParseError parseError;
+    QJsonDocument registryDoc = QJsonDocument::fromJson(existing.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !registryDoc.isObject()) {
+        if (error)
+            *error = "Model registry parse failed: " + parseError.errorString();
+        return false;
+    }
+
+    QJsonObject registry = registryDoc.object();
+    QJsonArray entries = registry.value("entries").toArray();
+    int matchedIndex = -1;
+    for (int i = 0; i < entries.size(); ++i) {
+        const QJsonObject entry = entries.at(i).toObject();
+        const QString entryModel = resolvedRegistryArtifactPathForComparison(registryString(entry, "model_path"));
+        const QString entryMetadata = resolvedRegistryArtifactPathForComparison(registryString(entry, "metadata_path"));
+        const bool modelMatches =
+            !entryModel.isEmpty() && !normalizedValidatedModel.isEmpty() &&
+            entryModel.compare(normalizedValidatedModel, Qt::CaseInsensitive) == 0;
+        const bool metadataMatches =
+            !entryMetadata.isEmpty() && !normalizedValidatedMetadata.isEmpty() &&
+            entryMetadata.compare(normalizedValidatedMetadata, Qt::CaseInsensitive) == 0;
+        if (modelMatches || metadataMatches) {
+            matchedIndex = i;
+            break;
+        }
+    }
+    if (matchedIndex < 0) {
+        if (error)
+            *error = "Validated model is not present in the model registry.";
+        return false;
+    }
+
+    QJsonObject entry = entries.at(matchedIndex).toObject();
+    QString metadataPath = validatedMetadataPath.trimmed();
+    if (metadataPath.isEmpty())
+        metadataPath = registryString(entry, "metadata_path");
+    if (!QFileInfo(metadataPath).isAbsolute()) {
+        const QString resolved = packagedPathCandidate(metadataPath);
+        if (!resolved.isEmpty())
+            metadataPath = resolved;
+    }
+    metadataPath = absoluteCleanPath(metadataPath);
+    if (!QFileInfo(metadataPath).isFile()) {
+        if (error)
+            *error = "Model metadata is missing: " + metadataPath;
+        return false;
+    }
+
+    QString metadataError;
+    QJsonObject metadata = readJsonObjectFile(metadataPath, &metadataError);
+    if (metadata.isEmpty()) {
+        if (error)
+            *error = metadataError.isEmpty() ? "Model metadata is empty." : metadataError;
+        return false;
+    }
+
+    QJsonObject validation = metadata.value("validation_summary").toObject();
+    validation["image_validation"] = imageValidationSummaryFromValidatorSummary(summary, summaryPath);
+    if (!validation.contains("sequence_validation")) {
+        validation["sequence_validation"] = QJsonObject{{"status", "not_run"}};
+    }
+    metadata["validation_summary"] = validation;
+    metadata["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+
+    QFile metadataFile(metadataPath);
+    if (!metadataFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        if (error)
+            *error = "Model metadata is not writable: " + metadataPath;
+        return false;
+    }
+    metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
+    metadataFile.close();
+
+    entry["metadata_path"] = metadataPath;
+    entry["metadata_sha256"] = sha256FileHex(metadataPath);
+    entry["validation_status"] = trainedValidationStatus(metadata);
+    entry["validation_evidence"] = validation;
+    entry["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    entries[matchedIndex] = entry;
+    registry["entries"] = entries;
+    registry["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+
+    if (!writeRegistryFile(path, registry, error))
+        return false;
+    if (updatedEntryId)
+        *updatedEntryId = registryString(entry, "registry_entry_id");
+    return true;
+}
+
 bool renameRegistryEntryDisplayName(const QString& registryFilePath, const QString& registryEntryId,
                                     const QString& displayName, QString* error) {
     if (error)
@@ -926,8 +1111,10 @@ DefaultWorkspacePaths ensureDefaultWorkspaceAssets(const QJsonArray& registryEnt
         }
         const QString destinationDataset = QDir(paths.preparedDatasets).filePath(datasetName);
         copyDirectoryIfMissing(sourceDataset, destinationDataset);
-        if (datasetName == "droplet_target_nontarget_binary_starter")
+        if (datasetName == "droplet_target_nontarget_binary_starter") {
             paths.preparedDataset = destinationDataset;
+            paths.preparedDatasetManifest = QDir(destinationDataset).filePath("metadata/dataset_manifest.json");
+        }
     }
     return paths;
 }

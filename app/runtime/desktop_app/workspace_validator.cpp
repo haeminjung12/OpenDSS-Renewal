@@ -555,7 +555,12 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
                             artifacts.value("failure_cases_csv").toString());
     };
 
-    validatorImageWidget->setSummaryChangedCallback(refreshReport);
+    validatorImageWidget->setSummaryChangedCallback([refreshReport, callback = controls.imageSummaryChangedCallback](
+                                                        const QString& summaryPath) {
+        refreshReport(summaryPath);
+        if (callback)
+            callback(summaryPath);
+    });
     refreshReport(validationSummaryPath());
 
     return validatorWorkspacePage;

@@ -2,6 +2,8 @@
 
 #include <QString>
 
+#include <functional>
+
 class QAction;
 class QWidget;
 
@@ -15,6 +17,7 @@ struct ValidatorWorkspaceControls {
     QString outputPath;
     QString trainerPythonPath;
     QAction* imageValidationAction = nullptr;
+    std::function<void(const QString&)> imageSummaryChangedCallback;
 };
 
 QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls);

@@ -71,16 +71,19 @@ void ValidatorWorkspaceController::stopSequenceTest() {
     if (!deps_.sequenceStop || !deps_.sequenceThread || !deps_.sequenceRunning)
         return;
     deps_.sequenceStop->store(true);
-    if (deps_.sequenceThread->joinable()) {
-        deps_.sequenceThread->join();
-    }
     if (deps_.sequenceRunning->load()) {
-        deps_.sequenceRunning->store(false);
-        setSequenceUiRunning(false);
+        if (deps_.seqStopBtn)
+            deps_.seqStopBtn->setEnabled(false);
         if (deps_.seqStatusLabel)
-            deps_.seqStatusLabel->setText("Sequence stopped.");
+            deps_.seqStatusLabel->setText("Stopping sequence...");
         if (deps_.statusLabel)
-            deps_.statusLabel->setText("Sequence test stopped.");
+            deps_.statusLabel->setText("Stopping sequence test...");
+    }
+}
+
+void ValidatorWorkspaceController::waitForSequenceTest() {
+    if (deps_.sequenceThread && deps_.sequenceThread->joinable()) {
+        deps_.sequenceThread->join();
     }
 }
 

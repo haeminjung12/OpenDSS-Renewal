@@ -56,6 +56,7 @@
 #include "app_types.h"
 #include "app_utils.h"
 #include "collection_postprocessor.h"
+#include "json_persistence.h"
 #include "live_data_collection_writer.h"
 #include "live_log_writer.h"
 #include "model_registry_service.h"
@@ -487,13 +488,9 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     metadata["validation_summary"] = validationSummary;
     metadata["limitations"] = QJsonArray{"Verifier synthetic metadata."};
 
-    QFile metadataFile(metadataPath);
-    require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Verifier can write synthetic metadata artifact");
-    if (metadataFile.isOpen()) {
-        metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
-        metadataFile.close();
-    }
+    QString metadataWriteError;
+    require(desktop_app::writeJsonObjectAtomically(metadataPath, metadata, &metadataWriteError),
+            "Verifier can write synthetic metadata artifact: " + metadataWriteError);
     QFile metricsFile(metricsPath);
     require(metricsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
             "Verifier can write synthetic metrics artifact");
@@ -501,20 +498,14 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
         metricsFile.write("stage,epoch,val_accuracy,val_macro_f1\nverify,1,0.95,0.94\n");
         metricsFile.close();
     }
-    QFile metricsJsonFile(metricsJsonPath);
-    require(metricsJsonFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Verifier can write synthetic metrics JSON artifact");
-    if (metricsJsonFile.isOpen()) {
-        metricsJsonFile.write(QJsonDocument(QJsonObject{{"schema_version", 1}}).toJson(QJsonDocument::Indented));
-        metricsJsonFile.close();
-    }
-    QFile trainingConfigFile(trainingConfigPath);
-    require(trainingConfigFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Verifier can write synthetic training config artifact");
-    if (trainingConfigFile.isOpen()) {
-        trainingConfigFile.write(QJsonDocument(QJsonObject{{"architecture", "squeezenet1_1"}}).toJson(QJsonDocument::Indented));
-        trainingConfigFile.close();
-    }
+    QString metricsJsonWriteError;
+    require(desktop_app::writeJsonObjectAtomically(metricsJsonPath, QJsonObject{{"schema_version", 1}},
+                                                   &metricsJsonWriteError),
+            "Verifier can write synthetic metrics JSON artifact: " + metricsJsonWriteError);
+    QString trainingConfigWriteError;
+    require(desktop_app::writeJsonObjectAtomically(trainingConfigPath, QJsonObject{{"architecture", "squeezenet1_1"}},
+                                                   &trainingConfigWriteError),
+            "Verifier can write synthetic training config artifact: " + trainingConfigWriteError);
     QFile classMetricsFile(classMetricsPath);
     require(classMetricsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
             "Verifier can write synthetic class metrics artifact");
@@ -715,13 +706,9 @@ void verifyValidationWritebackToModelRegistry(const std::function<void(bool, con
     metadata["model_name"] = "Validation writeback verifier model";
     metadata["classes"] = QJsonArray{"0", "1"};
     metadata["display_labels"] = QJsonObject{{"0", "Non-target"}, {"1", "Target"}};
-    QFile metadataFile(metadataPath);
-    require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Validation writeback verifier can write metadata");
-    if (metadataFile.isOpen()) {
-        metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
-        metadataFile.close();
-    }
+    QString metadataWriteError;
+    require(desktop_app::writeJsonObjectAtomically(metadataPath, metadata, &metadataWriteError),
+            "Validation writeback verifier can write metadata: " + metadataWriteError);
 
     QJsonObject entry;
     entry["registry_entry_id"] = "validation_writeback_verifier";
@@ -732,13 +719,9 @@ void verifyValidationWritebackToModelRegistry(const std::function<void(bool, con
     QJsonObject registry;
     registry["schema_version"] = "model-registry-v1";
     registry["entries"] = QJsonArray{entry};
-    QFile registryFile(registryPath);
-    require(registryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Validation writeback verifier can write registry");
-    if (registryFile.isOpen()) {
-        registryFile.write(QJsonDocument(registry).toJson(QJsonDocument::Indented));
-        registryFile.close();
-    }
+    QString registryWriteError;
+    require(desktop_app::writeJsonObjectAtomically(registryPath, registry, &registryWriteError),
+            "Validation writeback verifier can write registry: " + registryWriteError);
 
     QJsonObject summary;
     summary["schema_version"] = "validator.v1";
@@ -747,13 +730,9 @@ void verifyValidationWritebackToModelRegistry(const std::function<void(bool, con
     summary["model"] = QJsonObject{{"model_path", modelPath}, {"metadata_path", metadataPath}};
     summary["dataset"] = QJsonObject{{"samples_total", 5}, {"samples_evaluated", 5}, {"samples_failed", 1}};
     summary["metrics"] = QJsonObject{{"accuracy", 0.8}, {"macro_f1", 0.75}, {"samples_incorrect", 1}};
-    QFile summaryFile(summaryPath);
-    require(summaryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Validation writeback verifier can write successful summary");
-    if (summaryFile.isOpen()) {
-        summaryFile.write(QJsonDocument(summary).toJson(QJsonDocument::Indented));
-        summaryFile.close();
-    }
+    QString summaryWriteError;
+    require(desktop_app::writeJsonObjectAtomically(summaryPath, summary, &summaryWriteError),
+            "Validation writeback verifier can write successful summary: " + summaryWriteError);
 
     QString updatedEntryId;
     QString error;
@@ -782,26 +761,18 @@ void verifyValidationWritebackToModelRegistry(const std::function<void(bool, con
 
     QJsonObject failedSummary = summary;
     failedSummary["status"] = "failed";
-    QFile failedSummaryFile(failedSummaryPath);
-    require(failedSummaryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Validation writeback verifier can write failed summary");
-    if (failedSummaryFile.isOpen()) {
-        failedSummaryFile.write(QJsonDocument(failedSummary).toJson(QJsonDocument::Indented));
-        failedSummaryFile.close();
-    }
+    QString failedSummaryWriteError;
+    require(desktop_app::writeJsonObjectAtomically(failedSummaryPath, failedSummary, &failedSummaryWriteError),
+            "Validation writeback verifier can write failed summary: " + failedSummaryWriteError);
     error.clear();
     require(!updateModelRegistryImageValidationSummary(registryPath, failedSummaryPath, nullptr, &error),
             "Failed image validation summary is not written back as validated");
 
     QJsonObject errorSummary = summary;
     errorSummary["status"] = "error";
-    QFile errorSummaryFile(errorSummaryPath);
-    require(errorSummaryFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-            "Validation writeback verifier can write error summary");
-    if (errorSummaryFile.isOpen()) {
-        errorSummaryFile.write(QJsonDocument(errorSummary).toJson(QJsonDocument::Indented));
-        errorSummaryFile.close();
-    }
+    QString errorSummaryWriteError;
+    require(desktop_app::writeJsonObjectAtomically(errorSummaryPath, errorSummary, &errorSummaryWriteError),
+            "Validation writeback verifier can write error summary: " + errorSummaryWriteError);
     error.clear();
     require(!updateModelRegistryImageValidationSummary(registryPath, errorSummaryPath, nullptr, &error),
             "Errored image validation summary is not written back as validated");
@@ -2973,6 +2944,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                        .filePath("validation_gui_image_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss")))
             .toString();
     validatorWorkspaceControls.trainerPythonPath = validatorTrainerPythonPath();
+    validatorWorkspaceControls.registryEntries = registryEntries;
     validatorWorkspaceControls.imageValidationAction = imageValidationAction;
     validatorWorkspaceControls.imageSummaryChangedCallback = [registryFilePath, &modelWorkspacePage](const QString& summaryPath) {
         QString updatedEntryId;
@@ -2991,13 +2963,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto* validatorWorkspaceModelEdit = validatorWorkspacePage->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit");
     auto* validatorWorkspaceMetadataEdit =
         validatorWorkspacePage->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit");
+    auto* validatorWorkspaceImageWidget = static_cast<ImageValidationWidget*>(
+        validatorWorkspacePage->findChild<QWidget*>("ValidatorWorkspaceImageValidationWidget"));
+    auto* validatorWorkspaceModelCombo = validatorWorkspacePage->findChild<QComboBox*>("ValidatorWorkspaceModelCombo");
     auto syncValidatorWorkspaceRuntimeModel = [&]() {
-        if (validatorWorkspaceModelEdit)
-            validatorWorkspaceModelEdit->setText(validatorResolveAppRelative(onnxEdit->text().trimmed()));
-        if (validatorWorkspaceMetadataEdit)
-            validatorWorkspaceMetadataEdit->setText(validatorResolveAppRelative(metaEdit->text().trimmed()));
+        const QString runtimeModel = QDir::cleanPath(validatorResolveAppRelative(onnxEdit->text().trimmed()));
+        if (validatorWorkspaceModelCombo) {
+            for (int i = 0; i < validatorWorkspaceModelCombo->count(); ++i) {
+                const QVariantMap item = validatorWorkspaceModelCombo->itemData(i, Qt::UserRole + 1).toMap();
+                if (QDir::cleanPath(item.value("model_path").toString()).compare(runtimeModel, Qt::CaseInsensitive) == 0) {
+                    validatorWorkspaceModelCombo->setCurrentIndex(i);
+                    return;
+                }
+            }
+        }
     };
 
+    DatasetWorkspaceController* datasetController = nullptr;
     desktop_app::workspace::ModelWorkspaceControls modelWorkspaceControls;
     modelWorkspaceControls.registryEntries = registryEntries;
     modelWorkspaceControls.registryFilePath = registryFilePath;
@@ -3006,6 +2988,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     modelWorkspaceControls.imageValidationAction = imageValidationAction;
     modelWorkspaceControls.validatorWorkspace = validatorWorkspacePage;
     modelWorkspaceControls.appState = &appState;
+    modelWorkspaceControls.registryChangedCallback = [&datasetController, registryFilePath, validatorWorkspaceImageWidget]() {
+        if (datasetController)
+            datasetController->refreshTrainerUi();
+        if (validatorWorkspaceImageWidget) {
+            QString warning;
+            validatorWorkspaceImageWidget->refreshModelRegistry(
+                readModelRegistryEntriesFromPath(registryFilePath, &warning));
+        }
+    };
     modelWorkspacePage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
 
     desktop_app::workspace::ReportsWorkspaceControls reportsWorkspaceControls;
@@ -3841,7 +3832,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
     QString defaultTrainerOutput = defaultWorkspacePaths.trainingRuns;
     QString defaultTrainerDataset = defaultWorkspacePaths.preparedDataset;
-    auto* datasetController = new DatasetWorkspaceController(
+    datasetController = new DatasetWorkspaceController(
         DatasetWorkspaceController::Dependencies{
             this,
             defaultTrainerDataset,
@@ -3903,6 +3894,50 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         openDatasetLabelerPath(normalizedPath);
     };
     auto refreshTrainerUi = [datasetController]() { datasetController->refreshTrainerUi(); };
+    if (qEnvironmentVariableIntValue("OVDS_VERIFY_ADD_PRETRAINED_TRAINER_VISIBILITY") != 0) {
+        QTimer::singleShot(0, this, [=]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition)
+                    failures.push_back(message);
+            };
+
+            auto* addPretrainedButton =
+                modelWorkspacePage ? modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceAddPretrainedModelButton")
+                                   : nullptr;
+            require(addPretrainedButton != nullptr, "Model workspace Add pre-trained model button exists");
+            if (addPretrainedButton) {
+                addPretrainedButton->click();
+                QCoreApplication::processEvents();
+            }
+            refreshTrainerUi();
+
+            const QString expectedLabel =
+                qEnvironmentVariable("OVDS_VERIFY_EXPECT_ADDED_PRETRAINED_LABEL").trimmed().isEmpty()
+                    ? QStringLiteral("Pre-trained model")
+                    : qEnvironmentVariable("OVDS_VERIFY_EXPECT_ADDED_PRETRAINED_LABEL").trimmed();
+            bool foundExpected = false;
+            if (trainerStartingModelCombo) {
+                for (int i = 0; i < trainerStartingModelCombo->count(); ++i) {
+                    if (trainerStartingModelCombo->itemText(i).contains(expectedLabel, Qt::CaseInsensitive) ||
+                        trainerStartingModelCombo->itemData(i).toString().contains("pre_binary_promotion_backup",
+                                                                                    Qt::CaseInsensitive)) {
+                        foundExpected = true;
+                        break;
+                    }
+                }
+            }
+            require(foundExpected, "Trainer Start from list contains added pre-trained model");
+
+            if (failures.isEmpty()) {
+                qInfo().noquote() << "Add pre-trained model Trainer visibility verifier passed.";
+                std::exit(0);
+            }
+            qWarning().noquote()
+                << "Add pre-trained model Trainer visibility verifier failed:" << failures.join("; ");
+            std::exit(2);
+        });
+    }
     auto setTrainerBusy = [datasetController, &trainerCommandWasTraining](bool busy) {
         datasetController->setTrainerBusy(busy, trainerCommandWasTraining);
     };
@@ -4202,7 +4237,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "Trainer starting-model default selection is non-empty");
             require(trainerTrainingModeCombo->currentData().toString() == "new_copy",
                     "Trainer training-plan default is the safe new-copy mode");
-            require(trainerStartingModelHintLabel->text().contains("new copy", Qt::CaseInsensitive),
+            const QString startingModelHintText = trainerStartingModelHintLabel->text();
+            require(startingModelHintText.contains("new copy", Qt::CaseInsensitive) ||
+                        startingModelHintText.contains("new trained copy", Qt::CaseInsensitive),
                     "Trainer hint explains that training saves a new copy");
             require(trainerStatusLabel->text().contains("Start from:", Qt::CaseInsensitive),
                     "Trainer summary reports the selected starting model");
@@ -4210,6 +4247,34 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "Trainer summary keeps the original model unchanged");
             require(trainerOutputEdit->placeholderText().contains("new trained model", Qt::CaseInsensitive),
                     "Trainer output text describes saving a new trained model");
+            const QString expectedModel = qEnvironmentVariable("OVDS_VERIFY_TRAINER_EXPECT_MODEL").trimmed();
+            if (!expectedModel.isEmpty()) {
+                bool foundExpectedModel = false;
+                for (int i = 0; i < trainerStartingModelCombo->count(); ++i) {
+                    if (trainerStartingModelCombo->itemText(i).contains(expectedModel, Qt::CaseInsensitive) ||
+                        trainerStartingModelCombo->itemData(i).toString().contains(expectedModel, Qt::CaseInsensitive)) {
+                        foundExpectedModel = true;
+                        break;
+                    }
+                }
+                require(foundExpectedModel, "Trainer starting-model list contains requested model: " + expectedModel);
+
+                bool foundExpectedModelWorkspaceRow = false;
+                if (auto* modelTable = modelWorkspacePage->findChild<QTableWidget*>("ModelWorkspaceRegistryTable")) {
+                    for (int row = 0; row < modelTable->rowCount(); ++row) {
+                        for (int column = 0; column < modelTable->columnCount(); ++column) {
+                            auto* item = modelTable->item(row, column);
+                            if (item && item->text().contains(expectedModel, Qt::CaseInsensitive)) {
+                                foundExpectedModelWorkspaceRow = true;
+                                break;
+                            }
+                        }
+                        if (foundExpectedModelWorkspaceRow)
+                            break;
+                    }
+                }
+                require(foundExpectedModelWorkspaceRow, "Model workspace table contains requested model: " + expectedModel);
+            }
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
             if (failures.isEmpty()) {
@@ -4217,7 +4282,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             } else {
                 qWarning().noquote() << "Trainer model-selection verifier failed:" << failures.join("; ");
             }
-            QCoreApplication::exit(exitCode);
+            std::exit(exitCode);
         });
     }
     auto runTrainerSetupStatusVerifier = [&]() -> int {
@@ -4758,12 +4823,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             return;
         QDir dir(runDir);
         dir.mkpath(".");
-        QFile file(dir.filePath("runtime_settings_snapshot.json"));
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
-            logMessage(QString("Failed to write runtime settings snapshot: %1").arg(file.errorString()));
+        QString writeError;
+        if (!desktop_app::writeJsonObjectAtomically(dir.filePath("runtime_settings_snapshot.json"),
+                                                    runtimeSettingsSnapshot(runMode), &writeError)) {
+            logMessage(QString("Failed to write runtime settings snapshot: %1").arg(writeError));
             return;
         }
-        file.write(QJsonDocument(runtimeSettingsSnapshot(runMode)).toJson(QJsonDocument::Indented));
     };
 
     auto resolveAppRelative = [&](const QString& path) -> QString {
@@ -6995,13 +7060,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
             sequenceLogWriter.close();
 
+            const bool sequenceWasStopped = sequenceStop.load();
             sequenceRunning.store(false);
             QMetaObject::invokeMethod(
                 this,
-                [&, logPath, trajPath, summaryPath]() {
+                [&, logPath, trajPath, summaryPath, sequenceWasStopped]() {
                     validatorWorkspaceController->setSequenceUiRunning(false);
-                    seqStatusLabel->setText("Sequence finished.");
-                    statusLabel->setText("Sequence test finished.");
+                    seqStatusLabel->setText(sequenceWasStopped ? "Sequence stopped." : "Sequence finished.");
+                    statusLabel->setText(sequenceWasStopped ? "Sequence test stopped." : "Sequence test finished.");
                     QString logText = "Log: " + logPath;
                     if (!trajPath.isEmpty()) {
                         logText += "\nTrajectory: " + trajPath;
@@ -7261,6 +7327,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             }
         }
         validatorWorkspaceController->stopSequenceTest();
+        validatorWorkspaceController->waitForSequenceTest();
         backgroundTasks.waitAll();
         stopLiveLogging();
         cameraController->shutdownCameraThread(cameraThread);
@@ -7512,11 +7579,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 QJsonObject metadata;
                 metadata["session_id"] = folderName;
                 metadata["mode"] = "live_data_collection";
-                QFile metadataFile(QDir(sessionDir).filePath("collection_metadata.json"));
-                require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text),
-                        "synthetic collection metadata opened");
-                metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
-                metadataFile.close();
+                QString metadataWriteError;
+                require(desktop_app::writeJsonObjectAtomically(QDir(sessionDir).filePath("collection_metadata.json"),
+                                                               metadata, &metadataWriteError),
+                        "synthetic collection metadata opened: " + metadataWriteError);
                 return sessionDir;
             };
 
@@ -7630,12 +7696,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QJsonObject metadata;
             metadata["session_id"] = "session_handoff";
             metadata["mode"] = "live_data_collection";
-            QFile metadataFile(QDir(sessionDir).filePath("collection_metadata.json"));
-            require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text), "synthetic collection metadata opened");
-            if (metadataFile.isOpen()) {
-                metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
-                metadataFile.close();
-            }
+            QString metadataWriteError;
+            require(desktop_app::writeJsonObjectAtomically(QDir(sessionDir).filePath("collection_metadata.json"),
+                                                           metadata, &metadataWriteError),
+                    "synthetic collection metadata opened: " + metadataWriteError);
 
             if (!failures.isEmpty()) {
                 QDir(verifyRoot).removeRecursively();
@@ -7932,12 +7996,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             waitForUi(250);
 
             auto* modelValidateButton = this->findChild<QPushButton*>("ModelWorkspaceValidateButton");
+            auto* modelAddBlankButton = this->findChild<QPushButton*>("ModelWorkspaceAddBlankModelButton");
             auto* revalidateButton = this->findChild<QPushButton*>("ModelWorkspaceRevalidateButton");
             auto* openReportButton = this->findChild<QPushButton*>("ModelWorkspaceOpenReportButton");
             auto* runValidationButton = this->findChild<QPushButton*>("ModelWorkspaceRunValidationButton");
             auto* validatorWorkspace = this->findChild<QWidget*>("ValidatorWorkspace");
             auto* validatorRunButton = this->findChild<QPushButton*>("ValidatorWorkspaceOpenImageValidationButton");
             auto* validatorModelEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit");
+            auto* validatorModelCombo = this->findChild<QComboBox*>("ValidatorWorkspaceModelCombo");
+            auto* validatorModelBrowseButton =
+                this->findChild<QPushButton*>("ValidatorWorkspaceModelEditBrowseButton");
             auto* validatorDatasetEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceDatasetEdit");
             auto* validatorDatasetBrowseButton =
                 this->findChild<QPushButton*>("ValidatorWorkspaceDatasetEditBrowseButton");
@@ -7973,6 +8041,30 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(validatorRunButton != nullptr, "Validator workspace run button exists");
             require(validatorRunButton && validatorRunButton->text() == "Test Model",
                     "Validator workspace uses Test Model as the primary action");
+            require(validatorModelCombo && validatorModelCombo->count() == registryEntries.size(),
+                    "Model Testing uses the Model workspace registry list");
+            require(validatorModelBrowseButton == nullptr,
+                    "Model Testing does not expose a raw model file selector");
+            if (qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_TESTING_REGISTRY_REFRESH") != 0) {
+                require(!qEnvironmentVariable("OVDS_MODEL_REGISTRY_PATH").trimmed().isEmpty(),
+                        "Model Testing registry-refresh verifier uses an isolated registry override");
+                const int initialTestingModelCount = validatorModelCombo ? validatorModelCombo->count() : -1;
+                require(modelAddBlankButton != nullptr, "Model workspace Add blank model button exists");
+                if (modelAddBlankButton)
+                    modelAddBlankButton->click();
+                app.processEvents();
+                require(validatorModelCombo && validatorModelCombo->count() == initialTestingModelCount + 1,
+                        "Adding a Model workspace entry refreshes Model Testing");
+                if (validatorModelCombo && validatorModelCombo->count() > 0) {
+                    validatorModelCombo->setCurrentIndex(validatorModelCombo->count() - 1);
+                    const QVariantMap selected =
+                        validatorModelCombo->currentData(Qt::UserRole + 1).toMap();
+                    require(QFileInfo(selected.value("model_path").toString()).isFile(),
+                            "Refreshed Model Testing entry resolves its ONNX path");
+                    require(QFileInfo(selected.value("metadata_path").toString()).isFile(),
+                            "Refreshed Model Testing entry resolves its metadata path");
+                }
+            }
             require(workspaceContainsText(validatorWorkspace, "Test dataset"),
                     "Validator workspace shows Test dataset wording");
             require(workspaceContainsText(validatorWorkspace, "Test results"),

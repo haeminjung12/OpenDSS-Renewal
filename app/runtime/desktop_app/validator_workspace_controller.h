@@ -73,6 +73,7 @@ class ValidatorWorkspaceController : public QObject {
     void setSequenceUiRunning(bool running) const;
     void updateSequenceStatus(const QString& text) const;
     void stopSequenceTest();
+    void waitForSequenceTest();
 
   private:
     static QString formatBytes(size_t bytes);

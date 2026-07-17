@@ -29,6 +29,7 @@
 #include <QtWidgets/QSpinBox>
 
 #include "dataset_labeler_dialog.h"
+#include "json_persistence.h"
 #include "model_registry_service.h"
 
 #include <algorithm>
@@ -78,6 +79,29 @@ QString architectureIdFromMetadata(const QJsonObject& metadataDoc) {
             return "squeezenet1_1";
         }
     }
+    return QString();
+}
+
+QString architectureIdFromRegistryEntry(const QJsonObject& entry, const QJsonObject& metadataDoc) {
+    const QString metadataArchitecture = architectureIdFromMetadata(metadataDoc);
+    if (!metadataArchitecture.isEmpty()) {
+        return metadataArchitecture;
+    }
+
+    const QString registryArchitecture = registryString(entry, "architecture_id").trimmed();
+    if (!registryArchitecture.isEmpty()) {
+        return registryArchitecture;
+    }
+
+    const QString entryId = registryString(entry, "registry_entry_id");
+    const QString modelPath = registryString(entry, "model_path");
+    if (entryId.startsWith("blank_squeezenet_template_seed42", Qt::CaseInsensitive) ||
+        entryId.startsWith("pre_binary_promotion_backup", Qt::CaseInsensitive) ||
+        modelPath.contains("squeezenet", Qt::CaseInsensitive) ||
+        modelPath.contains("pre_binary_promotion_backup", Qt::CaseInsensitive)) {
+        return "squeezenet1_1";
+    }
+
     return QString();
 }
 
@@ -401,16 +425,14 @@ QString DatasetWorkspaceController::trainingConfigPath() const {
     }
 
     const QString path = QDir(outputDir).absoluteFilePath("trainer_gui_config.json");
-    QFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+    QString writeError;
+    if (!desktop_app::writeJsonObjectAtomically(path, config, &writeError)) {
         if (deps_.trainerStatusLabel) {
             deps_.trainerStatusLabel->setText(
-                trainerSummaryText("Could not prepare the training setup.", file.errorString()));
+                trainerSummaryText("Could not prepare the training setup.", writeError));
         }
         return {};
     }
-    file.write(QJsonDocument(config).toJson(QJsonDocument::Indented));
-    file.close();
     return path;
 }
 
@@ -1020,7 +1042,7 @@ void DatasetWorkspaceController::populateTrainerModelOptions() const {
             }
 
             const QJsonObject metadataDoc = loadJsonObjectFile(metadataPath);
-            const QString architectureId = architectureIdFromMetadata(metadataDoc);
+            const QString architectureId = architectureIdFromRegistryEntry(entry, metadataDoc);
             if (architectureId != "squeezenet1_0" && architectureId != "squeezenet1_1") {
                 continue;
             }

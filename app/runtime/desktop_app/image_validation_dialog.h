@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QDialog>
+#include <QJsonArray>
 #include <QProcess>
 #include <QString>
 #include <QWidget>
@@ -27,6 +28,7 @@ class ImageValidationWidget : public QWidget {
     ~ImageValidationWidget() override;
 
     void setSummaryChangedCallback(SummaryChangedCallback callback);
+    void refreshModelRegistry(const QJsonArray& entries, const QString& preferredEntryId = QString());
 
   private:
     void addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit, bool directory,
@@ -51,6 +53,7 @@ class ImageValidationWidget : public QWidget {
     QLineEdit* datasetEdit = nullptr;
     QLineEdit* outputEdit = nullptr;
     QComboBox* deviceCombo = nullptr;
+    QComboBox* modelCombo = nullptr;
     QComboBox* schemaCombo = nullptr;
     QLineEdit* classesEdit = nullptr;
     QLabel* statusLabel = nullptr;

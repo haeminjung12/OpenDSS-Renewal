@@ -9,6 +9,8 @@
 #include <QTextStream>
 #include <QUuid>
 
+#include "json_persistence.h"
+
 namespace {
 
 QString csvQuote(const QString& value) {
@@ -155,13 +157,11 @@ bool LiveDataCollectionWriter::writeMetadata(const QString& stopReason, std::str
     root["stream_dir"] = "stream";
     root["detections_csv"] = "detections.csv";
 
-    QFile metadataFile(QDir(sessionDir_).filePath("collection_metadata.json"));
-    if (!metadataFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        err = QString("Failed to write collection metadata: %1").arg(metadataFile.fileName()).toStdString();
+    QString writeError;
+    if (!desktop_app::writeJsonObjectAtomically(QDir(sessionDir_).filePath("collection_metadata.json"), root, &writeError)) {
+        err = QString("Failed to write collection metadata: %1").arg(writeError).toStdString();
         return false;
     }
-    metadataFile.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-    metadataFile.close();
     return true;
 }
 

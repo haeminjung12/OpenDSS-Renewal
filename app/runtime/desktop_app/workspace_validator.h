@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QString>
+#include <QJsonArray>
 
 #include <functional>
 
@@ -16,6 +17,7 @@ struct ValidatorWorkspaceControls {
     QString datasetPath;
     QString outputPath;
     QString trainerPythonPath;
+    QJsonArray registryEntries;
     QAction* imageValidationAction = nullptr;
     std::function<void(const QString&)> imageSummaryChangedCallback;
 };

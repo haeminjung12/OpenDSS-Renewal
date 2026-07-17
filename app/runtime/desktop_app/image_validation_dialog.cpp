@@ -145,8 +145,12 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
 
     auto* form = new QGridLayout;
     if (workspaceMode) {
-        addPathRow(form, 0, "Model", modelEdit, false, "Model file", defaultOpenDssModelsPath(),
-                   findPackagedAppPath("models"));
+        modelCombo = new QComboBox;
+        nameWidget(modelCombo, "ValidatorWorkspaceModelCombo");
+        modelCombo->setMinimumContentsLength(24);
+        modelCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+        form->addWidget(new QLabel("Model"), 0, 0);
+        form->addWidget(modelCombo, 0, 1, 1, 2);
         addPathRow(form, 1, "Training images", datasetEdit, false, "Training images JSON manifest",
                    defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"),
                    kJsonManifestFileFilter);
@@ -234,6 +238,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
         layout->addWidget(note);
     } else {
         pythonEdit->hide();
+        modelEdit->hide();
         metadataEdit->hide();
         deviceCombo->hide();
         schemaCombo->hide();
@@ -260,6 +265,14 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
         syncSchemaFromMetadata();
         update();
     });
+    if (modelCombo) {
+        QObject::connect(modelCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+            const QVariantMap selection = modelCombo->itemData(index, Qt::UserRole + 1).toMap();
+            modelEdit->setText(selection.value("model_path").toString());
+            metadataEdit->setText(selection.value("metadata_path").toString());
+            modelCombo->setToolTip(selection.value("diagnostic").toString());
+        });
+    }
     QObject::connect(classesEdit, &QLineEdit::textChanged, update);
     QObject::connect(deviceCombo, &QComboBox::currentTextChanged, update);
     QObject::connect(schemaCombo, &QComboBox::currentTextChanged, [this, update]() {
@@ -290,6 +303,43 @@ ImageValidationWidget::~ImageValidationWidget() {
 
 void ImageValidationWidget::setSummaryChangedCallback(SummaryChangedCallback callback) {
     summaryChangedCallback = std::move(callback);
+}
+
+void ImageValidationWidget::refreshModelRegistry(const QJsonArray& entries, const QString& preferredEntryId) {
+    if (!modelCombo)
+        return;
+
+    QString selectedId = preferredEntryId.trimmed();
+    if (selectedId.isEmpty())
+        selectedId = modelCombo->currentData().toString();
+    const QString currentModel = QDir::cleanPath(modelEdit->text().trimmed());
+    QSignalBlocker blocker(modelCombo);
+    modelCombo->clear();
+    int selectedIndex = -1;
+    for (const QJsonValue& value : entries) {
+        const QJsonObject entry = value.toObject();
+        const QString entryId = registryString(entry, "registry_entry_id").trimmed();
+        const QString displayName = registryString(entry, "display_name").trimmed();
+        const QString modelPath = resolvePackagedPathFromRegistryPath(registryString(entry, "model_path"));
+        const QString metadataPath = resolvePackagedPathFromRegistryPath(registryString(entry, "metadata_path"));
+        const bool available = QFileInfo(modelPath).isFile() && QFileInfo(metadataPath).isFile();
+        const QString label = (displayName.isEmpty() ? entryId : displayName) +
+                              (available ? QString() : QString(" (unavailable)"));
+        const QVariantMap selection{{"model_path", available ? modelPath : QString()},
+                                    {"metadata_path", available ? metadataPath : QString()},
+                                    {"diagnostic", available ? QString() : QString("Model or metadata file is unavailable.")}};
+        modelCombo->addItem(label, entryId);
+        modelCombo->setItemData(modelCombo->count() - 1, selection, Qt::UserRole + 1);
+        if ((!selectedId.isEmpty() && entryId.compare(selectedId, Qt::CaseInsensitive) == 0) ||
+            (selectedId.isEmpty() && QDir::cleanPath(modelPath).compare(currentModel, Qt::CaseInsensitive) == 0)) {
+            selectedIndex = modelCombo->count() - 1;
+        }
+    }
+    if (selectedIndex < 0 && modelCombo->count() > 0)
+        selectedIndex = 0;
+    modelCombo->setCurrentIndex(selectedIndex);
+    blocker.unblock();
+    emit modelCombo->currentIndexChanged(selectedIndex);
 }
 
 void ImageValidationWidget::addPathRow(QGridLayout* layout, int row, const QString& label, QLineEdit* edit,

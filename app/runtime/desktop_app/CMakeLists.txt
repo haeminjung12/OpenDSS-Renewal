@@ -87,6 +87,8 @@ add_executable(desktop_app
   live_data_collection_writer.h
   live_log_writer.cpp
   live_log_writer.h
+  json_persistence.cpp
+  json_persistence.h
   model_registry_service.cpp
   model_registry_service.h
   sequence_summary_writer.cpp

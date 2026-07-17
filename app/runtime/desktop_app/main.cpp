@@ -7,8 +7,11 @@
 #include <windows.h>
 #endif
 #include <cstdio>
+#include <atomic>
+#include <chrono>
 #include <memory>
 #include <string>
+#include <thread>
 
 #include "app_context.h"
 #include "app_options.h"
@@ -16,11 +19,58 @@
 #include "app_state.h"
 #include "crash_handler.h"
 #include "main_window.h"
+#include "json_persistence.h"
 #include "model_registry_service.h"
+#include "validator_workspace_controller.h"
 #include "workspace_dataset.h"
+#include "workspace_model.h"
 #include "../cli_runner.h"
 
 namespace {
+
+int runSequenceStopThreadingVerifier(int argc, char* argv[]) {
+    QApplication app(argc, argv);
+    std::atomic<bool> running(true);
+    std::atomic<bool> stop(false);
+    std::thread worker;
+    QPushButton stopButton;
+    QLabel sequenceStatus;
+    QLabel appStatus;
+
+    ValidatorWorkspaceController::Dependencies dependencies;
+    dependencies.seqStopBtn = &stopButton;
+    dependencies.seqStatusLabel = &sequenceStatus;
+    dependencies.statusLabel = &appStatus;
+    dependencies.sequenceRunning = &running;
+    dependencies.sequenceStop = &stop;
+    dependencies.sequenceThread = &worker;
+    ValidatorWorkspaceController controller(dependencies);
+
+    worker = std::thread([&]() {
+        while (!stop.load()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(150));
+        running.store(false);
+    });
+
+    QElapsedTimer timer;
+    timer.start();
+    controller.stopSequenceTest();
+    const qint64 elapsedMs = timer.elapsed();
+    const bool firstStopPassed = stop.load() && elapsedMs < 100 && worker.joinable() && !stopButton.isEnabled() &&
+                                 sequenceStatus.text() == QStringLiteral("Stopping sequence...");
+
+    controller.stopSequenceTest();
+    const bool repeatedStopPassed = stop.load() && worker.joinable();
+    controller.waitForSequenceTest();
+    const bool shutdownPassed = !worker.joinable() && !running.load();
+
+    std::fprintf(stderr, "Sequence stop threading verifier: stop=%s repeated=%s shutdown=%s elapsed=%lldms\n",
+                 firstStopPassed ? "PASS" : "FAIL", repeatedStopPassed ? "PASS" : "FAIL",
+                 shutdownPassed ? "PASS" : "FAIL", static_cast<long long>(elapsedMs));
+    return firstStopPassed && repeatedStopPassed && shutdownPassed ? 0 : 2;
+}
 
 constexpr const char* kOrganizationName = "Hamamatsu";
 constexpr const char* kApplicationName = "OpenDSS";
@@ -60,9 +110,20 @@ void preferBundledQtPlugins(int argc, char* argv[]) {
     QCoreApplication::setLibraryPaths(libraryPaths);
     qputenv("QT_QPA_PLATFORM_PLUGIN_PATH", QFileInfo(platformsDir).absoluteFilePath().toLocal8Bit());
 }
+
 void setOpenDssApplicationIdentity() {
     QCoreApplication::setOrganizationName(kOrganizationName);
     QCoreApplication::setApplicationName(kApplicationName);
+}
+
+void configureSettingsRootFromEnv() {
+    const QString settingsRoot = qEnvironmentVariable("OVDS_SETTINGS_ROOT_PATH").trimmed();
+    if (settingsRoot.isEmpty())
+        return;
+    const QString absoluteSettingsRoot = QFileInfo(settingsRoot).absoluteFilePath();
+    QDir().mkpath(absoluteSettingsRoot);
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, absoluteSettingsRoot);
 }
 
 bool migrateLegacyOpenVisualDropletSorterSettings(QString* errorMessage = nullptr) {
@@ -163,7 +224,26 @@ int runDatasetWorkspaceMetadataOnlyVerifier(int argc, char* argv[]) {
         return root;
     };
 
-    auto readMetadataManifest = [](const QString& path, QJsonDocument* doc, QString* errorMessage) {
+    auto isSupportedMetadataManifest = [](const QJsonObject& root) {
+        if (!root.value(QStringLiteral("items")).isArray())
+            return false;
+        const QString schema = root.value(QStringLiteral("schema_version")).toString().trimmed();
+        if (schema == QStringLiteral("dataset-builder-manifest-v1") || schema == QStringLiteral("dataset-manifest-v1"))
+            return true;
+        if (root.value(QStringLiteral("class_schema")).isObject() || root.value(QStringLiteral("dataset_id")).isString() ||
+            root.value(QStringLiteral("source_folder")).isString())
+            return true;
+        const QJsonArray items = root.value(QStringLiteral("items")).toArray();
+        if (items.isEmpty())
+            return false;
+        const QJsonObject first = items.first().toObject();
+        return first.contains(QStringLiteral("crop_path")) || first.contains(QStringLiteral("image_path")) ||
+               first.contains(QStringLiteral("relative_path")) || first.contains(QStringLiteral("path")) ||
+               first.contains(QStringLiteral("reviewed_label")) || first.contains(QStringLiteral("auto_label")) ||
+               first.contains(QStringLiteral("label")) || first.contains(QStringLiteral("class_id"));
+    };
+
+    auto readMetadataManifest = [&isSupportedMetadataManifest](const QString& path, QJsonDocument* doc, QString* errorMessage) {
         const QString trimmedPath = path.trimmed();
         if (trimmedPath.isEmpty()) {
             if (errorMessage)
@@ -195,6 +275,11 @@ int runDatasetWorkspaceMetadataOnlyVerifier(int argc, char* argv[]) {
         if (parseError.error != QJsonParseError::NoError || !parsed.isObject()) {
             if (errorMessage)
                 *errorMessage = QStringLiteral("Dataset file could not be read. Choose a compatible metadata JSON file.");
+            return false;
+        }
+        if (!isSupportedMetadataManifest(parsed.object())) {
+            if (errorMessage)
+                *errorMessage = QStringLiteral("This JSON file is not a supported OpenDSS dataset manifest.");
             return false;
         }
         if (doc)
@@ -249,10 +334,8 @@ int runDatasetWorkspaceMetadataOnlyVerifier(int argc, char* argv[]) {
     result[QStringLiteral("folder_rejection_message")] = folderError;
 
     if (!outputPath.isEmpty()) {
-        QDir().mkpath(QFileInfo(outputPath).absolutePath());
-        QFile out(outputPath);
-        if (out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate))
-            out.write(QJsonDocument(result).toJson(QJsonDocument::Indented));
+        QString writeError;
+        desktop_app::writeJsonObjectAtomically(outputPath, result, &writeError);
     }
 
     if (!failures.isEmpty()) {
@@ -264,17 +347,74 @@ int runDatasetWorkspaceMetadataOnlyVerifier(int argc, char* argv[]) {
     return 0;
 }
 
+int runDatasetWorkspaceWidgetVerifier(int argc, char* argv[]) {
+    QApplication app(argc, argv);
+    setOpenDssApplicationIdentity();
+
+    desktop_app::workspace::DatasetWorkspaceControls datasetWorkspaceControls;
+    std::unique_ptr<QWidget> datasetWorkspace(
+        desktop_app::workspace::buildDatasetWorkspace(datasetWorkspaceControls));
+    app.processEvents();
+    const QVariant exitCode = qApp->property("ovdsDatasetWorkspaceVerifyExitCode");
+    if (exitCode.isValid())
+        return exitCode.toInt();
+    std::fprintf(stderr, "Dataset workspace widget verifier did not produce an exit code.\n");
+    return 2;
+}
+
+int runModelWorkspaceWidgetVerifier(int argc, char* argv[]) {
+    QApplication app(argc, argv);
+    setOpenDssApplicationIdentity();
+
+    QString registryFilePath;
+    QString registryLoadWarning;
+    QJsonObject modelRegistry = loadModelRegistry(&registryFilePath, &registryLoadWarning);
+    QJsonArray registryEntries = modelRegistry.value("entries").toArray();
+    if (registryEntries.isEmpty()) {
+        modelRegistry = temporaryStaticModelRegistry();
+        registryEntries = modelRegistry.value("entries").toArray();
+        registryLoadWarning = "Model registry had no rows; using temporary static fallback.";
+    }
+
+    desktop_app::AppState appState;
+    desktop_app::workspace::ModelWorkspaceControls modelWorkspaceControls;
+    modelWorkspaceControls.registryEntries = registryEntries;
+    modelWorkspaceControls.registryFilePath = registryFilePath;
+    modelWorkspaceControls.registryLoadWarning = registryLoadWarning;
+    modelWorkspaceControls.appState = &appState;
+
+    std::unique_ptr<QWidget> modelWorkspace(
+        desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls));
+    return app.exec();
+}
+
 } // namespace
 
 int main(int argc, char* argv[]) {
     preferBundledQtPlugins(argc, argv);
+    configureSettingsRootFromEnv();
+    if (qEnvironmentVariableIntValue("OVDS_VERIFY_SEQUENCE_STOP_THREADING") != 0 ||
+        hasArgument(argc, argv, QStringLiteral("--verify-sequence-stop-threading"))) {
+        return runSequenceStopThreadingVerifier(argc, argv);
+    }
     if (qEnvironmentVariableIntValue("OVDS_VERIFY_SETTINGS_MIGRATION") != 0 ||
         hasArgument(argc, argv, QStringLiteral("--verify-settings-migration"))) {
         return runSettingsMigrationVerifier(argc, argv);
     }
     if (!qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_MANIFEST").trimmed().isEmpty() &&
-        qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_METADATA_ONLY") == "1") {
+        qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_METADATA_ONLY") == "1" &&
+        qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_IMAGE_IMPORT") == "1") {
+        return runDatasetWorkspaceWidgetVerifier(argc, argv);
+    }
+    if (!qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_MANIFEST").trimmed().isEmpty() &&
+        qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_METADATA_ONLY") == "1" &&
+        qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_IMAGE_IMPORT") != "1") {
         return runDatasetWorkspaceMetadataOnlyVerifier(argc, argv);
+    }
+    if (qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_WORKSPACE_ADD_BUTTONS") != 0 ||
+        qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_WORKSPACE_LIST_MANAGEMENT") != 0 ||
+        qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_ACTIVE_SIMPLIFICATION") != 0) {
+        return runModelWorkspaceWidgetVerifier(argc, argv);
     }
 
     bool verifyTrainerSetupStatus = qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_SETUP_STATUS") != 0;

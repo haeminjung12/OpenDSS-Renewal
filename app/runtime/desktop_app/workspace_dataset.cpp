@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <memory>
 
+#include "json_persistence.h"
 #include "model_registry_service.h"
 #include "object_names.h" 
 #include "theme.h"
@@ -23,6 +24,10 @@ constexpr int kVisiblePageButtonCount = 5;
 constexpr int kManifestAutosaveDebounceMs = 750;
 constexpr int kTileLabelMaxChars = 14;
 constexpr int kTileDisplayTextRole = Qt::UserRole + 2;
+
+QStringList supportedImportImageExtensions() {
+    return {"png", "jpg", "jpeg", "tif", "tiff", "bmp"};
+}
 
 QString canonicalLegacyLabel(const QString& label) {
     const QString lower = label.trimmed().toLower();
@@ -109,6 +114,28 @@ QString firstNonEmptyString(const QJsonObject& item, std::initializer_list<const
             return value;
     }
     return {};
+}
+
+QString sanitizedDatasetName(QString name) {
+    name = name.trimmed();
+    name.replace('\\', '_');
+    name.replace('/', '_');
+    name.replace(':', '_');
+    name.replace('*', '_');
+    name.replace('?', '_');
+    name.replace('"', '_');
+    name.replace('<', '_');
+    name.replace('>', '_');
+    name.replace('|', '_');
+    name.replace(QRegularExpression("\\s+"), "_");
+    name.replace(QRegularExpression("[^A-Za-z0-9_.-]"), "_");
+    name.replace(QRegularExpression("_+"), "_");
+    name = name.trimmed();
+    while (name.startsWith('.') || name.startsWith('_'))
+        name.remove(0, 1);
+    while (name.endsWith('.') || name.endsWith('_'))
+        name.chop(1);
+    return name.isEmpty() ? QStringLiteral("image_dataset") : name.left(80);
 }
 
 QFrame* makeDatasetMetric(const QString& label, const QString& value, const QString& sub = QString()) {
@@ -227,6 +254,17 @@ class DatasetWorkspaceWidget final : public QWidget {
         int nextIndex = 0;
     };
 
+    struct ImageFolderImportResult {
+        bool ok = false;
+        QString datasetName;
+        QString datasetDir;
+        QString manifestPath;
+        QString summaryPath;
+        QString classBalancePath;
+        int importedCount = 0;
+        QString errorMessage;
+    };
+
     void resetClassSchema(int mode) {
         classEntries_.clear();
         classEntries_.push_back(
@@ -288,6 +326,51 @@ class DatasetWorkspaceWidget final : public QWidget {
         const QJsonObject first = items.first().toObject();
         return first.contains("crop_path") || first.contains("auto_label") || first.contains("reviewed_label") ||
                first.contains("review_state") || first.contains("trainer_eligible");
+    }
+
+    bool isSupportedDatasetManifest(const QJsonObject& root) const {
+        if (!root.value("items").isArray())
+            return false;
+        const QString schemaVersion = root.value("schema_version").toString().trimmed();
+        if (schemaVersion == "dataset-builder-manifest-v1" || schemaVersion == "dataset-manifest-v1")
+            return true;
+        if (root.value("class_schema").isObject() || root.value("dataset_id").isString() ||
+            root.value("source_folder").isString())
+            return true;
+        const QJsonArray items = root.value("items").toArray();
+        if (items.isEmpty())
+            return false;
+        const QJsonObject first = items.first().toObject();
+        return first.contains("crop_path") || first.contains("image_path") || first.contains("relative_path") ||
+               first.contains("path") || first.contains("auto_label") || first.contains("reviewed_label") ||
+               first.contains("review_state") || first.contains("trainer_eligible") || first.contains("label") ||
+               first.contains("class_id");
+    }
+
+    bool readSupportedDatasetManifest(const QString& path, QJsonDocument* document, QString* errorMessage = nullptr) const {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            if (errorMessage)
+                *errorMessage = "Dataset file could not be read. Choose a compatible metadata JSON file.";
+            return false;
+        }
+        QJsonParseError error;
+        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
+        if (error.error != QJsonParseError::NoError || !doc.isObject()) {
+            if (errorMessage)
+                *errorMessage = "Dataset file could not be read. Choose a compatible metadata JSON file.";
+            return false;
+        }
+        if (!isSupportedDatasetManifest(doc.object())) {
+            if (errorMessage)
+                *errorMessage = "This JSON file is not a supported OpenDSS dataset manifest. No dataset was changed.";
+            return false;
+        }
+        if (document)
+            *document = doc;
+        if (errorMessage)
+            errorMessage->clear();
+        return true;
     }
 
     bool usesLegacyManifestFallback(const QJsonObject& root) const {
@@ -359,6 +442,38 @@ class DatasetWorkspaceWidget final : public QWidget {
         excluded["id"] = "exclude";
         excluded["display_name"] = excludedLabelDisplay_;
         excluded["folder"] = "reviewed/exclude";
+        schema["classes"] = classes;
+        schema["excluded_label"] = excluded;
+        root["class_schema"] = schema;
+        root["classes"] = classes;
+    }
+
+    QJsonObject defaultImportClassSchema() const {
+        QJsonObject root;
+        resetTemporarySchema(root, 2);
+        return root.value("class_schema").toObject();
+    }
+
+    void resetTemporarySchema(QJsonObject& root, int mode) const {
+        QJsonArray classes;
+        for (int index = 0; index < mode; ++index) {
+            const QString id = QString::number(index);
+            QJsonObject cls;
+            cls["id"] = id;
+            cls["index"] = index;
+            cls["display_name"] = defaultClassDisplayName(mode, id);
+            cls["folder"] = defaultClassFolder(id);
+            cls["display_color"] = defaultClassColorHex(id);
+            classes.append(cls);
+        }
+        QJsonObject excluded;
+        excluded["id"] = "exclude";
+        excluded["display_name"] = "Exclude";
+        excluded["folder"] = "reviewed/exclude";
+        QJsonObject schema;
+        schema["kind"] = mode >= 3 ? "target-nontarget-ternary" : "target-nontarget-binary";
+        schema["mode"] = mode;
+        schema["target_class_id"] = "1";
         schema["classes"] = classes;
         schema["excluded_label"] = excluded;
         root["class_schema"] = schema;
@@ -551,6 +666,9 @@ class DatasetWorkspaceWidget final : public QWidget {
         browseButton->setMaximumWidth(78); 
         nameWidget(browseButton, "DatasetWorkspaceManifestBrowseButton"); 
         auto* browseMenu = new QMenu(browseButton);
+        createDatasetFromImagesAction_ = browseMenu->addAction("Create Dataset from Images");
+        nameAction(createDatasetFromImagesAction_, "DatasetWorkspaceCreateDatasetFromImagesAction");
+        browseMenu->addSeparator();
         browseJsonAction_ = browseMenu->addAction("Open Dataset File...");
         browseButton->setMenu(browseMenu);
         auto* manifestRow = new QHBoxLayout; 
@@ -1083,6 +1201,7 @@ class DatasetWorkspaceWidget final : public QWidget {
 
     void wireUi() {
         connect(browseJsonAction_, &QAction::triggered, this, [this]() { browseForDatasetJson(); });
+        connect(createDatasetFromImagesAction_, &QAction::triggered, this, [this]() { browseAndCreateDatasetFromImages(); });
         connect(openFolderButton_, &QPushButton::clicked, this, [this]() { showCurrentDatasetFolder(); });
         connect(filterGroup_, &QButtonGroup::idClicked, this, [this](int id) {
             filterMode_ = static_cast<FilterMode>(id);
@@ -1139,6 +1258,206 @@ class DatasetWorkspaceWidget final : public QWidget {
             loadDatasetPath(selected);
     }
 
+    static bool writeJsonFile(const QString& path, const QJsonObject& object, QString* errorMessage) {
+        return desktop_app::writeJsonObjectAtomically(path, object, errorMessage);
+    }
+
+    static bool writeTextFile(const QString& path, const QString& text, QString* errorMessage) {
+        QDir().mkpath(QFileInfo(path).absolutePath());
+        QSaveFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            if (errorMessage)
+                *errorMessage = QString("Failed to write %1").arg(QDir::toNativeSeparators(path));
+            return false;
+        }
+        const QByteArray bytes = text.toUtf8();
+        if (file.write(bytes) != bytes.size()) {
+            if (errorMessage)
+                *errorMessage = QString("Failed to write complete file %1").arg(QDir::toNativeSeparators(path));
+            file.cancelWriting();
+            return false;
+        }
+        if (!file.commit()) {
+            if (errorMessage)
+                *errorMessage = QString("Failed to save %1").arg(QDir::toNativeSeparators(path));
+            return false;
+        }
+        return true;
+    }
+
+    static QString uniqueDatasetName(const QString& preferredName, const QString& preparedRoot) {
+        const QString base = sanitizedDatasetName(preferredName);
+        QString candidate = base;
+        int suffix = 2;
+        while (QFileInfo::exists(QDir(preparedRoot).filePath(candidate))) {
+            candidate = QString("%1_%2").arg(base).arg(suffix++);
+        }
+        return candidate;
+    }
+
+    static QList<QFileInfo> collectSupportedImportImages(const QString& sourceFolder) {
+        QSet<QString> supported;
+        for (const QString& extension : supportedImportImageExtensions())
+            supported.insert(extension);
+        QList<QFileInfo> images;
+        QDirIterator it(sourceFolder, QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
+        while (it.hasNext()) {
+            it.next();
+            const QFileInfo info = it.fileInfo();
+            if (supported.contains(info.suffix().toLower()))
+                images.push_back(info);
+        }
+        std::sort(images.begin(), images.end(), [](const QFileInfo& left, const QFileInfo& right) {
+            return left.absoluteFilePath().compare(right.absoluteFilePath(), Qt::CaseInsensitive) < 0;
+        });
+        return images;
+    }
+
+    ImageFolderImportResult createDatasetFromImageFolder(const QString& sourceFolder, const QString& requestedName) const {
+        ImageFolderImportResult result;
+        const QFileInfo sourceInfo(sourceFolder);
+        if (!sourceInfo.exists() || !sourceInfo.isDir()) {
+            result.errorMessage = "Choose a folder containing image files.";
+            return result;
+        }
+
+        const QList<QFileInfo> images = collectSupportedImportImages(sourceInfo.absoluteFilePath());
+        if (images.isEmpty()) {
+            result.errorMessage = QString("No supported images found. Supported types: .%1")
+                                      .arg(supportedImportImageExtensions().join(", ."));
+            return result;
+        }
+
+        const QString preparedRoot = defaultOpenDssPreparedDatasetsPath();
+        const QString datasetName = uniqueDatasetName(requestedName.isEmpty() ? sourceInfo.fileName() : requestedName,
+                                                      preparedRoot);
+        const QString datasetDir = QDir(preparedRoot).filePath(datasetName);
+        const QString imagesDir = QDir(datasetDir).filePath("images");
+        const QString metadataDir = QDir(datasetDir).filePath("metadata");
+        if (!QDir().mkpath(imagesDir) || !QDir().mkpath(metadataDir)) {
+            result.errorMessage =
+                QString("Failed to create prepared dataset folder: %1").arg(QDir::toNativeSeparators(datasetDir));
+            return result;
+        }
+
+        QJsonArray items;
+        int imageIndex = 0;
+        for (const QFileInfo& imageInfo : images) {
+            QImageReader reader(imageInfo.absoluteFilePath());
+            reader.setAutoTransform(true);
+            const QImage image = reader.read();
+            if (image.isNull()) {
+                result.errorMessage =
+                    QString("Failed to read image: %1").arg(QDir::toNativeSeparators(imageInfo.absoluteFilePath()));
+                return result;
+            }
+
+            ++imageIndex;
+            const QString imageId = QString("image_%1").arg(imageIndex, 6, 10, QChar('0'));
+            const QString relPath = QString("images/%1.png").arg(imageId);
+            const QString destPath = QDir(datasetDir).filePath(relPath);
+            if (!image.save(destPath, "PNG")) {
+                result.errorMessage =
+                    QString("Failed to write normalized image: %1").arg(QDir::toNativeSeparators(destPath));
+                return result;
+            }
+
+            QJsonObject item;
+            item["image_id"] = imageId;
+            item["path"] = relPath;
+            item["crop_path"] = relPath;
+            item["source_kind"] = "image_folder_import";
+            item["source_image_path"] = imageInfo.absoluteFilePath();
+            item["source_file_name"] = imageInfo.fileName();
+            item["timestamp"] = imageInfo.lastModified().toUTC().toString(Qt::ISODate);
+            item["collection_mode"] = "image_folder_import";
+            item["auto_label"] = "unknown";
+            item["auto_label_source"] = "none";
+            item["review_state"] = "unreviewed";
+            item["reviewed_label"] = QJsonValue::Null;
+            item["exclude_reason"] = QJsonValue::Null;
+            item["trainer_eligible"] = false;
+            items.append(item);
+        }
+
+        const QString createdAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
+        QJsonObject manifest;
+        manifest["schema_version"] = "dataset-builder-manifest-v1";
+        manifest["dataset_id"] = datasetName;
+        manifest["created_at"] = createdAt;
+        manifest["updated_at"] = createdAt;
+        manifest["source"] = QJsonObject{{"type", "image_folder_import"},
+                                         {"source_folder", sourceInfo.absoluteFilePath()},
+                                         {"normalized_image_format", "png"},
+                                         {"supported_extensions", QJsonArray::fromStringList(supportedImportImageExtensions())}};
+        resetTemporarySchema(manifest, 2);
+        manifest["items"] = items;
+
+        QJsonObject classCounts;
+        classCounts["0"] = 0;
+        classCounts["1"] = 0;
+        classCounts["exclude"] = 0;
+        classCounts["unreviewed"] = imageIndex;
+        QJsonObject summary;
+        summary["schema_version"] = "dataset-summary-v1";
+        summary["dataset_id"] = datasetName;
+        summary["created_at"] = createdAt;
+        summary["source_type"] = "image_folder_import";
+        summary["source_folder"] = sourceInfo.absoluteFilePath();
+        summary["total_images"] = imageIndex;
+        summary["reviewed_count"] = 0;
+        summary["unreviewed_count"] = imageIndex;
+        summary["class_counts"] = classCounts;
+        summary["manifest_path"] = QDir(datasetDir).filePath("metadata/dataset_manifest.json");
+
+        QString error;
+        result.manifestPath = QDir(metadataDir).filePath("dataset_manifest.json");
+        result.summaryPath = QDir(metadataDir).filePath("dataset_summary.json");
+        result.classBalancePath = QDir(metadataDir).filePath("class_balance.csv");
+        if (!writeJsonFile(result.manifestPath, manifest, &error) || !writeJsonFile(result.summaryPath, summary, &error) ||
+            !writeTextFile(result.classBalancePath,
+                           QString("label,count\nunreviewed,%1\n0,0\n1,0\nexclude,0\n").arg(imageIndex), &error)) {
+            result.errorMessage = error;
+            return result;
+        }
+
+        result.ok = true;
+        result.datasetName = datasetName;
+        result.datasetDir = datasetDir;
+        result.importedCount = imageIndex;
+        return result;
+    }
+
+    void browseAndCreateDatasetFromImages() {
+        const QString startPath = chooseExistingDirectoryDialogPath(defaultOpenDssPreparedDatasetsPath(),
+                                                                    QDir::homePath(),
+                                                                    findPackagedAppPath("datasets/prepared"));
+        const QString folder = QFileDialog::getExistingDirectory(this, "Select image folder", startPath);
+        if (folder.isEmpty())
+            return;
+
+        const QString suggestedName = sanitizedDatasetName(QFileInfo(folder).fileName());
+        bool accepted = false;
+        const QString requestedName =
+            QInputDialog::getText(this, "Create Dataset from Images", "Dataset name:", QLineEdit::Normal,
+                                  suggestedName, &accepted)
+                .trimmed();
+        if (!accepted)
+            return;
+
+        const ImageFolderImportResult result = createDatasetFromImageFolder(folder, requestedName);
+        if (!result.ok) {
+            statusLabel_->setText(result.errorMessage);
+            QMessageBox::warning(this, "Create Dataset from Images", result.errorMessage);
+            return;
+        }
+
+        loadDatasetPath(result.manifestPath);
+        statusLabel_->setText(QString("Created dataset '%1' from %2 images.")
+                                  .arg(result.datasetName)
+                                  .arg(result.importedCount));
+    }
+
     void showCurrentDatasetFolder() {
         QString folder = datasetRoot_;
         if (!manifestPath_.isEmpty())
@@ -1184,12 +1503,8 @@ class DatasetWorkspaceWidget final : public QWidget {
     }
 
     bool beginManifestLoad(const QString& path) {
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
-            return false;
-        QJsonParseError error;
-        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
-        if (error.error != QJsonParseError::NoError || !doc.isObject())
+        QJsonDocument doc;
+        if (!readSupportedDatasetManifest(path, &doc))
             return false;
 
         pendingLoad_ = PendingLoadState{};
@@ -1275,10 +1590,18 @@ class DatasetWorkspaceWidget final : public QWidget {
             return;
         }
 
+        const QString manifest = info.absoluteFilePath();
+        QString manifestError;
+        if (!readSupportedDatasetManifest(manifest, nullptr, &manifestError)) {
+            statusLabel_->setText(manifestError);
+            if (manifestPathEdit_)
+                manifestPathEdit_->setText(manifestPath_.isEmpty() ? QString() : QDir::toNativeSeparators(manifestPath_));
+            return;
+        }
+
         flushPendingManifestSave();
         cancelPendingLoad();
         clearDataset();
-        const QString manifest = info.absoluteFilePath();
         const QString manifestDisplayPath = QDir::toNativeSeparators(manifest);
         updateAll();
         manifestPathEdit_->setText(manifestDisplayPath);
@@ -1314,12 +1637,8 @@ class DatasetWorkspaceWidget final : public QWidget {
     }
 
     bool loadManifest(const QString& path) {
-        QFile file(path);
-        if (!file.open(QIODevice::ReadOnly | QIODevice::Text))
-            return false;
-        QJsonParseError error;
-        const QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &error);
-        if (error.error != QJsonParseError::NoError || !doc.isObject())
+        QJsonDocument doc;
+        if (!readSupportedDatasetManifest(path, &doc))
             return false;
         const QJsonObject rootObject = doc.object();
         const bool legacyManifestFallback = usesLegacyManifestFallback(rootObject);
@@ -1831,14 +2150,12 @@ class DatasetWorkspaceWidget final : public QWidget {
         QJsonObject root = manifestDoc_.object();
         prepareManifestRootForSave(root);
         const QJsonDocument savedDoc(root);
-        QDir().mkpath(QFileInfo(manifestPath_).absolutePath());
-        QFile file(manifestPath_);
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        QString writeError;
+        if (!desktop_app::writeJsonDocumentAtomically(manifestPath_, savedDoc, &writeError)) {
             if (statusLabel_)
-                statusLabel_->setText("Could not save the dataset file: " + QDir::toNativeSeparators(manifestPath_));
+                statusLabel_->setText("Could not save the dataset file: " + writeError);
             return false;
         }
-        file.write(savedDoc.toJson(QJsonDocument::Indented));
         manifestDoc_ = savedDoc;
         pendingManifestItemUpdates_.clear();
         if (statusLabel_)
@@ -2039,11 +2356,9 @@ class DatasetWorkspaceWidget final : public QWidget {
         const QString outputPath = qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_OUT").trimmed();
         QJsonObject result = runVerifier(manifest);
         if (!outputPath.isEmpty()) {
-            QDir().mkpath(QFileInfo(outputPath).absolutePath());
-            QFile out(outputPath);
-            if (out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                out.write(QJsonDocument(result).toJson(QJsonDocument::Indented));
-            }
+            QString writeError;
+            if (!desktop_app::writeJsonObjectAtomically(outputPath, result, &writeError))
+                qWarning() << "Failed to write dataset workspace verifier output:" << writeError;
         }
         if (qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_QUIT") == "1") {
             const int exitCode = result.value("ok").toBool() ? 0 : 2;
@@ -2169,12 +2484,11 @@ class DatasetWorkspaceWidget final : public QWidget {
             }
 
             const QString workingManifest = QDir(destRoot).filePath("manifest.json");
-            QFile out(workingManifest);
-            if (!out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                expect(false, QString("failed to write verifier working manifest %1").arg(workingManifest));
+            QString writeError;
+            if (!desktop_app::writeJsonObjectAtomically(workingManifest, root, &writeError)) {
+                expect(false, QString("failed to write verifier working manifest %1: %2").arg(workingManifest, writeError));
                 return sourceManifest;
             }
-            out.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
             return workingManifest;
         };
         auto thumbnailBorderColor = [this](const CropItem& crop) {
@@ -2245,6 +2559,104 @@ class DatasetWorkspaceWidget final : public QWidget {
                            .arg(expectedColor.name(QColor::HexRgb))
                            .arg(actualColor.name(QColor::HexRgb)));
             };
+        auto writeVerifierImage = [&expect](const QString& path, const QColor& color) {
+            QDir().mkpath(QFileInfo(path).absolutePath());
+            QImage image(16, 16, QImage::Format_RGB32);
+            image.fill(color);
+            expect(image.save(path), QString("failed to write verifier image %1").arg(path));
+        };
+        auto verifyCreateDatasetFromImagesAction = [&expect, this](const QMenu* browseMenu) {
+            expect(createDatasetFromImagesAction_ != nullptr,
+                   "Create Dataset from Images action was not created");
+            if (createDatasetFromImagesAction_) {
+                expect(createDatasetFromImagesAction_->text() == "Create Dataset from Images",
+                       QString("Create Dataset from Images action text mismatch: %1")
+                           .arg(createDatasetFromImagesAction_->text()));
+                expect(createDatasetFromImagesAction_->objectName() == "DatasetWorkspaceCreateDatasetFromImagesAction",
+                       "Create Dataset from Images action object name mismatch");
+            }
+            if (browseMenu) {
+                QStringList browseActions;
+                for (const QAction* action : browseMenu->actions()) {
+                    if (action && !action->isSeparator())
+                        browseActions << action->text().trimmed();
+                }
+                expect(browseActions.contains("Create Dataset from Images"),
+                       "Browse menu is missing Create Dataset from Images");
+            }
+        };
+        auto verifyImageFolderImport = [&]() {
+            QTemporaryDir importSourceRoot;
+            expect(importSourceRoot.isValid(), "image-folder import verifier source directory could not be created");
+            if (!importSourceRoot.isValid())
+                return QJsonObject{};
+            writeVerifierImage(QDir(importSourceRoot.path()).filePath("alpha.png"), QColor("#3366cc"));
+            writeVerifierImage(QDir(importSourceRoot.path()).filePath("nested/beta.jpg"), QColor("#cc6633"));
+            writeVerifierImage(QDir(importSourceRoot.path()).filePath("gamma.bmp"), QColor("#33aa55"));
+            const QString requestedName =
+                QString("codex_image_import_verify_%1").arg(QDateTime::currentMSecsSinceEpoch());
+            const ImageFolderImportResult importResult =
+                createDatasetFromImageFolder(importSourceRoot.path(), requestedName);
+            expect(importResult.ok,
+                   importResult.errorMessage.isEmpty() ? "image-folder import failed" : importResult.errorMessage);
+            if (!importResult.ok)
+                return QJsonObject{};
+
+            expect(QFileInfo(importResult.datasetDir).isDir(), "prepared import dataset folder was not created");
+            expect(QFileInfo(importResult.manifestPath).isFile(), "import manifest was not created");
+            expect(QFileInfo(importResult.summaryPath).isFile(), "import summary was not created");
+            expect(QFileInfo(importResult.classBalancePath).isFile(), "import class balance CSV was not created");
+            expect(importResult.importedCount == 3,
+                   QString("expected 3 imported images, got %1").arg(importResult.importedCount));
+
+            QFile manifestFile(importResult.manifestPath);
+            expect(manifestFile.open(QIODevice::ReadOnly | QIODevice::Text), "import manifest could not be opened");
+            QJsonObject manifestRoot;
+            if (manifestFile.isOpen()) {
+                QJsonParseError parseError;
+                const QJsonDocument importedDoc = QJsonDocument::fromJson(manifestFile.readAll(), &parseError);
+                expect(parseError.error == QJsonParseError::NoError && importedDoc.isObject(),
+                       "import manifest is not valid JSON");
+                manifestRoot = importedDoc.object();
+            }
+            const QJsonArray importedItems = manifestRoot.value("items").toArray();
+            expect(importedItems.size() == 3,
+                   QString("import manifest expected 3 items, got %1").arg(importedItems.size()));
+            int unreviewedRows = 0;
+            for (const QJsonValue& value : importedItems) {
+                const QJsonObject item = value.toObject();
+                const QString relPath = firstNonEmptyString(item, {"crop_path", "path", "image_path", "relative_path"});
+                expect(!relPath.isEmpty(), "import manifest item has no image path");
+                expect(!QFileInfo(relPath).isAbsolute(), "import manifest item image path is absolute");
+                expect(QFileInfo(QDir(importResult.datasetDir).filePath(relPath)).isFile(),
+                       QString("import manifest image does not exist: %1").arg(relPath));
+                expect(item.value("review_state").toString() == "unreviewed",
+                       "import manifest item review_state is not unreviewed");
+                expect(item.value("reviewed_label").isNull() || item.value("reviewed_label").toString().isEmpty(),
+                       "import manifest item reviewed_label is not blank/null");
+                expect(!item.value("trainer_eligible").toBool(true),
+                       "import manifest item starts trainer_eligible=true");
+                if (item.value("review_state").toString() == "unreviewed")
+                    ++unreviewedRows;
+            }
+            expect(unreviewedRows == 3,
+                   QString("expected 3 unreviewed imported rows, got %1").arg(unreviewedRows));
+
+            loadDatasetPath(importResult.manifestPath);
+            expect(QFileInfo(manifestPath_).canonicalFilePath() == QFileInfo(importResult.manifestPath).canonicalFilePath(),
+                   "Dataset workspace did not load the imported manifest");
+            expect(items_.size() == 3, QString("Dataset workspace expected 3 imported items, got %1").arg(items_.size()));
+            expect(unreviewedCount_ == 3,
+                   QString("Dataset workspace expected 3 unreviewed imported rows, got %1").arg(unreviewedCount_));
+            QJsonObject result;
+            result["dataset_name"] = importResult.datasetName;
+            result["dataset_dir"] = importResult.datasetDir;
+            result["manifest_path"] = importResult.manifestPath;
+            result["summary_path"] = importResult.summaryPath;
+            result["class_balance_path"] = importResult.classBalancePath;
+            result["imported_count"] = importResult.importedCount;
+            return result;
+        };
 
         if (qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_METADATA_ONLY") == "1") {
             const QString verifierManifest = makeVerifierWorkingManifest(manifest);
@@ -2269,6 +2681,22 @@ class DatasetWorkspaceWidget final : public QWidget {
             expect(statusLabel_ && statusLabel_->text().contains("not a folder", Qt::CaseInsensitive),
                    "folder load did not report that metadata JSON is required");
 
+            const QString unrelatedJsonPath = QDir(QFileInfo(verifierManifest).absolutePath()).filePath("unrelated_config.json");
+            QString unrelatedWriteError;
+            expect(desktop_app::writeJsonObjectAtomically(
+                       unrelatedJsonPath,
+                       QJsonObject{{"schema_version", "unrelated-config-v1"}, {"settings", QJsonObject{{"enabled", true}}}},
+                       &unrelatedWriteError),
+                   "unrelated JSON fixture could not be written: " + unrelatedWriteError);
+            loadDatasetPath(unrelatedJsonPath);
+            expect(manifestPath_ == loadedManifestPath,
+                   "unrelated JSON load changed the active manifest path after metadata JSON load");
+            expect(datasetRoot_ == loadedDatasetRoot,
+                   "unrelated JSON load changed the active dataset root after metadata JSON load");
+            expect(statusLabel_ && statusLabel_->text().contains("not a supported OpenDSS dataset manifest",
+                                                                  Qt::CaseInsensitive),
+                   "unrelated JSON load did not report an incompatible dataset manifest");
+
             const QMenu* browseMenu = browseButton_ ? browseButton_->menu() : nullptr;
             expect(browseMenu != nullptr, "Browse button does not own an app menu");
             if (browseMenu) {
@@ -2282,8 +2710,12 @@ class DatasetWorkspaceWidget final : public QWidget {
                 expect(browseActions.contains("Open Dataset File..."),
                        "Browse menu is missing Open Dataset File...");
             }
+            verifyCreateDatasetFromImagesAction(browseMenu);
             expect(openFolderButton_ && openFolderButton_->text() == "Show Current Folder",
                    "Dataset folder button label should be Show Current Folder.");
+            QJsonObject importedDatasetResult;
+            if (qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_IMAGE_IMPORT") == "1")
+                importedDatasetResult = verifyImageFolderImport();
 
             QJsonObject result;
             result["ok"] = failures.isEmpty();
@@ -2293,6 +2725,9 @@ class DatasetWorkspaceWidget final : public QWidget {
             result["dataset_root"] = loadedDatasetRoot;
             result["loaded_items"] = items_.size();
             result["folder_load_rejected"] = manifestPath_ == loadedManifestPath && datasetRoot_ == loadedDatasetRoot;
+            result["unrelated_json_rejected"] = manifestPath_ == loadedManifestPath && datasetRoot_ == loadedDatasetRoot;
+            if (!importedDatasetResult.isEmpty())
+                result["image_folder_import"] = importedDatasetResult;
             return result;
         }
 
@@ -2388,9 +2823,12 @@ class DatasetWorkspaceWidget final : public QWidget {
             }
             expect(!browseActions.contains("Open Dataset Folder..."),
                    "Browse menu still includes the removed folder option.");
+            expect(browseActions.contains("Create Dataset from Images"),
+                   "Browse menu is missing Create Dataset from Images");
             expect(browseActions.contains("Open Dataset File..."),
                    "Browse menu is missing Open Dataset File...");
         }
+        verifyCreateDatasetFromImagesAction(browseMenu);
         expect(openFolderButton_ && openFolderButton_->text() == "Show Current Folder",
                "Dataset folder button label should be Show Current Folder.");
 
@@ -2557,13 +2995,9 @@ class DatasetWorkspaceWidget final : public QWidget {
             resetClassSchema(3);
             storeClassSchema(largeRootObject);
             const QString largeManifestPath = QDir(largeRoot).filePath("manifest.json");
-            QFile largeManifestFile(largeManifestPath);
-            expect(largeManifestFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-                   QString("failed to open large paging manifest %1").arg(largeManifestPath));
-            if (largeManifestFile.isOpen()) {
-                largeManifestFile.write(QJsonDocument(largeRootObject).toJson(QJsonDocument::Indented));
-                largeManifestFile.close();
-            }
+            QString largeManifestWriteError;
+            expect(desktop_app::writeJsonObjectAtomically(largeManifestPath, largeRootObject, &largeManifestWriteError),
+                   QString("failed to write large paging manifest %1: %2").arg(largeManifestPath, largeManifestWriteError));
 
             loadDatasetPath(largeManifestPath);
             expect(items_.size() == kLargeFixtureCount,
@@ -2671,13 +3105,9 @@ class DatasetWorkspaceWidget final : public QWidget {
                     writeFixtureImage(imagePath, image.second);
                 }
                 const QString manifestPath = QDir(manifestDir).filePath("dataset_manifest.json");
-                QFile manifestFile(manifestPath);
-                expect(manifestFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
-                       QString("failed to open verifier manifest %1").arg(manifestPath));
-                if (manifestFile.isOpen()) {
-                    manifestFile.write(QJsonDocument(root).toJson(QJsonDocument::Indented));
-                    manifestFile.close();
-                }
+                QString manifestWriteError;
+                expect(desktop_app::writeJsonObjectAtomically(manifestPath, root, &manifestWriteError),
+                       QString("failed to write verifier manifest %1: %2").arg(manifestPath, manifestWriteError));
                 return manifestPath;
             };
             auto verifyLegacyFixture = [&](const QString& fixtureName, const QString& manifestPath,
@@ -2898,6 +3328,8 @@ class DatasetWorkspaceWidget final : public QWidget {
             legacySuite["legacy_mixed_first_review_state"] = items_.isEmpty() ? QString() : items_.at(0).reviewState;
         }
 
+        const QJsonObject importedDatasetResult = verifyImageFolderImport();
+
         QJsonObject result;
         result["manifest_path"] = builderManifestPath;
         result["visible_count"] = builderVisibleCount;
@@ -2923,6 +3355,7 @@ class DatasetWorkspaceWidget final : public QWidget {
         }
         result["large_suite"] = largeSuite;
         result["legacy_suite"] = legacySuite;
+        result["image_folder_import"] = importedDatasetResult;
         result["ok"] = failures.isEmpty();
         result["failures"] = QJsonArray::fromStringList(failures);
         return result;
@@ -2938,6 +3371,7 @@ class DatasetWorkspaceWidget final : public QWidget {
     QPushButton* browseButton_ = nullptr;
     QMenu* browseMenu_ = nullptr;
     QAction* browseFolderAction_ = nullptr;
+    QAction* createDatasetFromImagesAction_ = nullptr;
     QAction* browseJsonAction_ = nullptr;
     QPushButton* openFolderButton_ = nullptr; 
     QLabel* totalMetric_ = nullptr;

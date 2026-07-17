@@ -3,6 +3,8 @@
 #include <QJsonArray>
 #include <QString>
 
+#include <functional>
+
 class QAction;
 class QComboBox;
 class QStackedWidget;
@@ -24,6 +26,7 @@ struct ModelWorkspaceControls {
     QStackedWidget* workspaceStack = nullptr;
     QWidget* validatorWorkspace = nullptr;
     desktop_app::AppState* appState = nullptr;
+    std::function<void()> registryChangedCallback;
 };
 
 QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls);

@@ -35,6 +35,7 @@
 #include <algorithm>
 
 #include "app_utils.h"
+#include "json_persistence.h"
 #include "model_registry_service.h"
 #include "object_names.h"
 #include "theme.h"
@@ -1477,14 +1478,12 @@ bool DatasetLabelerDialog::saveManifestAndLabels(bool showMessage) {
         storeClassSchema(root);
         manifestDoc = QJsonDocument(root);
     }
-    QFile file(manifestPath);
-        if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+    QString writeError;
+    if (!desktop_app::writeJsonDocumentAtomically(manifestPath, manifestDoc, &writeError)) {
         if (showMessage)
-            QMessageBox::warning(this, "Save failed", "Could not save the dataset file:\n" + manifestPath);
+            QMessageBox::warning(this, "Save failed", "Could not save the dataset file:\n" + writeError);
         return false;
     }
-    file.write(manifestDoc.toJson(QJsonDocument::Indented));
-    file.close();
     writeLabelsCsv();
     if (showMessage)
         outputText->setPlainText("Saved dataset file and labels.csv:\n" + manifestPath);

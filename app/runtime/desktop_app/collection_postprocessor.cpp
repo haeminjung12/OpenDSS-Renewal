@@ -13,6 +13,8 @@
 
 #include <algorithm>
 
+#include "json_persistence.h"
+
 namespace {
 
 QString csvQuote(QString value) {
@@ -154,20 +156,7 @@ QJsonObject defaultClassSchema() {
 }
 
 bool writeJsonFile(const QString& path, const QJsonObject& object, QString* error) {
-    QDir().mkpath(QFileInfo(path).absolutePath());
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        if (error)
-            *error = QString("Failed to open %1 for writing").arg(path);
-        return false;
-    }
-    file.write(QJsonDocument(object).toJson(QJsonDocument::Indented));
-    if (!file.commit()) {
-        if (error)
-            *error = QString("Failed to commit %1").arg(path);
-        return false;
-    }
-    return true;
+    return desktop_app::writeJsonObjectAtomically(path, object, error);
 }
 
 QJsonObject loadJsonObject(const QString& path) {

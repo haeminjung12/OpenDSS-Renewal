@@ -407,6 +407,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
                                   controls.metadataPath, controls.datasetPath, controls.outputPath,
                                   controls.trainerPythonPath, ImageValidationWidget::ObjectNameMode::Workspace);
     nameWidget(validatorImageWidget, "ValidatorWorkspaceImageValidationWidget");
+    validatorImageWidget->refreshModelRegistry(controls.registryEntries);
     relabelWorkspaceValidationWidget(validatorImageWidget);
     validatorImageBody->addWidget(validatorImageWidget);
 

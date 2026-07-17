@@ -71,10 +71,18 @@ def run_env_check(args: Any) -> tuple[dict[str, Any], int]:
 
         providers = list(onnxruntime.get_available_providers())
 
+    warnings: list[dict[str, Any]] = []
     selected = "cuda" if args.device == "auto" and cuda_available else args.device
+    if args.device == "cuda" and not cuda_available:
+        selected = "cpu"
+        warnings.append(
+            {
+                "code": "REQUESTED_DEVICE_FALLBACK_CPU",
+                "message": "CUDA was requested but is unavailable; falling back to CPU.",
+            }
+        )
     if selected == "auto":
         selected = "cpu"
-    warnings: list[dict[str, Any]] = []
     exit_code = 0
     status = "ok"
     error = None
@@ -86,15 +94,6 @@ def run_env_check(args: Any) -> tuple[dict[str, Any], int]:
             "message": "One or more required packages are not importable.",
             "details": {"packages": missing},
         }
-    elif args.device == "cuda" and not cuda_available:
-        status = "error"
-        exit_code = 13
-        error = {
-            "code": "REQUESTED_DEVICE_UNAVAILABLE",
-            "message": "CUDA was requested but torch.cuda.is_available() is false.",
-            "details": {},
-        }
-
     writable, writable_error = check_output_writable(args.check_output)
     if writable is False:
         status = "error"

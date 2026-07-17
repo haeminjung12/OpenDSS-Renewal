@@ -260,7 +260,7 @@ $requiredDatasetDirs = @(
     "droplet_target_nontarget_3class_starter"
 )
 foreach ($relativePath in @(
-    "OpenVisualDropletSorter.exe",
+    "OpenDSS.exe",
     "LICENSE",
     "THIRD_PARTY_NOTICES.md",
     "Qt6Core.dll",
@@ -423,7 +423,7 @@ if ($RequireInstallerInputs) {
 }
 
 $manifest = [ordered]@{
-    schema_version = "open-visual-droplet-sorter-package-manifest-v1"
+    schema_version = "opendss-package-manifest-v1"
     generated_at = (Get-Date).ToString("o")
     package_dir = $PackageDir
     source_root = $SourceRoot

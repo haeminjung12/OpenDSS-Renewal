@@ -24,7 +24,9 @@ QWidget* makePathField(const QString& label, const QString& settingsKey, const Q
     QSettings settings;
     const QString linkedValue = linkedEdit ? linkedEdit->text().trimmed() : QString();
     const QString fallbackValue = !linkedValue.isEmpty() ? linkedValue : defaultValue;
-    const QString initialValue = settings.value(settingsKey, fallbackValue).toString();
+    const QString savedValue = settings.value(settingsKey, fallbackValue).toString();
+    const QString initialValue =
+        settingsKey == QLatin1String("settings/pythonTrainer") && !linkedValue.isEmpty() ? linkedValue : savedValue;
     if (!initialValue.isEmpty())
         edit->setText(QDir::toNativeSeparators(initialValue));
     edit->setMinimumWidth(0);
@@ -44,6 +46,14 @@ QWidget* makePathField(const QString& label, const QString& settingsKey, const Q
             linkedEdit->setText(edit->text());
     };
     QObject::connect(edit, &QLineEdit::editingFinished, edit, persist);
+    if (linkedEdit) {
+        QObject::connect(linkedEdit, &QLineEdit::textChanged, edit, [edit](const QString& text) {
+            if (edit->text() == text)
+                return;
+            QSignalBlocker blocker(edit);
+            edit->setText(text);
+        });
+    }
     QObject::connect(browseButton, &QPushButton::clicked, edit, [edit, settingsKey, filePicker, persist]() {
         const QString current = edit->text().trimmed();
         const QString selected = filePicker ? QFileDialog::getOpenFileName(edit, "Select file", current)
@@ -70,6 +80,44 @@ QString modelsFolderFromModelPath(const QString& modelPath) {
     return QString();
 }
 
+QString normalizedComputeDevice(QString value) {
+    value = value.trimmed().toLower();
+    if (value == "gpu" || value == "cuda")
+        return QStringLiteral("cuda");
+    if (value == "cpu")
+        return QStringLiteral("cpu");
+    return QStringLiteral("auto");
+}
+
+void persistComputeDevice(const QString& value) {
+    QSettings settings;
+    const QString normalized = normalizedComputeDevice(value);
+    settings.setValue("settings/computeDevice", normalized);
+    settings.setValue("validator/device", normalized);
+    settings.sync();
+}
+
+void prepareComputeDeviceCombo(QComboBox* combo) {
+    if (!combo)
+        return;
+    if (combo->count() == 0) {
+        combo->addItem("Auto", QStringLiteral("auto"));
+        combo->addItem("CPU", QStringLiteral("cpu"));
+        combo->addItem("GPU", QStringLiteral("cuda"));
+    }
+    combo->setToolTip("Shared compute device for live inference, training, and validation.");
+    QSettings settings;
+    const QString initial =
+        normalizedComputeDevice(settings.value("settings/computeDevice", settings.value("validator/device", "auto")).toString());
+    const int index = combo->findData(initial);
+    combo->setCurrentIndex(index >= 0 ? index : 0);
+    nameWidget(combo, "SettingsWorkspaceComputeDeviceComboBox");
+    persistComputeDevice(combo->currentData().toString());
+    QObject::connect(combo, qOverload<int>(&QComboBox::currentIndexChanged), combo, [combo](int) {
+        persistComputeDevice(combo->currentData().toString());
+    });
+}
+
 } // namespace
 
 QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
@@ -87,7 +135,6 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     settingsScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     auto settingsStack = new QWidget;
     nameWidget(settingsStack, "SettingsWorkspaceStack");
-    settingsStack->setMaximumWidth(780);
     auto settingsStackLayout = new QVBoxLayout;
     settingsStackLayout->setContentsMargins(0, 0, 0, 0);
     settingsStackLayout->setSpacing(12);
@@ -114,6 +161,25 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     settingsStackLayout->addWidget(settingsPathsPanel);
 
     QSettings settings;
+
+    auto settingsComputePanel = makePanel("Compute");
+    settingsComputePanel->setObjectName("SettingsComputePanel");
+    auto settingsComputeBody = makePanelBody(settingsComputePanel);
+    prepareComputeDeviceCombo(controls.computeDeviceCombo);
+    if (controls.computeDeviceCombo) {
+        auto* computeRow = new QGridLayout;
+        computeRow->setContentsMargins(0, 0, 0, 0);
+        computeRow->setHorizontalSpacing(8);
+        auto* computeLabel = new QLabel("Compute device");
+        computeLabel->setProperty("metricLabel", true);
+        computeRow->addWidget(computeLabel, 0, 0);
+        computeRow->addWidget(controls.computeDeviceCombo, 0, 1);
+        computeRow->setColumnStretch(1, 1);
+        settingsComputeBody->addLayout(computeRow);
+    } else {
+        settingsComputeBody->addWidget(new QLabel("Compute device: Auto"));
+    }
+    settingsStackLayout->addWidget(settingsComputePanel);
 
     auto settingsHardwarePanel = makePanel("Hardware");
     settingsHardwarePanel->setObjectName("SettingsHardwarePanel");
@@ -193,8 +259,6 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
     addControlRow(5, "DAQ delay", controls.delaySpin);
     settingsHardwareGrid->setColumnStretch(1, 1);
     settingsHardwareBody->addLayout(settingsHardwareGrid);
-    settingsStackLayout->addWidget(settingsHardwarePanel);
-
     auto settingsLoggingPanel = makePanel("Logging");
     settingsLoggingPanel->setObjectName("SettingsLoggingPanel");
     auto settingsLoggingBody = makePanelBody(settingsLoggingPanel);
@@ -217,18 +281,37 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
         settings.sync();
     });
     settingsLoggingBody->addWidget(settingsPruneLogsCheck);
-    settingsStackLayout->addWidget(settingsLoggingPanel);
     settingsStackLayout->addStretch(1);
     settingsStack->setLayout(settingsStackLayout);
-    auto settingsScrollHost = new QWidget;
-    auto settingsScrollHostLayout = new QHBoxLayout;
-    settingsScrollHostLayout->setContentsMargins(0, 0, 0, 0);
-    settingsScrollHostLayout->addStretch(1);
-    settingsScrollHostLayout->addWidget(settingsStack, 1);
-    settingsScrollHostLayout->addStretch(1);
-    settingsScrollHost->setLayout(settingsScrollHostLayout);
-    settingsScroll->setWidget(settingsScrollHost);
-    settingsWorkspaceOuterLayout->addWidget(settingsScroll, 1);
+
+    auto settingsDetailScroll = new QScrollArea;
+    nameWidget(settingsDetailScroll, "SettingsWorkspaceDetailScrollArea");
+    settingsDetailScroll->setWidgetResizable(true);
+    settingsDetailScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    auto settingsDetailStack = new QWidget;
+    nameWidget(settingsDetailStack, "SettingsWorkspaceDetailStack");
+    auto settingsDetailLayout = new QVBoxLayout;
+    settingsDetailLayout->setContentsMargins(0, 0, 0, 0);
+    settingsDetailLayout->setSpacing(12);
+    settingsDetailLayout->addWidget(settingsHardwarePanel);
+    settingsDetailLayout->addWidget(settingsLoggingPanel);
+    settingsDetailLayout->addStretch(1);
+    settingsDetailStack->setLayout(settingsDetailLayout);
+    settingsDetailScroll->setWidget(settingsDetailStack);
+
+    settingsStack->setMinimumWidth(380);
+    settingsDetailStack->setMinimumWidth(320);
+    settingsScroll->setWidget(settingsStack);
+
+    auto* settingsWorkspaceSplitter = new QSplitter(Qt::Horizontal);
+    nameWidget(settingsWorkspaceSplitter, "SettingsWorkspaceSplitter");
+    settingsWorkspaceSplitter->addWidget(settingsScroll);
+    settingsWorkspaceSplitter->addWidget(settingsDetailScroll);
+    settingsWorkspaceSplitter->setStretchFactor(0, 1);
+    settingsWorkspaceSplitter->setStretchFactor(1, 0);
+    desktop_app::ui::configureWorkspaceSplitter(settingsWorkspaceSplitter, "workspace/settings/splitter",
+                                                {620, 420}, {380, 320});
+    settingsWorkspaceOuterLayout->addWidget(settingsWorkspaceSplitter, 1);
     settingsWorkspacePage->setLayout(settingsWorkspaceOuterLayout);
     return settingsWorkspacePage;
 }

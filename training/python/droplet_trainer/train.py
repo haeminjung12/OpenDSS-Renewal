@@ -17,7 +17,7 @@ from typing import Any
 
 from . import __version__
 from .dataset import apply_waste_source_mode, assign_splits, class_balance_warnings, parse_split, scan_dataset, schema_payload, sha256_file, source_warnings, split_support_errors, utc_now, write_csv
-from .errors import CliError, EXIT_DEVICE_UNAVAILABLE, EXIT_MISSING_PACKAGE, EXIT_ONNX_EXPORT_FAILED, EXIT_OUTPUT_INVALID, EXIT_SCHEMA_MISMATCH, EXIT_TRAINING_FAILED
+from .errors import CliError, EXIT_MISSING_PACKAGE, EXIT_ONNX_EXPORT_FAILED, EXIT_OUTPUT_INVALID, EXIT_SCHEMA_MISMATCH, EXIT_TRAINING_FAILED
 from .metadata import sorting_policy_for_classes
 from .schema import ClassSchema, compute_inverse_count_weights
 
@@ -202,8 +202,19 @@ def _device(requested: str):
     if requested == "auto":
         return torch.device("cuda" if torch.cuda.is_available() else "cpu")
     if requested == "cuda" and not torch.cuda.is_available():
-        raise CliError("REQUESTED_DEVICE_UNAVAILABLE", "CUDA was requested but torch.cuda.is_available() is false.", EXIT_DEVICE_UNAVAILABLE)
+        return torch.device("cpu")
     return torch.device(requested)
+
+
+def _device_warnings(requested: str, device: Any) -> list[dict[str, Any]]:
+    if requested == "cuda" and getattr(device, "type", "") == "cpu":
+        return [
+            {
+                "code": "REQUESTED_DEVICE_FALLBACK_CPU",
+                "message": "CUDA was requested but is unavailable; falling back to CPU.",
+            }
+        ]
+    return []
 
 
 def _input_size(config: dict[str, Any]) -> int:
@@ -575,11 +586,13 @@ def _environment_payload(args: Any, package_status: dict[str, Any], device: Any)
         "platform": {"system": platform.system(), "release": platform.release(), "machine": platform.machine()},
         "packages": package_status,
         "device": {
+            "requested": args.device,
             "selected": device.type,
             "cuda_available": bool(torch.cuda.is_available()),
             "cuda_version": getattr(torch.version, "cuda", None),
             "gpu_names": [torch.cuda.get_device_name(index) for index in range(torch.cuda.device_count())] if torch.cuda.is_available() else [],
         },
+        "warnings": _device_warnings(args.device, device),
         "argv": sys.argv,
         "cli_args": {key: str(value) for key, value in vars(args).items()},
     }
@@ -638,6 +651,8 @@ def run_train(args: Any, schema: ClassSchema) -> int:
         import torch.optim as optim
 
         device = _device(args.device)
+        for warning in _device_warnings(args.device, device):
+            emitter.emit("warning", level="warning", warning=warning)
         _seed_everything(int(config["seed"]))
         scan = apply_waste_source_mode(scan_dataset(args.dataset, schema), schema, getattr(args, "waste_source_mode", "new-reviewed-only"))
         dataset_display_labels = _dataset_display_labels(scan.get("manifest_path"), schema)
@@ -764,6 +779,21 @@ def run_train(args: Any, schema: ClassSchema) -> int:
         if bool(config.get("export_onnx", True)):
             onnx_path, onnx_opset = _export_onnx(model, run_dir, config)
             artifacts["model_onnx"] = str(onnx_path)
+        onnx_external_data_files: list[dict[str, Any]] = []
+        if onnx_path:
+            sidecar_names = {f"{onnx_path.name}.data"}
+            sidecar_names.update(path.name for path in run_dir.glob("*.onnx.data") if path.is_file())
+            for sidecar_name in sorted(sidecar_names):
+                sidecar_path = run_dir / sidecar_name
+                if sidecar_path.is_file():
+                    onnx_external_data_files.append(
+                        {
+                            "filename": sidecar_name,
+                            "sha256": sha256_file(sidecar_path),
+                            "byte_size": sidecar_path.stat().st_size,
+                            "required": True,
+                        }
+                    )
         metadata_path = run_dir / "metadata.json"
         sorting_policy = sorting_policy_for_classes(schema.classes, config["display_labels"])
         metadata = {
@@ -783,6 +813,13 @@ def run_train(args: Any, schema: ClassSchema) -> int:
             "normalization": config["normalization"],
             "architecture": {"family": "SqueezeNet", "variant": str(config.get("architecture", "squeezenet1_1")).replace("squeezenet", "")},
             "training_config": config,
+            "artifact": {
+                "onnx_file": onnx_path.name if onnx_path else None,
+                "onnx_sha256": sha256_file(onnx_path) if onnx_path else None,
+                "external_data_files": onnx_external_data_files,
+                "format": "onnx",
+                "opset": onnx_opset,
+            },
             "dataset_summary": {
                 "class_counts": counts,
                 "included_class_counts": counts,

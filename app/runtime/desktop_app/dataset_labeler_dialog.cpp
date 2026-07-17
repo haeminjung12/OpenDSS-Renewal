@@ -110,13 +110,13 @@ QString preferredDatasetMetadataPath(const QString& path) {
 
 DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initialPath, const QString& defaultPath)
     : QDialog(parent), defaultDatasetRoot(defaultPath) {
-    setWindowTitle("Image Set Review");
+    setWindowTitle("Dataset Review");
     resize(1280, 780);
     setMinimumSize(980, 620);
     nameWidget(this, "datasetLabelerWorkspace");
     resetClassSchema(2);
 
-    auto* openManifestButton = new QPushButton("Open Image Set File");
+    auto* openManifestButton = new QPushButton("Open Dataset File");
     classModeCombo = new QComboBox;
     classModeCombo->addItem("2 labels", 2);
     classModeCombo->addItem("3 labels", 3);
@@ -146,13 +146,13 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     pathLabel = new QLabel("No dataset selected.");
     pathLabel->setWordWrap(true);
     pathLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    bannerLabel = new QLabel("Open an image set file to review and label images.");
+    bannerLabel = new QLabel("Open a dataset file to review and label images.");
     bannerLabel->setWordWrap(true);
     bannerLabel->setStyleSheet("color:#6b4f00;");
-    loadStatusLabel = new QLabel("Image set review load status: no image set file loaded");
+    loadStatusLabel = new QLabel("Dataset review load status: no dataset file loaded");
     loadStatusLabel->setWordWrap(true);
     loadStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
-    loadStatusEdit = new QLineEdit("Image set review load status: no image set file loaded");
+    loadStatusEdit = new QLineEdit("Dataset review load status: no dataset file loaded");
     loadStatusEdit->setReadOnly(true);
     loadStatusEdit->setFrame(false);
     loadStatusEdit->setFocusPolicy(Qt::NoFocus);
@@ -186,7 +186,7 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     previewDetailsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     outputText = new QPlainTextEdit;
     outputText->setReadOnly(true);
-    outputText->setPlainText("Accepted inputs: an image set file (.json) or older labels/crops CSV files.");
+    outputText->setPlainText("Accepted inputs: a dataset file (.json) or older labels/crops CSV files.");
 
     nameWidget(openManifestButton, "datasetLabelerOpenManifestButton");
     nameWidget(pathLabel, "datasetLabelerDatasetPathLabel");
@@ -308,7 +308,7 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
                                      preferredDatasetMetadataPath(defaultDatasetRoot),
                                      findPackagedAppPath("datasets/prepared"));
         const QString selected = QFileDialog::getOpenFileName(
-            this, "Select image set file", startPath, "Image set files (*.json);;All files (*.*)");
+            this, "Select dataset file", startPath, "Dataset files (*.json);;All files (*.*)");
         if (!selected.isEmpty())
             loadDatasetPath(selected);
     });
@@ -681,7 +681,7 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
     previewLabel->setPixmap(QPixmap());
     previewLabel->setText("No image selected.");
     previewDetailsLabel->setText("No image selected.");
-    setLoadStatusText("Image set review load status: loading " + QDir::toNativeSeparators(currentDatasetPath));
+    setLoadStatusText("Dataset review load status: loading " + QDir::toNativeSeparators(currentDatasetPath));
 
     QFileInfo info(currentDatasetPath);
     const bool isManifest = info.isFile();
@@ -691,7 +691,7 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
         root.cdUp();
         datasetRoot = root.absolutePath();
     }
-    pathLabel->setText("Image set: " + QDir::toNativeSeparators(datasetRoot));
+    pathLabel->setText("Dataset: " + QDir::toNativeSeparators(datasetRoot));
 
     QStringList report;
     report << "Load: " + currentDatasetPath;
@@ -703,7 +703,7 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
         if (QFileInfo::exists(manifest))
             loaded = loadManifest(manifest, report);
         else
-            report << "No image set file was found.";
+            report << "No dataset file was found.";
     }
     loadSummaryArtifacts(report);
     if (!loaded)
@@ -723,13 +723,13 @@ void DatasetLabelerDialog::loadDatasetPath(const QString& selectedPath) {
 bool DatasetLabelerDialog::loadManifest(const QString& manifestPath, QStringList& report) {
     QFile file(manifestPath);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        report << "Image list could not be opened: " + manifestPath;
+        report << "Dataset file could not be opened: " + manifestPath;
         return false;
     }
     QJsonParseError err;
     QJsonDocument doc = QJsonDocument::fromJson(file.readAll(), &err);
     if (err.error != QJsonParseError::NoError || !doc.isObject()) {
-        report << QString("Image set file is not valid JSON (offset %1): %2").arg(err.offset).arg(err.errorString());
+        report << QString("Dataset file is not valid JSON (offset %1): %2").arg(err.offset).arg(err.errorString());
         return false;
     }
     QJsonObject root = doc.object();
@@ -739,7 +739,7 @@ bool DatasetLabelerDialog::loadManifest(const QString& manifestPath, QStringList
     loadClassSchema(root);
     updateClassModeUi();
     updateFilterChoices();
-    report << "Image set file: " + manifestPath;
+    report << "Dataset file: " + manifestPath;
     report << "Dataset id: " + root.value("dataset_id").toString("--");
     report << (isBuilderManifest ? "Mode: image-set review; reviewed labels are editable."
                                  : "Mode: read-only legacy image-set inspection.");
@@ -1084,14 +1084,14 @@ void DatasetLabelerDialog::applyBrowserFilter() {
 
 void DatasetLabelerDialog::updateLoadStatus() {
     if (manifestPath.isEmpty()) {
-        setLoadStatusText("Image set review load status: no image set file loaded");
+        setLoadStatusText("Dataset review load status: no dataset file loaded");
         return;
     }
     QString datasetId = "--";
     if (manifestDoc.isObject()) {
         datasetId = manifestDoc.object().value("dataset_id").toString("--");
     }
-    setLoadStatusText(QString("Image set file loaded: image_set_id=%1; items=%2; visible=%3; file=%4")
+    setLoadStatusText(QString("Dataset file loaded: dataset_id=%1; items=%2; visible=%3; file=%4")
                           .arg(datasetId)
                           .arg(browserRows.size())
                           .arg(browserTable ? browserTable->rowCount() : 0)
@@ -1381,7 +1381,7 @@ void DatasetLabelerDialog::updateReviewControls() {
     if (!canReview && isBuilderManifest) {
         bannerLabel->setText("Select an image row to assign a class label.");
     } else if (!isBuilderManifest && !manifestDoc.isNull()) {
-        bannerLabel->setText("Read-only legacy image-set review. Open an image set file to edit labels.");
+        bannerLabel->setText("Read-only legacy dataset review. Open a dataset file to edit labels.");
     }
 }
 
@@ -1480,14 +1480,14 @@ bool DatasetLabelerDialog::saveManifestAndLabels(bool showMessage) {
     QFile file(manifestPath);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
         if (showMessage)
-            QMessageBox::warning(this, "Save failed", "Could not save the image set file:\n" + manifestPath);
+            QMessageBox::warning(this, "Save failed", "Could not save the dataset file:\n" + manifestPath);
         return false;
     }
     file.write(manifestDoc.toJson(QJsonDocument::Indented));
     file.close();
     writeLabelsCsv();
     if (showMessage)
-        outputText->setPlainText("Saved image set file and labels.csv:\n" + manifestPath);
+        outputText->setPlainText("Saved dataset file and labels.csv:\n" + manifestPath);
     return true;
 }
 

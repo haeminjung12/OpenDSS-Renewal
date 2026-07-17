@@ -4,6 +4,7 @@
 #include <QtWidgets>
 
 #include "app_state.h"
+#include "model_registry_service.h"
 #include "object_names.h"
 #include "theme.h"
 #include "widget_helpers.h"
@@ -15,26 +16,17 @@
 #include <memory>
 #include <utility>
 
-QString defaultOpenDssModelsPath();
-QString findPackagedAppPath(const QString& relativePath);
-QString chooseOpenFileDialogPath(const QString& currentPath, const QString& workspacePath,
-                                 const QString& packagedPath = QString());
-QJsonObject packagedBlankModelRegistryEntry();
-QJsonObject packagedPretrainedModelRegistryEntry();
-QString resolvePackagedPathFromRegistryPath(const QString& registryPath);
-bool renameRegistryEntryDisplayName(const QString& registryFilePath, const QString& registryEntryId,
-                                    const QString& displayName, QString* error = nullptr);
-
 namespace desktop_app::workspace {
 namespace {
 
 constexpr auto kVerifyAddButtonsEnv = "OVDS_VERIFY_MODEL_WORKSPACE_ADD_BUTTONS";
 constexpr auto kVerifyListManagementEnv = "OVDS_VERIFY_MODEL_WORKSPACE_LIST_MANAGEMENT";
+constexpr auto kVerifyActiveSimplificationEnv = "OVDS_VERIFY_MODEL_ACTIVE_SIMPLIFICATION";
 
 QString metadataArchitectureSummary(const QJsonObject& metadataDoc);
 bool entryIsActive(const QJsonObject& entry);
-bool entryIsValidated(const QJsonObject& entry);
 bool entryIsBlockedFromLiveSorting(const QJsonObject& entry);
+bool statusLooksLikeStarter(const QJsonObject& entry, const QJsonObject& metadataDoc);
 
 QString findProjectRootFromApp() {
     QStringList starts;
@@ -52,14 +44,6 @@ QString findProjectRootFromApp() {
         }
     }
     return QString();
-}
-
-QString registryString(const QJsonObject& entry, const QString& key) {
-    return entry.value(key).toString();
-}
-
-QString registryNestedString(const QJsonObject& entry, const QString& objectKey, const QString& key) {
-    return entry.value(objectKey).toObject().value(key).toString();
 }
 
 QString absoluteRegistryPath(const QString& path) {
@@ -250,13 +234,7 @@ bool entryIsTemplate(const QJsonObject& entry, const QJsonObject& metadataDoc = 
 }
 
 QString userFacingModelStatus(const QJsonObject& entry, const QJsonObject& metadataDoc) {
-    if (entryIsTemplate(entry, metadataDoc))
-        return "Untrained template";
-    if (entryIsActive(entry))
-        return entryIsValidated(entry) ? "Ready for live sorting" : "Active, but not validated";
-    if (entryIsValidated(entry))
-        return "Trained and validated";
-    return "Not validated";
+    return statusLooksLikeStarter(entry, metadataDoc) ? QString("Untrained") : QString("Trained");
 }
 
 QString userFacingModelListSummary(const QJsonObject& entry, const QJsonObject& metadataDoc) {
@@ -353,14 +331,6 @@ bool entryIsActive(const QJsonObject& entry) {
            registryString(entry, "promotion_status").contains("current", Qt::CaseInsensitive);
 }
 
-bool entryIsValidated(const QJsonObject& entry) {
-    const QString status = registryString(entry, "validation_status").trimmed();
-    if (status.isEmpty())
-        return false;
-    return !status.contains("no validation", Qt::CaseInsensitive) &&
-           !status.contains("not validated", Qt::CaseInsensitive) && !status.contains("missing", Qt::CaseInsensitive);
-}
-
 QString displayNameForEntry(const QJsonObject& entry) {
     const QString displayName = registryString(entry, "display_name");
     return displayName.isEmpty() ? registryString(entry, "registry_entry_id") : displayName;
@@ -426,8 +396,6 @@ bool entryHasValidationPass(const QJsonObject& entry, const QJsonObject& metadat
 QString modelListStatusLabel(const QJsonObject& entry, const QJsonObject& metadataDoc) {
     if (statusLooksLikeStarter(entry, metadataDoc))
         return "Untrained";
-    if (entryIsActive(entry) || entryHasValidationPass(entry, metadataDoc))
-        return "Validated";
     return "Trained";
 }
 
@@ -750,7 +718,6 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     auto modelWorkspaceRegistryPanel = makePanel("Models");
     modelWorkspaceRegistryPanel->setObjectName("ModelRegistryPanel");
     modelWorkspaceRegistryPanel->setMinimumWidth(300);
-    modelWorkspaceRegistryPanel->setMaximumWidth(420);
     auto modelRegistryBody = makePanelBody(modelWorkspaceRegistryPanel, 0, 0, 0, 0);
     auto* registryHeaderActions = new QWidget;
     auto* registryHeaderLayout = new QGridLayout;
@@ -802,17 +769,6 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     };
     populateRegistryList();
     modelRegistryBody->addWidget(modelRegistryList, 1);
-    auto modelRegistryActions = new QHBoxLayout;
-    modelRegistryActions->setContentsMargins(12, 0, 12, 12);
-    auto modelValidateBtn = new QPushButton("Run Validation");
-    nameWidget(modelValidateBtn, "ModelWorkspaceValidateButton");
-    modelRegistryActions->addWidget(modelValidateBtn);
-    modelRegistryBody->addLayout(modelRegistryActions);
-
-    if (controls.imageValidationAction) {
-        QObject::connect(modelValidateBtn, &QPushButton::clicked, controls.imageValidationAction, &QAction::trigger);
-    }
-
     auto modelDetailScroll = new QScrollArea;
     nameWidget(modelDetailScroll, "ModelWorkspaceDetailScrollArea");
     modelDetailScroll->setWidgetResizable(true);
@@ -922,18 +878,6 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     validationMetricsGrid->addWidget(makeMetric("Sequence", sequenceValue), 0, 2);
     validationMetricsGrid->addWidget(makeMetric("Loss", lossValue), 0, 3);
     modelValidationBody->addLayout(validationMetricsGrid);
-    auto* validationActions = new QHBoxLayout;
-    validationActions->setContentsMargins(0, 0, 0, 0);
-    validationActions->setSpacing(8);
-    auto* revalidateButton = makeSmallButton("Re-validate", "ModelWorkspaceRevalidateButton");
-    auto* openReportButton = makeSmallButton("Open Report", "ModelWorkspaceOpenReportButton");
-    auto* runValidationButton = makeSmallButton("Run Validation", "ModelWorkspaceRunValidationButton");
-    validationActions->addWidget(revalidateButton, 0);
-    validationActions->addWidget(openReportButton, 0);
-    validationActions->addWidget(runValidationButton, 0);
-    validationActions->addStretch(1);
-    modelValidationBody->addLayout(validationActions);
-
     auto modelPromotionPanel = makePanel("Notes and history");
     modelPromotionPanel->setObjectName("ModelPromotionPolicyPanel");
     auto modelPromotionBody = makePanelBody(modelPromotionPanel);
@@ -986,6 +930,7 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     modelDetailLayout->addStretch(1);
     modelDetailStack->setLayout(modelDetailLayout);
     modelDetailScroll->setWidget(modelDetailStack);
+    modelDetailScroll->setMinimumWidth(520);
 
     auto selectedEntry = [=]() -> QJsonObject {
         int row = modelRegistryList->currentRow();
@@ -1045,11 +990,14 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         normalizationMeanValue->setText(mean.isEmpty() ? "--" : mean);
         normalizationStdValue->setText(std.isEmpty() ? "--" : std);
         const bool blockedFromLiveSorting = entryIsBlockedFromLiveSorting(entry);
+        const ActiveModelReadiness activationReadiness = evaluateActiveModelReadiness(entry);
         setActiveButton->setEnabled(!entryIsActive(entry) && !blockedFromLiveSorting);
         if (entryIsActive(entry)) {
             setActiveButton->setToolTip("Selected model is already active.");
         } else if (blockedFromLiveSorting) {
-            setActiveButton->setToolTip("This starter model is blocked from live sorting until it is trained and validated.");
+            setActiveButton->setToolTip("This starter model is blocked from live sorting until it is trained.");
+        } else if (!activationReadiness.ready) {
+            setActiveButton->setToolTip(activationReadiness.message);
         } else {
             setActiveButton->setToolTip("Mark the selected model as active.");
         }
@@ -1088,11 +1036,12 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         benchmarkAccuracyValue->setText(percent(imageValidation.value("accuracy")));
         validationEvidenceValue->setText(
             wrapTechnicalText("Validation files: " + jsonPathSummary(entry.value("validation_evidence"))));
-        promotionStatusValue->setText("Promotion: " + registryString(entry, "promotion_status"));
-        promotionRecordValue->setText(
-            wrapTechnicalText("Record: " + (registryString(entry, "promotion_record_path").isEmpty()
-                                                ? "(none)"
-                                                : registryString(entry, "promotion_record_path"))));
+        promotionStatusValue->setText("Workspace role: " + (entryIsActive(entry) ? QString("Active model")
+                                                                                  : QString("Available model")));
+        promotionRecordValue->setText(wrapTechnicalText(
+            "History record: " + (registryString(entry, "promotion_record_path").isEmpty()
+                                      ? QString("(none)")
+                                      : registryString(entry, "promotion_record_path"))));
         limitationsValue->setText("Limitations: " + jsonStringList(entry.value("limitations").toArray()).join("; "));
         blockersValue->setText(wrapTechnicalText("Blockers: " + (entry.value("blockers").toArray().isEmpty()
                                                                      ? "(none)"
@@ -1112,28 +1061,6 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         openPathOrWarn(modelWorkspacePage, selectedEntry().value("metadata_path").toString(), "Open Metadata");
     });
     QObject::connect(reloadMetadataButton, &QPushButton::clicked, [=]() { updateModelWorkspaceDetails(); });
-    QObject::connect(openReportButton, &QPushButton::clicked, [=]() {
-        const QString reportPath = firstExistingEvidencePath(selectedEntry());
-        openPathOrWarn(modelWorkspacePage, reportPath, "Open Report");
-    });
-    auto navigateToValidator = [=]() {
-        if (controls.validatorWorkspace) {
-            const QJsonObject entry = selectedEntry();
-            if (auto* modelEdit = controls.validatorWorkspace->findChild<QLineEdit*>("ValidatorWorkspaceModelEdit")) {
-                modelEdit->setText(absoluteRegistryPath(registryString(entry, "model_path")));
-            }
-            if (auto* metadataEdit = controls.validatorWorkspace->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit")) {
-                metadataEdit->setText(absoluteRegistryPath(registryString(entry, "metadata_path")));
-            }
-        }
-        if (controls.imageValidationAction)
-            controls.imageValidationAction->trigger();
-        if (controls.workspaceStack && controls.validatorWorkspace) {
-            controls.workspaceStack->setCurrentWidget(controls.validatorWorkspace);
-        }
-    };
-    QObject::connect(revalidateButton, &QPushButton::clicked, navigateToValidator);
-    QObject::connect(runValidationButton, &QPushButton::clicked, navigateToValidator);
     auto persistRegistryEntries = [=](const QJsonArray& updatedEntries, const QString& selectedId, int fallbackRow,
                                       QString* error) -> bool {
         if (error)
@@ -1225,10 +1152,6 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         menu.addAction("Open Metadata", [=]() {
             openPathOrWarn(modelWorkspacePage, selectedEntry().value("metadata_path").toString(), "Open Metadata");
         });
-        menu.addAction("Open Report", [=]() {
-            openPathOrWarn(modelWorkspacePage, firstExistingEvidencePath(selectedEntry()), "Open Report");
-        });
-        menu.addAction("Run Validation", navigateToValidator);
         menu.addAction("Rename model", [=]() {
             const QString error = renameSelectedModel();
             if (!error.isEmpty())
@@ -1248,33 +1171,32 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         QJsonObject selected = registryEntries->at(row).toObject();
         if (entryIsBlockedFromLiveSorting(selected)) {
             QMessageBox::information(modelWorkspacePage, "Set Active",
-                                     "This starter model is blocked from live sorting until it is trained and validated.");
+                                     "This starter model is blocked from live sorting until it is trained.");
             return;
         }
-        if (!entryIsValidated(selected)) {
-            QMessageBox::warning(modelWorkspacePage, "Unvalidated Model",
-                                 "This model has no validation pass recorded. Activation is allowed, but run "
-                                 "validation before relying on DAQ firing.");
+        const ActiveModelReadiness readiness = evaluateActiveModelReadiness(selected);
+        if (!readiness.ready) {
+            QMessageBox::warning(modelWorkspacePage, "Set Active", readiness.message);
+            return;
         }
-        QJsonArray updated;
-        for (int i = 0; i < registryEntries->size(); ++i) {
-            QJsonObject entry = registryEntries->at(i).toObject();
-            const bool active = i == row;
-            entry["selectable_for_normal_live_sorting"] = active;
-            if (active) {
-                entry["state"] = "promoted_current";
-                entry["promotion_status"] = "Active in workspace";
-            } else if (registryString(entry, "state") == "promoted_current") {
-                entry["state"] = "available";
-                entry["promotion_status"] = "Available";
-            }
-            updated.append(entry);
-        }
-        QString error;
         const QString selectedId = registryEntryId(selected);
-        if (!persistRegistryEntries(updated, selectedId, row, &error)) {
+        QString error;
+        if (!activateModelRegistryEntry(controls.registryFilePath, selectedId, &error)) {
             QMessageBox::warning(modelWorkspacePage, "Set Active", error);
+            return;
         }
+        QString warning;
+        const QJsonArray refreshed = loadRegistryEntriesFromPath(controls.registryFilePath, &warning);
+        if (refreshed.isEmpty()) {
+            QMessageBox::warning(modelWorkspacePage, "Set Active",
+                                 warning.isEmpty() ? "The model was marked active, but the registry could not be reloaded."
+                                                   : warning);
+            return;
+        }
+        *registryEntries = refreshed;
+        populateRegistryList();
+        selectRegistryRow(selectedId, row);
+        updateModelWorkspaceDetails();
     });
     QObject::connect(addBlankModelButton, &QPushButton::clicked, [=]() {
         const QString error = addPackagedEntry(packagedBlankEntry);
@@ -1341,13 +1263,24 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
     modelRegistryList->selectRow(0);
     updateModelWorkspaceDetails();
     QTimer::singleShot(2000, modelWorkspacePage, updateModelWorkspaceDetails);
-    if (envFlagEnabled(kVerifyAddButtonsEnv) || envFlagEnabled(kVerifyListManagementEnv)) {
+    const bool verifyAddButtons = envFlagEnabled(kVerifyAddButtonsEnv);
+    const bool verifyListManagement = envFlagEnabled(kVerifyListManagementEnv);
+    const bool verifyActiveSimplification = envFlagEnabled(kVerifyActiveSimplificationEnv);
+    if (verifyAddButtons || verifyListManagement || verifyActiveSimplification) {
         QTimer::singleShot(0, modelWorkspacePage, [=]() {
             QStringList failures;
             auto require = [&](bool condition, const QString& message) {
                 if (!condition)
                     failures.push_back(message);
             };
+            require(modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceValidateButton") == nullptr,
+                    "Model workspace hides the top-level testing button");
+            require(modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRevalidateButton") == nullptr,
+                    "Model workspace hides the re-validate button");
+            require(modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceOpenReportButton") == nullptr,
+                    "Model workspace hides the validation report button");
+            require(modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRunValidationButton") == nullptr,
+                    "Model workspace hides the run-validation button");
             auto matchingCount = [&](const QJsonArray& entries, const QJsonObject& packagedEntry) {
                 int count = 0;
                 for (const auto& value : entries) {
@@ -1367,6 +1300,10 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
                 if (row < 0 || row >= registryEntries->size())
                     return {};
                 return registryEntries->at(row).toObject();
+            };
+            auto persistedEntryById = [&](const QJsonArray& entries, const QString& entryId) -> QJsonObject {
+                const int row = findRegistryEntryRowById(entries, entryId);
+                return row >= 0 ? entries.at(row).toObject() : QJsonObject{};
             };
             auto verifySimpleListRow = [&](const QString& entryId, const QString& context) {
                 const int row = findRegistryEntryRowById(*registryEntries, entryId);
@@ -1388,11 +1325,18 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
 
                 require(lines.size() == 2, context + " row uses a simple two-line layout");
                 require(lines.value(0) == title, context + " row title stays user-facing");
-                require(status == "Untrained" || status == "Trained" || status == "Validated",
+                require(status == "Untrained" || status == "Trained",
                         context + " row status is one of the allowed labels");
                 require(lines.value(1).contains(status), context + " row shows the mapped status");
+                require(!lines.value(1).contains("validated", Qt::CaseInsensitive),
+                        context + " row never shows validation-derived status labels");
                 require(lines.value(1).contains(date), context + " row shows the best available date or fallback");
                 require(item->toolTip() == item->text(), context + " tooltip matches the simplified row text");
+                if (context.contains("blank starter", Qt::CaseInsensitive))
+                    require(status == "Untrained", context + " row maps starter models to Untrained");
+                if (context.contains("pre-trained", Qt::CaseInsensitive) ||
+                    context.contains("Promoted/current", Qt::CaseInsensitive))
+                    require(status == "Trained", context + " row maps usable models to Trained");
 
                 const QString itemText = item->text();
                 require(!registryEntryId(entry).isEmpty() ? !itemText.contains(registryEntryId(entry), Qt::CaseInsensitive)
@@ -1519,110 +1463,343 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
                 }
                 return storedEntry;
             };
-
-            verifyReleaseModelsFallback();
-            require(removeModelButton != nullptr, "Remove model button exists");
-            require(removeModelButton && removeModelButton->text() == "Remove model", "Remove model button text is exact");
-            const int initialRowCount = modelRegistryList->rowCount();
-            const int initialBlankCount = matchingCount(*registryEntries, packagedBlankEntry);
-            const int initialPretrainedCount = matchingCount(*registryEntries, packagedPretrainedEntry);
-            require(initialRowCount >= 3, "Verifier temp registry starts with packaged model rows present");
-            require(initialBlankCount >= 1, "Verifier temp registry starts with the packaged blank starter row");
-            require(initialPretrainedCount >= 1, "Verifier temp registry starts with the packaged pre-trained row");
-
-            const QJsonObject addedBlankEntry =
-                verifyAddedPackagedEntry("Add blank model", addBlankModelButton, packagedBlankEntry, true);
-            const QJsonObject addedPretrainedEntry =
-                verifyAddedPackagedEntry("Add pre-trained model", addPretrainedModelButton, packagedPretrainedEntry, false);
-            verifySimpleListRow(registryEntryId(addedBlankEntry), "Added blank starter");
-            verifySimpleListRow(registryEntryId(addedPretrainedEntry), "Added pre-trained model");
-
-            int activeRow = -1;
-            for (int i = 0; i < registryEntries->size(); ++i) {
-                if (entryIsActive(registryEntries->at(i).toObject())) {
-                    activeRow = i;
-                    break;
+            auto writeTextFile = [&](const QString& path, const QByteArray& bytes, const QString& context) {
+                require(QDir().mkpath(QFileInfo(path).absolutePath()), context + " parent folder exists");
+                QFile file(path);
+                require(file.open(QIODevice::WriteOnly | QIODevice::Truncate), context + " file can be written");
+                if (file.isOpen()) {
+                    file.write(bytes);
+                    file.close();
                 }
-            }
-            require(activeRow >= 0, "Registry still has a promoted/current row");
-            if (activeRow >= 0) {
-                modelRegistryList->selectRow(activeRow);
+            };
+            auto writeJsonFile = [&](const QString& path, const QJsonObject& object, const QString& context) {
+                writeTextFile(path, QJsonDocument(object).toJson(QJsonDocument::Indented), context);
+            };
+            auto appendVerifierEntry = [&](const QJsonObject& entry, const QString& context) -> QJsonObject {
+                QJsonArray updatedEntries = *registryEntries;
+                updatedEntries.append(entry);
+                QString error;
+                require(persistRegistryEntries(updatedEntries, registryEntryId(entry), updatedEntries.size() - 1, &error),
+                        context + ": " + error);
+                QCoreApplication::processEvents();
+                return currentRowEntry();
+            };
+            auto verifyActiveModelSimplificationCases = [&]() {
+                QTemporaryDir tempDir(QDir::tempPath() + "/ovds_model_active_verify_XXXXXX");
+                require(tempDir.isValid(), "Active-model verifier temp directory is available");
+                if (!tempDir.isValid())
+                    return;
+
+                auto jsonArrayFromStrings = [](const QStringList& values) {
+                    QJsonArray array;
+                    for (const QString& value : values)
+                        array.append(value);
+                    return array;
+                };
+                auto validationSummary = []() {
+                    return QJsonObject{{"image_validation",
+                                        QJsonObject{{"status", "completed"}, {"accuracy", 0.98}, {"macro_f1", 0.97}}},
+                                       {"sequence_validation", QJsonObject{{"status", "not_run"}}}};
+                };
+                auto metadataObject = [&](const QStringList& classIds, const QJsonObject& labels, bool includeValidation) {
+                    QJsonObject metadata{{"schema_version", "model-metadata-v1"},
+                                         {"model_id", "verify_model"},
+                                         {"model_name", "Verifier model"},
+                                         {"classes", jsonArrayFromStrings(classIds)},
+                                         {"display_labels", labels}};
+                    if (includeValidation)
+                        metadata["validation_summary"] = validationSummary();
+                    return metadata;
+                };
+                auto entryObject = [&](const QString& entryId, const QString& displayName, const QString& modelPath,
+                                       const QString& metadataPath, const QJsonObject& extra = QJsonObject{}) {
+                    QJsonObject entry{{"registry_entry_id", entryId},
+                                      {"display_name", displayName},
+                                      {"state", "available"},
+                                      {"live_use_mode", "normal"},
+                                      {"selectable_for_normal_live_sorting", false},
+                                      {"model_path", modelPath},
+                                      {"metadata_path", metadataPath},
+                                      {"promotion_status", "Available"}};
+                    for (auto it = extra.constBegin(); it != extra.constEnd(); ++it)
+                        entry[it.key()] = it.value();
+                    return entry;
+                };
+
+                const QString promotedDirA = QDir(tempDir.path()).filePath("promoted_a");
+                const QString promotedDirB = QDir(tempDir.path()).filePath("promoted_b");
+                const QString promotedModelA = QDir(promotedDirA).filePath("model.onnx");
+                const QString promotedModelB = QDir(promotedDirB).filePath("model.onnx");
+                const QString promotedMetadataA = QDir(promotedDirA).filePath("metadata.json");
+                const QString promotedMetadataB = QDir(promotedDirB).filePath("metadata.json");
+                writeTextFile(promotedModelA, "model-a", "Ready model A");
+                writeTextFile(promotedModelB, "model-b", "Ready model B");
+                writeJsonFile(promotedMetadataA,
+                              metadataObject({"0", "1"},
+                                             QJsonObject{{"0", "Non-target"}, {"1", "Target"}}, true),
+                              "Ready model A metadata");
+                writeJsonFile(promotedMetadataB,
+                              metadataObject({"0", "1"},
+                                             QJsonObject{{"0", "Non-target"}, {"1", "Target"}}, true),
+                              "Ready model B metadata");
+
+                const QString readyEntryIdA = QString("verify_ready_a_%1").arg(QCoreApplication::applicationPid());
+                const QString readyEntryIdB = QString("verify_ready_b_%1").arg(QCoreApplication::applicationPid());
+                const QJsonObject readyEntryA =
+                    appendVerifierEntry(entryObject(readyEntryIdA, "Verifier ready A", promotedModelA, promotedMetadataA),
+                                        "Ready model A entry persists");
+                const QJsonObject readyEntryB =
+                    appendVerifierEntry(entryObject(readyEntryIdB, "Verifier ready B", promotedModelB, promotedMetadataB),
+                                        "Ready model B entry persists");
+
+                selectRegistryRow(registryEntryId(readyEntryA), 0);
                 updateModelWorkspaceDetails();
-                require(!removeModelButton->isEnabled(), "Remove model is blocked for the promoted/current row");
-                verifySimpleListRow(registryEntryId(registryEntries->at(activeRow).toObject()),
-                                    "Promoted/current row");
+                require(modelStateValue->text() == "Trained", "Ready model detail status is Trained");
+                require(setActiveButton->isEnabled(), "Ready promoted model keeps Set Active enabled");
+                require(setActiveButton->toolTip() == "Mark the selected model as active.",
+                        "Ready promoted model keeps the Set Active tooltip");
+                setActiveButton->click();
+                QCoreApplication::processEvents();
+                const QJsonArray afterReadyA = persistedEntries();
+                const QJsonObject persistedReadyA = persistedEntryById(afterReadyA, registryEntryId(readyEntryA));
+                require(persistedReadyA.value("selectable_for_normal_live_sorting").toBool(false),
+                        "Ready promoted model becomes selectable after Set Active");
+                require(registryString(persistedReadyA, "state") == "promoted_current",
+                        "Ready promoted model becomes promoted_current after Set Active");
+
+                const QByteArray originalUserProfile = qgetenv("USERPROFILE");
+                const QString syntheticUserProfile = QDir(tempDir.path()).filePath("profile_root");
+                require(QDir().mkpath(syntheticUserProfile), "Active-model verifier synthetic profile root exists");
+                qputenv("USERPROFILE", syntheticUserProfile.toUtf8());
+                const DefaultWorkspacePaths syncedPathsA = ensureDefaultWorkspaceAssets(afterReadyA);
+                QFile activeModelA(syncedPathsA.activeModel);
+                require(activeModelA.open(QIODevice::ReadOnly), "Ready model A sync writes the active ONNX file");
+                const QByteArray syncedModelA = activeModelA.isOpen() ? activeModelA.readAll() : QByteArray();
+                if (activeModelA.isOpen())
+                    activeModelA.close();
+                require(syncedModelA == QByteArray("model-a"),
+                        "Ready model A sync writes the selected active ONNX contents");
+
+                selectRegistryRow(registryEntryId(readyEntryB), 0);
+                updateModelWorkspaceDetails();
+                require(setActiveButton->isEnabled(), "Second ready promoted model keeps Set Active enabled");
+                setActiveButton->click();
+                QCoreApplication::processEvents();
+                const QJsonArray afterReadyB = persistedEntries();
+                const QJsonObject persistedReadyB = persistedEntryById(afterReadyB, registryEntryId(readyEntryB));
+                require(persistedReadyB.value("selectable_for_normal_live_sorting").toBool(false),
+                        "Second ready promoted model becomes selectable after Set Active");
+                const DefaultWorkspacePaths syncedPathsB = ensureDefaultWorkspaceAssets(afterReadyB);
+                QFile activeModelB(syncedPathsB.activeModel);
+                require(activeModelB.open(QIODevice::ReadOnly), "Second ready model sync keeps the active ONNX file readable");
+                const QByteArray syncedModelB = activeModelB.isOpen() ? activeModelB.readAll() : QByteArray();
+                if (activeModelB.isOpen())
+                    activeModelB.close();
+                require(syncedModelB == QByteArray("model-b"),
+                        "Second ready model sync replaces the active ONNX contents when filenames match");
+                if (originalUserProfile.isEmpty())
+                    qunsetenv("USERPROFILE");
+                else
+                    qputenv("USERPROFILE", originalUserProfile);
+
+                auto verifyBlockedCase = [&](const QString& caseSuffix, const QString& displayName, const QString& modelPath,
+                                             const QString& metadataPath, const QJsonObject& metadata,
+                                             const QString& expectedMissingItem,
+                                             const QString& expectedMessageFragment,
+                                             const QJsonObject& extra = QJsonObject{}) {
+                    if (!metadataPath.isEmpty() && !metadata.isEmpty())
+                        writeJsonFile(metadataPath, metadata, displayName + " metadata");
+                    const QString entryId =
+                        QString("verify_%1_%2").arg(caseSuffix).arg(QCoreApplication::applicationPid());
+                    const QJsonObject storedEntry =
+                        appendVerifierEntry(entryObject(entryId, displayName, modelPath, metadataPath, extra),
+                                            displayName + " entry persists");
+                    selectRegistryRow(registryEntryId(storedEntry), 0);
+                    updateModelWorkspaceDetails();
+                    const ActiveModelReadiness readiness = evaluateActiveModelReadiness(currentRowEntry());
+                    require(!readiness.ready, displayName + " is blocked from activation");
+                    require(readiness.missingItem.compare(expectedMissingItem, Qt::CaseInsensitive) == 0,
+                            displayName + " reports the exact missing item");
+                    require(readiness.message.contains(expectedMessageFragment, Qt::CaseInsensitive),
+                            displayName + " reports the expected user-facing diagnostic");
+                    require(setActiveButton->toolTip().contains(expectedMessageFragment, Qt::CaseInsensitive),
+                            displayName + " surfaces the exact blocker in the Set Active tooltip");
+                };
+
+                const QString missingModelMetadata = QDir(tempDir.path()).filePath("missing_model_metadata.json");
+                writeJsonFile(missingModelMetadata,
+                              metadataObject({"0", "1"},
+                                             QJsonObject{{"0", "Non-target"}, {"1", "Target"}}, true),
+                              "Missing model metadata");
+                verifyBlockedCase("missing_model", "Verifier missing model",
+                                  QDir(tempDir.path()).filePath("missing_model.onnx"), missingModelMetadata,
+                                  QJsonObject{}, "model.onnx", "ONNX model file is missing");
+
+                const QString missingMetadataModel = QDir(tempDir.path()).filePath("missing_metadata.onnx");
+                writeTextFile(missingMetadataModel, "missing-metadata-model", "Missing metadata model");
+                verifyBlockedCase("missing_metadata", "Verifier missing metadata", missingMetadataModel,
+                                  QDir(tempDir.path()).filePath("missing_metadata.json"), QJsonObject{},
+                                  "metadata.json", "metadata file is missing");
+
+                const QString missingLabelsModel = QDir(tempDir.path()).filePath("missing_labels.onnx");
+                const QString missingLabelsMetadata = QDir(tempDir.path()).filePath("missing_labels.json");
+                writeTextFile(missingLabelsModel, "missing-labels-model", "Missing labels model");
+                verifyBlockedCase("missing_labels", "Verifier missing labels", missingLabelsModel, missingLabelsMetadata,
+                                  metadataObject({"alpha", "beta"}, QJsonObject{}, true), "classes/labels",
+                                  "class labels could not be read");
+
+                const QString missingPolicyModel = QDir(tempDir.path()).filePath("missing_policy.onnx");
+                const QString missingPolicyMetadata = QDir(tempDir.path()).filePath("missing_policy.json");
+                writeTextFile(missingPolicyModel, "missing-policy-model", "Missing policy model");
+                verifyBlockedCase("missing_policy", "Verifier missing policy", missingPolicyModel, missingPolicyMetadata,
+                                  metadataObject({"alpha", "beta"},
+                                                 QJsonObject{{"alpha", "Target-like"}, {"beta", "Non-target-like"}}, true),
+                                  "target/non-target policy", "target/non-target sorting policy could not be read");
+
+                const QString unvalidatedModel = QDir(tempDir.path()).filePath("unvalidated_model.onnx");
+                const QString unvalidatedMetadata = QDir(tempDir.path()).filePath("unvalidated_metadata.json");
+                writeTextFile(unvalidatedModel, "unvalidated-model", "Unvalidated model");
+                writeJsonFile(unvalidatedMetadata,
+                              metadataObject({"0", "1"},
+                                             QJsonObject{{"0", "Non-target"}, {"1", "Target"}}, false),
+                              "Unvalidated model metadata");
+                const QJsonObject unvalidatedEntry =
+                    appendVerifierEntry(entryObject(QString("verify_unvalidated_%1").arg(QCoreApplication::applicationPid()),
+                                                    "Verifier unvalidated trained model", unvalidatedModel,
+                                                    unvalidatedMetadata),
+                                        "Unvalidated trained model entry persists");
+                selectRegistryRow(registryEntryId(unvalidatedEntry), 0);
+                updateModelWorkspaceDetails();
+                const ActiveModelReadiness unvalidatedReadiness = evaluateActiveModelReadiness(currentRowEntry());
+                require(unvalidatedReadiness.ready,
+                        "Model without validation summary remains activatable when files, labels, and policy are usable");
+                require(modelStateValue->text() == "Trained", "Model without validation summary still shows Trained");
+                require(setActiveButton->isEnabled(),
+                        "Model without validation summary keeps Set Active enabled after practical checks pass");
+            };
+
+            if (verifyAddButtons || verifyListManagement) {
+                verifyReleaseModelsFallback();
+                require(removeModelButton != nullptr, "Remove model button exists");
+                require(removeModelButton && removeModelButton->text() == "Remove model",
+                        "Remove model button text is exact");
+                const int initialRowCount = modelRegistryList->rowCount();
+                const int initialBlankCount = matchingCount(*registryEntries, packagedBlankEntry);
+                const int initialPretrainedCount = matchingCount(*registryEntries, packagedPretrainedEntry);
+                require(initialRowCount >= 3, "Verifier temp registry starts with packaged model rows present");
+                require(initialBlankCount >= 1, "Verifier temp registry starts with the packaged blank starter row");
+                require(initialPretrainedCount >= 1, "Verifier temp registry starts with the packaged pre-trained row");
+
+                const QJsonObject addedBlankEntry =
+                    verifyAddedPackagedEntry("Add blank model", addBlankModelButton, packagedBlankEntry, true);
+                const QJsonObject addedPretrainedEntry = verifyAddedPackagedEntry("Add pre-trained model",
+                                                                                  addPretrainedModelButton,
+                                                                                  packagedPretrainedEntry, false);
+                verifySimpleListRow(registryEntryId(addedBlankEntry), "Added blank starter");
+                verifySimpleListRow(registryEntryId(addedPretrainedEntry), "Added pre-trained model");
+
+                int activeRow = -1;
+                for (int i = 0; i < registryEntries->size(); ++i) {
+                    if (entryIsActive(registryEntries->at(i).toObject())) {
+                        activeRow = i;
+                        break;
+                    }
+                }
+                require(activeRow >= 0, "Registry still has a promoted/current row");
+                if (activeRow >= 0) {
+                    modelRegistryList->selectRow(activeRow);
+                    updateModelWorkspaceDetails();
+                    require(!removeModelButton->isEnabled(), "Remove model is blocked for the promoted/current row");
+                    verifySimpleListRow(registryEntryId(registryEntries->at(activeRow).toObject()),
+                                        "Promoted/current row");
+                }
+
+                selectRegistryRow(registryEntryId(addedPretrainedEntry), 0);
+                updateModelWorkspaceDetails();
+                require(removeModelButton->isEnabled(), "Remove model is enabled for an added non-active row");
+                const QString removeError = removeSelectedModel(false);
+                require(removeError.isEmpty(),
+                        QString("Remove model succeeds for added pre-trained row: %1").arg(removeError));
+                QCoreApplication::processEvents();
+                require(modelRegistryList->rowCount() == initialRowCount + 1,
+                        "Remove model decreases the visible model row count");
+                const QJsonArray afterRemovePersisted = persistedEntries();
+                require(findRegistryEntryRowById(afterRemovePersisted, registryEntryId(addedPretrainedEntry)) < 0,
+                        "Remove model persists deletion of the selected added row");
+                require(matchingCount(afterRemovePersisted, packagedPretrainedEntry) == initialPretrainedCount,
+                        "Remove model restores the packaged pre-trained asset count after deletion");
+
+                selectRegistryRow(registryEntryId(addedBlankEntry), 0);
+                refreshModelsButton->click();
+                QCoreApplication::processEvents();
+                require(modelRegistryList->rowCount() == afterRemovePersisted.size(),
+                        "Refresh reloads the persisted model registry row count");
+                require(findRegistryEntryRowById(*registryEntries, registryEntryId(addedBlankEntry)) >= 0,
+                        "Refresh reload preserves the added blank model row");
+                require(matchingCount(*registryEntries, packagedBlankEntry) == initialBlankCount + 1,
+                        "Refresh reload preserves the extra blank-model row");
+
+                selectRegistryRow(registryEntryId(addedBlankEntry), 0);
+                updateModelWorkspaceDetails();
+                const QJsonObject reloadedBlankEntry = currentRowEntry();
+                require(registryEntryId(reloadedBlankEntry) == registryEntryId(addedBlankEntry),
+                        "Refresh re-selects the added blank model row");
+                require(modelStateValue->text() == "Untrained", "Reloaded blank starter detail status is Untrained");
+                require(entryIsBlockedFromLiveSorting(reloadedBlankEntry),
+                        "Reloaded blank starter row remains blocked from live sorting");
+                require(!setActiveButton->isEnabled(), "Reloaded blank starter row still disables Set Active");
+                verifySimpleListRow(registryEntryId(reloadedBlankEntry), "Reloaded blank starter row");
+
+                const QString renamedBlank =
+                    QString("Verifier renamed blank starter %1").arg(QCoreApplication::applicationPid());
+                const QString renameError = renameSelectedModel(renamedBlank, false);
+                require(renameError.isEmpty(), QString("Rename model succeeds for selected row: %1").arg(renameError));
+                const QJsonObject renamedEntry = currentRowEntry();
+                require(registryString(renamedEntry, "display_name") == renamedBlank,
+                        "Rename model updates the in-memory selected entry display name");
+                verifySimpleListRow(registryEntryId(renamedEntry), "Renamed blank starter row");
+                const QJsonArray afterRenamePersisted = persistedEntries();
+                const int renamedPersistedRow =
+                    findRegistryEntryRowById(afterRenamePersisted, registryEntryId(renamedEntry));
+                require(renamedPersistedRow >= 0, "Rename model preserves the selected registry row");
+                if (renamedPersistedRow >= 0) {
+                    const QJsonObject persistedRenamedEntry = afterRenamePersisted.at(renamedPersistedRow).toObject();
+                    require(registryString(persistedRenamedEntry, "display_name") == renamedBlank,
+                            "Rename model persists display_name to the registry");
+                    require(registryString(persistedRenamedEntry, "model_path") ==
+                                registryString(addedBlankEntry, "model_path"),
+                            "Rename model leaves model_path unchanged");
+                    require(registryString(persistedRenamedEntry, "metadata_path") ==
+                                registryString(addedBlankEntry, "metadata_path"),
+                            "Rename model leaves metadata_path unchanged");
+                }
+                const QString emptyRenameError = renameSelectedModel("   ", false);
+                require(emptyRenameError.contains("empty", Qt::CaseInsensitive),
+                        "Rename model rejects empty display names");
             }
 
-            selectRegistryRow(registryEntryId(addedPretrainedEntry), 0);
-            updateModelWorkspaceDetails();
-            require(removeModelButton->isEnabled(), "Remove model is enabled for an added non-active row");
-            const QString removeError = removeSelectedModel(false);
-            require(removeError.isEmpty(), QString("Remove model succeeds for added pre-trained row: %1").arg(removeError));
-            QCoreApplication::processEvents();
-            require(modelRegistryList->rowCount() == initialRowCount + 1, "Remove model decreases the visible model row count");
-            const QJsonArray afterRemovePersisted = persistedEntries();
-            require(findRegistryEntryRowById(afterRemovePersisted, registryEntryId(addedPretrainedEntry)) < 0,
-                    "Remove model persists deletion of the selected added row");
-            require(matchingCount(afterRemovePersisted, packagedPretrainedEntry) == initialPretrainedCount,
-                    "Remove model restores the packaged pre-trained asset count after deletion");
-
-            selectRegistryRow(registryEntryId(addedBlankEntry), 0);
-            refreshModelsButton->click();
-            QCoreApplication::processEvents();
-            require(modelRegistryList->rowCount() == afterRemovePersisted.size(),
-                    "Refresh reloads the persisted model registry row count");
-            require(findRegistryEntryRowById(*registryEntries, registryEntryId(addedBlankEntry)) >= 0,
-                    "Refresh reload preserves the added blank model row");
-            require(matchingCount(*registryEntries, packagedBlankEntry) == initialBlankCount + 1,
-                    "Refresh reload preserves the extra blank-model row");
-
-            selectRegistryRow(registryEntryId(addedBlankEntry), 0);
-            updateModelWorkspaceDetails();
-            const QJsonObject reloadedBlankEntry = currentRowEntry();
-            require(registryEntryId(reloadedBlankEntry) == registryEntryId(addedBlankEntry),
-                    "Refresh re-selects the added blank model row");
-            require(entryIsBlockedFromLiveSorting(reloadedBlankEntry),
-                    "Reloaded blank starter row remains blocked from live sorting");
-            require(!setActiveButton->isEnabled(),
-                    "Reloaded blank starter row still disables Set Active");
-            verifySimpleListRow(registryEntryId(reloadedBlankEntry), "Reloaded blank starter row");
-
-            const QString renamedBlank = QString("Verifier renamed blank starter %1").arg(QCoreApplication::applicationPid());
-            const QString renameError = renameSelectedModel(renamedBlank, false);
-            require(renameError.isEmpty(), QString("Rename model succeeds for selected row: %1").arg(renameError));
-            const QJsonObject renamedEntry = currentRowEntry();
-            require(registryString(renamedEntry, "display_name") == renamedBlank,
-                    "Rename model updates the in-memory selected entry display name");
-            verifySimpleListRow(registryEntryId(renamedEntry), "Renamed blank starter row");
-            const QJsonArray afterRenamePersisted = persistedEntries();
-            const int renamedPersistedRow = findRegistryEntryRowById(afterRenamePersisted, registryEntryId(renamedEntry));
-            require(renamedPersistedRow >= 0, "Rename model preserves the selected registry row");
-            if (renamedPersistedRow >= 0) {
-                const QJsonObject persistedRenamedEntry = afterRenamePersisted.at(renamedPersistedRow).toObject();
-                require(registryString(persistedRenamedEntry, "display_name") == renamedBlank,
-                        "Rename model persists display_name to the registry");
-                require(registryString(persistedRenamedEntry, "model_path") == registryString(addedBlankEntry, "model_path"),
-                        "Rename model leaves model_path unchanged");
-                require(registryString(persistedRenamedEntry, "metadata_path") ==
-                            registryString(addedBlankEntry, "metadata_path"),
-                        "Rename model leaves metadata_path unchanged");
-            }
-            const QString emptyRenameError = renameSelectedModel("   ", false);
-            require(emptyRenameError.contains("empty", Qt::CaseInsensitive),
-                    "Rename model rejects empty display names");
+            if (verifyActiveSimplification)
+                verifyActiveModelSimplificationCases();
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
             if (failures.isEmpty()) {
-                qInfo().noquote() << "Model workspace list-management verifier passed.";
+                qInfo().noquote() << "Model workspace verifier passed.";
             } else {
-                qWarning().noquote() << "Model workspace list-management verifier failed:" << failures.join("; ");
+                qWarning().noquote() << "Model workspace verifier failed:" << failures.join("; ");
             }
             QCoreApplication::exit(exitCode);
         });
     }
 
-    modelWorkspaceLayout->addWidget(modelWorkspaceRegistryPanel, 0);
-    modelWorkspaceLayout->addWidget(modelDetailScroll, 1);
+    auto* modelWorkspaceSplitter = new QSplitter(Qt::Horizontal);
+    nameWidget(modelWorkspaceSplitter, "ModelWorkspaceSplitter");
+    modelWorkspaceSplitter->addWidget(modelWorkspaceRegistryPanel);
+    modelWorkspaceSplitter->addWidget(modelDetailScroll);
+    modelWorkspaceSplitter->setStretchFactor(0, 0);
+    modelWorkspaceSplitter->setStretchFactor(1, 1);
+    desktop_app::ui::configureWorkspaceSplitter(modelWorkspaceSplitter, "workspace/model/splitter", {360, 860},
+                                                {300, 520});
+    modelWorkspaceLayout->addWidget(modelWorkspaceSplitter, 1);
     modelWorkspacePage->setLayout(modelWorkspaceLayout);
     return modelWorkspacePage;
 }

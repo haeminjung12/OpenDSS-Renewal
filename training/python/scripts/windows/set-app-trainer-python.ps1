@@ -20,7 +20,7 @@ if (-not (Test-Path -LiteralPath $resolvedPython)) {
     exit 20
 }
 
-$settingsKey = "HKCU:\Software\Hamamatsu\OpenVisualDropletSorter\settings"
+$settingsKey = "HKCU:\Software\Hamamatsu\OpenDSS\settings"
 if (-not (Test-Path -LiteralPath $settingsKey)) {
     New-Item -Path $settingsKey -Force | Out-Null
 }

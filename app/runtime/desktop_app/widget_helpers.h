@@ -1,10 +1,13 @@
 #pragma once
 
+#include <QList>
 #include <QString>
+#include <QtCore/Qt>
 
 class QLabel;
 class QFrame;
 class QPushButton;
+class QSplitter;
 class QVBoxLayout;
 class QWidget;
 
@@ -18,5 +21,12 @@ QPushButton* makeToolButton(const QString& text);
 QFrame* makeCollapsedGroup(const QString& title, QWidget* child);
 QWidget* makeWorkspacePlaceholder(const QString& title, const QString& body, const char* objectName);
 QLabel* makeMutedLabel(const QString& text);
+void configureWorkspaceSplitter(QSplitter* splitter,
+                                const QString& settingsKey,
+                                const QList<int>& defaultSizes,
+                                const QList<int>& minimumSectionSizes = {},
+                                Qt::Orientation orientation = Qt::Horizontal);
+bool restoreWorkspaceSplitterState(QSplitter* splitter);
+void saveWorkspaceSplitterState(QSplitter* splitter);
 
 } // namespace desktop_app::ui

@@ -76,9 +76,16 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
     cfg_ = cfg;
     ready_ = false;
     triggerReady_ = false;
+    trigger_.shutdown();
     frameCounter_ = 0;
     resolvedTargetClassId_.clear();
     resolvedTargetDisplayLabel_.clear();
+
+    detector_ = std::make_unique<FastEventDetector>(cfg_.detect);
+    if (cfg_.detectorOnly) {
+        ready_ = true;
+        return true;
+    }
 
     if (!LoadMetadata(cfg_.metadataPath, meta_, err)) {
         return false;
@@ -90,16 +97,23 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
     cfg_.targetClassId = resolvedTargetClassId_;
     cfg_.targetLabel = resolvedTargetDisplayLabel_;
 
-    if (!classifier_.init(cfg_.onnxPath, meta_, cfg_.useCuda, err)) {
+    const std::string requestedDevice = cfg_.computeDevice.empty()
+                                            ? (cfg_.useCuda ? std::string("cuda") : std::string("auto"))
+                                            : cfg_.computeDevice;
+    std::string classifierWarning;
+    if (!classifier_.init(cfg_.onnxPath, meta_, requestedDevice, classifierWarning)) {
+        err = classifierWarning;
         return false;
     }
-
-    detector_ = std::make_unique<FastEventDetector>(cfg_.detect);
+    if (!classifierWarning.empty())
+        err = classifierWarning;
 
     if (!cfg_.daq.channel.empty()) {
         std::string trigErr;
         if (!trigger_.init(cfg_.daq, trigErr)) {
-            err = "DAQ init disabled: " + trigErr;
+            if (!err.empty())
+                err += "; ";
+            err += "DAQ init disabled: " + trigErr;
         } else {
             triggerReady_ = true;
         }
@@ -114,6 +128,17 @@ void PipelineRunner::reset() {
         detector_->reset();
     }
     frameCounter_ = 0;
+}
+
+void PipelineRunner::clear() {
+    trigger_.shutdown();
+    cfg_ = PipelineConfig{};
+    detector_.reset();
+    ready_ = false;
+    triggerReady_ = false;
+    frameCounter_ = 0;
+    resolvedTargetClassId_.clear();
+    resolvedTargetDisplayLabel_.clear();
 }
 
 bool PipelineRunner::isReady() const {
@@ -155,6 +180,10 @@ std::string PipelineRunner::targetDisplayText() const {
     return FormatClassForDisplay(resolvedTargetClassId_, resolvedTargetDisplayLabel_);
 }
 
+std::string PipelineRunner::executionProvider() const {
+    return classifier_.executionProvider();
+}
+
 bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
     out = PipelineEvent{};
     if (!ready_ || !detector_)
@@ -185,6 +214,10 @@ bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
     out.area = det.area;
     out.bbox = det.bbox;
     out.centroid = det.centroid;
+
+    if (cfg_.detectorOnly) {
+        return true;
+    }
 
     if (!det.fired)
         return true;

@@ -251,7 +251,7 @@ def _scan_manifest_mode(dataset_root: Path, manifest_path: Path, schema: ClassSc
             label = str(raw.get("review_label", raw.get("reviewed_label", raw.get("label", ""))))
             class_id = str(raw.get("class_id", "")) if raw.get("class_id") is not None else builder_label_map.get(label)
         else:
-            label = str(raw.get("label", raw.get("class_id", "")))
+            label = str(raw.get("review_label", raw.get("reviewed_label", raw.get("label", raw.get("class_id", "")))))
             class_id = ""
         status = str(raw.get("status", "included"))
         source_path = _item_image_path(raw, dataset_root)

@@ -1,7 +1,7 @@
 param(
     [string]$SourceRoot = (Resolve-Path "$PSScriptRoot\..").Path,
     [string]$BuildDir = "",
-    [string]$AcceptedBuildDirName = "build-internal-release-wave61",
+    [string]$AcceptedBuildDirName = "build-opendss-internal-release",
     [string]$Config = "Release",
     [string]$QtDir = "C:\Qt\6.10.1\msvc2022_64",
     [string]$OnnxDir = "C:\onnxruntime-gpu",
@@ -88,7 +88,7 @@ if ($OutputDir.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCas
     throw "OutputDir must be outside the clean release repo. Got: $OutputDir"
 }
 
-$exeName = "OpenVisualDropletSorter.exe"
+$exeName = "OpenDSS.exe"
 $exePath = Join-Path $BuildDir ("desktop_app\" + $Config + "\" + $exeName)
 if (-not (Test-Path $exePath)) {
     throw "Executable not found: $exePath"
@@ -151,7 +151,7 @@ if (-not (Test-Path -LiteralPath $onnxRuntimeDll)) {
 }
 
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
-$packageDir = Join-Path $OutputDir ("OpenVisualDropletSorterSuite_" + $stamp)
+$packageDir = Join-Path $OutputDir ("OpenDSS_" + $stamp)
 New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
 Copy-Item -Path $exePath -Destination $packageDir -Force

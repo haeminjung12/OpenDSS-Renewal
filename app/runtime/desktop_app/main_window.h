@@ -11,6 +11,8 @@ class QString;
 
 struct AppContext;
 
+int runTrainerSetupStatusVerifierAppOwned();
+
 namespace desktop_app {
 struct AppState;
 }

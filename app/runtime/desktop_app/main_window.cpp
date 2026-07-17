@@ -55,6 +55,8 @@
 #include "app_context.h"
 #include "app_types.h"
 #include "app_utils.h"
+#include "collection_postprocessor.h"
+#include "live_data_collection_writer.h"
 #include "live_log_writer.h"
 #include "model_registry_service.h"
 #include "sequence_summary_writer.h"
@@ -141,6 +143,43 @@ class WheelEventForwarder : public QObject {
     QWidget* target_ = nullptr;
 };
 
+struct CollectionSaveDialogUi {
+    QDialog* dialog = nullptr;
+    QLineEdit* nameEdit = nullptr;
+    QCheckBox* createMetadataCheck = nullptr;
+};
+
+CollectionSaveDialogUi buildCollectionSaveDialog(QWidget* parent, const QString& defaultName) {
+    CollectionSaveDialogUi ui;
+    ui.dialog = new QDialog(parent);
+    ui.dialog->setWindowTitle("Save Dataset As");
+    nameWidget(ui.dialog, "SaveDatasetAsDialog");
+
+    auto* layout = new QVBoxLayout(ui.dialog);
+    auto* prompt = new QLabel("Choose a name for the saved collection and optional training dataset.");
+    prompt->setWordWrap(true);
+    layout->addWidget(prompt);
+
+    auto* form = new QFormLayout;
+    ui.nameEdit = new QLineEdit(defaultName);
+    nameWidget(ui.nameEdit, "CollectionNameEdit");
+    form->addRow("Name", ui.nameEdit);
+    layout->addLayout(form);
+
+    ui.createMetadataCheck = new QCheckBox("Create Metadata for Training");
+    ui.createMetadataCheck->setChecked(true);
+    nameWidget(ui.createMetadataCheck, "CreateTrainingMetadataCheckBox");
+    layout->addWidget(ui.createMetadataCheck);
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    nameWidget(buttons, "SaveDatasetAsButtons");
+    QObject::connect(buttons, &QDialogButtonBox::accepted, ui.dialog, &QDialog::accept);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, ui.dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    return ui;
+}
+
 constexpr int kRuntimeSettingsSchemaVersion = 1;
 constexpr const char* kRuntimeSettingsSchemaVersionKey = "runtime/v1/schemaVersion";
 
@@ -149,7 +188,152 @@ struct TrainerCompletionArtifacts {
     QString runDir;
     QString modelOnnxPath;
     QString metadataJsonPath;
+    QString metricsCsvPath;
+    QString metricsJsonPath;
+    QString trainingConfigJsonPath;
+    QString classMetricsCsvPath;
+    QString confusionMatrixCsvPath;
 };
+
+QString localAppDataRootForTrainer() {
+    QString root = qEnvironmentVariable("LOCALAPPDATA").trimmed();
+    if (!root.isEmpty())
+        return QFileInfo(root).absoluteFilePath();
+#ifdef _WIN32
+    const QString home = QDir::homePath();
+    if (!home.isEmpty())
+        return QFileInfo(QDir(home).filePath("AppData/Local")).absoluteFilePath();
+#endif
+    return QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+}
+
+QString documentedTrainerPythonExecutable(const QString& venvName) {
+    const QString root = localAppDataRootForTrainer();
+    if (root.isEmpty())
+        return QStringLiteral("python");
+    return QDir(root).absoluteFilePath(QStringLiteral("OpenDSS/%1/Scripts/python.exe").arg(venvName));
+}
+
+bool sameCleanPath(const QString& left, const QString& right) {
+    return QDir::cleanPath(QFileInfo(left).absoluteFilePath())
+               .compare(QDir::cleanPath(QFileInfo(right).absoluteFilePath()), Qt::CaseInsensitive) == 0;
+}
+
+QString resolvedTrainerPythonExecutable(const QString& savedValue, const QString& computeDevice) {
+    const QString saved = savedValue.trimmed();
+    const QString cpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv"));
+    const QString gpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv-gpu"));
+    const bool cpuExists = QFileInfo(cpuPython).isFile();
+    const bool gpuExists = QFileInfo(gpuPython).isFile();
+    const QString normalizedDevice = computeDevice.trimmed().toLower();
+    const QString preferred = normalizedDevice == QLatin1String("cuda") && gpuExists ? gpuPython : cpuPython;
+
+    if (saved.isEmpty() || saved.compare(QStringLiteral("python"), Qt::CaseInsensitive) == 0)
+        return preferred;
+    if (sameCleanPath(saved, gpuPython) && normalizedDevice != QLatin1String("cuda") && cpuExists)
+        return cpuPython;
+    if (QFileInfo(saved).isFile())
+        return saved;
+    if (normalizedDevice == QLatin1String("cuda") && gpuExists)
+        return gpuPython;
+    // Old installs may still point at the previous local-app-data trainer path.
+    if (cpuExists || saved.contains(QStringLiteral("OpenVisualDropletSorter"), Qt::CaseInsensitive))
+        return cpuPython;
+    return saved;
+}
+
+QString modelsRootForSaveModelUi() {
+    const QString overridePath = qEnvironmentVariable("OVDS_MODELS_ROOT_PATH").trimmed();
+    if (!overridePath.isEmpty())
+        return QFileInfo(overridePath).absoluteFilePath();
+    return defaultOpenDssModelsPath();
+}
+
+QString trainedModelFolderNameForUi(const QString& modelName) {
+    QString folder;
+    folder.reserve(modelName.size());
+    for (const QChar ch : modelName.trimmed()) {
+        if (ch.isLetterOrNumber() || ch == ' ' || ch == '_' || ch == '-') {
+            folder.append(ch);
+        } else if (!folder.endsWith('_')) {
+            folder.append('_');
+        }
+    }
+    while (folder.startsWith('.') || folder.startsWith(' ') || folder.startsWith('_'))
+        folder.remove(0, 1);
+    while (folder.endsWith('.') || folder.endsWith(' ') || folder.endsWith('_'))
+        folder.chop(1);
+    return folder.isEmpty() ? QString("trained_model") : folder;
+}
+
+QString promptForTrainedModelName(QWidget* parent, const QString& defaultName) {
+    const QString verifierName = qEnvironmentVariable("OVDS_VERIFY_SAVE_MODEL_AS_NAME").trimmed();
+    if (!verifierName.isEmpty())
+        return verifierName;
+
+    QDialog dialog(parent);
+    dialog.setWindowTitle("Save Model As");
+    nameWidget(&dialog, "SaveModelAsDialog");
+
+    auto* layout = new QVBoxLayout(&dialog);
+    auto* prompt = new QLabel("Choose the name for the trained model in your OpenDSS model workspace.");
+    prompt->setWordWrap(true);
+    layout->addWidget(prompt);
+
+    auto* form = new QFormLayout;
+    auto* nameEdit = new QLineEdit(defaultName);
+    nameWidget(nameEdit, "SaveModelNameEdit");
+    form->addRow("Model name", nameEdit);
+    layout->addLayout(form);
+
+    auto* folderLabel = new QLabel;
+    folderLabel->setProperty("mutedText", true);
+    folderLabel->setWordWrap(true);
+    nameWidget(folderLabel, "SaveModelFolderPreviewLabel");
+    layout->addWidget(folderLabel);
+
+    const QString modelsRoot = modelsRootForSaveModelUi();
+    auto updateFolderPreview = [nameEdit, folderLabel, modelsRoot]() {
+        const QString folderName = trainedModelFolderNameForUi(nameEdit->text());
+        folderLabel->setText("Folder: " + QDir::toNativeSeparators(QDir(modelsRoot).filePath(folderName)));
+    };
+    QObject::connect(nameEdit, &QLineEdit::textChanged, &dialog, updateFolderPreview);
+    updateFolderPreview();
+
+    auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
+    nameWidget(buttons, "SaveModelAsButtons");
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+    QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, [&]() {
+        const QString modelName = nameEdit->text().trimmed();
+        if (modelName.isEmpty()) {
+            QMessageBox::warning(&dialog, "Save Model As", "Model name cannot be empty.");
+            return;
+        }
+        const QString destination = QDir(modelsRoot).filePath(trainedModelFolderNameForUi(modelName));
+        if (QFileInfo::exists(destination)) {
+            QMessageBox::warning(&dialog, "Save Model As",
+                                 "A model folder already exists for this name. Choose a different model name.");
+            return;
+        }
+        dialog.accept();
+    });
+    layout->addWidget(buttons);
+
+    if (dialog.exec() != QDialog::Accepted)
+        return {};
+    return nameEdit->text().trimmed();
+}
+
+bool promptUseTrainedModelForSortingNow(QWidget* parent) {
+    const QString verifierAnswer = qEnvironmentVariable("OVDS_VERIFY_USE_TRAINED_MODEL_NOW").trimmed().toLower();
+    if (verifierAnswer == "1" || verifierAnswer == "true" || verifierAnswer == "yes")
+        return true;
+    if (verifierAnswer == "0" || verifierAnswer == "false" || verifierAnswer == "no")
+        return false;
+
+    return QMessageBox::question(parent, "Use trained model", "Use this model for sorting now?",
+                                 QMessageBox::Yes | QMessageBox::No, QMessageBox::Yes) == QMessageBox::Yes;
+}
 
 QString artifactPathFromRunDir(const QString& path, const QString& runDir) {
     const QString trimmed = path.trimmed();
@@ -178,11 +362,24 @@ TrainerCompletionArtifacts parseSuccessfulTrainingArtifactsJsonl(const QString& 
         const QJsonObject artifacts = event.value("artifacts").toObject();
         const QString modelPath = artifactPathFromRunDir(artifacts.value("model_onnx").toString(), runDir);
         const QString metadataPath = artifactPathFromRunDir(artifacts.value("metadata_json").toString(), runDir);
+        const QString metricsPath = artifactPathFromRunDir(artifacts.value("metrics_csv").toString(), runDir);
+        const QString metricsJsonPath = artifactPathFromRunDir(artifacts.value("metrics_json").toString(), runDir);
+        const QString trainingConfigPath =
+            artifactPathFromRunDir(artifacts.value("training_config_json").toString(), runDir);
+        const QString classMetricsPath =
+            artifactPathFromRunDir(artifacts.value("class_metrics_csv").toString(), runDir);
+        const QString confusionMatrixPath =
+            artifactPathFromRunDir(artifacts.value("confusion_matrix_csv").toString(), runDir);
         if (!runDir.isEmpty() && !modelPath.isEmpty() && !metadataPath.isEmpty()) {
             result.complete = true;
             result.runDir = runDir;
             result.modelOnnxPath = modelPath;
             result.metadataJsonPath = metadataPath;
+            result.metricsCsvPath = metricsPath;
+            result.metricsJsonPath = metricsJsonPath;
+            result.trainingConfigJsonPath = trainingConfigPath;
+            result.classMetricsCsvPath = classMetricsPath;
+            result.confusionMatrixCsvPath = confusionMatrixPath;
         }
     }
     return result;
@@ -208,6 +405,9 @@ QJsonObject registryEntryByIdForVerifier(const QJsonArray& entries, const QStrin
 void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
                                                DatasetWorkspaceController* datasetController,
                                                QComboBox* trainerStartingModelCombo,
+                                               QComboBox* liveModelCombo,
+                                               const std::function<void(const QString&)>& refreshLiveModelsFromRegistry,
+                                               desktop_app::AppState* appState,
                                                const QString& registryFilePath) {
     QStringList failures;
     auto require = [&](bool condition, const QString& message) {
@@ -225,7 +425,13 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     require(tempDir.isValid(), "Verifier temp run directory is available");
     const QString runDir = tempDir.path();
     const QString modelPath = QDir(runDir).filePath("model.onnx");
+    const QString modelSidecarPath = QDir(runDir).filePath("model.onnx.data");
     const QString metadataPath = QDir(runDir).filePath("metadata.json");
+    const QString metricsPath = QDir(runDir).filePath("metrics.csv");
+    const QString metricsJsonPath = QDir(runDir).filePath("metrics.json");
+    const QString trainingConfigPath = QDir(runDir).filePath("training_config.json");
+    const QString classMetricsPath = QDir(runDir).filePath("class_metrics.csv");
+    const QString confusionMatrixPath = QDir(runDir).filePath("confusion_matrix.csv");
 
     QFile modelFile(modelPath);
     require(modelFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "Verifier can write synthetic ONNX artifact");
@@ -233,22 +439,29 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
         modelFile.write("synthetic verifier model");
         modelFile.close();
     }
+    QFile sidecarFile(modelSidecarPath);
+    require(sidecarFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "Verifier can write synthetic ONNX external-data sidecar");
+    if (sidecarFile.isOpen()) {
+        sidecarFile.write("synthetic verifier external data");
+        sidecarFile.close();
+    }
 
     QJsonObject labels;
     labels["0"] = "Non-target";
     labels["1"] = "Target";
+    labels["2"] = "Other";
     QJsonObject targetPolicy;
     targetPolicy["mode"] = "trigger_on_target_class";
     targetPolicy["target_class_id"] = "1";
     targetPolicy["target_display_label"] = "Target";
-    targetPolicy["waste_class_id"] = "0";
-    targetPolicy["waste_display_label"] = "Non-target";
+    targetPolicy["non_target_class_ids"] = QJsonArray{"0", "2"};
     targetPolicy["trigger_rule"] = "trigger_on_target_class";
     QJsonObject architecture;
     architecture["family"] = "SqueezeNet";
     architecture["variant"] = "1_1";
     QJsonObject imageValidation;
-    imageValidation["status"] = "internal_test_split";
+    imageValidation["status"] = "training_evaluation";
     imageValidation["accuracy"] = 0.95;
     imageValidation["macro_f1"] = 0.94;
     QJsonObject sequenceValidation;
@@ -263,10 +476,11 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     metadata["model_id"] = modelId;
     metadata["model_name"] = "Trainer registration verifier model";
     metadata["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-    metadata["classes"] = QJsonArray{"0", "1"};
-    metadata["class_ids"] = QJsonArray{"0", "1"};
+    metadata["class_count"] = 3;
+    metadata["classes"] = QJsonArray{"0", "1", "2"};
+    metadata["class_ids"] = QJsonArray{"0", "1", "2"};
     metadata["display_labels"] = labels;
-    metadata["label_schema_version"] = "droplet-labels-target-nontarget-binary-v1";
+    metadata["label_schema_version"] = "droplet-labels-target-nontarget-3class-v1";
     metadata["sorting_policy"] = targetPolicy;
     metadata["architecture"] = architecture;
     metadata["training_config"] = QJsonObject{{"architecture", "squeezenet1_1"}, {"pretrained", true}};
@@ -280,59 +494,191 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
         metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
         metadataFile.close();
     }
+    QFile metricsFile(metricsPath);
+    require(metricsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Verifier can write synthetic metrics artifact");
+    if (metricsFile.isOpen()) {
+        metricsFile.write("stage,epoch,val_accuracy,val_macro_f1\nverify,1,0.95,0.94\n");
+        metricsFile.close();
+    }
+    QFile metricsJsonFile(metricsJsonPath);
+    require(metricsJsonFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Verifier can write synthetic metrics JSON artifact");
+    if (metricsJsonFile.isOpen()) {
+        metricsJsonFile.write(QJsonDocument(QJsonObject{{"schema_version", 1}}).toJson(QJsonDocument::Indented));
+        metricsJsonFile.close();
+    }
+    QFile trainingConfigFile(trainingConfigPath);
+    require(trainingConfigFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Verifier can write synthetic training config artifact");
+    if (trainingConfigFile.isOpen()) {
+        trainingConfigFile.write(QJsonDocument(QJsonObject{{"architecture", "squeezenet1_1"}}).toJson(QJsonDocument::Indented));
+        trainingConfigFile.close();
+    }
+    QFile classMetricsFile(classMetricsPath);
+    require(classMetricsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Verifier can write synthetic class metrics artifact");
+    if (classMetricsFile.isOpen()) {
+        classMetricsFile.write("class,precision,recall,f1,support\n0,1,1,1,1\n1,1,1,1,1\n2,1,1,1,1\n");
+        classMetricsFile.close();
+    }
+    QFile confusionMatrixFile(confusionMatrixPath);
+    require(confusionMatrixFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
+            "Verifier can write synthetic confusion matrix artifact");
+    if (confusionMatrixFile.isOpen()) {
+        confusionMatrixFile.write("true_label,0,1,2\n0,1,0,0\n1,0,1,0\n2,0,0,1\n");
+        confusionMatrixFile.close();
+    }
 
     const QJsonObject beforeRegistry = loadRegistryObjectForVerifier(registryFilePath);
     const int beforeCount = beforeRegistry.value("entries").toArray().size();
     const QString successfulJsonl =
         QString("{\"event\":\"run_finished\",\"status\":\"ok\",\"run_dir\":\"%1\",\"artifacts\":"
-                "{\"model_onnx\":\"%2\",\"metadata_json\":\"%3\"}}\n")
-            .arg(runDir, modelPath, metadataPath);
+                "{\"model_onnx\":\"%2\",\"metadata_json\":\"%3\",\"metrics_csv\":\"%4\","
+                "\"training_config_json\":\"%5\",\"metrics_json\":\"%6\","
+                "\"class_metrics_csv\":\"%7\",\"confusion_matrix_csv\":\"%8\"}}\n")
+            .arg(runDir, modelPath, metadataPath, metricsPath, trainingConfigPath, metricsJsonPath, classMetricsPath,
+                 confusionMatrixPath);
     const TrainerCompletionArtifacts parsed = parseSuccessfulTrainingArtifactsJsonl(successfulJsonl);
     require(parsed.complete, "Successful run_finished JSONL is detected");
     require(QDir::cleanPath(parsed.modelOnnxPath) == QDir::cleanPath(modelPath),
             "Successful JSONL model_onnx path is captured");
     require(QDir::cleanPath(parsed.metadataJsonPath) == QDir::cleanPath(metadataPath),
             "Successful JSONL metadata_json path is captured");
+    require(QDir::cleanPath(parsed.metricsCsvPath) == QDir::cleanPath(metricsPath),
+            "Successful JSONL metrics_csv path is captured");
+    require(QDir::cleanPath(parsed.trainingConfigJsonPath) == QDir::cleanPath(trainingConfigPath),
+            "Successful JSONL training_config_json path is captured");
+    require(QDir::cleanPath(parsed.metricsJsonPath) == QDir::cleanPath(metricsJsonPath),
+            "Successful JSONL metrics_json path is captured");
+    require(QDir::cleanPath(parsed.classMetricsCsvPath) == QDir::cleanPath(classMetricsPath),
+            "Successful JSONL class_metrics_csv path is captured");
+    require(QDir::cleanPath(parsed.confusionMatrixCsvPath) == QDir::cleanPath(confusionMatrixPath),
+            "Successful JSONL confusion_matrix_csv path is captured");
     require(!parseSuccessfulTrainingArtifactsJsonl(
                  "{\"event\":\"run_finished\",\"status\":\"failed\",\"artifacts\":{\"model_onnx\":\"x\"}}\n")
                  .complete,
             "Failed run_finished JSONL is ignored");
 
+    auto* refreshButton = modelWorkspacePage ? modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")
+                                             : nullptr;
+    require(refreshButton != nullptr, "Model workspace refresh button exists");
+    auto* modelTable = modelWorkspacePage ? modelWorkspacePage->findChild<QTableWidget*>("ModelWorkspaceRegistryTable")
+                                          : nullptr;
+    require(modelTable != nullptr, "Model workspace registry table exists");
+
+    const QString modelRootPath = QDir(runDir).filePath("models");
+    qputenv("OVDS_MODELS_ROOT_PATH", QFileInfo(modelRootPath).absoluteFilePath().toUtf8());
+    const QString savedName = QString("Auto saved trained model %1").arg(QCoreApplication::applicationPid());
+    qputenv("OVDS_VERIFY_SAVE_MODEL_AS_NAME", savedName.toUtf8());
+    const QString promptedName = promptForTrainedModelName(modelWorkspacePage, "Ignored default");
+    require(promptedName == savedName, "Save Model As verifier name is used for saved trained model");
+
     QString entryId;
-    QString error;
-    if (parsed.complete) {
-        require(registerTrainedModelArtifacts(registryFilePath, parsed.runDir, parsed.modelOnnxPath,
-                                              parsed.metadataJsonPath, &entryId, &error),
-                QString("Trained artifacts register in model registry: %1").arg(error));
-    }
+    QString saveError;
+    require(saveTrainedModelArtifacts(registryFilePath, parsed.runDir, parsed.modelOnnxPath, parsed.metadataJsonPath,
+                                      parsed.metricsCsvPath, parsed.trainingConfigJsonPath, parsed.metricsJsonPath,
+                                      parsed.classMetricsCsvPath, parsed.confusionMatrixCsvPath, promptedName, &entryId,
+                                      &saveError),
+            QString("Training artifacts save into user-ready model folder: %1").arg(saveError));
+    const QString savedFolderPath = QDir(modelRootPath).filePath(trainedModelFolderNameForUi(savedName));
+    const QDir savedFolder(savedFolderPath);
+    require(QFileInfo(savedFolder.filePath("model.onnx")).isFile(), "Saved folder contains model.onnx");
+    require(QFileInfo(savedFolder.filePath("model.onnx.data")).isFile(),
+            "Saved folder contains ONNX external-data sidecar");
+    require(QFileInfo(savedFolder.filePath("metadata.json")).isFile(), "Saved folder contains metadata.json");
+    require(QFileInfo(savedFolder.filePath("metrics.csv")).isFile(), "Saved folder contains metrics.csv");
+    require(QFileInfo(savedFolder.filePath("metrics.json")).isFile(), "Saved folder contains metrics.json");
+    require(QFileInfo(savedFolder.filePath("class_metrics.csv")).isFile(),
+            "Saved folder contains class_metrics.csv");
+    require(QFileInfo(savedFolder.filePath("confusion_matrix.csv")).isFile(),
+            "Saved folder contains confusion_matrix.csv");
+    require(QFileInfo(savedFolder.filePath("training_config.json")).isFile(),
+            "Saved folder contains training_config.json");
+
+    const QJsonObject savedMetadata = loadRegistryObjectForVerifier(savedFolder.filePath("metadata.json"));
+    const QJsonObject savedArtifact = savedMetadata.value("artifact").toObject();
+    require(savedArtifact.value("onnx_sha256").toString().size() == 64,
+            "Saved metadata repairs missing artifact.onnx_sha256");
+    require(!savedArtifact.value("external_data_files").toArray().isEmpty(),
+            "Saved metadata records copied ONNX external-data sidecar");
 
     const QJsonObject afterRegistry = loadRegistryObjectForVerifier(registryFilePath);
     const QJsonArray afterEntries = afterRegistry.value("entries").toArray();
     const QJsonObject entry = registryEntryByIdForVerifier(afterEntries, entryId);
-    require(afterEntries.size() == beforeCount + 1, "Registry row count increases for new trained run");
-    require(!entry.isEmpty(), "Registered trained model entry exists");
-    require(QDir::cleanPath(registryString(entry, "model_path")) == QDir::cleanPath(modelPath),
-            "Registered entry points to generated ONNX");
-    require(QDir::cleanPath(registryString(entry, "metadata_path")) == QDir::cleanPath(metadataPath),
-            "Registered entry points to generated metadata");
+    require(afterEntries.size() == beforeCount + 1, "Registry row count increases for saved trained model");
+    require(!entry.isEmpty(), "Saved trained model registry entry exists");
+    require(registryString(entry, "model_status") == "Trained", "Registry entry status is Trained");
+    require(registryString(entry, "promotion_status") == "Trained", "Registry compatibility status is Trained");
+    require(!entry.value("selectable_for_normal_live_sorting").toBool(false),
+            "Saved trained model is not active before use-now confirmation");
+    require(QDir::cleanPath(registryString(entry, "model_path")) ==
+                QDir::cleanPath(savedFolder.filePath("model.onnx")),
+            "Registry entry points to saved ONNX");
+    require(QDir::cleanPath(registryString(entry, "metadata_path")) ==
+                QDir::cleanPath(savedFolder.filePath("metadata.json")),
+            "Registry entry points to saved metadata");
 
-    auto* refreshButton = modelWorkspacePage ? modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")
-                                             : nullptr;
-    require(refreshButton != nullptr, "Model workspace refresh button exists");
     if (refreshButton) {
         refreshButton->click();
         QCoreApplication::processEvents();
     }
-    auto* modelTable = modelWorkspacePage ? modelWorkspacePage->findChild<QTableWidget*>("ModelWorkspaceRegistryTable")
-                                          : nullptr;
-    require(modelTable != nullptr, "Model workspace registry table exists");
-    require(modelTable && modelTable->rowCount() == afterEntries.size(),
-            "Model workspace refresh reloads the registry row count");
+    bool promotedVisible = false;
+    if (modelTable) {
+        for (int row = 0; row < modelTable->rowCount(); ++row) {
+            auto* item = modelTable->item(row, 0);
+            if (item && item->text().contains(savedName, Qt::CaseInsensitive)) {
+                promotedVisible = true;
+                break;
+            }
+        }
+    }
+    require(promotedVisible, "Model workspace shows the saved trained model");
 
     if (datasetController)
         datasetController->refreshTrainerUi();
     require(trainerStartingModelCombo && trainerStartingModelCombo->findData(entryId) >= 0,
-            "Trainer starting-model list refreshes to include the trained result");
+            "Trainer starting-model list refreshes to include the saved trained model");
+
+    qputenv("OVDS_VERIFY_USE_TRAINED_MODEL_NOW", "no");
+    require(!promptUseTrainedModelForSortingNow(modelWorkspacePage),
+            "Use-now prompt supports deterministic no response");
+    const QJsonObject noPathEntry =
+        registryEntryByIdForVerifier(readModelRegistryEntriesFromPath(registryFilePath, nullptr), entryId);
+    require(!noPathEntry.value("selectable_for_normal_live_sorting").toBool(false),
+            "No response leaves the saved trained model inactive");
+
+    qputenv("OVDS_VERIFY_USE_TRAINED_MODEL_NOW", "yes");
+    require(promptUseTrainedModelForSortingNow(modelWorkspacePage),
+            "Use-now prompt supports deterministic yes response");
+    QString activationError;
+    require(activateModelRegistryEntry(registryFilePath, entryId, &activationError),
+            QString("Saved trained model can be set active through registry activation path: %1").arg(activationError));
+    const QJsonArray activeEntries = readModelRegistryEntriesFromPath(registryFilePath, nullptr);
+    const QJsonObject activeEntry = registryEntryByIdForVerifier(activeEntries, entryId);
+    require(activeEntry.value("selectable_for_normal_live_sorting").toBool(false),
+            "Yes response marks the saved trained model active");
+    require(registryString(activeEntry, "state") == "promoted_current",
+            "Yes response updates registry active model state");
+    require(registryString(activeRegistryEntry(activeEntries), "registry_entry_id").compare(entryId, Qt::CaseInsensitive) == 0,
+            "Registry active model points to the saved trained model");
+    if (refreshLiveModelsFromRegistry)
+        refreshLiveModelsFromRegistry(entryId);
+    require(liveModelCombo != nullptr, "Live View model selector exists");
+    require(liveModelCombo && liveModelCombo->currentData(Qt::UserRole + 1).toString().compare(entryId, Qt::CaseInsensitive) == 0,
+            "Live View model selector refreshes to the active saved trained model");
+    require(appState && appState->activeModelId.compare(entryId, Qt::CaseInsensitive) == 0,
+            "Live View current active model state refreshes to the saved trained model");
+
+    QString collisionEntryId;
+    QString collisionError;
+    require(!saveTrainedModelArtifacts(registryFilePath, parsed.runDir, parsed.modelOnnxPath, parsed.metadataJsonPath,
+                                       parsed.metricsCsvPath, parsed.trainingConfigJsonPath, parsed.metricsJsonPath,
+                                       parsed.classMetricsCsvPath, parsed.confusionMatrixCsvPath, promptedName,
+                                       &collisionEntryId, &collisionError),
+            "Saved model folder name collisions are blocked");
+    require(collisionError.contains("already exists", Qt::CaseInsensitive),
+            "Collision block reports the existing model folder");
 
     const int exitCode = failures.isEmpty() ? 0 : 2;
     if (failures.isEmpty()) {
@@ -468,7 +814,7 @@ SequenceEventTracker liveEventTracker;
 
 MainWindow::MainWindow(const AppContext& context, QWidget* parent) : QMainWindow(parent), context_(context) {
     nameWidget(this, "MainWindow");
-    setWindowTitle("Open Visual Droplet Sorter Suite");
+    setWindowTitle("OpenDSS");
     setWindowIcon(QIcon(":/branding/opendss-icon-512.png"));
     installEventFilter(new MainWindowCloseFilter(this));
     resize(1280, 720);
@@ -479,6 +825,77 @@ const AppContext& MainWindow::appContext() const {
     return context_;
 }
 
+int runTrainerSetupStatusVerifierAppOwned() {
+    QSettings settings;
+    const QString previousPython = settings.value("settings/pythonTrainer").toString();
+    const QString previousComputeDevice = settings.value("settings/computeDevice", "auto").toString();
+    const QString previousValidatorDevice = settings.value("validator/device", previousComputeDevice).toString();
+
+    settings.setValue("settings/computeDevice", QStringLiteral("auto"));
+    settings.setValue("validator/device", QStringLiteral("auto"));
+
+    auto restoreSettings = [&]() {
+        settings.setValue("settings/pythonTrainer", previousPython);
+        settings.setValue("settings/computeDevice", previousComputeDevice);
+        settings.setValue("validator/device", previousValidatorDevice);
+        settings.sync();
+    };
+
+    const QString expectedPython = resolvedTrainerPythonExecutable(QString(), QStringLiteral("auto"));
+    settings.setValue("settings/pythonTrainer", expectedPython);
+    settings.sync();
+
+    const QString trainerPythonField = QDir::toNativeSeparators(expectedPython);
+    const QString settingsTrainerPythonField = trainerPythonField;
+    const QString trainerPythonStatus =
+        QFileInfo(expectedPython).isFile() ? "Found: " + QDir::toNativeSeparators(expectedPython)
+                                           : "Missing: " + QDir::toNativeSeparators(expectedPython);
+    const QString trainerHelperStatus = "Found: app-owned verifier uses packaged training/python status source";
+    const QString trainerDeviceStatus = "Auto";
+    const QString trainerPackagesStatus = "Run Check Python setup to inspect training and ONNX packages.";
+    const QString trainerEnvCheckStatus = "Env check: not run this session";
+
+    QStringList failures;
+    auto require = [&](bool condition, const QString& message) {
+        if (!condition) {
+            failures << message;
+            std::printf("TRAINER SETUP STATUS VERIFY FAIL: %s\n", message.toLocal8Bit().constData());
+            qCritical().noquote() << "TRAINER SETUP STATUS VERIFY FAIL:" << message;
+        } else {
+            std::printf("TRAINER SETUP STATUS VERIFY PASS: %s\n", message.toLocal8Bit().constData());
+            qInfo().noquote() << "TRAINER SETUP STATUS VERIFY PASS:" << message;
+        }
+    };
+
+    require(sameCleanPath(expectedPython, documentedTrainerPythonExecutable(QStringLiteral("training-venv"))),
+            "Default Trainer Python resolves to documented CPU venv");
+    require(sameCleanPath(trainerPythonField, expectedPython),
+            "Trainer Python field uses resolved documented path");
+    require(!settingsTrainerPythonField.trimmed().isEmpty(), "Settings Trainer Python field exists");
+    require(sameCleanPath(settingsTrainerPythonField, expectedPython),
+            "Settings Trainer Python field mirrors resolved path");
+    require(!trainerPythonStatus.trimmed().isEmpty(), "Python setup status label is populated");
+    require(!trainerHelperStatus.contains("Checked automatically", Qt::CaseInsensitive),
+            "Training helper status is not stale placeholder text");
+    require(!trainerDeviceStatus.contains("Checked automatically", Qt::CaseInsensitive),
+            "Compute device status is not stale placeholder text");
+    require(trainerPackagesStatus.contains("Check Python setup", Qt::CaseInsensitive),
+            "Package status tells user how to run env-check");
+    require(trainerEnvCheckStatus.contains("not run", Qt::CaseInsensitive),
+            "Env-check status reports not run");
+
+    restoreSettings();
+    const int exitCode = failures.isEmpty() ? 0 : 2;
+    if (failures.isEmpty()) {
+        std::printf("Trainer setup-status app-owned verifier passed.\n");
+        qInfo().noquote() << "Trainer setup-status app-owned verifier passed.";
+    } else {
+        std::printf("Trainer setup-status app-owned verifier failed: %s\n", failures.join("; ").toLocal8Bit().constData());
+        qWarning().noquote() << "Trainer setup-status app-owned verifier failed:" << failures.join("; ");
+    }
+    return exitCode;
+}
+
 int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettings, desktop_app::AppState& appState,
                                      const QJsonArray& registryEntries, const QString& registryFilePath,
                                      const QString& registryLoadWarning, QSplashScreen& splash,
@@ -486,11 +903,32 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     const AppOptions& options = context_.options;
     const bool verifyDatasetWorkspace =
         !qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_MANIFEST").trimmed().isEmpty();
+    const bool verifyDatasetWorkspaceMetadataOnly =
+        qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_METADATA_ONLY") == "1";
     const bool verifyTrainerLaunch = qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_LAUNCH") != 0;
+    const bool verifyTrainerSetupStatus =
+        qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_SETUP_STATUS") != 0 ||
+        QCoreApplication::arguments().contains(QStringLiteral("--verify-trainer-setup-status"));
     const bool verifyDefaultPaths = qEnvironmentVariableIntValue("OVDS_VERIFY_DEFAULT_PATHS") != 0;
+    const bool verifyComputeSettings = qEnvironmentVariableIntValue("OVDS_VERIFY_COMPUTE_SETTINGS") != 0;
+    const bool verifyCollectionMode = qEnvironmentVariableIntValue("OVDS_VERIFY_COLLECTION_MODE") != 0;
+    const bool verifyCollectionPostprocessor = qEnvironmentVariableIntValue("OVDS_VERIFY_COLLECTION_POSTPROCESSOR") != 0;
+    const bool verifyDatasetHandoff = qEnvironmentVariableIntValue("OVDS_VERIFY_DATASET_HANDOFF") != 0;
+    const bool verifyWorkspaceSplitters = qEnvironmentVariableIntValue("OVDS_VERIFY_WORKSPACE_SPLITTERS") != 0;
+    const bool verifyResetLayout = qEnvironmentVariableIntValue("OVDS_VERIFY_RESET_LAYOUT") != 0;
     const DefaultWorkspacePaths& defaultWorkspacePaths = context_.paths.defaultWorkspacePaths;
     const QString& logPath = context_.paths.sessionLogPath;
     const QString initialDaqStatusText = appState.daqStatusText;
+    if (verifyDatasetWorkspace && verifyDatasetWorkspaceMetadataOnly) {
+        desktop_app::workspace::DatasetWorkspaceControls datasetWorkspaceControls;
+        std::unique_ptr<QWidget> datasetWorkspace(
+            desktop_app::workspace::buildDatasetWorkspace(datasetWorkspaceControls));
+        app.processEvents();
+        const QVariant exitCode = qApp->property("ovdsDatasetWorkspaceVerifyExitCode");
+        if (exitCode.isValid())
+            return exitCode.toInt();
+        return 2;
+    }
 #ifdef HAVE_NIDAQMX
     constexpr bool kDaqBuildEnabled = true;
 #else
@@ -544,6 +982,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     // Buttons
     auto startBtn = new QPushButton("Start");
     auto pipelineStartBtn = new QPushButton("Start Sorting");
+    auto collectionToggleBtn = new QPushButton("Start Data Collection");
     auto pipelineStopBtn = new QPushButton("Stop Sorting");
     pipelineStopBtn->setEnabled(false);
     auto reconnectBtn = new QPushButton("Reconnect");
@@ -551,10 +990,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto viewerBtn = new QPushButton("Viewer");
     nameWidget(startBtn, "CameraStartButton");
     nameWidget(pipelineStartBtn, "PipelineStartButton");
+    nameWidget(collectionToggleBtn, "LiveDataCollectionButton");
     nameWidget(pipelineStopBtn, "PipelineStopButton");
     nameWidget(reconnectBtn, "CameraReconnectButton");
     nameWidget(applyBtn, "CameraApplySettingsButton");
     nameWidget(viewerBtn, "OpenViewerButton");
+    std::atomic<bool> collectionActive(false);
 
     auto addDisabledAction = [](QMenu* menu, const QString& text, const char* objectName,
                                 const QString& statusTip = QString()) {
@@ -616,16 +1057,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     addDisabledAction(trainingMenu, "Open Training Output", "TrainingOpenOutputAction",
                       "Trainer outputs are not wired in this shell step.");
 
-    auto validationMenu = this->menuBar()->addMenu("&Validation");
-    auto imageValidationAction = validationMenu->addAction("Image Validation");
-    imageValidationAction->setStatusTip("Open the Validation workspace for image-level model checks.");
+    auto validationMenu = this->menuBar()->addMenu("&Model Testing");
+    auto imageValidationAction = validationMenu->addAction("Test Model");
+    imageValidationAction->setStatusTip("Open the Model Testing workspace for image-level model checks.");
     auto sequenceValidationAction = addDisabledAction(
-        validationMenu, "Sequence Validation", "ValidationSequenceValidationAction",
-        "Runner-wrapped sequence validation is not available; artifact comparison remains internal/provisional.");
+        validationMenu, "Sequence Testing", "ValidationSequenceValidationAction",
+        "Runner-wrapped sequence testing is not available; artifact comparison remains internal/provisional.");
     addDisabledAction(validationMenu, "Compare Models", "ValidationCompareModelsAction",
                       "Model comparison is not wired in this shell step.");
-    addDisabledAction(validationMenu, "Export Validation Report", "ValidationExportReportAction",
-                      "Validation reports are not wired in this shell step.");
+    addDisabledAction(validationMenu, "Export Test Report", "ValidationExportReportAction",
+                      "Model testing reports are not wired in this shell step.");
 
     auto sortingMenu = this->menuBar()->addMenu("&Sorting");
     auto startSortingAction = sortingMenu->addAction("Start Sorting");
@@ -844,7 +1285,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     logCheck->setChecked(true);
 
     // Save controls
-    QString defaultSaveDir = defaultWorkspacePaths.root;
+    QString defaultSaveDir = defaultWorkspacePaths.collections.isEmpty() ? defaultWorkspacePaths.root
+                                                                         : defaultWorkspacePaths.collections;
     auto savePathEdit = new QLineEdit(defaultSaveDir);
     auto saveBrowseBtn = new QPushButton("...");
     auto saveOpenBtn = new QPushButton("Open Folder");
@@ -944,6 +1386,47 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto datasetCaptureStatusLabel = new QLabel("Image Set capture: idle");
     datasetCaptureStatusLabel->setWordWrap(true);
     auto loadPipelineBtn = new QPushButton("Load Pipeline");
+    auto computeDeviceCombo = new QComboBox;
+    auto normalizeComputeDevice = [](QString value) {
+        value = value.trimmed().toLower();
+        if (value == "gpu" || value == "cuda")
+            return QStringLiteral("cuda");
+        if (value == "cpu")
+            return QStringLiteral("cpu");
+        return QStringLiteral("auto");
+    };
+    auto selectedComputeDevice = [computeDeviceCombo, normalizeComputeDevice]() {
+        const QVariant data = computeDeviceCombo ? computeDeviceCombo->currentData() : QVariant();
+        if (data.isValid())
+            return normalizeComputeDevice(data.toString());
+        QSettings settings;
+        return normalizeComputeDevice(
+            settings.value("settings/computeDevice", settings.value("validator/device", "auto")).toString());
+    };
+    auto persistComputeDevice = [normalizeComputeDevice](const QString& value) {
+        QSettings settings;
+        const QString normalized = normalizeComputeDevice(value);
+        settings.setValue("settings/computeDevice", normalized);
+        settings.setValue("validator/device", normalized);
+        settings.sync();
+    };
+    {
+        QSettings settings;
+        persistComputeDevice(
+            settings.value("settings/computeDevice", settings.value("validator/device", "auto")).toString());
+    }
+    auto withComputeDeviceArg = [selectedComputeDevice](QStringList args) {
+        const int existing = args.indexOf("--device");
+        if (existing >= 0) {
+            if (existing + 1 < args.size())
+                args[existing + 1] = selectedComputeDevice();
+            else
+                args << selectedComputeDevice();
+        } else {
+            args << "--device" << selectedComputeDevice();
+        }
+        return args;
+    };
 
     auto frameSkipSpin = new QSpinBox;
     frameSkipSpin->setRange(0, 1000);
@@ -1206,7 +1689,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto seqWidget = new QWidget;
     seqWidget->setLayout(seqLayout);
 
-    auto trainerPythonEdit = new QLineEdit("python");
+    QSettings trainerPythonSettings;
+    const QString initialTrainerPython =
+        resolvedTrainerPythonExecutable(trainerPythonSettings.value("settings/pythonTrainer").toString(),
+                                        selectedComputeDevice());
+    trainerPythonSettings.setValue("settings/pythonTrainer", initialTrainerPython);
+    trainerPythonSettings.sync();
+    auto trainerPythonEdit = new QLineEdit(QDir::toNativeSeparators(initialTrainerPython));
     auto trainerPythonBrowseBtn = new QPushButton("Browse");
     auto trainerStartingModelCombo = new QComboBox;
     trainerStartingModelCombo->setMinimumContentsLength(24);
@@ -1220,7 +1709,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerStartingModelHintLabel->setProperty("mutedText", true);
     trainerStartingModelHintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     auto trainerDatasetEdit = new QLineEdit;
-    trainerDatasetEdit->setPlaceholderText("Choose the training image set file (.json)...");
+    trainerDatasetEdit->setPlaceholderText("Choose the training dataset file (.json)...");
     auto trainerDatasetBrowseBtn = new QPushButton("Browse");
     auto trainerOutputEdit = new QLineEdit;
     trainerOutputEdit->setPlaceholderText("Choose where to save the new trained model...");
@@ -1261,7 +1750,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerPathsLayout->addWidget(new QLabel("Training plan"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerTrainingModeCombo, trainerRow++, 1, 1, 3);
     trainerPathsLayout->addWidget(trainerStartingModelHintLabel, trainerRow++, 1, 1, 3);
-    trainerPathsLayout->addWidget(new QLabel("Training image set file"), trainerRow, 0);
+    trainerPathsLayout->addWidget(new QLabel("Training dataset file"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerDatasetEdit, trainerRow, 1, 1, 2);
     trainerPathsLayout->addWidget(trainerDatasetBrowseBtn, trainerRow++, 3);
     trainerPathsLayout->addWidget(new QLabel("Save new model in"), trainerRow, 0);
@@ -1294,7 +1783,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerEnvironmentLayout->setSpacing(10);
     auto trainerEnvironmentTitle = new QLabel("SETUP DETAILS");
     trainerEnvironmentTitle->setProperty("panelTitle", true);
-    auto trainerEnvironmentSubtitle = new QLabel("Use this only if setup checks report a problem.");
+    auto trainerEnvironmentSubtitle =
+        new QLabel("Current Python, helper, package, and device status for model training.");
     trainerEnvironmentSubtitle->setProperty("mutedText", true);
     trainerEnvironmentLayout->addWidget(trainerEnvironmentTitle);
     trainerEnvironmentLayout->addWidget(trainerEnvironmentSubtitle);
@@ -1304,12 +1794,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerPythonLayout->addWidget(trainerPythonEdit, 0, 1);
     trainerPythonLayout->addWidget(trainerPythonBrowseBtn, 0, 2);
     trainerEnvironmentLayout->addLayout(trainerPythonLayout);
-    const QVector<QPair<QString, QString>> trainerCheckRows = {
-        {"Python setup", "Used when you train the model"},
-        {"Training helper", "Checked automatically"},
-        {"Computer support", "Checked automatically"},
-        {"Training images", "Checked from the selected image set"},
-        {"Save location", "Used for the trained model"},
+    auto* trainerPythonStatusValue = new QLabel;
+    auto* trainerHelperStatusValue = new QLabel;
+    auto* trainerDeviceStatusValue = new QLabel;
+    auto* trainerPackagesStatusValue = new QLabel;
+    auto* trainerEnvCheckStatusValue = new QLabel("Env check: not run this session");
+    const QVector<QPair<QString, QLabel*>> trainerCheckRows = {
+        {"Python executable", trainerPythonStatusValue},
+        {"Training helper", trainerHelperStatusValue},
+        {"Compute device", trainerDeviceStatusValue},
+        {"Packages", trainerPackagesStatusValue},
+        {"Env check", trainerEnvCheckStatusValue},
     };
     for (const auto& row : trainerCheckRows) {
         auto* checkRow = new QFrame;
@@ -1321,8 +1816,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         dot->setProperty("statusDot", true);
         auto* label = new QLabel(row.first);
         label->setProperty("panelTitle", true);
-        auto* value = new QLabel(row.second);
+        auto* value = row.second;
         value->setProperty("mutedText", true);
+        value->setWordWrap(true);
         value->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
         checkLayout->addWidget(dot);
         checkLayout->addWidget(label, 1);
@@ -1517,9 +2013,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerLeftScroll->setObjectName("TrainerWorkspaceLeftScrollArea");
     trainerLeftScroll->setWidgetResizable(true);
     trainerLeftScroll->setFrameShape(QFrame::NoFrame);
-    trainerLeftScroll->setMinimumWidth(0);
-    trainerLeftScroll->setFixedWidth(520);
-    trainerLeftScroll->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Expanding);
+    trainerLeftScroll->setMinimumWidth(520);
+    trainerLeftScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto trainerLeftContent = new QWidget;
     trainerLeftContent->setMinimumWidth(0);
     trainerLeftContent->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Expanding);
@@ -1536,7 +2031,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerRightScroll->setObjectName("TrainerWorkspaceRightScrollArea");
     trainerRightScroll->setWidgetResizable(true);
     trainerRightScroll->setFrameShape(QFrame::NoFrame);
-    trainerRightScroll->setFixedWidth(300);
+    trainerRightScroll->setMinimumWidth(300);
     auto trainerRightContent = new QWidget;
     trainerRightContent->setObjectName("TrainerWorkspaceRightStack");
     auto trainerRightLayout = new QVBoxLayout;
@@ -1548,9 +2043,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerRightLayout->addStretch(1);
     trainerRightContent->setLayout(trainerRightLayout);
     trainerRightScroll->setWidget(trainerRightContent);
-    trainerLayout->addWidget(trainerLeftScroll, 0);
-    trainerLayout->addWidget(trainerRightScroll, 0);
-    trainerLayout->addStretch(1);
+    auto* trainerSplitter = new QSplitter(Qt::Horizontal);
+    nameWidget(trainerSplitter, "TrainerWorkspaceSplitter");
+    trainerSplitter->addWidget(trainerLeftScroll);
+    trainerSplitter->addWidget(trainerRightScroll);
+    trainerSplitter->setStretchFactor(0, 1);
+    trainerSplitter->setStretchFactor(1, 0);
+    desktop_app::ui::configureWorkspaceSplitter(trainerSplitter, "workspace/trainer/splitter", {780, 360},
+                                                {520, 300});
+    trainerLayout->addWidget(trainerSplitter, 1);
     trainerWidget->setLayout(trainerLayout);
 
     auto trainerDockProxy = new QWidget;
@@ -1612,6 +2113,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(datasetStopCaptureBtn, "DatasetCaptureStopReviewButton");
     nameWidget(datasetCaptureStatusLabel, "DatasetCaptureStatusLabel");
     nameWidget(loadPipelineBtn, "PipelineLoadButton");
+    nameWidget(computeDeviceCombo, "SettingsWorkspaceComputeDeviceComboBox");
     nameWidget(pipelineWidget, "PipelineConfigTab");
     nameWidget(labviewStatusDot, "DaqStatusDot");
     nameWidget(labviewStatusText, "DaqStatusTextLabel");
@@ -1678,6 +2180,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(trainerAdvancedToggle, "TrainerAdvancedSetupToggleButton");
     nameWidget(trainerLogToggle, "TrainerDetailedLogToggleButton");
     nameWidget(trainerEnvironmentPanel, "TrainerEnvironmentPanel");
+    nameWidget(trainerPythonStatusValue, "TrainerSetupPythonStatusLabel");
+    nameWidget(trainerHelperStatusValue, "TrainerSetupHelperStatusLabel");
+    nameWidget(trainerDeviceStatusValue, "TrainerSetupDeviceStatusLabel");
+    nameWidget(trainerPackagesStatusValue, "TrainerSetupPackagesStatusLabel");
+    nameWidget(trainerEnvCheckStatusValue, "TrainerSetupEnvCheckStatusLabel");
     nameWidget(trainerFormPanel, "TrainerRunTrainingPanel");
     nameWidget(trainerLogPanel, "TrainerProgressLogPanel");
     nameWidget(trainerArchitectureCombo, "TrainerArchitectureCombo");
@@ -2054,7 +2561,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     liveRunLayout->setSpacing(8);
     pipelineStartBtn->setText("Start Sorting");
     pipelineStartBtn->setEnabled(false);
+    collectionToggleBtn->setText("Start Data Collection");
     pipelineStopBtn->setText("Stop Sorting");
+    auto collectionStatusLabel = new QLabel("Collection: idle");
+    nameWidget(collectionStatusLabel, "LiveDataCollectionStatusLabel");
+    collectionStatusLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
+    collectionStatusLabel->setTextFormat(Qt::PlainText);
     auto liveForceTriggerBtn = new QPushButton("Manual Trigger");
     nameWidget(liveForceTriggerBtn, "LiveForceTriggerButton");
     liveForceTriggerBtn->setEnabled(false);
@@ -2067,7 +2579,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto liveDetectorTuningBtn = new QPushButton("Detector");
     nameWidget(liveDetectorTuningBtn, "LiveDetectorTuningButton");
     liveDetectorTuningBtn->setToolTip("Open detector settings.");
-    for (auto* button : {startBtn, pipelineStartBtn, pipelineStopBtn, liveForceTriggerBtn,
+    for (auto* button : {startBtn, pipelineStartBtn, collectionToggleBtn, pipelineStopBtn, liveForceTriggerBtn,
                          liveSnapshotBtn, liveOpenRunBtn, liveDetectorTuningBtn}) {
         button->setFixedHeight(34);
         button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Fixed);
@@ -2076,6 +2588,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     startBtn->setMinimumWidth(138);
     startBtn->setMaximumWidth(150);
     pipelineStartBtn->setMaximumWidth(150);
+    collectionToggleBtn->setMinimumWidth(170);
+    collectionToggleBtn->setMaximumWidth(190);
     pipelineStopBtn->setMaximumWidth(138);
     liveForceTriggerBtn->setMaximumWidth(132);
     liveSnapshotBtn->setMaximumWidth(110);
@@ -2083,9 +2597,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     liveDetectorTuningBtn->setMaximumWidth(112);
     liveRunLayout->addWidget(startBtn);
     liveRunLayout->addWidget(pipelineStartBtn);
+    liveRunLayout->addWidget(collectionToggleBtn);
     liveRunLayout->addWidget(pipelineStopBtn);
     liveRunLayout->addSpacing(4);
     liveRunLayout->addWidget(liveForceTriggerBtn);
+    liveRunLayout->addWidget(collectionStatusLabel);
     liveRunLayout->addStretch(1);
     liveRunLayout->addWidget(liveSnapshotBtn);
     liveRunLayout->addWidget(liveOpenRunBtn);
@@ -2105,8 +2621,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         const bool waveformValid = !daqChannelEdit->text().trimmed().isEmpty() && amplitudeSpin->value() > 0.0 &&
                                    freqSpin->value() > 0.0 && durationSpin->value() > 0.0;
         appState.daqWaveformValid = waveformValid;
-        const bool manualTriggerReady = appState.daqAvailable && !appState.daqDisabled && !appState.daqFault;
+        const bool manualTriggerReady =
+            appState.daqAvailable && !appState.daqDisabled && !appState.daqFault && !collectionActive.load();
         QStringList manualBlockers;
+        if (collectionActive.load())
+            manualBlockers << "data collection is active";
         if (!appState.daqAvailable || appState.daqDisabled)
             manualBlockers << "DAQ is not available";
         if (appState.daqFault)
@@ -2234,7 +2753,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     rightScroll->setWidgetResizable(true);
     rightScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     rightScroll->setMinimumWidth(360);
-    rightScroll->setMaximumWidth(430);
     rightScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto rightStack = new QWidget;
     nameWidget(rightStack, "LiveRightMetricsStack");
@@ -2254,10 +2772,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     mainSplitter->addWidget(rightScroll);
     mainSplitter->setStretchFactor(0, 1);
     mainSplitter->setStretchFactor(1, 0);
-    mainSplitter->setCollapsible(0, false);
-    mainSplitter->setCollapsible(1, false);
-    mainSplitter->setChildrenCollapsible(false);
-    mainSplitter->setSizes({760, 340});
+    desktop_app::ui::configureWorkspaceSplitter(mainSplitter, "workspace/live/splitter", {760, 340}, {520, 360});
 
     auto mainLayout = new QHBoxLayout;
     mainLayout->setContentsMargins(10, 10, 10, 10);
@@ -2511,6 +3026,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     settingsWorkspaceControls.logPath = logPath;
     settingsWorkspaceControls.cameraSavePathEdit = savePathEdit;
     settingsWorkspaceControls.cameraPresetCombo = presetCombo;
+    settingsWorkspaceControls.computeDeviceCombo = computeDeviceCombo;
     settingsWorkspaceControls.exposureSpin = exposureSpin;
     settingsWorkspaceControls.daqDeviceCombo = daqDeviceCombo;
     settingsWorkspaceControls.daqChannelEdit = daqChannelEdit;
@@ -2527,6 +3043,33 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     settingsWorkspaceControls.analysisTab = leftAnalysisTab;
     settingsWorkspaceControls.devicesTab = leftDevicesTab;
     auto settingsWorkspacePage = desktop_app::workspace::buildSettingsWorkspace(settingsWorkspaceControls);
+    auto* validatorWorkspaceDeviceCombo =
+        validatorWorkspacePage->findChild<QComboBox*>("ValidatorWorkspaceDeviceComboBox");
+    auto syncValidatorComputeDevice = [validatorWorkspaceDeviceCombo, selectedComputeDevice]() {
+        if (!validatorWorkspaceDeviceCombo)
+            return;
+        const int index = validatorWorkspaceDeviceCombo->findText(selectedComputeDevice());
+        if (index >= 0 && validatorWorkspaceDeviceCombo->currentIndex() != index) {
+            QSignalBlocker blocker(validatorWorkspaceDeviceCombo);
+            validatorWorkspaceDeviceCombo->setCurrentIndex(index);
+        }
+    };
+    syncValidatorComputeDevice();
+    QObject::connect(computeDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                     [persistComputeDevice, selectedComputeDevice, syncValidatorComputeDevice, trainerPythonEdit](int) {
+                         persistComputeDevice(selectedComputeDevice());
+                         const QString currentPython = trainerPythonEdit ? trainerPythonEdit->text().trimmed() : QString();
+                         const QString cpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv"));
+                         const QString gpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv-gpu"));
+                         if (trainerPythonEdit &&
+                             (currentPython.isEmpty() ||
+                              currentPython.compare(QStringLiteral("python"), Qt::CaseInsensitive) == 0 ||
+                              sameCleanPath(currentPython, cpuPython) || sameCleanPath(currentPython, gpuPython))) {
+                             trainerPythonEdit->setText(QDir::toNativeSeparators(
+                                 resolvedTrainerPythonExecutable(currentPython, selectedComputeDevice())));
+                         }
+                         syncValidatorComputeDevice();
+                     });
 
     auto workspaceStack = new QStackedWidget;
     nameWidget(workspaceStack, "OpenDssWorkspaceStack");
@@ -2718,7 +3261,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto modelNavButton = addNavButton("Model", "model", modelWorkspacePage, "NavModelButton");
     auto datasetNavButton = addNavButton("Dataset", "dataset", datasetWorkspacePage, "NavDatasetButton");
     auto trainerNavButton = addNavButton("Trainer", "trainer", trainerWorkspacePage, "NavTrainerButton");
-    auto validatorNavButton = addNavButton("Validation", "validator", validatorWorkspacePage, "NavValidatorButton");
+    auto validatorNavButton = addNavButton("Model Testing", "validator", validatorWorkspacePage, "NavValidatorButton");
     auto reportsNavButton = addNavButton("Reports", "reports", reportsWorkspacePage, "NavReportsButton");
     navLayout->addStretch(1);
     auto settingsNavButton = addNavButton("Settings", "settings", settingsWorkspacePage, "NavSettingsButton");
@@ -2782,8 +3325,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         trainerNavButton->setChecked(true);
     } else if (options.initialWorkspace == "validator") {
         workspaceStack->setCurrentWidget(validatorWorkspacePage);
-        headerTitleLabel->setText("/ Validation");
-        headerStatusText->setText("Validation workspace");
+        headerTitleLabel->setText("/ Model Testing");
+        headerStatusText->setText("Model testing workspace");
         validatorNavButton->setChecked(true);
     } else if (options.initialWorkspace == "reports") {
         workspaceStack->setCurrentWidget(reportsWorkspacePage);
@@ -2847,8 +3390,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                    "Model: loaded through existing Pipeline controls\n"
                    "DAQ: configured in Devices > DAQ / Trigger\n"
                    "Python trainer: readiness checks available in Trainer tab\n"
-                   "Validation workspace: open from Validation > Image Validation\n"
-                   "Training launch, runner-wrapped sequence validation, and Model Promotion: disabled placeholders");
+                   "Model Testing workspace: open from Model Testing > Test Model\n"
+                   "Training launch, runner-wrapped sequence validation, and active-model management: disabled placeholders");
     nameWidget(diagnosticsLabel, "SystemDiagnosticsLabel");
     diagnosticsLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     diagnosticsLabel->setAlignment(Qt::AlignLeft | Qt::AlignTop);
@@ -3084,10 +3627,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     reportsWorkspaceDeps.statusBar = this->statusBar();
     ReportsWorkspaceController reportsWorkspaceController(reportsWorkspaceDeps, this);
     QObject::connect(resetLayoutAction, &QAction::triggered, [&]() {
-        this->addDockWidget(Qt::LeftDockWidgetArea, operationDock);
         this->addDockWidget(Qt::BottomDockWidgetArea, logDock);
         this->addDockWidget(Qt::BottomDockWidgetArea, diagnosticsDock);
-        operationDock->show();
         logDock->show();
         diagnosticsDock->hide();
         if (imageSubWindow) {
@@ -3098,11 +3639,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     });
     QObject::connect(exitAction, &QAction::triggered, this, &QWidget::close);
     QObject::connect(aboutAction, &QAction::triggered, [&]() {
-        QMessageBox::about(this, "About Open Visual Droplet Sorter Suite",
-                           "Open Visual Droplet Sorter Suite\n\n"
-                           "Qt shell preview around the existing Hamamatsu live-view and droplet pipeline controls.\n\n"
-                           "Validation runs in the Validation workspace. Trainer launch, "
-                           "runner-wrapped sequence validation, and model promotion remain disabled placeholders.");
+        QMessageBox::about(this, "About OpenDSS",
+                           "OpenDSS\n\n"
+                           "Qt desktop app for live-view, model-backed droplet sorting, and hardware controls.\n\n"
+                           "Model testing runs in the Model Testing workspace. Trainer launch saves completed training "
+                           "runs into the Model workspace.");
     });
 
     // Logging helper
@@ -3210,6 +3751,91 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             projectRoot = dir.absolutePath();
         }
     }
+    auto refreshTrainerSetupDetails = [=]() {
+        const QString python = trainerPythonEdit->text().trimmed();
+        const QString helperPath = trainerModulePath();
+        const QString device = selectedComputeDevice();
+        const QString cpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv"));
+        const QString gpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv-gpu"));
+
+        if (python.isEmpty()) {
+            trainerPythonStatusValue->setText("Missing: choose a Python executable.");
+        } else if (QFileInfo(python).isFile()) {
+            trainerPythonStatusValue->setText("Found: " + QDir::toNativeSeparators(python));
+        } else {
+            trainerPythonStatusValue->setText("Missing: " + QDir::toNativeSeparators(python));
+        }
+
+        trainerHelperStatusValue->setText(
+            helperPath.isEmpty() ? "Missing: packaged training/python helper folder was not found."
+                                 : "Found: " + QDir::toNativeSeparators(helperPath));
+
+        QString deviceText = device == QLatin1String("cuda") ? QStringLiteral("GPU")
+                           : device == QLatin1String("cpu") ? QStringLiteral("CPU")
+                                                            : QStringLiteral("Auto");
+        if (device != QLatin1String("cuda") && sameCleanPath(python, gpuPython) && QFileInfo(cpuPython).isFile()) {
+            deviceText += "; GPU venv is selected while CPU venv is available.";
+        } else if (device == QLatin1String("cuda") && !QFileInfo(gpuPython).isFile() && QFileInfo(cpuPython).isFile()) {
+            deviceText += "; GPU venv missing, CPU venv is available.";
+        }
+        trainerDeviceStatusValue->setText(deviceText);
+        if (trainerPackagesStatusValue->text().trimmed().isEmpty())
+            trainerPackagesStatusValue->setText("Run Check Python setup to inspect training and ONNX packages.");
+    };
+    auto updateTrainerSetupDetailsFromEnvCheck = [=](const QString& output, int exitCode, bool crashed) {
+        refreshTrainerSetupDetails();
+        QString envStatus = crashed ? QStringLiteral("Env check crashed.") : QString("Env check exit code: %1").arg(exitCode);
+        QString packageStatus;
+        QString deviceStatus;
+        const QStringList lines = output.split(QRegularExpression("[\r\n]+"), Qt::SkipEmptyParts);
+        for (const QString& rawLine : lines) {
+            const QString line = rawLine.trimmed();
+            if (!line.startsWith('{'))
+                continue;
+            QJsonParseError parseError;
+            const QJsonDocument doc = QJsonDocument::fromJson(line.toUtf8(), &parseError);
+            if (parseError.error != QJsonParseError::NoError || !doc.isObject())
+                continue;
+            const QJsonObject payload = doc.object();
+            if (payload.value("command").toString() != QLatin1String("env-check"))
+                continue;
+
+            envStatus = payload.value("status").toString(exitCode == 0 ? "ok" : "error");
+            const QJsonObject packages = payload.value("packages").toObject();
+            QStringList missingPackages;
+            for (auto it = packages.constBegin(); it != packages.constEnd(); ++it) {
+                if (it.value().toObject().value("status").toString() != QLatin1String("ok"))
+                    missingPackages << it.key();
+            }
+            packageStatus = missingPackages.isEmpty() ? QStringLiteral("Training and ONNX packages are importable.")
+                                                      : QStringLiteral("Missing: ") + missingPackages.join(", ");
+
+            const QJsonObject devices = payload.value("devices").toObject();
+            const bool cudaAvailable = devices.value("cuda_available").toBool(false);
+            const QString selected = devices.value("selected").toString("cpu");
+            const QString cudaVersion = devices.value("cuda_version").toString();
+            const QJsonArray gpuNames = devices.value("gpu_names").toArray();
+            QStringList gpuNameStrings;
+            for (const auto& nameValue : gpuNames)
+                gpuNameStrings << nameValue.toString();
+            deviceStatus = QString("Selected: %1; CUDA: %2")
+                               .arg(selected, cudaAvailable ? QStringLiteral("available") : QStringLiteral("unavailable"));
+            if (!cudaVersion.isEmpty())
+                deviceStatus += "; CUDA " + cudaVersion;
+            if (!gpuNameStrings.isEmpty())
+                deviceStatus += "; GPU: " + gpuNameStrings.join(", ");
+            break;
+        }
+        trainerEnvCheckStatusValue->setText(envStatus);
+        if (!packageStatus.isEmpty())
+            trainerPackagesStatusValue->setText(packageStatus);
+        if (!deviceStatus.isEmpty())
+            trainerDeviceStatusValue->setText(deviceStatus);
+    };
+    refreshTrainerSetupDetails();
+    QObject::connect(trainerPythonEdit, &QLineEdit::textChanged, this, refreshTrainerSetupDetails);
+    QObject::connect(computeDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                     [refreshTrainerSetupDetails](int) { refreshTrainerSetupDetails(); });
     auto projectPath = [&](const QString& rel) -> QString {
         return projectRoot.isEmpty() ? QString() : QDir(projectRoot).absoluteFilePath(rel);
     };
@@ -3267,6 +3893,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return datasetController->trainerCommandPreview(program, args);
     };
     auto saveTrainerSettings = [datasetController]() { datasetController->saveTrainerSettings(); };
+    auto handOffPreparedDatasetForReview = [trainerDatasetEdit, saveTrainerSettings,
+                                            openDatasetLabelerPath](const QString& datasetPath) {
+        const QString normalizedPath = datasetPath.trimmed();
+        if (normalizedPath.isEmpty())
+            return;
+        trainerDatasetEdit->setText(QDir::toNativeSeparators(normalizedPath));
+        saveTrainerSettings();
+        openDatasetLabelerPath(normalizedPath);
+    };
     auto refreshTrainerUi = [datasetController]() { datasetController->refreshTrainerUi(); };
     auto setTrainerBusy = [datasetController, &trainerCommandWasTraining](bool busy) {
         datasetController->setTrainerBusy(busy, trainerCommandWasTraining);
@@ -3275,7 +3910,79 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                                                                      const QString& detail = QString()) {
         trainerStatusLabel->setText(datasetController->trainerSummaryText(headline, detail));
     };
-    auto trainerTrainArgs = [datasetController](bool dryRun) { return datasetController->trainerTrainArgs(dryRun); };
+    auto trainerTrainArgs = [datasetController, withComputeDeviceArg](bool dryRun) {
+        return withComputeDeviceArg(datasetController->trainerTrainArgs(dryRun));
+    };
+    auto refreshModelWorkspaceAndTrainer = [&](const QString& entryId) {
+        if (auto* refreshButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")) {
+            refreshButton->click();
+            QCoreApplication::processEvents();
+        }
+        if (auto* modelTable = modelWorkspacePage->findChild<QTableWidget*>("ModelWorkspaceRegistryTable")) {
+            for (int row = 0; row < modelTable->rowCount(); ++row) {
+                auto* item = modelTable->item(row, 0);
+                if (item && item->text().contains(entryId, Qt::CaseInsensitive)) {
+                    modelTable->selectRow(row);
+                    break;
+                }
+            }
+        }
+        refreshTrainerUi();
+    };
+    std::function<void(const QString&)> refreshLiveModelsFromRegistry;
+    auto saveCompletedTrainingArtifacts = [&](const TrainerCompletionArtifacts& artifacts) {
+        QString defaultName = QFileInfo(artifacts.runDir).fileName();
+        QFile metadataFile(artifacts.metadataJsonPath);
+        if (metadataFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const QJsonDocument metadataDoc = QJsonDocument::fromJson(metadataFile.readAll());
+            if (metadataDoc.isObject()) {
+                const QString metadataName = metadataDoc.object().value("model_name").toString().trimmed();
+                if (!metadataName.isEmpty())
+                    defaultName = metadataName;
+            }
+        }
+        const QString modelName = promptForTrainedModelName(this, defaultName);
+        if (modelName.isEmpty()) {
+            appendTrainerLog("Model save canceled: no model name was saved.\n");
+            setTrainerSummary("Model training completed.", "Model save was canceled; run artifacts remain available.");
+            return;
+        }
+
+        QString entryId;
+        QString saveError;
+        if (!saveTrainedModelArtifacts(registryFilePath, artifacts.runDir, artifacts.modelOnnxPath,
+                                       artifacts.metadataJsonPath, artifacts.metricsCsvPath,
+                                       artifacts.trainingConfigJsonPath, artifacts.metricsJsonPath,
+                                       artifacts.classMetricsCsvPath, artifacts.confusionMatrixCsvPath, modelName,
+                                       &entryId, &saveError)) {
+            appendTrainerLog("Model save failed: " + saveError + "\n");
+            setTrainerSummary("Model training completed, but saving failed.", saveError);
+            return;
+        }
+
+        appendTrainerLog(QString("Saved trained model to the Model workspace: %1\n").arg(entryId));
+        refreshModelWorkspaceAndTrainer(entryId);
+        bool modelMadeActive = false;
+        if (promptUseTrainedModelForSortingNow(this)) {
+            QString activationError;
+            if (!activateModelRegistryEntry(registryFilePath, entryId, &activationError)) {
+                appendTrainerLog("Model active selection failed: " + activationError + "\n");
+                QMessageBox::warning(this, "Use trained model", activationError);
+                setTrainerSummary("Model trained and saved.",
+                                  "The trained model was saved, but could not be selected for sorting.");
+            } else {
+                appendTrainerLog(QString("Using trained model for sorting now: %1\n").arg(entryId));
+                refreshModelWorkspaceAndTrainer(entryId);
+                if (refreshLiveModelsFromRegistry)
+                    refreshLiveModelsFromRegistry(entryId);
+                modelMadeActive = true;
+            }
+        }
+        modelNavButton->click();
+        setTrainerSummary(modelMadeActive ? "Model trained, saved, and ready for sorting." : "Model trained and saved.",
+                          modelMadeActive ? "Live View is using the newly trained model."
+                                          : "Trained model is available in the Model workspace but is not active.");
+    };
     auto startTrainerCommand = [&](const QString& label, const QStringList& args, bool isTraining, bool isDryRun) {
         refreshTrainerUi();
         if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
@@ -3295,7 +4002,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
         if ((isTraining || isDryRun) &&
             (trainerDatasetEdit->text().trimmed().isEmpty() || trainerOutputEdit->text().trimmed().isEmpty())) {
-            setTrainerSummary("Choose a training image set file and a save location before continuing.");
+            setTrainerSummary("Choose a training dataset file and a save location before continuing.");
             return;
         }
         if ((isTraining || isDryRun) && args.contains(QString())) {
@@ -3318,6 +4025,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             setTrainerSummary("Checking Python setup...");
         }
         pythonStatusItem->setText("Python: checking");
+        refreshTrainerSetupDetails();
+        if (!isTraining && !isDryRun) {
+            trainerEnvCheckStatusValue->setText("Env check running with device: " + selectedComputeDevice());
+            trainerPackagesStatusValue->setText("Checking training and ONNX packages...");
+        }
         setTrainerBusy(true);
 
         auto* process = new QProcess(this);
@@ -3361,6 +4073,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             [&, process](int exitCode, QProcess::ExitStatus exitStatus) {
                 if (trainerProcess != process)
                     return;
+                TrainerCompletionArtifacts artifactsForSave;
+                bool shouldSaveTrainedModel = false;
                 const bool crashed = exitStatus == QProcess::CrashExit;
                 appendTrainerLog(
                     QString("\nProcess finished: exit=%1%2\n").arg(exitCode).arg(crashed ? " crashed" : ""));
@@ -3374,29 +4088,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     if (ok) {
                         const TrainerCompletionArtifacts artifacts = parseSuccessfulTrainingArtifactsJsonl(trainerStdoutLog);
                         if (artifacts.complete) {
-                            QString registeredEntryId;
-                            QString registrationError;
-                            if (registerTrainedModelArtifacts(registryFilePath, artifacts.runDir, artifacts.modelOnnxPath,
-                                                              artifacts.metadataJsonPath, &registeredEntryId,
-                                                              &registrationError)) {
-                                appendTrainerLog(QString("Registered trained model in Model workspace: %1\n")
-                                                     .arg(registeredEntryId));
-                                if (auto* refreshButton =
-                                        modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")) {
-                                    refreshButton->click();
-                                }
-                                refreshTrainerUi();
-                                setTrainerSummary("Model training completed.",
-                                                  "Registered trained model in the Model workspace.");
-                            } else {
-                                appendTrainerLog("Model registration failed: " + registrationError + "\n");
-                                setTrainerSummary("Model training completed, but model registration failed.",
-                                                  registrationError);
-                            }
+                            appendTrainerLog("Training artifacts found. Choose where to save the trained model.\n");
+                            artifactsForSave = artifacts;
+                            shouldSaveTrainedModel = true;
+                            setTrainerSummary("Model training completed.", "Choose a name to save the trained model.");
                         } else {
-                            appendTrainerLog("Model registration skipped: successful model artifacts were not found in "
+                            appendTrainerLog("Model save skipped: successful model artifacts were not found in "
                                              "trainer output.\n");
-                            setTrainerSummary("Model training completed, but no model artifacts were registered.",
+                            setTrainerSummary("Model training completed, but no model artifacts were saved.",
                                               "The trainer output did not include run_finished status ok with model_onnx "
                                               "and metadata_json artifacts.");
                         }
@@ -3404,11 +4103,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 } else {
                     setTrainerSummary(ok ? "Python setup checked." : "Python setup check failed.",
                                       ok ? QString() : "Review the detailed log for the failure.");
+                    updateTrainerSetupDetailsFromEnvCheck(trainerStdoutLog, exitCode, crashed);
                 }
                 pythonStatusItem->setText(ok ? "Python: ready" : "Python: issue");
                 setTrainerBusy(false);
                 trainerProcess = nullptr;
                 process->deleteLater();
+                if (shouldSaveTrainedModel) {
+                    QTimer::singleShot(0, this,
+                                       [&, artifactsForSave]() { saveCompletedTrainingArtifacts(artifactsForSave); });
+                }
             });
         QObject::connect(process, &QProcess::errorOccurred, this, [&, process](QProcess::ProcessError error) {
             if (trainerProcess != process)
@@ -3417,6 +4121,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             setTrainerSummary("Could not start the training helper.", process->errorString());
             appendTrainerLog("Process error: " + process->errorString() + "\n");
             pythonStatusItem->setText("Python: start failed");
+            if (!trainerCommandWasTraining && !trainerCommandWasDryRun) {
+                refreshTrainerSetupDetails();
+                trainerEnvCheckStatusValue->setText("Env check could not start: " + process->errorString());
+                trainerPackagesStatusValue->setText("Not checked because the Python executable did not start.");
+            }
             setTrainerBusy(false);
             trainerProcess = nullptr;
             process->deleteLater();
@@ -3425,8 +4134,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
     QObject::connect(trainerEnvCheckBtn, &QPushButton::clicked, [&]() {
         startTrainerCommand("Python setup check",
-                            {"-m", "droplet_trainer", "env-check", "--device", "cpu", "--require-training",
-                             "--require-onnx", "--json"},
+                            withComputeDeviceArg({"-m", "droplet_trainer", "env-check", "--require-training",
+                                                  "--require-onnx", "--json"}),
                             false, false);
     });
     QObject::connect(trainerDryRunBtn, &QPushButton::clicked,
@@ -3447,8 +4156,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     });
     QObject::connect(trainerNavButton, &QPushButton::clicked, [&]() { refreshTrainerUi(); });
     if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_RESULT_MODEL_REGISTRATION") != 0) {
-        QTimer::singleShot(0, this, [=]() {
+        QTimer::singleShot(0, this, [&]() {
             runTrainerResultModelRegistrationVerifier(modelWorkspacePage, datasetController, trainerStartingModelCombo,
+                                                      liveModelCombo, refreshLiveModelsFromRegistry, &appState,
                                                       registryFilePath);
         });
     }
@@ -3510,6 +4220,63 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QCoreApplication::exit(exitCode);
         });
     }
+    auto runTrainerSetupStatusVerifier = [&]() -> int {
+        QSettings verifierSettings;
+        const QString previousPython = verifierSettings.value("settings/pythonTrainer").toString();
+        const QString previousComputeDevice = verifierSettings.value("settings/computeDevice", "auto").toString();
+        const QString previousValidatorDevice = verifierSettings.value("validator/device", previousComputeDevice).toString();
+
+        if (computeDeviceCombo) {
+            const int autoIndex = computeDeviceCombo->findData(QStringLiteral("auto"));
+            if (autoIndex >= 0)
+                computeDeviceCombo->setCurrentIndex(autoIndex);
+        }
+        const QString expectedPython = resolvedTrainerPythonExecutable(QString(), QStringLiteral("auto"));
+        trainerPythonEdit->setText(QDir::toNativeSeparators(expectedPython));
+        refreshTrainerUi();
+        workspaceStack->setCurrentWidget(trainerWorkspacePage);
+        trainerSetupDetailsToggle->setChecked(true);
+        refreshTrainerSetupDetails();
+        app.processEvents();
+
+        QStringList failures;
+        auto require = [&](bool condition, const QString& message) {
+            if (!condition)
+                failures.push_back(message);
+        };
+
+        auto* settingsTrainerPythonEdit = settingsWorkspacePage->findChild<QLineEdit*>("SettingsWorkspacePythonTrainerEdit");
+        require(trainerEnvironmentPanel->isVisible(), "Trainer setup details panel is visible when expanded");
+        require(sameCleanPath(expectedPython, documentedTrainerPythonExecutable(QStringLiteral("training-venv"))),
+                "Default Trainer Python resolves to the documented CPU venv");
+        require(sameCleanPath(trainerPythonEdit->text().trimmed(), expectedPython),
+                "Trainer Python edit uses the resolved documented install path");
+        require(settingsTrainerPythonEdit != nullptr, "Settings Trainer Python field exists");
+        require(settingsTrainerPythonEdit && sameCleanPath(settingsTrainerPythonEdit->text().trimmed(), expectedPython),
+                "Settings Trainer Python field mirrors the resolved path");
+        require(trainerPythonStatusValue->text().contains(QFileInfo(expectedPython).fileName(), Qt::CaseInsensitive),
+                "Setup details report the resolved Python executable");
+        require(!trainerHelperStatusValue->text().contains("Checked automatically", Qt::CaseInsensitive),
+                "Training helper status is not stale placeholder text");
+        require(!trainerDeviceStatusValue->text().contains("Checked automatically", Qt::CaseInsensitive),
+                "Compute device status is not stale placeholder text");
+        require(trainerPackagesStatusValue->text().contains("Check Python setup", Qt::CaseInsensitive),
+                "Package status tells the user how to run env-check before a check has run");
+        require(trainerEnvCheckStatusValue->text().contains("not run", Qt::CaseInsensitive),
+                "Env-check status clearly reports that no check has run this session");
+
+        const int exitCode = failures.isEmpty() ? 0 : 2;
+        if (failures.isEmpty()) {
+            qInfo().noquote() << "Trainer setup-status verifier passed.";
+        } else {
+            qWarning().noquote() << "Trainer setup-status verifier failed:" << failures.join("; ");
+        }
+        verifierSettings.setValue("settings/pythonTrainer", previousPython);
+        verifierSettings.setValue("settings/computeDevice", previousComputeDevice);
+        verifierSettings.setValue("validator/device", previousValidatorDevice);
+        verifierSettings.sync();
+        return exitCode;
+    };
     if (verifyTrainerLaunch) {
         QTimer::singleShot(0, this, [&, datasetController]() {
             const QString verifierPrefix = QStringLiteral("TRAINER LAUNCH VERIFY");
@@ -4103,6 +4870,62 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         saveRuntimeSettings();
         pipelineStatusLabel->setText("Live model selected: " + liveModelCombo->currentText());
     };
+    refreshLiveModelsFromRegistry = [&](const QString& selectedEntryId) {
+        QString warning;
+        const QJsonArray refreshedEntries = readModelRegistryEntriesFromPath(registryFilePath, &warning);
+        if (refreshedEntries.isEmpty()) {
+            pipelineStatusLabel->setText(warning.isEmpty() ? "Live model refresh found no model entries." : warning);
+            return;
+        }
+
+        QSignalBlocker blocker(liveModelCombo);
+        liveModelCombo->clear();
+        for (const auto& value : refreshedEntries) {
+            const QJsonObject entry = value.toObject();
+            const QString targetId = registryNestedString(entry, "target_policy", "target_class_id");
+            const QString targetDisplay = registryNestedString(entry, "target_policy", "target_display_label");
+            QString label = registryString(entry, "display_name");
+            if (label.isEmpty())
+                label = registryString(entry, "registry_entry_id");
+            label += " - " + registryString(entry, "state");
+            if (!targetId.isEmpty())
+                label += " - " + (targetDisplay.isEmpty() ? targetId : QString("%1 (%2)").arg(targetDisplay, targetId));
+
+            const bool selectable = entry.value("selectable_for_normal_live_sorting").toBool(false) &&
+                                    registryString(entry, "live_use_mode") != "blocked";
+            addLiveModelRow(label, registryString(entry, "registry_entry_id"),
+                            runtimePathFromRegistryPath(registryString(entry, "model_path")),
+                            runtimePathFromRegistryPath(registryString(entry, "metadata_path")),
+                            registryString(entry, "state"), selectable ? registryString(entry, "live_use_mode") : "blocked",
+                            targetId, registryEntrySummary(entry, registryFilePath, registryLoadWarning),
+                            registryString(entry, "model_sha256"), registryString(entry, "metadata_sha256"), selectable);
+        }
+
+        int selectedIndex = -1;
+        const QString preferredEntryId = selectedEntryId.trimmed();
+        for (int i = 0; i < liveModelCombo->count(); ++i) {
+            if (!preferredEntryId.isEmpty() &&
+                liveModelCombo->itemData(i, Qt::UserRole + 1).toString().compare(preferredEntryId, Qt::CaseInsensitive) == 0) {
+                selectedIndex = i;
+                break;
+            }
+        }
+        if (selectedIndex < 0) {
+            for (int i = 0; i < liveModelCombo->count(); ++i) {
+                if (liveModelCombo->itemData(i, Qt::UserRole + 5).toString() != "blocked") {
+                    selectedIndex = i;
+                    break;
+                }
+            }
+        }
+        if (selectedIndex < 0 && liveModelCombo->count() > 0)
+            selectedIndex = 0;
+        if (selectedIndex >= 0)
+            liveModelCombo->setCurrentIndex(selectedIndex);
+        blocker.unblock();
+        applyLiveModelSelection();
+        syncValidatorWorkspaceRuntimeModel();
+    };
 
     QTimer detectorTuningApplyTimer;
     detectorTuningApplyTimer.setSingleShot(true);
@@ -4125,6 +4948,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QDateTime liveLogStart;
     std::function<void()> startLiveLogging;
     std::function<void()> stopLiveLogging;
+    QMutex collectionMutex;
+    LiveDataCollectionWriter collectionWriter;
+    QString collectionPreviousDaqStatusText;
+    QString collectionPreviousDaqFaultText;
+    bool collectionPreviousDaqAvailable = false;
+    bool collectionPreviousDaqDisabled = false;
+    bool collectionPreviousDaqFault = false;
     QMutex datasetCaptureMutex;
     DatasetCaptureSession datasetCaptureSession;
     std::atomic<bool> datasetCaptureActive(false);
@@ -4358,8 +5188,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         syncValidatorWorkspaceRuntimeModel();
     });
     QObject::connect(refreshLiveModelsBtn, &QPushButton::clicked, [&]() {
-        applyLiveModelSelection();
-        syncValidatorWorkspaceRuntimeModel();
+        if (refreshLiveModelsFromRegistry)
+            refreshLiveModelsFromRegistry(QString());
+        else {
+            applyLiveModelSelection();
+            syncValidatorWorkspaceRuntimeModel();
+        }
     });
 
     auto connectRuntimeSettingsPersistence = [&]() {
@@ -4460,6 +5294,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
 
     auto loadPipeline = [&](bool enableAfter, bool forceNoDaq) {
+        if (collectionActive.load()) {
+            pipelineStatusLabel->setText("Data collection active: sorting pipeline disabled.");
+            logMessage("Sorting pipeline init skipped because data collection is active.");
+            return;
+        }
         logMessage("Pipeline init requested");
         settingsController->refreshDaqDeviceOptions(true);
         if (liveModelCombo->currentData(kLiveModelModeRole).toString() == "blocked") {
@@ -4473,6 +5312,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QString metaResolved = resolveAppRelative(metaEdit->text());
         cfg.onnxPath = onnxResolved.toStdString();
         cfg.metadataPath = metaResolved.toStdString();
+        cfg.computeDevice = selectedComputeDevice().toStdString();
         appState.targetClassId = selectedTargetClassId();
         appState.sortNonTarget = sortNonTargetEnabled();
         cfg.targetClassId = appState.targetClassId.toStdString();
@@ -4509,6 +5349,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
         logMessage(QString("Pipeline init paths: onnx=%1 meta=%2").arg(onnxEdit->text(), metaEdit->text()));
         logMessage(QString("Pipeline init resolved paths: onnx=%1 meta=%2").arg(onnxResolved, metaResolved));
+        logMessage(QString("Pipeline compute device requested: %1").arg(selectedComputeDevice()));
         logMessage("Pipeline trigger policy: " + currentTriggerPolicyText());
         if (forceNoDaq) {
             logMessage("DAQ config: disabled for recorded sequence replay");
@@ -4592,14 +5433,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
         if (!err.empty()) {
             modelStatusItem->setText("Model: loaded");
-            daqStatusItem->setText("DAQ: unavailable");
-            appState.daqAvailable = false;
-            appState.daqFault = true;
+            const bool daqWarning = !cfg.daq.channel.empty() && !labviewTriggerReady;
+            daqStatusItem->setText(daqWarning ? "DAQ: unavailable" : "DAQ: available");
+            appState.daqAvailable = !daqWarning;
+            appState.daqFault = daqWarning;
             appState.daqDisabled = false;
             appState.daqStatusText = daqStatusItem->text();
-            appState.daqFaultText = QString::fromStdString(err);
-            logDaqStartupState(daqStatusItem->text() + ": " + QString::fromStdString(err));
-            this->statusBar()->showMessage("Pipeline ready with DAQ warning");
+            appState.daqFaultText = daqWarning ? QString::fromStdString(err) : QString();
+            if (daqWarning)
+                logDaqStartupState(daqStatusItem->text() + ": " + QString::fromStdString(err));
+            this->statusBar()->showMessage("Pipeline ready with warning");
             logMessage(QString("Pipeline init warning: %1").arg(QString::fromStdString(err)));
         } else {
             modelStatusItem->setText("Model: loaded");
@@ -4616,11 +5459,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         appState.targetClassId = QString::fromStdString(cfg.targetClassId);
         saveRuntimeSettings();
         const QString triggerPolicyText = currentTriggerPolicyText();
+        const QString executionProvider = QString::fromStdString(pipeline.executionProvider());
+        logMessage(QString("Pipeline model execution provider: %1").arg(executionProvider));
         if (!err.empty()) {
             pipelineStatusLabel->setText(
-                QString("Pipeline ready (DAQ off), %1: %2").arg(triggerPolicyText, QString::fromStdString(err)));
+                QString("Pipeline ready, %1, model provider %2; warning: %3")
+                    .arg(triggerPolicyText, executionProvider, QString::fromStdString(err)));
         } else {
-            pipelineStatusLabel->setText(QString("Pipeline ready, %1").arg(triggerPolicyText));
+            pipelineStatusLabel->setText(QString("Pipeline ready, %1, model provider %2").arg(triggerPolicyText, executionProvider));
         }
         logMessage("Pipeline ready with trigger policy: " + triggerPolicyText);
         pipelineStartBtn->setEnabled(!enableAfter && !sequenceRunning.load());
@@ -4667,6 +5513,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QObject::connect(pipelineStartBtn, &QPushButton::clicked, [&]() {
         if (sequenceRunning.load())
             return;
+        if (collectionActive.load()) {
+            statusLabel->setText("Start Sorting blocked: data collection is active.");
+            this->statusBar()->showMessage("Stop Data Collection before sorting");
+            logMessage("Start Sorting blocked because data collection is active.");
+            return;
+        }
         bool ready = false;
         {
             QMutexLocker lock(&pipelineMutex);
@@ -4730,6 +5582,272 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         this->statusBar()->showMessage("Live sorting stopped");
     });
 
+    auto updateCollectionStatus = [&]() {
+        QMutexLocker lock(&collectionMutex);
+        if (collectionWriter.sessionDir().isEmpty()) {
+            collectionStatusLabel->setText("Collection: idle");
+            return;
+        }
+        collectionStatusLabel->setText(QString("Collection: %1 frames, %2 rows")
+                                           .arg(static_cast<qulonglong>(collectionWriter.framesSaved()))
+                                            .arg(static_cast<qulonglong>(collectionWriter.rowsLogged())));
+    };
+
+    auto runCollectionPostprocessing = [&](const QString& sessionDir) {
+        if (sessionDir.trimmed().isEmpty())
+            return;
+
+        CollectionPostprocessOptions options;
+        options.sessionDir = sessionDir;
+        options.collectionsRoot = defaultWorkspacePaths.collections;
+        options.preparedDatasetsRoot = defaultWorkspacePaths.preparedDatasets;
+
+        while (true) {
+            const CollectionSaveDialogUi ui = buildCollectionSaveDialog(this, QFileInfo(sessionDir).fileName());
+            const int accepted = ui.dialog->exec();
+            if (accepted != QDialog::Accepted) {
+                ui.dialog->deleteLater();
+                logMessage(QString("Data Collection post-processing skipped by user: %1").arg(sessionDir));
+                return;
+            }
+
+            options.collectionName = ui.nameEdit ? ui.nameEdit->text().trimmed() : QString();
+            options.createTrainingMetadata = ui.createMetadataCheck ? ui.createMetadataCheck->isChecked() : true;
+            ui.dialog->deleteLater();
+
+            if (options.collectionName.isEmpty()) {
+                QMessageBox::warning(this, "Save Dataset As", "Enter a collection name.");
+                continue;
+            }
+
+            const QString sanitizedName = options.collectionName;
+            const QString finalCollectionDir = QDir(options.collectionsRoot).filePath(sanitizedName);
+            const bool sourceIsFinal =
+                QFileInfo(finalCollectionDir).absoluteFilePath().compare(QFileInfo(sessionDir).absoluteFilePath(),
+                                                                         Qt::CaseInsensitive) == 0;
+            if (QFileInfo::exists(finalCollectionDir) && !sourceIsFinal) {
+                QMessageBox::warning(this, "Save Dataset As",
+                                     QString("Collection folder already exists:\n%1").arg(finalCollectionDir));
+                continue;
+            }
+
+            const QString finalDatasetDir = QDir(options.preparedDatasetsRoot).filePath(sanitizedName);
+            if (options.createTrainingMetadata && QFileInfo::exists(finalDatasetDir)) {
+                QMessageBox::warning(this, "Save Dataset As",
+                                     QString("Prepared dataset folder already exists:\n%1").arg(finalDatasetDir));
+                continue;
+            }
+            break;
+        }
+
+        auto* progress = new QProgressDialog("Processing saved frames and extracting crops...", QString(), 0, 1, this);
+        progress->setWindowTitle("Preparing Dataset");
+        progress->setWindowModality(Qt::ApplicationModal);
+        progress->setCancelButton(nullptr);
+        progress->setAutoClose(false);
+        progress->setAutoReset(false);
+        progress->setMinimumDuration(0);
+        nameWidget(progress, "PreparingDatasetDialog");
+        nameWidget(progress->findChild<QProgressBar*>(), "PreparingDatasetProgressBar");
+        progress->show();
+
+        auto result = std::make_shared<CollectionPostprocessResult>();
+        QPointer<QObject> target(this);
+        QPointer<QProgressDialog> progressDialog(progress);
+        QThread* thread = QThread::create([options, result, target, progressDialog]() {
+            *result = postprocessCollectionForTraining(
+                options, [target, progressDialog](int value, int maximum, const QString& message) {
+                    if (!target)
+                        return;
+                    QMetaObject::invokeMethod(
+                        target,
+                        [progressDialog, value, maximum, message]() {
+                            if (!progressDialog)
+                                return;
+                            progressDialog->setMaximum(std::max(1, maximum));
+                            progressDialog->setValue(std::clamp(value, 0, std::max(1, maximum)));
+                            if (!message.isEmpty())
+                                progressDialog->setLabelText(message);
+                        },
+                        Qt::QueuedConnection);
+                });
+
+            if (!target)
+                return;
+            QMetaObject::invokeMethod(
+                target,
+                [result, progressDialog]() {
+                    if (progressDialog) {
+                        progressDialog->close();
+                        progressDialog->deleteLater();
+                    }
+                },
+                Qt::QueuedConnection);
+        });
+        QObject::connect(thread, &QThread::finished, this, [=]() {
+            if (result->ok) {
+                statusLabel->setText(QString("Dataset prepared: %1").arg(result->collectionDir));
+                collectionStatusLabel->setText(QString("Collection: %1 crops ready").arg(result->resizedCropsWritten));
+                logMessage(QString("Data Collection post-processing complete: collection=%1 raw=%2 crops64=%3")
+                               .arg(result->collectionDir)
+                               .arg(result->rawCropsWritten)
+                               .arg(result->resizedCropsWritten));
+                if (!result->datasetManifestPath.isEmpty()) {
+                    handOffPreparedDatasetForReview(result->datasetManifestPath);
+                }
+            } else {
+                statusLabel->setText(QString("Dataset preparation failed: %1").arg(result->errorMessage));
+                logMessage(QString("Data Collection post-processing failed: %1").arg(result->errorMessage));
+                QMessageBox::critical(this, "Preparing Dataset Failed", result->errorMessage);
+            }
+            thread->deleteLater();
+        });
+        thread->start();
+    };
+
+    auto stopDataCollection = [&](const QString& reason) {
+        if (!collectionActive.exchange(false))
+            return;
+
+        QString sessionDir;
+        std::string finishErr;
+        {
+            QMutexLocker collectionLock(&collectionMutex);
+            sessionDir = collectionWriter.sessionDir();
+            if (!collectionWriter.finish(reason, finishErr)) {
+                logMessage(QString("Data Collection finalize failed: %1").arg(QString::fromStdString(finishErr)));
+            }
+        }
+        {
+            QMutexLocker pipelineLock(&pipelineMutex);
+            pipeline.clear();
+        }
+        pipelineEnabled.store(false);
+        collectionToggleBtn->setText("Start Data Collection");
+        pipelineStartBtn->setEnabled(!sequenceRunning.load());
+        pipelineStopBtn->setEnabled(false);
+        appState.daqAvailable = collectionPreviousDaqAvailable;
+        appState.daqDisabled = collectionPreviousDaqDisabled;
+        appState.daqFault = collectionPreviousDaqFault;
+        appState.daqStatusText = collectionPreviousDaqStatusText;
+        appState.daqFaultText = collectionPreviousDaqFaultText;
+        daqStatusItem->setText(collectionPreviousDaqStatusText.isEmpty() ? "DAQ: available"
+                                                                          : collectionPreviousDaqStatusText);
+        settingsController->updateLabviewOutput();
+        updateForceTriggerState();
+        updateCollectionStatus();
+        statusLabel->setText(QString("Data Collection stopped. Output: %1").arg(sessionDir));
+        runStatusItem->setText("Run: idle");
+        pipelineStatusLabel->setText("Pipeline: paused");
+        this->statusBar()->showMessage("Data Collection stopped");
+        logMessage(QString("Data Collection stopped: %1").arg(sessionDir));
+        if (reason == "user_stop")
+            runCollectionPostprocessing(sessionDir);
+    };
+
+    auto startDataCollection = [&]() {
+        if (collectionActive.load()) {
+            stopDataCollection("user_stop");
+            return;
+        }
+        if (sequenceRunning.load()) {
+            statusLabel->setText("Start Data Collection blocked: sequence replay is active.");
+            return;
+        }
+        if (pipelineEnableCheck->isChecked() || pipelineEnabled.load()) {
+            statusLabel->setText("Start Data Collection blocked: stop sorting first.");
+            return;
+        }
+        if (datasetCaptureActive.load()) {
+            statusLabel->setText("Start Data Collection blocked: image set capture is active.");
+            return;
+        }
+        if (!appState.cameraStreaming) {
+            statusLabel->setText("Start Data Collection blocked: start the camera stream first.");
+            this->statusBar()->showMessage("Start camera before Data Collection");
+            return;
+        }
+
+        std::string err;
+        QString sessionDir;
+        {
+            QMutexLocker collectionLock(&collectionMutex);
+            if (!collectionWriter.start(defaultWorkspacePaths.collections, err)) {
+                statusLabel->setText(QString("Start Data Collection failed: %1").arg(QString::fromStdString(err)));
+                this->statusBar()->showMessage("Data Collection start failed");
+                logMessage(QString("Data Collection start failed: %1").arg(QString::fromStdString(err)));
+                return;
+            }
+            sessionDir = collectionWriter.sessionDir();
+        }
+
+        PipelineConfig cfg;
+        cfg.detectorOnly = true;
+        cfg.saveCrop = false;
+        cfg.saveOverlay = false;
+        cfg.frameSkip = 0;
+        pipelineDetectCfg.bgFrames = bgFramesSpin->value();
+        pipelineDetectCfg.bgUpdateFrames = bgUpdateSpin->value();
+        pipelineDetectCfg.resetFrames = resetFramesSpin->value();
+        pipelineDetectCfg.minArea = minAreaSpin->value();
+        pipelineDetectCfg.minAreaFrac = minAreaFracSpin->value();
+        pipelineDetectCfg.maxAreaFrac = maxAreaFracSpin->value();
+        pipelineDetectCfg.minBbox = minBboxSpin->value();
+        pipelineDetectCfg.margin = marginSpin->value();
+        pipelineDetectCfg.diffThresh = diffThreshSpin->value();
+        pipelineDetectCfg.blurRadius = blurRadiusSpin->value();
+        pipelineDetectCfg.morphRadius = morphRadiusSpin->value();
+        pipelineDetectCfg.scale = scaleSpin->value();
+        pipelineDetectCfg.gapFireShift = gapFireSpin->value();
+        cfg.detect = pipelineDetectCfg;
+        cfg.daq = DaqConfig{};
+        cfg.daq.channel.clear();
+
+        {
+            QMutexLocker pipelineLock(&pipelineMutex);
+            if (!pipeline.init(cfg, err)) {
+                QMutexLocker collectionLock(&collectionMutex);
+                std::string finishErr;
+                collectionWriter.finish("pipeline_init_failed", finishErr);
+                statusLabel->setText(QString("Start Data Collection failed: %1").arg(QString::fromStdString(err)));
+                this->statusBar()->showMessage("Data Collection pipeline init failed");
+                logMessage(QString("Data Collection detector init failed: %1").arg(QString::fromStdString(err)));
+                return;
+            }
+            pipeline.reset();
+        }
+
+        collectionPreviousDaqAvailable = appState.daqAvailable;
+        collectionPreviousDaqDisabled = appState.daqDisabled;
+        collectionPreviousDaqFault = appState.daqFault;
+        collectionPreviousDaqStatusText = appState.daqStatusText;
+        collectionPreviousDaqFaultText = appState.daqFaultText;
+        appState.daqDisabled = true;
+        appState.daqAvailable = false;
+        appState.daqFault = false;
+        appState.daqFaultText.clear();
+        appState.daqStatusText = "DAQ: disabled for data collection";
+        daqStatusItem->setText(appState.daqStatusText);
+
+        collectionActive.store(true);
+        pipelineEnabled.store(true);
+        collectionToggleBtn->setText("Stop Data Collection");
+        pipelineStartBtn->setEnabled(false);
+        pipelineStopBtn->setEnabled(false);
+        liveForceTriggerBtn->setEnabled(false);
+        modelStatusItem->setText("Model: off");
+        pipelineStatusLabel->setText("Data Collection: warming detector");
+        statusLabel->setText(QString("Data Collection started: %1").arg(sessionDir));
+        runStatusItem->setText("Run: Data Collection");
+        settingsController->updateLabviewOutput();
+        updateForceTriggerState();
+        updateCollectionStatus();
+        this->statusBar()->showMessage("Data Collection started");
+        logMessage(QString("Data Collection started: %1").arg(sessionDir));
+    };
+
+    QObject::connect(collectionToggleBtn, &QPushButton::clicked, startDataCollection);
+
     auto stopDatasetCapture = [&](const QString& reason, bool openReview) {
         QString reviewPath;
         std::string err;
@@ -4756,6 +5874,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
 
     auto startDatasetCapture = [&]() {
+        if (collectionActive.load()) {
+            datasetCaptureStatusLabel->setText("Image Set capture blocked: data collection is active.");
+            statusLabel->setText("Stop Data Collection before starting Image Set capture.");
+            return;
+        }
         if (datasetCaptureActive.load())
             return;
         DatasetCollectionMode mode = DatasetCollectionMode::Mixed;
@@ -5104,13 +6227,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto updatePipelineStatus = [&](const PipelineEvent& evt, int bgRemaining, bool pipelineReady) {
         QMetaObject::invokeMethod(
             pipelineStatusLabel,
-            [pipelineStatusLabel, &pipelineEnabled, evt, bgRemaining, pipelineReady]() {
+            [pipelineStatusLabel, &pipelineEnabled, &collectionActive, evt, bgRemaining, pipelineReady]() {
                 if (!pipelineEnabled.load()) {
                     pipelineStatusLabel->setText("Pipeline: paused");
                     return;
                 }
                 if (!pipelineReady) {
                     pipelineStatusLabel->setText("Pipeline: not loaded");
+                    return;
+                }
+                if (collectionActive.load()) {
+                    if (bgRemaining > 0) {
+                        pipelineStatusLabel->setText(QString("Data Collection: warming detector (%1 frames)").arg(bgRemaining));
+                    } else if (evt.detected) {
+                        pipelineStatusLabel->setText(QString("Data Collection: detected area=%1").arg(evt.area, 0, 'f', 0));
+                    } else {
+                        pipelineStatusLabel->setText("Data Collection: recording");
+                    }
                     return;
                 }
                 if (bgRemaining > 0) {
@@ -5887,7 +7020,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                                  &liveLogStart, &datasetCaptureActive, &datasetCaptureMutex, &datasetCaptureSession,
                                  &datasetCaptureDir, &datasetCaptureManifestPath, datasetStartCaptureBtn,
                                  datasetStopCaptureBtn, datasetCaptureStatusLabel, statusLabel, trainerDatasetEdit,
-                                 &openDatasetLabelerPath, this](const QImage& img, const FrameMeta& meta, double fps) {
+                                 &openDatasetLabelerPath, &collectionActive, &collectionMutex, &collectionWriter,
+                                 &stopDataCollection, collectionStatusLabel,
+                                 this](const QImage& img, const FrameMeta& meta, double fps) {
         if (recording.load()) {
             QMutexLocker lk(saveMutex.get());
             saveBuffer->push_back(img.copy());
@@ -5902,6 +7037,27 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         bool pipelineReady = false;
         double procMs = 0.0;
         bool processed = processPipelineFrame(img, evt, bgRemaining, pipelineReady, &procMs);
+
+        if (collectionActive.load()) {
+            std::string writeErr;
+            bool writeOk = false;
+            std::uint64_t framesSavedNow = 0;
+            std::uint64_t rowsLoggedNow = 0;
+            {
+                QMutexLocker collectionLock(&collectionMutex);
+                writeOk = collectionWriter.writeFrame(img, evt, processed, meta.frameIndex, writeErr);
+                framesSavedNow = collectionWriter.framesSaved();
+                rowsLoggedNow = collectionWriter.rowsLogged();
+            }
+            if (!writeOk) {
+                logMessage(QString("Data Collection write failed: %1").arg(QString::fromStdString(writeErr)));
+                stopDataCollection("write_error");
+            } else if (framesSavedNow % 25 == 0 || evt.detected) {
+                collectionStatusLabel->setText(QString("Collection: %1 frames, %2 rows")
+                                                   .arg(static_cast<qulonglong>(framesSavedNow))
+                                                   .arg(static_cast<qulonglong>(rowsLoggedNow)));
+            }
+        }
 
         if (datasetCaptureActive.load() && processed && evt.fired && evt.classified && !evt.cropPath.empty()) {
             bool reachedTarget = false;
@@ -6087,6 +7243,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         backgroundTasks.requestStop();
         sequenceStop.store(true);
         recording.store(false);
+        if (collectionActive.load()) {
+            stopDataCollection("application_exit");
+        }
         if (datasetCaptureActive.load()) {
             QMutexLocker lock(&datasetCaptureMutex);
             datasetCaptureSession.setStopReason("cancelled");
@@ -6124,18 +7283,29 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         logMessage("Live View sort policy verifier: camera startup skipped to keep checks no-hardware.");
     } else if (options.verifyValidationWorkspace) {
         logMessage("Validation workspace verifier: camera startup skipped to keep checks no-hardware.");
-    } else if (verifyTrainerLaunch) {
-        logMessage("Trainer launch verifier: camera startup skipped to keep checks no-hardware.");
+    } else if (verifyTrainerLaunch || verifyTrainerSetupStatus) {
+        logMessage("Trainer verifier: camera startup skipped to keep checks no-hardware.");
     } else if (verifyDefaultPaths) {
         logMessage("Default paths verifier: camera startup skipped to keep checks no-hardware.");
     } else if (verifyDatasetWorkspace) {
         logMessage("Dataset workspace verifier: camera startup skipped to keep checks no-hardware.");
+    } else if (verifyWorkspaceSplitters) {
+        logMessage("Workspace splitter verifier: camera startup skipped to keep checks no-hardware.");
+    } else if (verifyResetLayout) {
+        logMessage("Reset layout verifier: camera startup skipped to keep checks no-hardware.");
     } else {
         cameraController->initializeCamera();
     }
     if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger && !options.verifyLiveViewSortPolicy &&
-        !options.verifyValidationWorkspace && !verifyTrainerLaunch && !verifyDefaultPaths && !verifyDatasetWorkspace) {
+        !options.verifyValidationWorkspace && !verifyTrainerLaunch && !verifyTrainerSetupStatus && !verifyDefaultPaths &&
+        !verifyDatasetWorkspace && !verifyWorkspaceSplitters && !verifyResetLayout) {
         QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
+    }
+    if (verifyTrainerSetupStatus) {
+        const int exitCode = runTrainerSetupStatusVerifier();
+        cameraController->shutdownCameraThread(cameraThread);
+        logMessage(QString("Trainer setup-status verifier exited with code %1").arg(exitCode));
+        return exitCode;
     }
     if (verifyDefaultPaths) {
         QTimer::singleShot(0, [&app, trainerDatasetEdit, trainerOutputEdit, onnxEdit, validatorWorkspaceModelEdit,
@@ -6174,6 +7344,523 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(isDocumentsPath(validatorModelPath), "Validator model defaults under Documents/OpenDSS");
             require(!isDeveloperInternalDefaultPath(validatorModelPath),
                     "Validator model does not use internal release build model path");
+
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+        });
+    }
+    if (verifyComputeSettings) {
+        QTimer::singleShot(0, [&app, computeDeviceCombo, validatorWorkspaceDeviceCombo, trainerTrainArgs]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << "COMPUTE SETTINGS VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "COMPUTE SETTINGS VERIFY PASS:" << message;
+                }
+            };
+            auto deviceValueAfter = [](const QStringList& args, const QString& option) {
+                const int index = args.indexOf(option);
+                return (index >= 0 && index + 1 < args.size()) ? args.at(index + 1) : QString();
+            };
+            QSettings settings;
+            const QString previousDevice = settings.value("settings/computeDevice", "auto").toString();
+            auto finish = [&](int exitCode) {
+                if (computeDeviceCombo) {
+                    const int previousIndex = computeDeviceCombo->findData(previousDevice);
+                    if (previousIndex >= 0) {
+                        computeDeviceCombo->setCurrentIndex(previousIndex);
+                        app.processEvents();
+                    }
+                }
+                QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+            };
+
+            require(computeDeviceCombo != nullptr, "Settings compute selector exists");
+            require(computeDeviceCombo && computeDeviceCombo->findData("auto") >= 0, "Compute selector has Auto");
+            require(computeDeviceCombo && computeDeviceCombo->findData("cpu") >= 0, "Compute selector has CPU");
+            require(computeDeviceCombo && computeDeviceCombo->findData("cuda") >= 0, "Compute selector has GPU");
+
+            if (computeDeviceCombo) {
+                const int gpuIndex = computeDeviceCombo->findData("cuda");
+                require(gpuIndex >= 0, "GPU option can be selected by stable data value");
+                if (gpuIndex >= 0)
+                    computeDeviceCombo->setCurrentIndex(gpuIndex);
+                app.processEvents();
+            }
+
+            require(settings.value("settings/computeDevice").toString() == "cuda",
+                    "Compute selection persists in settings/computeDevice");
+            require(settings.value("validator/device").toString() == "cuda",
+                    "Compute selection mirrors to validator/device");
+
+            const QStringList trainArgs = trainerTrainArgs(false);
+            require(deviceValueAfter(trainArgs, "--device") == "cuda", "Training command uses selected GPU device");
+            require(validatorWorkspaceDeviceCombo != nullptr, "Validator workspace device selector exists");
+            require(validatorWorkspaceDeviceCombo && validatorWorkspaceDeviceCombo->currentText() == "cuda",
+                    "Validation command source uses selected GPU device");
+
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            finish(exitCode);
+        });
+    }
+    if (verifyCollectionMode) {
+        QTimer::singleShot(0, [&app, collectionToggleBtn, collectionStatusLabel]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << "COLLECTION MODE VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "COLLECTION MODE VERIFY PASS:" << message;
+                }
+            };
+
+            require(collectionToggleBtn != nullptr, "Live Data Collection button exists");
+            require(collectionToggleBtn && collectionToggleBtn->text() == "Start Data Collection",
+                    "Collection button starts with Start Data Collection text");
+            require(collectionStatusLabel != nullptr, "Live Data Collection status label exists");
+            require(collectionStatusLabel && collectionStatusLabel->text().contains("idle"),
+                    "Collection status starts idle");
+
+            PipelineConfig cfg;
+            cfg.detectorOnly = true;
+            cfg.saveCrop = false;
+            cfg.saveOverlay = false;
+            cfg.frameSkip = 0;
+            cfg.detect.bgFrames = 1;
+            cfg.detect.bgUpdateFrames = 0;
+            cfg.detect.minArea = 1.0;
+            cfg.detect.maxAreaFrac = 1.0;
+            cfg.detect.minBbox = 1;
+            cfg.detect.margin = 0;
+            cfg.detect.scale = 1.0;
+            cfg.daq = DaqConfig{};
+            cfg.daq.channel.clear();
+
+            PipelineRunner verifierRunner;
+            std::string err;
+            require(verifierRunner.init(cfg, err), "Detector-only pipeline initializes without model metadata");
+            require(verifierRunner.isReady(), "Detector-only pipeline reports ready");
+            require(!verifierRunner.isTriggerReady(), "Detector-only pipeline does not arm DAQ trigger");
+            require(verifierRunner.classLabels().empty(), "Detector-only pipeline has no classifier labels");
+
+            cv::Mat black = cv::Mat::zeros(8, 8, CV_8UC1);
+            PipelineEvent evt;
+            int processedFrames = 0;
+            if (verifierRunner.processFrame(black, evt))
+                processedFrames++;
+            if (verifierRunner.processFrame(black, evt))
+                processedFrames++;
+            require(processedFrames >= 1, "Detector-only pipeline processes frames after background warmup");
+            require(!evt.classified, "Detector-only pipeline does not classify");
+            require(!evt.triggered && !evt.triggerOk, "Detector-only pipeline does not trigger DAQ");
+            require(evt.cropPath.empty() && evt.overlayPath.empty(), "Detector-only pipeline writes no crops or overlays");
+
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+        });
+    }
+    if (verifyCollectionPostprocessor) {
+        QTimer::singleShot(0, this, [this, &app]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << "COLLECTION POSTPROCESS VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "COLLECTION POSTPROCESS VERIFY PASS:" << message;
+                }
+            };
+
+            const CollectionSaveDialogUi saveUi = buildCollectionSaveDialog(this, "synthetic_collection");
+            require(saveUi.dialog && saveUi.dialog->windowTitle() == "Save Dataset As", "Save Dataset As popup title");
+            require(saveUi.createMetadataCheck && saveUi.createMetadataCheck->isChecked(),
+                    "Create Metadata for Training defaults checked");
+            saveUi.dialog->deleteLater();
+
+            QTemporaryDir tempRoot;
+            require(tempRoot.isValid(), "temporary verifier root is available");
+            const QString collectionsRoot = QDir(tempRoot.path()).filePath("collections");
+            const QString preparedRoot = QDir(tempRoot.path()).filePath("datasets/prepared");
+            QDir().mkpath(collectionsRoot);
+            QDir().mkpath(preparedRoot);
+
+            auto makeSyntheticSession = [&](const QString& folderName, const QString& detectedValue) {
+                const QString sessionDir = QDir(collectionsRoot).filePath(folderName);
+                QDir().mkpath(QDir(sessionDir).filePath("stream"));
+                QImage frame(16, 16, QImage::Format_RGB32);
+                frame.fill(QColor("#18222b"));
+                for (int y = 4; y < 12; ++y) {
+                    for (int x = 3; x < 11; ++x)
+                        frame.setPixelColor(x, y, QColor("#f4c542"));
+                }
+                require(frame.save(QDir(sessionDir).filePath("stream/frame_000001.tiff"), "TIFF"),
+                        "synthetic TIFF frame written");
+
+                QFile csv(QDir(sessionDir).filePath("detections.csv"));
+                require(csv.open(QIODevice::WriteOnly | QIODevice::Text), "synthetic detections CSV opened");
+                QTextStream ts(&csv);
+                ts << "image,event_detected,crop_id,timestamp_utc,frame_number,x,y,width,height,centroid_x,centroid_y,"
+                      "area,crop_raw_path,crop_64_path\n";
+                ts << "\"stream/frame_000001.tiff\"," << detectedValue
+                   << ",,\"2026-07-16T00:00:00.000Z\",1,3,4,8,8,7.0,8.0,64.0,,\n";
+                ts << "\"stream/frame_000001.tiff\",0,,\"2026-07-16T00:00:00.000Z\",2,,,,,,,,,\n";
+                csv.close();
+
+                QJsonObject metadata;
+                metadata["session_id"] = folderName;
+                metadata["mode"] = "live_data_collection";
+                QFile metadataFile(QDir(sessionDir).filePath("collection_metadata.json"));
+                require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text),
+                        "synthetic collection metadata opened");
+                metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
+                metadataFile.close();
+                return sessionDir;
+            };
+
+            QProgressDialog progress("Processing saved frames and extracting crops...", QString(), 0, 1, this);
+            progress.setWindowTitle("Preparing Dataset");
+            progress.setCancelButton(nullptr);
+            progress.show();
+            int lastProgressValue = 0;
+            int lastProgressMax = 1;
+            const QString sessionDir = makeSyntheticSession("session_a", "1");
+            CollectionPostprocessOptions options;
+            options.sessionDir = sessionDir;
+            options.collectionName = "prepared_a";
+            options.collectionsRoot = collectionsRoot;
+            options.preparedDatasetsRoot = preparedRoot;
+            options.createTrainingMetadata = true;
+            const CollectionPostprocessResult result = postprocessCollectionForTraining(
+                options, [&](int value, int maximum, const QString& message) {
+                    Q_UNUSED(message);
+                    lastProgressValue = value;
+                    lastProgressMax = std::max(1, maximum);
+                    progress.setMaximum(lastProgressMax);
+                    progress.setValue(std::clamp(value, 0, lastProgressMax));
+                    app.processEvents();
+                });
+
+            require(result.ok, "postprocessor succeeds for synthetic 1/0 detection CSV");
+            require(result.rawCropsWritten == 1 && result.resizedCropsWritten == 1,
+                    "one detected row produces raw and 64x64 crops");
+            require(QFileInfo::exists(QDir(result.collectionDir).filePath("crops_raw/crop_000001.tiff")),
+                    "raw crop TIFF exists");
+            const QString crop64Path = QDir(result.collectionDir).filePath("crops_64/crop_000001.png");
+            require(QFileInfo::exists(crop64Path), "64x64 crop PNG exists");
+            require(QImage(crop64Path).size() == QSize(64, 64), "dataset crop is 64x64");
+            require(QFileInfo::exists(result.datasetManifestPath), "prepared dataset manifest exists");
+            require(QFileInfo::exists(QDir(result.datasetDir).filePath("images/crop_000001.png")),
+                    "prepared dataset image copied from crops_64");
+            require(lastProgressValue == lastProgressMax, "progress reaches completion");
+
+            QFile updatedCsv(QDir(result.collectionDir).filePath("detections.csv"));
+            require(updatedCsv.open(QIODevice::ReadOnly | QIODevice::Text), "updated detections CSV readable");
+            const QString updatedCsvText = QString::fromUtf8(updatedCsv.readAll());
+            require(updatedCsvText.contains("crop_000001") && updatedCsvText.contains("crops_64/crop_000001.png"),
+                    "detections CSV includes crop id and paths");
+
+            const QString collisionSession = makeSyntheticSession("session_b", "true");
+            QDir().mkpath(QDir(collectionsRoot).filePath("existing_name"));
+            CollectionPostprocessOptions collisionOptions;
+            collisionOptions.sessionDir = collisionSession;
+            collisionOptions.collectionName = "existing_name";
+            collisionOptions.collectionsRoot = collectionsRoot;
+            collisionOptions.preparedDatasetsRoot = preparedRoot;
+            collisionOptions.createTrainingMetadata = true;
+            const CollectionPostprocessResult collision = postprocessCollectionForTraining(collisionOptions);
+            require(!collision.ok && collision.errorMessage.contains("already exists"),
+                    "existing collection name collision is blocked");
+
+            progress.close();
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+        });
+    }
+    if (verifyDatasetHandoff) {
+        QTimer::singleShot(0, this, [this, &app, handOffPreparedDatasetForReview, trainerDatasetEdit]() {
+            const QString verifierPrefix = QStringLiteral("DATASET HANDOFF VERIFY");
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << verifierPrefix << "FAIL:" << message;
+                } else {
+                    qInfo().noquote() << verifierPrefix << "PASS:" << message;
+                }
+            };
+            auto waitForUi = [&](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+                app.processEvents();
+            };
+
+            const QString verifyRoot = QDir(QDir::tempPath()).filePath("ovds_dataset_handoff_verify");
+            QDir(verifyRoot).removeRecursively();
+            const QString collectionsRoot = QDir(verifyRoot).filePath("collections");
+            const QString preparedRoot = QDir(verifyRoot).filePath("prepared");
+            QDir().mkpath(collectionsRoot);
+            QDir().mkpath(preparedRoot);
+
+            const QString sessionDir = QDir(collectionsRoot).filePath("session_handoff");
+            QDir().mkpath(QDir(sessionDir).filePath("stream"));
+
+            QImage frame(20, 20, QImage::Format_RGB32);
+            frame.fill(QColor("#111111"));
+            for (int y = 4; y < 14; ++y) {
+                for (int x = 5; x < 15; ++x) {
+                    frame.setPixelColor(x, y, QColor("#f5f5f5"));
+                }
+            }
+            require(frame.save(QDir(sessionDir).filePath("stream/frame_000001.tiff")), "synthetic frame saved");
+
+            QFile csv(QDir(sessionDir).filePath("detections.csv"));
+            require(csv.open(QIODevice::WriteOnly | QIODevice::Text), "synthetic detections CSV opened");
+            if (csv.isOpen()) {
+                QTextStream ts(&csv);
+                ts << "image,event_detected,crop_id,timestamp_utc,frame_number,x,y,width,height,centroid_x,centroid_y,"
+                      "area,crop_raw_path,crop_64_path\n";
+                ts << "\"stream/frame_000001.tiff\",1,,\"2026-07-16T00:00:00.000Z\",1,5,4,10,10,10.0,9.0,100.0,,\n";
+                csv.close();
+            }
+
+            QJsonObject metadata;
+            metadata["session_id"] = "session_handoff";
+            metadata["mode"] = "live_data_collection";
+            QFile metadataFile(QDir(sessionDir).filePath("collection_metadata.json"));
+            require(metadataFile.open(QIODevice::WriteOnly | QIODevice::Text), "synthetic collection metadata opened");
+            if (metadataFile.isOpen()) {
+                metadataFile.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented));
+                metadataFile.close();
+            }
+
+            if (!failures.isEmpty()) {
+                QDir(verifyRoot).removeRecursively();
+                QCoreApplication::exit(2);
+                return;
+            }
+
+            CollectionPostprocessOptions handoffOptions;
+            handoffOptions.sessionDir = sessionDir;
+            handoffOptions.collectionName = "prepared_handoff";
+            handoffOptions.collectionsRoot = collectionsRoot;
+            handoffOptions.preparedDatasetsRoot = preparedRoot;
+            handoffOptions.createTrainingMetadata = true;
+            const CollectionPostprocessResult handoffResult = postprocessCollectionForTraining(handoffOptions);
+            require(handoffResult.ok, "postprocessor creates a prepared dataset");
+            require(QFileInfo(handoffResult.datasetManifestPath).isFile(), "prepared dataset file exists");
+
+            if (handoffResult.ok) {
+                handOffPreparedDatasetForReview(handoffResult.datasetManifestPath);
+                waitForUi(250);
+            }
+
+            QWidget* dialog = nullptr;
+            for (QWidget* widget : QApplication::topLevelWidgets()) {
+                if (widget && widget->objectName() == "datasetLabelerWorkspace") {
+                    dialog = widget;
+                    break;
+                }
+            }
+            require(dialog != nullptr, "dataset review dialog opens after handoff");
+
+            if (dialog) {
+                auto* pathLabel = dialog->findChild<QLabel*>("datasetLabelerDatasetPathLabel");
+                auto* bannerLabel = dialog->findChild<QLabel*>("datasetLabelerReadinessBanner");
+                auto* loadStatusLabel = dialog->findChild<QLabel*>("DatasetBuilderReviewLoadStatusLabel");
+                auto* browserTable = dialog->findChild<QTableWidget*>("datasetLabelerCropBrowser");
+                require(pathLabel != nullptr, "dataset path label is present");
+                require(pathLabel && pathLabel->text().contains("Dataset:", Qt::CaseInsensitive),
+                        "dataset path label uses dataset wording");
+                require(pathLabel &&
+                            pathLabel->text().contains(QDir::toNativeSeparators(handoffResult.datasetDir),
+                                                       Qt::CaseInsensitive),
+                        "dataset path label points at the prepared dataset folder");
+                require(loadStatusLabel && loadStatusLabel->text().contains("loaded", Qt::CaseInsensitive),
+                        "dataset review dialog reports loaded status");
+                require(browserTable && browserTable->rowCount() == 1, "prepared dataset opens with one review row");
+                require(browserTable && browserTable->item(0, 3) &&
+                            browserTable->item(0, 3)->text().compare("unreviewed", Qt::CaseInsensitive) == 0,
+                        "prepared dataset row starts as unreviewed");
+                require(bannerLabel && bannerLabel->text().contains("need review", Qt::CaseInsensitive),
+                        "prepared dataset opens as needing review");
+                dialog->close();
+                waitForUi(50);
+            }
+
+            require(QDir::fromNativeSeparators(trainerDatasetEdit->text().trimmed())
+                        .endsWith("/metadata/dataset_manifest.json", Qt::CaseInsensitive),
+                    "trainer dataset field keeps the prepared dataset file");
+
+            QDir(verifyRoot).removeRecursively();
+            QCoreApplication::exit(failures.isEmpty() ? 0 : 2);
+        });
+    }
+    if (verifyWorkspaceSplitters) {
+        QTimer::singleShot(0, this, [this, &app, workspaceStack, liveWorkspacePage, datasetWorkspacePage,
+                                     trainerWorkspacePage, validatorWorkspacePage, modelWorkspacePage, settingsWorkspacePage,
+                                     reportsWorkspacePage]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << "WORKSPACE SPLITTER VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "WORKSPACE SPLITTER VERIFY PASS:" << message;
+                }
+            };
+            auto waitForUi = [&](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+                app.processEvents();
+            };
+            auto sizesCloseEnough = [](const QList<int>& left, const QList<int>& right) {
+                if (left.size() != right.size())
+                    return false;
+                for (int i = 0; i < left.size(); ++i) {
+                    if (std::abs(left.at(i) - right.at(i)) > 6)
+                        return false;
+                }
+                return true;
+            };
+            struct SplitterCheck {
+                QWidget* page = nullptr;
+                const char* objectName = nullptr;
+                QString settingsKey;
+                QString label;
+                int expectedCount = 0;
+                QList<int> testSizes;
+            };
+            const QList<SplitterCheck> checks = {
+                {liveWorkspacePage, "MainSplitter", "workspace/live/splitter", "Live workspace splitter", 2, {700, 420}},
+                {datasetWorkspacePage, "DatasetWorkspaceSplitter", "workspace/dataset/splitter",
+                 "Dataset workspace splitter", 3, {280, 560, 360}},
+                {trainerWorkspacePage, "TrainerWorkspaceSplitter", "workspace/trainer/splitter",
+                 "Trainer workspace splitter", 2, {760, 340}},
+                {validatorWorkspacePage, "ValidatorWorkspaceSplitter", "workspace/validator/splitter",
+                 "Validation workspace splitter", 2, {760, 400}},
+                {modelWorkspacePage, "ModelWorkspaceSplitter", "workspace/model/splitter", "Model workspace splitter", 2,
+                 {360, 860}},
+                {settingsWorkspacePage, "SettingsWorkspaceSplitter", "workspace/settings/splitter",
+                 "Settings workspace splitter", 2, {620, 420}},
+                {reportsWorkspacePage, "ReportsWorkspaceSplitter", "workspace/reports/splitter", "Reports workspace splitter",
+                 2, {340, 880}},
+            };
+
+            QSettings settings;
+            struct SavedSetting {
+                QString key;
+                QVariant value;
+            };
+            QList<SavedSetting> savedSettings;
+            savedSettings.reserve(checks.size());
+            for (const SplitterCheck& check : checks)
+                savedSettings.push_back({check.settingsKey, settings.value(check.settingsKey)});
+
+            auto restoreSettings = [&settings, &savedSettings]() {
+                for (const SavedSetting& saved : savedSettings) {
+                    if (saved.value.isValid())
+                        settings.setValue(saved.key, saved.value);
+                    else
+                        settings.remove(saved.key);
+                }
+                settings.sync();
+            };
+
+            for (const SplitterCheck& check : checks) {
+                if (workspaceStack && check.page)
+                    workspaceStack->setCurrentWidget(check.page);
+                app.processEvents();
+                waitForUi(60);
+
+                auto* splitter = this->findChild<QSplitter*>(check.objectName);
+                require(splitter != nullptr, check.label + " exists");
+                if (!splitter)
+                    continue;
+
+                require(splitter->count() == check.expectedCount,
+                        QString("%1 exposes %2 adjustable sections").arg(check.label).arg(check.expectedCount));
+                require(!splitter->childrenCollapsible(), check.label + " disables collapsing");
+                for (int index = 0; index < splitter->count(); ++index) {
+                    require(!splitter->isCollapsible(index),
+                            QString("%1 section %2 is not collapsible").arg(check.label).arg(index));
+                }
+
+                splitter->setSizes(check.testSizes);
+                app.processEvents();
+                const QList<int> persistedSizes = splitter->sizes();
+                require(persistedSizes.size() == check.expectedCount,
+                        QString("%1 reports %2 live sizes").arg(check.label).arg(check.expectedCount));
+                desktop_app::ui::saveWorkspaceSplitterState(splitter);
+                require(!settings.value(check.settingsKey).toByteArray().isEmpty(),
+                        check.label + " writes persisted splitter state");
+
+                QList<int> temporarySizes;
+                temporarySizes.fill(40, check.expectedCount);
+                splitter->setSizes(temporarySizes);
+                app.processEvents();
+                require(desktop_app::ui::restoreWorkspaceSplitterState(splitter),
+                        check.label + " restores the persisted splitter state");
+                app.processEvents();
+                require(sizesCloseEnough(splitter->sizes(), persistedSizes),
+                        check.label + " restores the expected section sizes");
+            }
+
+            restoreSettings();
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+        });
+    }
+    if (verifyResetLayout) {
+        QTimer::singleShot(0, this, [this, &app, resetLayoutAction, workspaceStack, modelWorkspacePage, operationDock]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << "RESET LAYOUT VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "RESET LAYOUT VERIFY PASS:" << message;
+                }
+            };
+            auto waitForUi = [&](int ms) {
+                QEventLoop loop;
+                QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+                loop.exec();
+                app.processEvents();
+            };
+
+            require(resetLayoutAction != nullptr, "View reset action exists");
+            require(workspaceStack != nullptr, "workspace stack exists");
+            require(modelWorkspacePage != nullptr, "Model workspace exists");
+            if (workspaceStack && modelWorkspacePage) {
+                workspaceStack->setCurrentWidget(modelWorkspacePage);
+            }
+            if (operationDock) {
+                operationDock->hide();
+            }
+            app.processEvents();
+            waitForUi(50);
+
+            if (resetLayoutAction) {
+                resetLayoutAction->trigger();
+            }
+            app.processEvents();
+            waitForUi(50);
+
+            require(!operationDock || !operationDock->isVisible(),
+                    "View reset does not show the obsolete Capture dock");
+            if (auto* operationalTabs = this->findChild<QTabWidget*>("OperationalTabs")) {
+                require(!operationalTabs->isVisible(), "View reset does not show obsolete operational tabs");
+            }
+            if (auto* captureTab = this->findChild<QWidget*>("OperationalCaptureTab")) {
+                require(!captureTab->isVisible(), "View reset does not show obsolete Capture tab controls");
+            }
+            require(!workspaceStack || workspaceStack->currentWidget() == modelWorkspacePage,
+                    "View reset keeps the current workspace selected");
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
             QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
@@ -6244,6 +7931,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             app.processEvents();
             waitForUi(250);
 
+            auto* modelValidateButton = this->findChild<QPushButton*>("ModelWorkspaceValidateButton");
+            auto* revalidateButton = this->findChild<QPushButton*>("ModelWorkspaceRevalidateButton");
+            auto* openReportButton = this->findChild<QPushButton*>("ModelWorkspaceOpenReportButton");
             auto* runValidationButton = this->findChild<QPushButton*>("ModelWorkspaceRunValidationButton");
             auto* validatorWorkspace = this->findChild<QWidget*>("ValidatorWorkspace");
             auto* validatorRunButton = this->findChild<QPushButton*>("ValidatorWorkspaceOpenImageValidationButton");
@@ -6257,19 +7947,40 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto* metadataEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceMetadataEdit");
             auto* schemaCombo = this->findChild<QComboBox*>("ValidatorWorkspaceClassSchemaComboBox");
             auto* classesEdit = this->findChild<QLineEdit*>("ValidatorWorkspaceClassesEdit");
+            auto* validationMenu = this->findChild<QMenu*>("ValidationMenu");
 
-            require(runValidationButton != nullptr, "ModelWorkspaceRunValidationButton exists");
+            require(modelValidateButton == nullptr, "Model workspace does not show a top-level testing button");
+            require(revalidateButton == nullptr, "Model workspace does not show a re-validate button");
+            require(openReportButton == nullptr, "Model workspace does not show a validation report button");
+            require(runValidationButton == nullptr, "Model workspace does not show a run-validation button");
             require(validatorWorkspace != nullptr, "ValidatorWorkspace exists");
-            if (runValidationButton)
-                runValidationButton->click();
+            imageValidationAction->trigger();
             waitForUi(250);
 
             require(workspaceStack->currentWidget() == validatorWorkspace,
-                    "Model workspace Run Validation focuses ValidatorWorkspace");
+                    "Model Testing action focuses ValidatorWorkspace from the Model workspace context");
             require(!legacyDialogVisible(), "Model workspace route does not open the legacy dialog");
+            require(validationMenu && validationMenu->title().contains("Model Testing", Qt::CaseInsensitive),
+                    "Menu bar shows Model Testing wording");
+            require(imageValidationAction && imageValidationAction->text() == "Test Model",
+                    "Model Testing menu action uses Test Model wording");
+            require(validatorNavButton &&
+                        (validatorNavButton->toolTip() == "Model Testing" ||
+                         validatorNavButton->accessibleName() == "Model Testing"),
+                    "Navigation rail shows Model Testing wording");
+            require(headerTitleLabel && headerTitleLabel->text() == "/ Model Testing",
+                    "Workspace header shows Model Testing");
             require(validatorRunButton != nullptr, "Validator workspace run button exists");
-            require(validatorRunButton && validatorRunButton->text() == "Run Validation",
-                    "Validator workspace uses Run Validation as the primary action");
+            require(validatorRunButton && validatorRunButton->text() == "Test Model",
+                    "Validator workspace uses Test Model as the primary action");
+            require(workspaceContainsText(validatorWorkspace, "Test dataset"),
+                    "Validator workspace shows Test dataset wording");
+            require(workspaceContainsText(validatorWorkspace, "Test results"),
+                    "Validator workspace shows Test results wording");
+            require(workspaceContainsText(validatorWorkspace, "Model testing summary"),
+                    "Validator workspace summary uses Model testing wording");
+            require(!workspaceContainsText(validatorWorkspace, "Training images"),
+                    "Validator workspace no longer shows Training images wording");
             require(validatorModelEdit && !validatorModelEdit->text().trimmed().isEmpty(),
                     "Selected model is carried into the Validator workspace");
             const QString validatorDatasetPath =
@@ -6278,31 +7989,31 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 QDir::fromNativeSeparators(QDir::cleanPath(validatorDatasetPath)).toLower();
             const QString normalizedPreparedDatasetsPath =
                 QDir::fromNativeSeparators(QDir::cleanPath(defaultWorkspacePaths.preparedDatasets)).toLower();
-            require(validatorDatasetEdit != nullptr, "Validator workspace Training images field exists");
+            require(validatorDatasetEdit != nullptr, "Validator workspace Test dataset field exists");
             require(validatorDatasetBrowseButton != nullptr,
-                    "Validator workspace Training images Browse button is named for direct Qt verification");
+                    "Validator workspace Test dataset Browse button is named for direct Qt verification");
             require(validatorDatasetBrowseButton &&
                         validatorDatasetBrowseButton->property("pathSelectionMode").toString() == "file",
-                    "Validator workspace Training images Browse uses a file selector");
+                    "Validator workspace Test dataset Browse uses a file selector");
             require(validatorDatasetBrowseButton &&
                         validatorDatasetBrowseButton->property("fileDialogFilter").toString().contains("*.json"),
-                    "Validator workspace Training images Browse filters for JSON manifests");
+                    "Validator workspace Test dataset Browse filters for JSON manifests");
             require(normalizedValidatorDatasetPath.endsWith("/metadata/dataset_manifest.json"),
-                    "Validator workspace Training images defaults to dataset_manifest.json");
+                    "Validator workspace Test dataset defaults to dataset_manifest.json");
             require(normalizedValidatorDatasetPath.startsWith(normalizedPreparedDatasetsPath),
-                    "Validator workspace Training images default starts in Documents/OpenDSS prepared datasets");
+                    "Validator workspace Test dataset default starts in Documents/OpenDSS prepared datasets");
             require(validatorDatasetEdit && !QFileInfo(validatorDatasetPath).isDir(),
-                    "Validator workspace Training images field does not prefer a folder path");
+                    "Validator workspace Test dataset field does not prefer a folder path");
             if (validatorDatasetEdit && QFileInfo(defaultWorkspacePaths.preparedDataset).isDir()) {
                 const QString manifestPath = validatorDatasetEdit->text();
                 validatorDatasetEdit->setText(defaultWorkspacePaths.preparedDataset);
                 waitForUi(100);
                 require(validatorStatusLabel &&
                             validatorStatusLabel->text().contains("training images JSON manifest", Qt::CaseInsensitive),
-                        "Folder-only Training images selection is blocked as a missing JSON manifest");
+                        "Folder-only Test dataset selection is blocked as a missing JSON manifest");
                 if (validatorRunButton) {
                     require(!validatorRunButton->isEnabled(),
-                            "Folder-only Training images selection does not enable validation");
+                            "Folder-only Test dataset selection does not enable model testing");
                 }
                 validatorDatasetEdit->setText(manifestPath);
                 waitForUi(100);
@@ -6333,14 +8044,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             imageValidationAction->trigger();
             waitForUi(150);
             require(workspaceStack->currentWidget() == validatorWorkspace,
-                    "Validation menu action focuses ValidatorWorkspace");
-            require(!legacyDialogVisible(), "Validation menu action does not open the legacy dialog");
+                    "Model Testing menu action focuses ValidatorWorkspace");
+            require(!legacyDialogVisible(), "Model Testing menu action does not open the legacy dialog");
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
             if (failures.isEmpty()) {
-                logMessage("Validation workspace verifier passed.");
+                logMessage("Model Testing workspace verifier passed.");
             } else {
-                logMessage("Validation workspace verifier failed: " + failures.join("; "));
+                logMessage("Model Testing workspace verifier failed: " + failures.join("; "));
             }
             QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
         });

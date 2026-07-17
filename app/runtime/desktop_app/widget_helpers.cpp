@@ -8,11 +8,52 @@
 #include <QLabel>
 #include <QObject>
 #include <QPushButton>
+#include <QSettings>
 #include <QSizePolicy>
+#include <QSplitter>
 #include <QToolButton>
+#include <QTimer>
+#include <QVariant>
 #include <QVBoxLayout>
 
 namespace desktop_app::ui {
+namespace {
+
+constexpr auto kWorkspaceSplitterSettingsKeyProperty = "_ovdsWorkspaceSplitterSettingsKey";
+constexpr auto kWorkspaceSplitterDefaultSizesProperty = "_ovdsWorkspaceSplitterDefaultSizes";
+
+QVariantList toVariantList(const QList<int>& values) {
+    QVariantList result;
+    result.reserve(values.size());
+    for (const int value : values)
+        result.push_back(value);
+    return result;
+}
+
+QList<int> fromVariantList(const QVariant& value) {
+    QList<int> result;
+    for (const QVariant& item : value.toList())
+        result.push_back(item.toInt());
+    return result;
+}
+
+void applySectionMinimums(QSplitter* splitter, const QList<int>& minimumSectionSizes, const Qt::Orientation orientation) {
+    if (!splitter)
+        return;
+    for (int index = 0; index < splitter->count(); ++index) {
+        splitter->setCollapsible(index, false);
+        if (index >= minimumSectionSizes.size())
+            continue;
+        if (QWidget* section = splitter->widget(index)) {
+            if (orientation == Qt::Horizontal)
+                section->setMinimumWidth(minimumSectionSizes.at(index));
+            else
+                section->setMinimumHeight(minimumSectionSizes.at(index));
+        }
+    }
+}
+
+} // namespace
 
 QFrame* makePanel(const QString& title, const QString& subtitle) {
     auto* panel = new QFrame;
@@ -151,6 +192,51 @@ QLabel* makeMutedLabel(const QString& text) {
     auto* label = new QLabel(text);
     label->setProperty("mutedText", true);
     return label;
+}
+
+void configureWorkspaceSplitter(QSplitter* splitter,
+                                const QString& settingsKey,
+                                const QList<int>& defaultSizes,
+                                const QList<int>& minimumSectionSizes,
+                                const Qt::Orientation orientation) {
+    if (!splitter)
+        return;
+    splitter->setChildrenCollapsible(false);
+    splitter->setOpaqueResize(true);
+    splitter->setProperty(kWorkspaceSplitterSettingsKeyProperty, settingsKey);
+    splitter->setProperty(kWorkspaceSplitterDefaultSizesProperty, toVariantList(defaultSizes));
+    applySectionMinimums(splitter, minimumSectionSizes, orientation);
+    QObject::connect(splitter, &QSplitter::splitterMoved, splitter, [splitter]() { saveWorkspaceSplitterState(splitter); });
+    restoreWorkspaceSplitterState(splitter);
+    QTimer::singleShot(0, splitter, [splitter]() { restoreWorkspaceSplitterState(splitter); });
+}
+
+bool restoreWorkspaceSplitterState(QSplitter* splitter) {
+    if (!splitter)
+        return false;
+    const QString settingsKey = splitter->property(kWorkspaceSplitterSettingsKeyProperty).toString().trimmed();
+    const QList<int> defaultSizes = fromVariantList(splitter->property(kWorkspaceSplitterDefaultSizesProperty));
+    bool restored = false;
+    if (!settingsKey.isEmpty()) {
+        QSettings settings;
+        const QByteArray state = settings.value(settingsKey).toByteArray();
+        if (!state.isEmpty())
+            restored = splitter->restoreState(state);
+    }
+    if (!restored && !defaultSizes.isEmpty())
+        splitter->setSizes(defaultSizes);
+    return restored;
+}
+
+void saveWorkspaceSplitterState(QSplitter* splitter) {
+    if (!splitter)
+        return;
+    const QString settingsKey = splitter->property(kWorkspaceSplitterSettingsKeyProperty).toString().trimmed();
+    if (settingsKey.isEmpty())
+        return;
+    QSettings settings;
+    settings.setValue(settingsKey, splitter->saveState());
+    settings.sync();
 }
 
 } // namespace desktop_app::ui

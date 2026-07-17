@@ -21,6 +21,7 @@ struct SettingsWorkspaceControls {
 
     QLineEdit* cameraSavePathEdit = nullptr;
     QComboBox* cameraPresetCombo = nullptr;
+    QComboBox* computeDeviceCombo = nullptr;
     QDoubleSpinBox* exposureSpin = nullptr;
     QComboBox* daqDeviceCombo = nullptr;
     QLineEdit* daqChannelEdit = nullptr;

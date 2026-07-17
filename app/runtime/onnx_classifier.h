@@ -17,6 +17,7 @@ class OnnxClassifier {
   public:
     OnnxClassifier();
 
+    bool init(const std::string& modelPath, const Metadata& meta, const std::string& requestedDevice, std::string& err);
     bool init(const std::string& modelPath, const Metadata& meta, bool preferCuda, std::string& err);
     bool isReady() const;
     ClassificationResult classify(const cv::Mat& input) const;
@@ -29,6 +30,7 @@ class OnnxClassifier {
     Metadata meta_;
     bool ready_ = false;
     bool useCuda_ = false;
+    std::string lastWarning_;
 
     std::unique_ptr<Ort::Env> env_;
     std::unique_ptr<Ort::Session> session_;

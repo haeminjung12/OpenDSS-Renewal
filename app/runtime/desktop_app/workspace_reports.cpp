@@ -190,7 +190,7 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
 
     auto* reportsRunPanel = makePanel("Reports & runs");
     reportsRunPanel->setObjectName("ReportsRunListPanel");
-    reportsRunPanel->setFixedWidth(320);
+    reportsRunPanel->setMinimumWidth(300);
     auto* reportsRunBody = makePanelBody(reportsRunPanel, 0, 0, 0, 0);
     auto* reportsRunList = new QListWidget;
     nameWidget(reportsRunList, "ReportsWorkspaceRunList");
@@ -322,8 +322,16 @@ QWidget* buildReportsWorkspace(const ReportsWorkspaceControls& controls) {
     reportsRightLayout->addStretch(1);
     reportsRightStack->setLayout(reportsRightLayout);
     reportsRightScroll->setWidget(reportsRightStack);
-    reportsWorkspaceLayout->addWidget(reportsRunPanel, 0);
-    reportsWorkspaceLayout->addWidget(reportsRightScroll, 1);
+    reportsRightScroll->setMinimumWidth(520);
+    auto* reportsWorkspaceSplitter = new QSplitter(Qt::Horizontal);
+    nameWidget(reportsWorkspaceSplitter, "ReportsWorkspaceSplitter");
+    reportsWorkspaceSplitter->addWidget(reportsRunPanel);
+    reportsWorkspaceSplitter->addWidget(reportsRightScroll);
+    reportsWorkspaceSplitter->setStretchFactor(0, 0);
+    reportsWorkspaceSplitter->setStretchFactor(1, 1);
+    desktop_app::ui::configureWorkspaceSplitter(reportsWorkspaceSplitter, "workspace/reports/splitter", {340, 880},
+                                                {300, 520});
+    reportsWorkspaceLayout->addWidget(reportsWorkspaceSplitter, 1);
     reportsWorkspacePage->setLayout(reportsWorkspaceLayout);
 
     auto metricValueLabel = [](QFrame* frame) -> QLabel* {

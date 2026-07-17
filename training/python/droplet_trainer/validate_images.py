@@ -196,21 +196,20 @@ def run_validate_images(args: Any, schema: ClassSchema) -> tuple[dict[str, Any],
     import numpy as np
     import onnxruntime as ort
 
+    available_providers = ort.get_available_providers()
+    warnings = list(metadata_status["warnings"])
     providers = ["CPUExecutionProvider"]
-    if args.device == "cuda" and "CUDAExecutionProvider" in ort.get_available_providers():
+    requested_cuda = args.device == "cuda" or (args.device == "auto" and "CUDAExecutionProvider" in available_providers)
+    if requested_cuda and "CUDAExecutionProvider" in available_providers:
         providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
     elif args.device == "cuda":
-        return {
-            "schema_version": 1,
-            "command": "validate-images",
-            "status": "error",
-            "timestamp": utc_now(),
-            "error": {
-                "code": "VALIDATION_DEVICE_UNAVAILABLE",
-                "message": "CUDA validation was requested but ONNX Runtime CUDA provider is unavailable.",
-                "details": {"available_providers": ort.get_available_providers()},
-            },
-        }, EXIT_MISSING_PACKAGE
+        warnings.append(
+            {
+                "code": "REQUESTED_DEVICE_FALLBACK_CPU",
+                "message": "CUDA validation was requested but ONNX Runtime CUDA provider is unavailable; falling back to CPU.",
+                "details": {"available_providers": available_providers},
+            }
+        )
 
     session = ort.InferenceSession(str(model_path), providers=providers)
     input_meta = session.get_inputs()[0]
@@ -338,7 +337,13 @@ def run_validate_images(args: Any, schema: ClassSchema) -> tuple[dict[str, Any],
             "class_metrics_csv": str(class_metrics_path),
             "failure_cases_csv": str(failure_cases_path),
         },
-        "warnings": metadata_status["warnings"],
+        "device": {
+            "requested": args.device,
+            "selected": "cuda" if providers and providers[0] == "CUDAExecutionProvider" else "cpu",
+            "onnxruntime_providers": available_providers,
+            "session_providers": providers,
+        },
+        "warnings": warnings,
         "errors": errors,
     }
     summary_path.write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -349,6 +354,7 @@ def run_validate_images(args: Any, schema: ClassSchema) -> tuple[dict[str, Any],
         "timestamp": utc_now(),
         "message": "Image validation inference completed.",
         "summary_path": str(summary_path),
+        "warnings": warnings,
         "metadata": metadata_status,
         "dataset": {"path": str(scan["dataset_root"]), "samples_total": len(scan["items"]), "samples_evaluated": len(truth), "class_counts": dict(scan["counts"])},
         "metrics": aggregate_metrics,

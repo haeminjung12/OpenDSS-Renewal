@@ -145,7 +145,7 @@ QString normalizedDatasetSelectionPath(const QString& path) {
             return starterManifest;
         }
     }
-    return info.absoluteFilePath();
+    return QString();
 }
 
 QString trainerDatasetBrowseStartPath(const DatasetWorkspaceController::Dependencies& deps) {
@@ -464,14 +464,14 @@ QString DatasetWorkspaceController::trainerSummaryText(const QString& stateHeadl
     lines << headline;
 
     if (counts.available) {
-        lines << QString("Training image set: %1 total, %2 Target examples, %3 Non-target examples.")
+        lines << QString("Training dataset: %1 total, %2 Target examples, %3 Non-target examples.")
                      .arg(counts.totalCount)
                      .arg(counts.hitCount)
                      .arg(counts.wasteCount);
     } else if (deps_.trainerDatasetEdit && !deps_.trainerDatasetEdit->text().trimmed().isEmpty()) {
-        lines << "Training image set: selected, but counts are not available for this file yet.";
+        lines << "Training dataset: selected, but counts are not available for this file yet.";
     } else {
-        lines << "Training image set: choose an image set file with Target and Non-target examples.";
+        lines << "Training dataset: choose a dataset file with Target and Non-target examples.";
     }
 
     if (deps_.trainerOutputEdit && !deps_.trainerOutputEdit->text().trimmed().isEmpty()) {
@@ -529,9 +529,9 @@ bool DatasetWorkspaceController::trainerSetupReady(QStringList* issues) const {
     }
 
     if (!deps_.trainerDatasetEdit || deps_.trainerDatasetEdit->text().trimmed().isEmpty()) {
-        missing << "choose a training image set file";
+        missing << "choose a training dataset file";
     } else if (!QFileInfo(deps_.trainerDatasetEdit->text().trimmed()).exists()) {
-        missing << "fix the training image set file path";
+        missing << "fix the training dataset file path";
     }
 
     if (!deps_.trainerOutputEdit || deps_.trainerOutputEdit->text().trimmed().isEmpty()) {
@@ -776,8 +776,8 @@ void DatasetWorkspaceController::wireTrainerPathButtons() {
         connect(deps_.trainerDatasetBrowseBtn, &QPushButton::clicked, this, [this]() {
             const QString startPath = trainerDatasetBrowseStartPath(deps_);
             const QString file = QFileDialog::getOpenFileName(
-                deps_.window, "Select training image set file", startPath,
-                "Image set files (*.json);;All files (*.*)");
+                deps_.window, "Select training dataset file", startPath,
+                "Dataset files (*.json);;All files (*.*)");
             if (!file.isEmpty()) {
                 deps_.trainerDatasetEdit->setText(QDir::toNativeSeparators(file));
             }

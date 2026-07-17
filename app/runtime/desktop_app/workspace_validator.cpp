@@ -284,6 +284,39 @@ void clearLayout(QLayout* layout) {
     }
 }
 
+void relabelWorkspaceValidationWidget(ImageValidationWidget* widget) {
+    if (!widget)
+        return;
+
+    if (auto* startButton = widget->findChild<QPushButton*>("ValidatorWorkspaceOpenImageValidationButton"))
+        startButton->setText("Test Model");
+    if (auto* openSummaryButton = widget->findChild<QPushButton*>("ValidatorWorkspaceOpenSummaryButton"))
+        openSummaryButton->setText("Open Test Results");
+    if (auto* openOutputButton = widget->findChild<QPushButton*>("ValidatorWorkspaceOpenOutputButton"))
+        openOutputButton->setText("Open Results Folder");
+    if (auto* artifactLabel = widget->findChild<QLabel*>("ValidatorWorkspaceArtifactLabel"))
+        artifactLabel->setText("No test results yet.");
+
+    auto* rootLayout = qobject_cast<QVBoxLayout*>(widget->layout());
+    if (!rootLayout || rootLayout->count() == 0)
+        return;
+
+    auto* form = qobject_cast<QGridLayout*>(rootLayout->itemAt(0)->layout());
+    if (!form)
+        return;
+
+    const auto setRowLabel = [form](int row, const QString& text) {
+        if (auto* item = form->itemAtPosition(row, 0)) {
+            if (auto* label = qobject_cast<QLabel*>(item->widget()))
+                label->setText(text);
+        }
+    };
+
+    setRowLabel(0, "Test model");
+    setRowLabel(1, "Test dataset");
+    setRowLabel(2, "Test results");
+}
+
 void populateFailureGrid(QWidget* grid, const QStringList& classIds, const QMap<QString, QString>& displayLabels,
                          const QString& failureCasesPath) {
     auto* layout = qobject_cast<QGridLayout*>(grid->layout());
@@ -293,7 +326,7 @@ void populateFailureGrid(QWidget* grid, const QStringList& classIds, const QMap<
     clearLayout(layout);
     const CsvTable csv = readCsvTable(failureCasesPath);
     if (csv.headers.isEmpty() || csv.rows.isEmpty()) {
-        auto* emptyLabel = new QLabel("No misclassified samples in the latest validation run.");
+        auto* emptyLabel = new QLabel("No misclassified samples in the latest model test.");
         emptyLabel->setProperty("mutedText", true);
         emptyLabel->setWordWrap(true);
         layout->addWidget(emptyLabel, 0, 0, 1, 3);
@@ -366,7 +399,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorLeftLayout->setContentsMargins(0, 0, 2, 0);
     validatorLeftLayout->setSpacing(12);
 
-    auto validatorImagePanel = makePanel("Validation", "Run the current model on training images");
+    auto validatorImagePanel = makePanel("Test Model", "Run the current model on a prepared test dataset");
     validatorImagePanel->setObjectName("ValidatorImageValidationPanel");
     auto validatorImageBody = makePanelBody(validatorImagePanel);
     auto* validatorImageWidget =
@@ -374,9 +407,10 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
                                   controls.metadataPath, controls.datasetPath, controls.outputPath,
                                   controls.trainerPythonPath, ImageValidationWidget::ObjectNameMode::Workspace);
     nameWidget(validatorImageWidget, "ValidatorWorkspaceImageValidationWidget");
+    relabelWorkspaceValidationWidget(validatorImageWidget);
     validatorImageBody->addWidget(validatorImageWidget);
 
-    auto validatorReportPanel = makePanel("Latest results", "Validation summary");
+    auto validatorReportPanel = makePanel("Test results", "Model testing summary");
     validatorReportPanel->setObjectName("ValidatorLastReportPanel");
     auto validatorReportBody = makePanelBody(validatorReportPanel);
     auto validatorMetricsRow = new QHBoxLayout;
@@ -391,7 +425,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorMetricsRow->addWidget(reviewMetric.frame);
     validatorReportBody->addLayout(validatorMetricsRow);
 
-    auto validatorSummaryDiagnostic = new QLabel("Choose a model and training images, then run validation.");
+    auto validatorSummaryDiagnostic = new QLabel("Choose a model and test dataset, then run model testing.");
     validatorSummaryDiagnostic->setProperty("mutedText", true);
     validatorSummaryDiagnostic->setWordWrap(true);
     nameWidget(validatorSummaryDiagnostic, "ValidatorWorkspaceSummaryDiagnosticLabel");
@@ -419,7 +453,6 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorRightScroll->setWidgetResizable(true);
     validatorRightScroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     validatorRightScroll->setMinimumWidth(390);
-    validatorRightScroll->setMaximumWidth(460);
     validatorRightScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto validatorRightStack = new QWidget;
     nameWidget(validatorRightStack, "ValidatorWorkspaceRightStack");
@@ -443,8 +476,15 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorRightStack->setLayout(validatorRightLayout);
     validatorRightScroll->setWidget(validatorRightStack);
 
-    validatorWorkspaceLayout->addWidget(validatorLeftScroll, 1);
-    validatorWorkspaceLayout->addWidget(validatorRightScroll, 0);
+    auto* validatorWorkspaceSplitter = new QSplitter(Qt::Horizontal);
+    nameWidget(validatorWorkspaceSplitter, "ValidatorWorkspaceSplitter");
+    validatorWorkspaceSplitter->addWidget(validatorLeftScroll);
+    validatorWorkspaceSplitter->addWidget(validatorRightScroll);
+    validatorWorkspaceSplitter->setStretchFactor(0, 1);
+    validatorWorkspaceSplitter->setStretchFactor(1, 0);
+    desktop_app::ui::configureWorkspaceSplitter(validatorWorkspaceSplitter, "workspace/validator/splitter",
+                                                {760, 400}, {520, 390});
+    validatorWorkspaceLayout->addWidget(validatorWorkspaceSplitter, 1);
     validatorWorkspacePage->setLayout(validatorWorkspaceLayout);
 
     auto refreshReport = [=](const QString& requestedSummaryPath) {
@@ -458,7 +498,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
             setMetricValue(hitMetric, "--");
             setMetricValue(wasteMetric, "--");
             setMetricValue(reviewMetric, "Needs review");
-            validatorSummaryDiagnostic->setText("The latest validation report could not be read: " + parseDiagnostic);
+            validatorSummaryDiagnostic->setText("The latest test results could not be read: " + parseDiagnostic);
             validatorConfusionLabel->setText("Results by label");
             populateConfusionTable(validatorConfusion, QStringList(), QMap<QString, QString>(), QString());
             populateFailureGrid(validatorSampleGrid, QStringList(), QMap<QString, QString>(), QString());
@@ -472,7 +512,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
             setMetricValue(hitMetric, "--");
             setMetricValue(wasteMetric, "--");
             setMetricValue(reviewMetric, "--");
-            validatorSummaryDiagnostic->setText("Choose a model and training images, then run validation.");
+            validatorSummaryDiagnostic->setText("Choose a model and test dataset, then run model testing.");
             validatorConfusionLabel->setText("Results by label");
             populateConfusionTable(validatorConfusion, QStringList(), QMap<QString, QString>(), QString());
             populateFailureGrid(validatorSampleGrid, QStringList(), QMap<QString, QString>(), QString());

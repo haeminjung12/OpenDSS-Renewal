@@ -1,6 +1,6 @@
 # OpenDSS
 
-Open Visual Droplet Sorter for live camera inspection, ONNX-based event classification, and NI hardware triggering on Windows.
+OpenDSS is an open droplet sorting suite for live camera inspection, ONNX-based event classification, and NI hardware triggering on Windows.
 
 <p align="center">
   <img src="assets/branding/opendss-primary-full-color.svg" alt="OpenDSS logo" width="520">
@@ -60,11 +60,11 @@ It is designed for lab setups that use Hamamatsu camera hardware and NI output h
 The release includes trainer helper scripts under `training/python`, but Python, PyTorch, CUDA, datasets, checkpoints, and virtual environments are installed separately by the user. Install Python 3.12 x64, then run this from `training/python`:
 
 ```powershell
-.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
-.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
+.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenDSS\training-venv"
+.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenDSS\training-venv"
 ```
 
-`install-training-cpu.ps1` verifies the environment and updates the app's Python trainer setting to `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv\Scripts\python.exe`.
+`install-training-cpu.ps1` verifies the environment and updates the app's Python trainer setting to `%LOCALAPPDATA%\OpenDSS\training-venv\Scripts\python.exe`.
 
 For GPU training, use one CUDA-specific installer wrapper instead of the CPU installer: `install-training-gpu-cu130.ps1` or `install-training-gpu-cu128.ps1`. Each GPU installer also verifies the environment and updates the app's Python trainer setting to the selected venv.
 

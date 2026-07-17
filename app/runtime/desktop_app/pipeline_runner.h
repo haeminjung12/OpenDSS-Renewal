@@ -19,6 +19,8 @@ struct PipelineConfig {
     std::string targetLabel = "Single";
     bool sortNonTarget = false;
     std::string outputDir;
+    std::string computeDevice = "auto";
+    bool detectorOnly = false;
     bool useCuda = false;
     bool saveCrop = false;
     bool saveOverlay = false;
@@ -58,6 +60,7 @@ class PipelineRunner {
     PipelineRunner() = default;
     ~PipelineRunner();
     bool init(const PipelineConfig& cfg, std::string& err);
+    void clear();
     void reset();
     bool isReady() const;
     bool isTriggerReady() const;
@@ -68,6 +71,7 @@ class PipelineRunner {
     std::string targetClassId() const;
     std::string targetDisplayLabel() const;
     std::string targetDisplayText() const;
+    std::string executionProvider() const;
 
   private:
     static std::string toLowerAscii(const std::string& s);

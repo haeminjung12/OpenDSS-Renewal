@@ -97,10 +97,6 @@ QString preferredDatasetMetadataPath(const QString& path) {
     return info.absoluteFilePath();
 }
 
-QStringList imageNameFilters() {
-    return {"*.png", "*.jpg", "*.jpeg", "*.bmp", "*.tif", "*.tiff", "*.webp"};
-}
-
 QString hiddenExcludeReason(const QString& existingReason) {
     const QString trimmed = existingReason.trimmed();
     return trimmed.isEmpty() ? QString("other") : trimmed;
@@ -220,7 +216,7 @@ class DatasetWorkspaceWidget final : public QWidget {
     enum class FilterMode { All, Class0, Class1, Class2, Excluded, Unreviewed };
 
     struct PendingLoadState {
-        enum class Mode { None, Manifest, FolderScan };
+        enum class Mode { None, Manifest };
 
         Mode mode = Mode::None;
         QString manifestPath;
@@ -229,9 +225,6 @@ class DatasetWorkspaceWidget final : public QWidget {
         QJsonArray rows;
         bool legacyManifestFallback = false;
         int nextIndex = 0;
-        QString folderPath;
-        std::unique_ptr<QDirIterator> scanIterator;
-        QJsonArray scannedManifestItems;
     };
 
     void resetClassSchema(int mode) {
@@ -544,21 +537,21 @@ class DatasetWorkspaceWidget final : public QWidget {
         root->setContentsMargins(10, 10, 10, 10);
         root->setSpacing(0);
 
-        auto* leftPanel = makePanel("Image Set", "Image set file and class setup");
+        auto* leftPanel = makePanel("Dataset", "Dataset file and class setup");
         leftPanel->setMinimumWidth(280);
         leftPanel->setSizePolicy(QSizePolicy::MinimumExpanding, QSizePolicy::Expanding);
         auto* leftBody = makePanelBody(leftPanel);
 
         manifestPathEdit_ = new QLineEdit;
         manifestPathEdit_->setReadOnly(true);
-        manifestPathEdit_->setPlaceholderText("Choose image set file (.json)...");
+        manifestPathEdit_->setPlaceholderText("Choose dataset file (.json)...");
         manifestPathEdit_->setMinimumWidth(0); 
         nameWidget(manifestPathEdit_, "DatasetWorkspaceManifestPathEdit"); 
         auto* browseButton = new QPushButton("Browse"); 
         browseButton->setMaximumWidth(78); 
         nameWidget(browseButton, "DatasetWorkspaceManifestBrowseButton"); 
         auto* browseMenu = new QMenu(browseButton);
-        browseJsonAction_ = browseMenu->addAction("Open Image Set File...");
+        browseJsonAction_ = browseMenu->addAction("Open Dataset File...");
         browseButton->setMenu(browseMenu);
         auto* manifestRow = new QHBoxLayout; 
         manifestRow->setSpacing(6); 
@@ -566,7 +559,7 @@ class DatasetWorkspaceWidget final : public QWidget {
         manifestRow->addWidget(browseButton); 
         auto* manifestLabel = new QLabel;
         nameWidget(manifestLabel, "DatasetWorkspaceManifestLabel");
-        leftBody->addWidget(makeDatasetKeyValue("Image set file", manifestLabel));
+        leftBody->addWidget(makeDatasetKeyValue("Dataset file", manifestLabel));
         leftBody->addLayout(manifestRow);
 
         totalMetricValue_ = new QLabel("0");
@@ -626,7 +619,7 @@ class DatasetWorkspaceWidget final : public QWidget {
         addFilterButton(FilterMode::Unreviewed, "Unreviewed", "DatasetWorkspaceFilterUnreviewedButton", false,
                         leftBody);
 
-        openFolderButton_ = new QPushButton("Open Image Set Folder");
+        openFolderButton_ = new QPushButton("Show Current Folder");
         nameWidget(openFolderButton_, "DatasetWorkspaceOpenFolderButton");
         leftBody->addWidget(openFolderButton_);
         leftBody->addStretch(1);
@@ -808,15 +801,14 @@ class DatasetWorkspaceWidget final : public QWidget {
 
         auto* splitter = new QSplitter(Qt::Horizontal);
         splitter->setObjectName("DatasetWorkspaceSplitter");
-        splitter->setChildrenCollapsible(false);
-        splitter->setOpaqueResize(true);
         splitter->addWidget(leftPanel);
         splitter->addWidget(centerPanel);
         splitter->addWidget(rightPanel);
         splitter->setStretchFactor(0, 1);
         splitter->setStretchFactor(1, 3);
         splitter->setStretchFactor(2, 1);
-        splitter->setSizes({310, 620, 390});
+        desktop_app::ui::configureWorkspaceSplitter(splitter, "workspace/dataset/splitter", {310, 620, 390},
+                                                    {280, 460, 320});
 
         root->addWidget(splitter, 1);
         setMinimumWidth(1000);
@@ -1091,7 +1083,7 @@ class DatasetWorkspaceWidget final : public QWidget {
 
     void wireUi() {
         connect(browseJsonAction_, &QAction::triggered, this, [this]() { browseForDatasetJson(); });
-        connect(openFolderButton_, &QPushButton::clicked, this, [this]() { openManifestFolder(); });
+        connect(openFolderButton_, &QPushButton::clicked, this, [this]() { showCurrentDatasetFolder(); });
         connect(filterGroup_, &QButtonGroup::idClicked, this, [this](int id) {
             filterMode_ = static_cast<FilterMode>(id);
             applyFilters();
@@ -1135,33 +1127,27 @@ class DatasetWorkspaceWidget final : public QWidget {
         });
     }
 
-    void browseForDatasetFolder() {
-        const QString startDir = chooseExistingDirectoryDialogPath(
-            datasetRoot_, defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"));
-        const QString selected =
-            QFileDialog::getExistingDirectory(this, "Select image set folder", startDir, QFileDialog::ShowDirsOnly);
-        if (!selected.isEmpty())
-            loadDatasetPath(selected);
-    }
-
     void browseForDatasetJson() {
         const QString currentPath =
             preferredDatasetMetadataPath(manifestPath_.trimmed().isEmpty() ? datasetRoot_ : manifestPath_);
         const QString startPath = chooseOpenFileDialogPath(
             currentPath, preferredDatasetMetadataPath(defaultOpenDssPreparedDatasetsPath()),
             findPackagedAppPath("datasets/prepared"));
-        const QString selected = QFileDialog::getOpenFileName(this, "Select image set file", startPath,
-                                                              "Image set files (*.json);;All files (*.*)");
+        const QString selected = QFileDialog::getOpenFileName(this, "Select dataset file", startPath,
+                                                              "Dataset files (*.json);;All files (*.*)");
         if (!selected.isEmpty())
             loadDatasetPath(selected);
     }
 
-    void openManifestFolder() {
+    void showCurrentDatasetFolder() {
         QString folder = datasetRoot_;
         if (!manifestPath_.isEmpty())
             folder = QFileInfo(manifestPath_).absolutePath();
-        if (!folder.isEmpty())
+        if (!folder.isEmpty()) {
             QDesktopServices::openUrl(QUrl::fromLocalFile(folder));
+            return;
+        }
+        statusLabel_->setText("Load a dataset file to show its folder.");
     }
 
     CropItem cropFromManifestItem(const QJsonObject& item, int manifestIndex, bool legacyManifestFallback) const {
@@ -1187,19 +1173,6 @@ class DatasetWorkspaceWidget final : public QWidget {
         crop.timestamp = item.value("timestamp").toString();
         crop.excludeReason = item.value("exclude_reason").toString();
         crop.json = item;
-        return crop;
-    }
-
-    CropItem cropFromAbsoluteImagePath(const QString& folder, const QString& absolutePath, int manifestIndex) const {
-        const QFileInfo info(absolutePath);
-        CropItem crop;
-        crop.manifestIndex = manifestIndex;
-        crop.imageId = info.completeBaseName();
-        crop.cropPath = QDir(folder).relativeFilePath(absolutePath);
-        crop.autoLabel = "unknown";
-        crop.reviewState = "unreviewed";
-        crop.timestamp = info.lastModified().toUTC().toString(Qt::ISODate);
-        crop.json = cropToJson(crop);
         return crop;
     }
 
@@ -1242,28 +1215,10 @@ class DatasetWorkspaceWidget final : public QWidget {
 
         isLoading_ = true;
         const int totalRows = pendingLoad_.rows.size();
-        showLoadingPopup("Loading image set",
+        showLoadingPopup("Loading dataset",
                          QString("Loading 0 of %1 items...").arg(totalRows),
                          std::max(totalRows, 1),
                          false);
-        const quint64 generation = loadGeneration_;
-        QTimer::singleShot(0, this, [this, generation]() { processPendingLoadBatch(generation); });
-        return true;
-    }
-
-    bool beginFolderScanLoad(const QString& folder) {
-        if (folder.trimmed().isEmpty() || !QDir(folder).exists())
-            return false;
-
-        pendingLoad_ = PendingLoadState{};
-        pendingLoad_.mode = PendingLoadState::Mode::FolderScan;
-        pendingLoad_.folderPath = folder;
-        pendingLoad_.scanIterator = std::make_unique<QDirIterator>(folder, imageNameFilters(), QDir::Files,
-                                                                   QDirIterator::Subdirectories);
-        pendingLoad_.nextIndex = 0;
-
-        isLoading_ = true;
-        showLoadingPopup("Loading image set", "Scanning review images...", 0, true);
         const quint64 generation = loadGeneration_;
         QTimer::singleShot(0, this, [this, generation]() { processPendingLoadBatch(generation); });
         return true;
@@ -1285,39 +1240,7 @@ class DatasetWorkspaceWidget final : public QWidget {
                 QTimer::singleShot(0, this, [this, generation]() { processPendingLoadBatch(generation); });
                 return;
             }
-            finishPendingLoad("Image set file loaded. Label changes save automatically.");
-            return;
-        }
-
-        if (pendingLoad_.mode == PendingLoadState::Mode::FolderScan) {
-            int processed = 0;
-            while (processed < kLoadBatchSize && pendingLoad_.scanIterator && pendingLoad_.scanIterator->hasNext()) {
-                const QString absolutePath = pendingLoad_.scanIterator->next();
-                CropItem crop =
-                    cropFromAbsoluteImagePath(pendingLoad_.folderPath, absolutePath, pendingLoad_.nextIndex++);
-                items_.push_back(crop);
-                pendingLoad_.scannedManifestItems.append(crop.json);
-                ++processed;
-            }
-            updateLoadingPopup(QString("Scanning review images... %1 found").arg(items_.size()));
-            if (pendingLoad_.scanIterator && pendingLoad_.scanIterator->hasNext()) {
-                QTimer::singleShot(0, this, [this, generation]() { processPendingLoadBatch(generation); });
-                return;
-            }
-
-            QJsonObject root;
-            root["schema_version"] = "dataset-builder-manifest-v1";
-            root["dataset_id"] = QFileInfo(pendingLoad_.folderPath).fileName();
-            root["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-            root["items"] = pendingLoad_.scannedManifestItems;
-            resetClassSchema(2);
-            storeClassSchema(root);
-            updateClassSchemaUi();
-            manifestDoc_ = QJsonDocument(root);
-            manifestPath_ = QDir(pendingLoad_.folderPath).filePath("metadata/dataset_manifest.json");
-            finishPendingLoad(items_.isEmpty()
-                                  ? "No image set file or review images found. Use Browse to choose an image set file."
-                                  : "No image set file found. Review images were scanned and a file will be saved after the first label change.");
+            finishPendingLoad("Dataset file loaded. Label changes save automatically.");
         }
     }
 
@@ -1337,36 +1260,39 @@ class DatasetWorkspaceWidget final : public QWidget {
     }
 
     void loadDatasetPath(const QString& path) {
+        const QString trimmedPath = path.trimmed();
+        const QFileInfo info(trimmedPath);
+        if (trimmedPath.isEmpty()) {
+            statusLabel_->setText("Choose a dataset metadata JSON file.");
+            return;
+        }
+        if (!info.exists()) {
+            statusLabel_->setText("Dataset file not found. Choose a compatible metadata JSON file.");
+            return;
+        }
+        if (!info.isFile()) {
+            statusLabel_->setText("Choose a dataset metadata JSON file, not a folder.");
+            return;
+        }
+
         flushPendingManifestSave();
         cancelPendingLoad();
         clearDataset();
-        const QFileInfo info(path);
-        datasetRoot_ = info.isDir() ? info.absoluteFilePath() : info.absolutePath();
-        QString manifest = info.isFile() ? info.absoluteFilePath() : QString();
-        if (manifest.isEmpty()) {
-            const QDir dir(datasetRoot_);
-            const QString metadataManifest = dir.filePath("metadata/dataset_manifest.json");
-            const QString rootManifest = dir.filePath("manifest.json");
-            if (QFileInfo::exists(metadataManifest))
-                manifest = metadataManifest;
-            else if (QFileInfo::exists(rootManifest))
-                manifest = rootManifest;
-        }
+        const QString manifest = info.absoluteFilePath();
+        const QString manifestDisplayPath = QDir::toNativeSeparators(manifest);
         updateAll();
-        manifestPathEdit_->setText(QDir::toNativeSeparators(!manifest.isEmpty() ? manifest : datasetRoot_));
+        manifestPathEdit_->setText(manifestDisplayPath);
         manifestPathEdit_->setToolTip(manifestPathEdit_->text());
 
         if (shouldUseSynchronousLoad()) {
-            if (!manifest.isEmpty() && loadManifest(manifest)) {
-                statusLabel_->setText("Image set file loaded. Label changes save automatically.");
+            if (loadManifest(manifest)) {
+                statusLabel_->setText("Dataset file loaded. Label changes save automatically.");
             } else {
-                scanFolderForImages(datasetRoot_);
-                statusLabel_->setText(
-                    items_.isEmpty()
-                        ? "No image set file or review images found. Use Browse to choose an image set file."
-                        : "No image set file found. Review images were scanned and a file will be saved after the first label change.");
+                statusLabel_->setText("Dataset file could not be read. Choose a compatible metadata JSON file.");
+                manifestPathEdit_->setText(manifestDisplayPath);
+                manifestPathEdit_->setToolTip(manifestDisplayPath);
             }
-            manifestPathEdit_->setText(manifestPath_.isEmpty() ? QDir::toNativeSeparators(datasetRoot_)
+            manifestPathEdit_->setText(manifestPath_.isEmpty() ? manifestDisplayPath
                                                                : QDir::toNativeSeparators(manifestPath_));
             manifestPathEdit_->setToolTip(manifestPathEdit_->text());
             updateAll();
@@ -1374,16 +1300,14 @@ class DatasetWorkspaceWidget final : public QWidget {
         }
 
         ++loadGeneration_;
-        statusLabel_->setText("Loading image set...");
-        showLoadingPopup("Loading image set", "Opening image set file...", 0, true);
-        if (!manifest.isEmpty() && beginManifestLoad(manifest))
-            return;
-        if (beginFolderScanLoad(datasetRoot_))
+        statusLabel_->setText("Loading dataset...");
+        showLoadingPopup("Loading dataset", "Opening dataset file...", 0, true);
+        if (beginManifestLoad(manifest))
             return;
 
         hideLoadingPopup();
-        statusLabel_->setText("No image set file or review images found. Use Browse to choose an image set file.");
-        manifestPathEdit_->setText(manifestPath_.isEmpty() ? QDir::toNativeSeparators(datasetRoot_)
+        statusLabel_->setText("Dataset file could not be read. Choose a compatible metadata JSON file.");
+        manifestPathEdit_->setText(manifestPath_.isEmpty() ? manifestDisplayPath
                                                            : QDir::toNativeSeparators(manifestPath_));
         manifestPathEdit_->setToolTip(manifestPathEdit_->text());
         updateAll();
@@ -1414,28 +1338,6 @@ class DatasetWorkspaceWidget final : public QWidget {
         for (int i = 0; i < rows.size(); ++i)
             items_.push_back(cropFromManifestItem(rows.at(i).toObject(), i, legacyManifestFallback));
         return true;
-    }
-
-    void scanFolderForImages(const QString& folder) {
-        if (folder.isEmpty())
-            return;
-        QDirIterator it(folder, imageNameFilters(), QDir::Files, QDirIterator::Subdirectories);
-        QJsonArray manifestItems;
-        while (it.hasNext()) {
-            CropItem crop = cropFromAbsoluteImagePath(folder, it.next(), items_.size());
-            items_.push_back(crop);
-            manifestItems.append(crop.json);
-        }
-        QJsonObject root;
-        root["schema_version"] = "dataset-builder-manifest-v1";
-        root["dataset_id"] = QFileInfo(folder).fileName();
-        root["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
-        root["items"] = manifestItems;
-        resetClassSchema(2);
-        storeClassSchema(root);
-        updateClassSchemaUi();
-        manifestDoc_ = QJsonDocument(root);
-        manifestPath_ = QDir(folder).filePath("metadata/dataset_manifest.json");
     }
 
     QJsonObject cropToJson(const CropItem& crop) const {
@@ -1474,6 +1376,7 @@ class DatasetWorkspaceWidget final : public QWidget {
         markBrowserPagesDirty();
         manifestDoc_ = QJsonDocument();
         manifestPath_.clear();
+        datasetRoot_.clear();
         selectedSourceIndex_ = -1;
         currentPage_ = 0;
     }
@@ -1932,14 +1835,14 @@ class DatasetWorkspaceWidget final : public QWidget {
         QFile file(manifestPath_);
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
             if (statusLabel_)
-                statusLabel_->setText("Could not save the image set file: " + QDir::toNativeSeparators(manifestPath_));
+                statusLabel_->setText("Could not save the dataset file: " + QDir::toNativeSeparators(manifestPath_));
             return false;
         }
         file.write(savedDoc.toJson(QJsonDocument::Indented));
         manifestDoc_ = savedDoc;
         pendingManifestItemUpdates_.clear();
         if (statusLabel_)
-            statusLabel_->setText("Saved image-set labels to " + QDir::toNativeSeparators(manifestPath_));
+            statusLabel_->setText("Saved dataset labels to " + QDir::toNativeSeparators(manifestPath_));
         if (manifestPathEdit_)
             manifestPathEdit_->setText(QDir::toNativeSeparators(manifestPath_));
         return true;
@@ -1947,7 +1850,7 @@ class DatasetWorkspaceWidget final : public QWidget {
 
     void scheduleManifestAutosave() {
         if (statusLabel_)
-            statusLabel_->setText("Label applied. Saving image-set file shortly...");
+            statusLabel_->setText("Label applied. Saving dataset file shortly...");
         if (manifestAutosaveTimer_)
             manifestAutosaveTimer_->start();
         else
@@ -2123,21 +2026,29 @@ class DatasetWorkspaceWidget final : public QWidget {
         const QString manifest = qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_MANIFEST").trimmed();
         if (manifest.isEmpty())
             return;
+        if (qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_METADATA_ONLY") == "1") {
+            runVerifierAndMaybeRequestExit(manifest);
+            return;
+        }
         QTimer::singleShot(0, this, [this, manifest]() {
-            const QString outputPath = qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_OUT").trimmed();
-            QJsonObject result = runVerifier(manifest);
-            if (!outputPath.isEmpty()) {
-                QDir().mkpath(QFileInfo(outputPath).absolutePath());
-                QFile out(outputPath);
-                if (out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
-                    out.write(QJsonDocument(result).toJson(QJsonDocument::Indented));
-                }
-            }
-            if (qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_QUIT") == "1") {
-                const int exitCode = result.value("ok").toBool() ? 0 : 2;
-                qApp->setProperty("ovdsDatasetWorkspaceVerifyExitCode", exitCode);
-            }
+            runVerifierAndMaybeRequestExit(manifest);
         });
+    }
+
+    void runVerifierAndMaybeRequestExit(const QString& manifest) {
+        const QString outputPath = qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_OUT").trimmed();
+        QJsonObject result = runVerifier(manifest);
+        if (!outputPath.isEmpty()) {
+            QDir().mkpath(QFileInfo(outputPath).absolutePath());
+            QFile out(outputPath);
+            if (out.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+                out.write(QJsonDocument(result).toJson(QJsonDocument::Indented));
+            }
+        }
+        if (qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_QUIT") == "1") {
+            const int exitCode = result.value("ok").toBool() ? 0 : 2;
+            qApp->setProperty("ovdsDatasetWorkspaceVerifyExitCode", exitCode);
+        }
     }
 
     QJsonObject runVerifier(const QString& manifest) {
@@ -2335,6 +2246,56 @@ class DatasetWorkspaceWidget final : public QWidget {
                            .arg(actualColor.name(QColor::HexRgb)));
             };
 
+        if (qEnvironmentVariable("OVDS_DATASET_WORKSPACE_VERIFY_METADATA_ONLY") == "1") {
+            const QString verifierManifest = makeVerifierWorkingManifest(manifest);
+            loadDatasetPath(verifierManifest);
+
+            const QString loadedManifestPath = manifestPath_;
+            const QString loadedDatasetRoot = datasetRoot_;
+            expect(!loadedManifestPath.isEmpty(), "metadata-only verifier did not load a manifest path");
+            expect(QFileInfo(loadedManifestPath).isFile(), "loaded manifest path is not a file");
+            expect(QFileInfo(loadedManifestPath).canonicalFilePath() == QFileInfo(verifierManifest).canonicalFilePath(),
+                   "metadata-only verifier loaded a different manifest path");
+            expect(items_.size() > 0, "metadata-only verifier did not load manifest items");
+            expect(statusLabel_ && statusLabel_->text().contains("Dataset file loaded", Qt::CaseInsensitive),
+                   "metadata-only verifier did not report a loaded dataset file");
+
+            const QString rejectedFolderPath = QFileInfo(verifierManifest).absolutePath();
+            loadDatasetPath(rejectedFolderPath);
+            expect(manifestPath_ == loadedManifestPath,
+                   "folder load changed the active manifest path after metadata JSON load");
+            expect(datasetRoot_ == loadedDatasetRoot,
+                   "folder load changed the active dataset root after metadata JSON load");
+            expect(statusLabel_ && statusLabel_->text().contains("not a folder", Qt::CaseInsensitive),
+                   "folder load did not report that metadata JSON is required");
+
+            const QMenu* browseMenu = browseButton_ ? browseButton_->menu() : nullptr;
+            expect(browseMenu != nullptr, "Browse button does not own an app menu");
+            if (browseMenu) {
+                QStringList browseActions;
+                for (const QAction* action : browseMenu->actions()) {
+                    if (action)
+                        browseActions << action->text().trimmed();
+                }
+                expect(!browseActions.contains("Open Dataset Folder..."),
+                       "Browse menu still includes the removed folder option.");
+                expect(browseActions.contains("Open Dataset File..."),
+                       "Browse menu is missing Open Dataset File...");
+            }
+            expect(openFolderButton_ && openFolderButton_->text() == "Show Current Folder",
+                   "Dataset folder button label should be Show Current Folder.");
+
+            QJsonObject result;
+            result["ok"] = failures.isEmpty();
+            result["failures"] = QJsonArray::fromStringList(failures);
+            result["mode"] = "metadata_only";
+            result["manifest_path"] = loadedManifestPath;
+            result["dataset_root"] = loadedDatasetRoot;
+            result["loaded_items"] = items_.size();
+            result["folder_load_rejected"] = manifestPath_ == loadedManifestPath && datasetRoot_ == loadedDatasetRoot;
+            return result;
+        }
+
         expectDefaultPalette(desktop_app::theme::ThemeMode::Light, "light");
         expectDefaultPalette(desktop_app::theme::ThemeMode::Dark, "dark");
 
@@ -2342,7 +2303,7 @@ class DatasetWorkspaceWidget final : public QWidget {
         const QByteArray manifestBytesBeforeLoad = readFileBytes(verifierManifest);
         loadDatasetPath(verifierManifest);
         expect(readFileBytes(manifestPath_) == manifestBytesBeforeLoad,
-               "Loading the image set unexpectedly mutated the manifest before any label changes");
+               "Loading the dataset unexpectedly mutated the manifest before any label changes");
         expect(items_.size() == 5, QString("expected 5 manifest rows, got %1").arg(items_.size()));
         expect(filteredIndexes_.size() == 4,
                QString("expected 4 displayable crops, got %1").arg(filteredIndexes_.size()));
@@ -2388,7 +2349,7 @@ class DatasetWorkspaceWidget final : public QWidget {
                    QString("Dataset splitter expected 3 sections, got %1").arg(datasetSplitter->count()));
             expect(!datasetSplitter->childrenCollapsible(), "Dataset splitter sections are collapsible");
             expect(datasetSplitter->widget(0)->maximumWidth() == QWIDGETSIZE_MAX,
-                   "Image Set section still has a fixed maximum width");
+                   "Dataset section still has a fixed maximum width");
             expect(datasetSplitter->widget(2)->maximumWidth() == QWIDGETSIZE_MAX,
                    "Review section still has a fixed maximum width");
             datasetSplitter->setSizes({300, 620, 380});
@@ -2425,11 +2386,13 @@ class DatasetWorkspaceWidget final : public QWidget {
                 if (action)
                     browseActions << action->text().trimmed();
             }
-            expect(!browseActions.contains("Open Image Set Folder..."),
+            expect(!browseActions.contains("Open Dataset Folder..."),
                    "Browse menu still includes the removed folder option.");
-            expect(browseActions.contains("Open Image Set File..."),
-                   "Browse menu is missing Open Image Set File...");
+            expect(browseActions.contains("Open Dataset File..."),
+                   "Browse menu is missing Open Dataset File...");
         }
+        expect(openFolderButton_ && openFolderButton_->text() == "Show Current Folder",
+               "Dataset folder button label should be Show Current Folder.");
 
         const QColor customClassZero("#D93636");
         const QColor customClassOne("#19C46B");

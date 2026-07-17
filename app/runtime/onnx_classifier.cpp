@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <cmath>
 #include <limits>
+#include <string>
+#include <vector>
 #include <opencv2/imgproc.hpp>
 #include "onnxruntime_cxx_api.h"
 #ifdef _WIN32
@@ -29,6 +32,29 @@ std::wstring widenPath(const std::string& path) {
 
 OnnxClassifier::OnnxClassifier() : ready_(false) {}
 
+namespace {
+
+std::string normalizedRequestedDevice(std::string value) {
+    std::transform(value.begin(), value.end(), value.begin(),
+                   [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+    if (value == "gpu")
+        return "cuda";
+    if (value == "cpu" || value == "cuda")
+        return value;
+    return "auto";
+}
+
+bool cudaProviderAvailable() {
+    try {
+        const std::vector<std::string> providers = Ort::GetAvailableProviders();
+        return std::find(providers.begin(), providers.end(), "CUDAExecutionProvider") != providers.end();
+    } catch (...) {
+        return false;
+    }
+}
+
+} // namespace
+
 void OnnxClassifier::setupNormalizationLuts() {
     normMean_.assign(meta_.inputC, 0.0f);
     normScale_.assign(meta_.inputC, 1.0f);
@@ -46,7 +72,13 @@ void OnnxClassifier::setupNormalizationLuts() {
 }
 
 bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, bool preferCuda, std::string& err) {
+    return init(modelPath, meta, preferCuda ? std::string("cuda") : std::string("cpu"), err);
+}
+
+bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, const std::string& requestedDevice,
+                          std::string& err) {
     meta_ = meta;
+    lastWarning_.clear();
     if (meta_.inputH <= 0 || meta_.inputW <= 0) {
         err = "invalid input_size in metadata";
         return false;
@@ -94,23 +126,29 @@ bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, bo
         }
     };
 
+    const std::string normalizedDevice = normalizedRequestedDevice(requestedDevice);
+    const bool explicitCuda = normalizedDevice == "cuda";
+    const bool preferCuda = explicitCuda || (normalizedDevice == "auto" && cudaProviderAvailable());
     bool usingCuda = false;
     std::string sessionErr;
     session_ = createSessionWithOptions(preferCuda, &sessionErr);
     usingCuda = preferCuda && session_;
     if (!session_ && preferCuda) {
-        err = sessionErr;
+        const std::string fallbackReason = sessionErr;
         std::string cpuErr;
         session_ = createSessionWithOptions(false, &cpuErr);
         sessionErr = cpuErr;
+        if (session_ && explicitCuda) {
+            lastWarning_ = fallbackReason.empty()
+                               ? "CUDA provider unavailable or failed to initialize; falling back to CPU"
+                               : fallbackReason;
+        }
     }
     if (!session_) {
         err = sessionErr.empty() ? "failed to create ONNX session" : sessionErr;
         return false;
     }
-    if (preferCuda && !usingCuda) {
-        err.clear();
-    }
+    err = lastWarning_;
 
     useCuda_ = usingCuda;
 

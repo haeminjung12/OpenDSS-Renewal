@@ -2,11 +2,11 @@
   #error SourceDir not defined. Use /DSourceDir="C:\path\to\portable\folder"
 #endif
 
-#define AppName "Visual Droplet Sorting"
+#define AppName "OpenDSS"
 #define AppVersion "1.0.0"
 #define AppPublisher "haeminjung"
-#define AppExeName "OpenVisualDropletSorter.exe"
-#define DefaultDirName "{pf}\VisualDropletSorting"
+#define AppExeName "OpenDSS.exe"
+#define DefaultDirName "{pf}\OpenDSS"
 #ifndef OutputDir
   #define OutputDir SourcePath + "\output"
 #endif
@@ -20,7 +20,7 @@ DefaultDirName={#DefaultDirName}
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir={#OutputDir}
-OutputBaseFilename=VisualDropletSortingSetup
+OutputBaseFilename=OpenDSSSetup
 Compression=lzma
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64

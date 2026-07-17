@@ -146,7 +146,7 @@ void appendUpwardCandidates(std::vector<fs::path>& candidates, fs::path dir, con
 
 void printUsage() {
     std::cout << "Usage:\n"
-                 "  OpenVisualDropletSorter.exe --cli [--onnx <model.onnx>] [--metadata <metadata.json>] [options]\n"
+                 "  OpenDSS.exe --cli [--onnx <model.onnx>] [--metadata <metadata.json>] [options]\n"
                  "\n"
                  "Defaults:\n"
                  "  --onnx     app/runtime/models/squeezenet_final_new_condition.onnx\n"

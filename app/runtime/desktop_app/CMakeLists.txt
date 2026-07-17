@@ -81,6 +81,10 @@ add_executable(desktop_app
   background_task_registry.h
   app_utils.cpp
   app_utils.h
+  collection_postprocessor.cpp
+  collection_postprocessor.h
+  live_data_collection_writer.cpp
+  live_data_collection_writer.h
   live_log_writer.cpp
   live_log_writer.h
   model_registry_service.cpp
@@ -156,7 +160,7 @@ if (WIN32)
 endif()
 
 set_target_properties(desktop_app PROPERTIES
-  OUTPUT_NAME OpenVisualDropletSorter
+  OUTPUT_NAME OpenDSS
 )
 
 target_include_directories(desktop_app PRIVATE

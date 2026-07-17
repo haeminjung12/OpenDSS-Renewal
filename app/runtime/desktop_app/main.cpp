@@ -35,6 +35,31 @@ bool hasArgument(int argc, char* argv[], const QString& expected) {
     return false;
 }
 
+void preferBundledQtPlugins(int argc, char* argv[]) {
+    QString executablePath;
+#ifdef _WIN32
+    wchar_t modulePath[MAX_PATH] = {};
+    const DWORD modulePathLength = GetModuleFileNameW(nullptr, modulePath, MAX_PATH);
+    if (modulePathLength > 0 && modulePathLength < MAX_PATH)
+        executablePath = QString::fromWCharArray(modulePath, static_cast<int>(modulePathLength));
+#endif
+    if (argc > 0 && argv && argv[0])
+        executablePath = executablePath.isEmpty() ? QString::fromLocal8Bit(argv[0]) : executablePath;
+    const QFileInfo executableInfo(executablePath);
+    const QString appDirPath = executableInfo.exists() ? executableInfo.absolutePath() : QDir::currentPath();
+    const QDir appDir(appDirPath);
+    const QString platformsDir = appDir.filePath(QStringLiteral("platforms"));
+    if (!QFileInfo(appDir.filePath(QStringLiteral("platforms/qwindows.dll"))).isFile())
+        return;
+
+    QStringList libraryPaths;
+    libraryPaths << appDir.absolutePath();
+    const QString pluginRoot = appDir.filePath(QStringLiteral("plugins"));
+    if (QFileInfo(pluginRoot).isDir())
+        libraryPaths << QFileInfo(pluginRoot).absoluteFilePath();
+    QCoreApplication::setLibraryPaths(libraryPaths);
+    qputenv("QT_QPA_PLATFORM_PLUGIN_PATH", QFileInfo(platformsDir).absoluteFilePath().toLocal8Bit());
+}
 void setOpenDssApplicationIdentity() {
     QCoreApplication::setOrganizationName(kOrganizationName);
     QCoreApplication::setApplicationName(kApplicationName);
@@ -242,6 +267,7 @@ int runDatasetWorkspaceMetadataOnlyVerifier(int argc, char* argv[]) {
 } // namespace
 
 int main(int argc, char* argv[]) {
+    preferBundledQtPlugins(argc, argv);
     if (qEnvironmentVariableIntValue("OVDS_VERIFY_SETTINGS_MIGRATION") != 0 ||
         hasArgument(argc, argv, QStringLiteral("--verify-settings-migration"))) {
         return runSettingsMigrationVerifier(argc, argv);

@@ -314,6 +314,14 @@ QJsonObject targetPolicyFromMetadata(const QJsonObject& metadata) {
     targetPolicy["target_class_id"] = "1";
     targetPolicy["target_display_label"] = displayLabels.value("1").toString("Target");
     targetPolicy["trigger_rule"] = "trigger_on_target_class";
+    QJsonArray nonTargetClassIds;
+    for (const QJsonValue& value : classes) {
+        const QString classId = value.toString().trimmed();
+        if (!classId.isEmpty() && classId != "1")
+            nonTargetClassIds.append(classId);
+    }
+    if (!nonTargetClassIds.isEmpty())
+        targetPolicy["non_target_class_ids"] = nonTargetClassIds;
     if (jsonArrayContainsString(classes, "0")) {
         targetPolicy["waste_class_id"] = "0";
         targetPolicy["waste_display_label"] = displayLabels.value("0").toString("Non-target");
@@ -381,14 +389,27 @@ QJsonObject targetPolicyForActivation(const QJsonObject& entry, const QJsonObjec
 bool targetPolicyReadableForActivation(const QJsonObject& targetPolicy, const QStringList& classIds) {
     const QString targetClassId = firstNonEmpty(
         {targetPolicy.value("target_class_id").toString(), targetPolicy.value("targetClassId").toString()});
-    const QString nonTargetClassId = firstNonEmpty({targetPolicy.value("waste_class_id").toString(),
-                                                    targetPolicy.value("non_target_class_id").toString(),
-                                                    targetPolicy.value("nontarget_class_id").toString()});
-    if (targetClassId.isEmpty() || nonTargetClassId.isEmpty())
+    QStringList nonTargetClassIds;
+    const QString legacyNonTargetClassId = firstNonEmpty({targetPolicy.value("waste_class_id").toString(),
+                                                          targetPolicy.value("non_target_class_id").toString(),
+                                                          targetPolicy.value("nontarget_class_id").toString()});
+    if (!legacyNonTargetClassId.isEmpty())
+        nonTargetClassIds << legacyNonTargetClassId;
+    const QJsonArray nonTargetArray = targetPolicy.value("non_target_class_ids").toArray();
+    for (const QJsonValue& value : nonTargetArray) {
+        const QString classId = value.toString().trimmed();
+        if (!classId.isEmpty() && !nonTargetClassIds.contains(classId))
+            nonTargetClassIds << classId;
+    }
+    if (targetClassId.isEmpty() || nonTargetClassIds.isEmpty())
         return false;
     if (!classIds.isEmpty()) {
-        if (!classIds.contains(targetClassId) || !classIds.contains(nonTargetClassId))
+        if (!classIds.contains(targetClassId))
             return false;
+        for (const QString& nonTargetClassId : nonTargetClassIds) {
+            if (!classIds.contains(nonTargetClassId))
+                return false;
+        }
     }
     return true;
 }

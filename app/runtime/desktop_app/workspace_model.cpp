@@ -1542,6 +1542,22 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
                               metadataObject({"0", "1"},
                                              QJsonObject{{"0", "Non-target"}, {"1", "Target"}}, true),
                               "Ready model B metadata");
+                const QString ternaryDir = QDir(tempDir.path()).filePath("ternary_ready");
+                const QString ternaryModel = QDir(ternaryDir).filePath("model.onnx");
+                const QString ternaryMetadata = QDir(ternaryDir).filePath("metadata.json");
+                writeTextFile(ternaryModel, "model-ternary", "Ready 3-class model");
+                QJsonObject ternaryPolicy{{"mode", "trigger_on_target_class"},
+                                          {"target_class_id", "1"},
+                                          {"target_display_label", "Single"},
+                                          {"non_target_class_ids", QJsonArray{"0", "2"}},
+                                          {"trigger_rule", "trigger_on_target_class"},
+                                          {"waste_class_id", QJsonValue::Null},
+                                          {"waste_display_label", QJsonValue::Null}};
+                QJsonObject ternaryMetadataObject =
+                    metadataObject({"0", "1", "2"},
+                                   QJsonObject{{"0", "Empty"}, {"1", "Single"}, {"2", "MoreThanOne"}}, true);
+                ternaryMetadataObject["sorting_policy"] = ternaryPolicy;
+                writeJsonFile(ternaryMetadata, ternaryMetadataObject, "Ready 3-class model metadata");
 
                 const QString readyEntryIdA = QString("verify_ready_a_%1").arg(QCoreApplication::applicationPid());
                 const QString readyEntryIdB = QString("verify_ready_b_%1").arg(QCoreApplication::applicationPid());
@@ -1551,6 +1567,11 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
                 const QJsonObject readyEntryB =
                     appendVerifierEntry(entryObject(readyEntryIdB, "Verifier ready B", promotedModelB, promotedMetadataB),
                                         "Ready model B entry persists");
+                const QString ternaryEntryId = QString("verify_ternary_ready_%1").arg(QCoreApplication::applicationPid());
+                const QJsonObject ternaryEntry =
+                    appendVerifierEntry(
+                        entryObject(ternaryEntryId, "Verifier ready 3-class", ternaryModel, ternaryMetadata),
+                        "Ready 3-class model entry persists");
 
                 selectRegistryRow(registryEntryId(readyEntryA), 0);
                 updateModelWorkspaceDetails();
@@ -1566,6 +1587,13 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
                         "Ready promoted model becomes selectable after Set Active");
                 require(registryString(persistedReadyA, "state") == "promoted_current",
                         "Ready promoted model becomes promoted_current after Set Active");
+
+                selectRegistryRow(registryEntryId(ternaryEntry), 0);
+                updateModelWorkspaceDetails();
+                const ActiveModelReadiness ternaryReadiness = evaluateActiveModelReadiness(currentRowEntry());
+                require(ternaryReadiness.ready,
+                        "3-class target/non-target policy with non_target_class_ids is ready for activation");
+                require(setActiveButton->isEnabled(), "3-class ready model keeps Set Active enabled");
 
                 const QByteArray originalUserProfile = qgetenv("USERPROFILE");
                 const QString syntheticUserProfile = QDir(tempDir.path()).filePath("profile_root");

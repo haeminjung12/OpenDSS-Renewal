@@ -1,4 +1,5 @@
 #include "main_window.h"
+#include "trainer_plot_math.h"
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -215,6 +216,14 @@ QString documentedTrainerPythonExecutable(const QString& venvName) {
     return QDir(root).absoluteFilePath(QStringLiteral("OpenDSS/%1/Scripts/python.exe").arg(venvName));
 }
 
+QString legacyTrainerPythonExecutable(const QString& venvName) {
+    const QString root = localAppDataRootForTrainer();
+    if (root.isEmpty())
+        return QString();
+    return QDir(root).absoluteFilePath(
+        QStringLiteral("OpenVisualDropletSorter/%1/Scripts/python.exe").arg(venvName));
+}
+
 bool sameCleanPath(const QString& left, const QString& right) {
     return QDir::cleanPath(QFileInfo(left).absoluteFilePath())
                .compare(QDir::cleanPath(QFileInfo(right).absoluteFilePath()), Qt::CaseInsensitive) == 0;
@@ -224,23 +233,241 @@ QString resolvedTrainerPythonExecutable(const QString& savedValue, const QString
     const QString saved = savedValue.trimmed();
     const QString cpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv"));
     const QString gpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv-gpu"));
+    const QString legacyCpuPython = legacyTrainerPythonExecutable(QStringLiteral("training-venv"));
+    const QString legacyGpuPython = legacyTrainerPythonExecutable(QStringLiteral("training-venv-gpu"));
     const bool cpuExists = QFileInfo(cpuPython).isFile();
     const bool gpuExists = QFileInfo(gpuPython).isFile();
+    const bool legacyCpuExists = QFileInfo(legacyCpuPython).isFile();
+    const bool legacyGpuExists = QFileInfo(legacyGpuPython).isFile();
     const QString normalizedDevice = computeDevice.trimmed().toLower();
-    const QString preferred = normalizedDevice == QLatin1String("cuda") && gpuExists ? gpuPython : cpuPython;
+    const bool wantsGpu = normalizedDevice == QLatin1String("cuda");
+    const QString preferred = wantsGpu
+                                  ? (gpuExists ? gpuPython : (legacyGpuExists ? legacyGpuPython : gpuPython))
+                                  : (cpuExists ? cpuPython : (legacyCpuExists ? legacyCpuPython : cpuPython));
 
+    if (QFileInfo(saved).isFile()) {
+        const bool savedIsKnownCpu = sameCleanPath(saved, cpuPython) || sameCleanPath(saved, legacyCpuPython);
+        const bool savedIsKnownGpu = sameCleanPath(saved, gpuPython) || sameCleanPath(saved, legacyGpuPython);
+        if ((savedIsKnownCpu || savedIsKnownGpu) && wantsGpu != savedIsKnownGpu)
+            return preferred;
+        return saved;
+    }
     if (saved.isEmpty() || saved.compare(QStringLiteral("python"), Qt::CaseInsensitive) == 0)
         return preferred;
     if (sameCleanPath(saved, gpuPython) && normalizedDevice != QLatin1String("cuda") && cpuExists)
         return cpuPython;
-    if (QFileInfo(saved).isFile())
-        return saved;
     if (normalizedDevice == QLatin1String("cuda") && gpuExists)
         return gpuPython;
     // Old installs may still point at the previous local-app-data trainer path.
-    if (cpuExists || saved.contains(QStringLiteral("OpenVisualDropletSorter"), Qt::CaseInsensitive))
-        return cpuPython;
-    return saved;
+    if (cpuExists || legacyCpuExists || saved.contains(QStringLiteral("OpenVisualDropletSorter"), Qt::CaseInsensitive))
+        return preferred;
+    // Never allow a stale persisted executable to reach QProcess. Returning the
+    // documented path also gives setup UI one stable, actionable location.
+    return preferred;
+}
+
+struct TrainerUiEvent {
+    QString type;
+    QString errorCode;
+    QString stage;
+    int stageEpoch = 0;
+    int globalEpoch = 0;
+    int epoch = 0;
+    int epochs = 0;
+    int batch = 0;
+    int batches = 0;
+    double percent = -1.0;
+    double trainLoss = -1.0;
+    double validationLoss = -1.0;
+    double accuracy = -1.0;
+    double macroF1 = -1.0;
+    double elapsedSeconds = -1.0;
+};
+
+bool parseTrainerUiEvent(const QString& line, TrainerUiEvent* parsed) {
+    if (!parsed)
+        return false;
+    QJsonParseError error;
+    const QJsonDocument document = QJsonDocument::fromJson(line.trimmed().toUtf8(), &error);
+    if (error.error != QJsonParseError::NoError || !document.isObject())
+        return false;
+    const QJsonObject object = document.object();
+    const QJsonObject metrics = object.value("metrics").toObject();
+    const QJsonObject errorObject = object.value("error").toObject();
+    const QJsonObject checkpoint = object.value("checkpoint").toObject();
+    parsed->type = object.value("event").toString(object.value("type").toString()).trimmed().toLower();
+    parsed->errorCode = object.value("error_code").toString(
+        object.value("code").toString(errorObject.value("code").toString())).trimmed().toLower();
+    parsed->stage = object.value("stage").toString(object.value("phase").toString()).trimmed();
+    parsed->stageEpoch = object.value("epoch").toInt(object.value("current").toInt());
+    parsed->globalEpoch = object.value("global_epoch").toInt(parsed->stageEpoch);
+    parsed->epoch = parsed->stageEpoch;
+    parsed->epochs = object.value("epochs").toInt(object.value("total_epochs").toInt(object.value("total").toInt()));
+    parsed->batch = object.value("batch").toInt();
+    parsed->batches = object.value("batches").toInt(object.value("total_batches").toInt());
+    parsed->percent = object.value("percent").toDouble(-1.0);
+    parsed->trainLoss = object.value("train_loss").toDouble(
+        metrics.value("train_loss").toDouble(object.value("loss").toDouble(-1.0)));
+    parsed->validationLoss = object.value("validation_loss").toDouble(
+        metrics.value("val_loss").toDouble(object.value("val_loss").toDouble(-1.0)));
+    parsed->accuracy = object.value("accuracy").toDouble(
+        metrics.value("val_accuracy").toDouble(object.value("validation_accuracy").toDouble(-1.0)));
+    parsed->macroF1 = object.value("macro_f1").toDouble(metrics.value("val_macro_f1").toDouble(-1.0));
+    parsed->elapsedSeconds = object.value("elapsed_seconds").toDouble(metrics.value("elapsed_seconds").toDouble(-1.0));
+    if (parsed->macroF1 < 0.0 && checkpoint.value("metric").toString() == "val_macro_f1")
+        parsed->macroF1 = checkpoint.value("value").toDouble(-1.0);
+    return !parsed->type.isEmpty();
+}
+
+QString trainerPlainLanguageError(const QString& code) {
+    if (code.contains("cuda") || code.contains("gpu"))
+        return QStringLiteral("GPU training is unavailable.");
+    if (code.contains("memory"))
+        return QStringLiteral("The GPU did not have enough memory. Reduce the batch size or use the CPU.");
+    if (code.contains("dataset"))
+        return QStringLiteral("This dataset cannot be used for training. Check its metadata and images.");
+    if (code.contains("python") || code.contains("environment") || code.contains("package"))
+        return QStringLiteral("Training tools are not installed or configured.");
+    return QStringLiteral("Training could not continue. Open Detailed log for technical information.");
+}
+
+QString conciseModelLoadFailure(const QString& detail) {
+    const QString normalized = detail.simplified();
+    if (normalized.contains("external data", Qt::CaseInsensitive) ||
+        normalized.contains(".onnx.data", Qt::CaseInsensitive))
+        return QStringLiteral("Model data file is missing");
+    if (normalized.contains("metadata", Qt::CaseInsensitive) &&
+        normalized.contains("missing", Qt::CaseInsensitive))
+        return QStringLiteral("Model details are missing");
+    if (normalized.contains("model", Qt::CaseInsensitive) &&
+        normalized.contains("missing", Qt::CaseInsensitive))
+        return QStringLiteral("Model file is missing");
+    if (normalized.contains("label", Qt::CaseInsensitive) || normalized.contains("class", Qt::CaseInsensitive))
+        return QStringLiteral("Model labels are invalid");
+    if (normalized.contains("onnx", Qt::CaseInsensitive))
+        return QStringLiteral("Model file could not be opened");
+    return QStringLiteral("Model could not be loaded");
+}
+
+void renderTrainerCurves(QLabel* canvas, const QVector<QPointF>& first, const QVector<QPointF>& second,
+                         const QColor& firstColor, const QColor& secondColor) {
+    if (!canvas)
+        return;
+    QPixmap plot(760, 240);
+    plot.fill(Qt::transparent);
+    QPainter painter(&plot);
+    painter.setRenderHint(QPainter::Antialiasing);
+    const QRectF bounds(62, 24, 670, 170);
+    const QColor gridColor(125, 135, 145, 105);
+    painter.setFont(QFont(painter.font().family(), 9));
+    painter.setPen(QPen(gridColor, 1));
+    for (int tick = 0; tick <= 4; ++tick) {
+        const qreal y = bounds.bottom() - bounds.height() * tick / 4.0;
+        painter.drawLine(QPointF(bounds.left(), y), QPointF(bounds.right(), y));
+    }
+    painter.drawLine(bounds.bottomLeft(), bounds.bottomRight());
+    painter.drawLine(bounds.bottomLeft(), bounds.topLeft());
+
+    double maximum = 0.0;
+    int maximumEpoch = 1;
+    for (const auto& series : {first, second}) {
+        for (const QPointF& point : series) {
+            maximum = qMax(maximum, point.y());
+            maximumEpoch = qMax(maximumEpoch, qRound(point.x()));
+        }
+    }
+    maximum = qMax(maximum, 0.0001);
+    painter.setPen(QColor(75, 82, 90));
+    QVector<int> epochTicks;
+    if (maximumEpoch <= 5) {
+        for (int epoch = 1; epoch <= maximumEpoch; ++epoch)
+            epochTicks.push_back(epoch);
+    } else {
+        for (int tick = 0; tick <= 4; ++tick) {
+            const int epoch = qRound(1.0 + (maximumEpoch - 1.0) * tick / 4.0);
+            if (epochTicks.isEmpty() || epochTicks.constLast() != epoch)
+                epochTicks.push_back(epoch);
+        }
+    }
+    const auto epochX = [&](double epoch) {
+        return desktop_app::trainerEpochX(bounds.left(), bounds.width(), maximumEpoch, epoch);
+    };
+    for (int epoch : epochTicks) {
+        const qreal x = epochX(epoch);
+        painter.setPen(QPen(gridColor, 1));
+        painter.drawLine(QPointF(x, bounds.top()), QPointF(x, bounds.bottom()));
+        painter.setPen(QColor(75, 82, 90));
+        painter.drawText(QRectF(x - 25, bounds.bottom() + 4, 50, 18), Qt::AlignCenter,
+                         QString::number(epoch));
+    }
+    for (int tick = 0; tick <= 4; ++tick) {
+        const qreal y = bounds.bottom() - bounds.height() * tick / 4.0;
+        painter.drawText(QRectF(2, y - 9, 54, 18), Qt::AlignRight | Qt::AlignVCenter,
+                         QString::number(maximum * tick / 4.0, 'g', 3));
+    }
+    painter.drawText(QRectF(bounds.left(), 215, bounds.width(), 20), Qt::AlignCenter, "Epoch");
+    painter.save();
+    painter.translate(14, bounds.center().y());
+    painter.rotate(-90);
+    painter.drawText(QRectF(-bounds.height() / 2, -10, bounds.height(), 20), Qt::AlignCenter,
+                     canvas->objectName().contains("Loss") ? "Loss" : "Score");
+    painter.restore();
+    const auto drawSeries = [&](const QVector<QPointF>& series, const QColor& color) {
+        if (series.isEmpty())
+            return;
+        QPainterPath path;
+        for (int index = 0; index < series.size(); ++index) {
+            const QPointF source = series.at(index);
+            const QPointF mapped(epochX(source.x()),
+                                 bounds.bottom() - bounds.height() * source.y() / maximum);
+            index == 0 ? path.moveTo(mapped) : path.lineTo(mapped);
+        }
+        painter.setPen(QPen(color, 3));
+        painter.drawPath(path);
+        painter.setBrush(color);
+        for (const QPointF& source : series) {
+            const QPointF mapped(epochX(source.x()),
+                                 bounds.bottom() - bounds.height() * source.y() / maximum);
+            painter.drawEllipse(mapped, 3.5, 3.5);
+        }
+    };
+    drawSeries(first, firstColor);
+    drawSeries(second, secondColor);
+    const bool lossPlot = canvas->objectName().contains("Loss");
+    const QString firstLegend = lossPlot ? QStringLiteral("Training loss") : QStringLiteral("Validation accuracy");
+    const QString secondLegend = lossPlot ? QStringLiteral("Validation loss") : QStringLiteral("Macro F1");
+    const auto drawLegend = [&](int x, const QColor& color, const QString& label) {
+        painter.setPen(QPen(color, 3));
+        painter.drawLine(x, 12, x + 20, 12);
+        painter.setBrush(color);
+        painter.drawEllipse(QPointF(x + 10, 12), 3.0, 3.0);
+        painter.setPen(QColor(75, 82, 90));
+        painter.drawText(x + 25, 17, label);
+    };
+    drawLegend(lossPlot ? 430 : 390, firstColor, firstLegend);
+    drawLegend(lossPlot ? 575 : 570, secondColor, secondLegend);
+    if (first.isEmpty() && second.isEmpty()) {
+        painter.drawText(bounds.adjusted(12, 12, -12, -12), Qt::AlignCenter,
+                         "Training results will appear here.");
+    }
+    canvas->setText(QString());
+    canvas->setPixmap(plot);
+    canvas->setScaledContents(true);
+}
+
+void upsertTrainerHistoryPoint(QVector<QPointF>& history, int globalEpoch, double value) {
+    if (globalEpoch <= 0)
+        return;
+    for (QPointF& point : history) {
+        if (qRound(point.x()) == globalEpoch) {
+            point.setY(value);
+            return;
+        }
+    }
+    history.push_back(QPointF(globalEpoch, value));
+    std::sort(history.begin(), history.end(), [](const QPointF& left, const QPointF& right) {
+        return left.x() < right.x();
+    });
 }
 
 QString modelsRootForSaveModelUi() {
@@ -320,8 +547,15 @@ QString promptForTrainedModelName(QWidget* parent, const QString& defaultName) {
     });
     layout->addWidget(buttons);
 
-    if (dialog.exec() != QDialog::Accepted)
+    if (dialog.exec() != QDialog::Accepted) {
+        const auto discard = QMessageBox::question(
+            parent, "Discard trained model?",
+            "Discard this completed training result? The diagnostic log will be kept.",
+            QMessageBox::Discard | QMessageBox::Cancel, QMessageBox::Cancel);
+        if (discard != QMessageBox::Discard)
+            return promptForTrainedModelName(parent, nameEdit->text().trimmed());
         return {};
+    }
     return nameEdit->text().trimmed();
 }
 
@@ -423,8 +657,10 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     require(trainerStartingModelCombo != nullptr, "Trainer starting-model combo exists");
 
     QTemporaryDir tempDir(QDir::tempPath() + "/ovds_trainer_registration_verify_XXXXXX");
-    require(tempDir.isValid(), "Verifier temp run directory is available");
-    const QString runDir = tempDir.path();
+    const QString persistentRoot = qEnvironmentVariable("OVDS_VERIFY_LIFECYCLE_ROOT").trimmed();
+    require(tempDir.isValid() || !persistentRoot.isEmpty(), "Verifier run directory is available");
+    const QString runDir = persistentRoot.isEmpty() ? tempDir.path() : QDir(persistentRoot).filePath("completed_run");
+    require(QDir().mkpath(runDir), "Verifier creates isolated completed-run folder");
     const QString modelPath = QDir(runDir).filePath("model.onnx");
     const QString modelSidecarPath = QDir(runDir).filePath("model.onnx.data");
     const QString metadataPath = QDir(runDir).filePath("metadata.json");
@@ -433,34 +669,50 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     const QString trainingConfigPath = QDir(runDir).filePath("training_config.json");
     const QString classMetricsPath = QDir(runDir).filePath("class_metrics.csv");
     const QString confusionMatrixPath = QDir(runDir).filePath("confusion_matrix.csv");
+    const QString realPackagePath = qEnvironmentVariable("OVDS_VERIFY_REAL_MODEL_PACKAGE").trimmed();
+    const bool usingRealPackage = !realPackagePath.isEmpty();
+    if (usingRealPackage) {
+        const QDir package(realPackagePath);
+        require(QFileInfo(package.filePath("model.onnx")).isFile(), "Real verifier package contains model.onnx");
+        require(QFileInfo(package.filePath("checkpoint.pth")).isFile(), "Real verifier package contains checkpoint.pth");
+        require(QFileInfo(package.filePath("metadata.json")).isFile(), "Real verifier package contains metadata.json");
+        require(QFile::copy(package.filePath("model.onnx"), modelPath), "Verifier copies real embedded ONNX artifact");
+        require(QFile::copy(package.filePath("checkpoint.pth"), QDir(runDir).filePath("checkpoint.pth")),
+                "Verifier copies real checkpoint artifact");
+        require(QFile::copy(package.filePath("metadata.json"), metadataPath), "Verifier copies real metadata artifact");
+    }
 
     QFile modelFile(modelPath);
+    if (!usingRealPackage) {
     require(modelFile.open(QIODevice::WriteOnly | QIODevice::Truncate), "Verifier can write synthetic ONNX artifact");
     if (modelFile.isOpen()) {
         modelFile.write("synthetic verifier model");
         modelFile.close();
     }
+    }
     QFile sidecarFile(modelSidecarPath);
+    if (!usingRealPackage) {
     require(sidecarFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
             "Verifier can write synthetic ONNX external-data sidecar");
     if (sidecarFile.isOpen()) {
         sidecarFile.write("synthetic verifier external data");
         sidecarFile.close();
     }
+    }
 
     QJsonObject labels;
-    labels["0"] = "Non-target";
-    labels["1"] = "Target";
-    labels["2"] = "Other";
+    labels["0"] = "Empty";
+    labels["1"] = "Single";
+    labels["2"] = "MoreThanOne";
     QJsonObject targetPolicy;
     targetPolicy["mode"] = "trigger_on_target_class";
     targetPolicy["target_class_id"] = "1";
-    targetPolicy["target_display_label"] = "Target";
+    targetPolicy["target_display_label"] = "Single";
     targetPolicy["non_target_class_ids"] = QJsonArray{"0", "2"};
     targetPolicy["trigger_rule"] = "trigger_on_target_class";
     QJsonObject architecture;
-    architecture["family"] = "SqueezeNet";
-    architecture["variant"] = "1_1";
+    architecture["family"] = "MobileNetV3";
+    architecture["variant"] = "small";
     QJsonObject imageValidation;
     imageValidation["status"] = "training_evaluation";
     imageValidation["accuracy"] = 0.95;
@@ -484,13 +736,23 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     metadata["label_schema_version"] = "droplet-labels-target-nontarget-3class-v1";
     metadata["sorting_policy"] = targetPolicy;
     metadata["architecture"] = architecture;
-    metadata["training_config"] = QJsonObject{{"architecture", "squeezenet1_1"}, {"pretrained", true}};
+    metadata["training_config"] = QJsonObject{{"architecture", "mobilenet_v3_small"}, {"pretrained", true}};
     metadata["validation_summary"] = validationSummary;
     metadata["limitations"] = QJsonArray{"Verifier synthetic metadata."};
 
     QString metadataWriteError;
-    require(desktop_app::writeJsonObjectAtomically(metadataPath, metadata, &metadataWriteError),
-            "Verifier can write synthetic metadata artifact: " + metadataWriteError);
+    if (!usingRealPackage)
+        require(desktop_app::writeJsonObjectAtomically(metadataPath, metadata, &metadataWriteError),
+                "Verifier can write synthetic metadata artifact: " + metadataWriteError);
+    QFile checkpointFile(QDir(runDir).filePath("checkpoint.pth"));
+    if (!usingRealPackage) {
+    require(checkpointFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "Verifier can write synthetic checkpoint artifact");
+    if (checkpointFile.isOpen()) {
+        checkpointFile.write("synthetic checkpoint");
+        checkpointFile.close();
+    }
+    }
     QFile metricsFile(metricsPath);
     require(metricsFile.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate),
             "Verifier can write synthetic metrics artifact");
@@ -503,7 +765,7 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
                                                    &metricsJsonWriteError),
             "Verifier can write synthetic metrics JSON artifact: " + metricsJsonWriteError);
     QString trainingConfigWriteError;
-    require(desktop_app::writeJsonObjectAtomically(trainingConfigPath, QJsonObject{{"architecture", "squeezenet1_1"}},
+    require(desktop_app::writeJsonObjectAtomically(trainingConfigPath, QJsonObject{{"architecture", "mobilenet_v3_small"}},
                                                    &trainingConfigWriteError),
             "Verifier can write synthetic training config artifact: " + trainingConfigWriteError);
     QFile classMetricsFile(classMetricsPath);
@@ -551,9 +813,10 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
                  .complete,
             "Failed run_finished JSONL is ignored");
 
-    auto* refreshButton = modelWorkspacePage ? modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")
+    auto* refreshButton = modelWorkspacePage ? modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceInternalReloadButton")
                                              : nullptr;
-    require(refreshButton != nullptr, "Model workspace refresh button exists");
+    require(refreshButton != nullptr && refreshButton->isHidden(),
+            "Model workspace internal reload control exists and is not user-visible");
     auto* modelTable = modelWorkspacePage ? modelWorkspacePage->findChild<QTableWidget*>("ModelWorkspaceRegistryTable")
                                           : nullptr;
     require(modelTable != nullptr, "Model workspace registry table exists");
@@ -575,8 +838,9 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
     const QString savedFolderPath = QDir(modelRootPath).filePath(trainedModelFolderNameForUi(savedName));
     const QDir savedFolder(savedFolderPath);
     require(QFileInfo(savedFolder.filePath("model.onnx")).isFile(), "Saved folder contains model.onnx");
-    require(QFileInfo(savedFolder.filePath("model.onnx.data")).isFile(),
-            "Saved folder contains ONNX external-data sidecar");
+    require(QFileInfo(savedFolder.filePath("checkpoint.pth")).isFile(), "Saved folder contains checkpoint.pth");
+    require(!QFileInfo(savedFolder.filePath("model.onnx.data")).exists(),
+            "Saved package uses an embedded ONNX model");
     require(QFileInfo(savedFolder.filePath("metadata.json")).isFile(), "Saved folder contains metadata.json");
     require(QFileInfo(savedFolder.filePath("metrics.csv")).isFile(), "Saved folder contains metrics.csv");
     require(QFileInfo(savedFolder.filePath("metrics.json")).isFile(), "Saved folder contains metrics.json");
@@ -589,19 +853,19 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
 
     const QJsonObject savedMetadata = loadRegistryObjectForVerifier(savedFolder.filePath("metadata.json"));
     const QJsonObject savedArtifact = savedMetadata.value("artifact").toObject();
-    require(savedArtifact.value("onnx_sha256").toString().size() == 64,
-            "Saved metadata repairs missing artifact.onnx_sha256");
-    require(!savedArtifact.value("external_data_files").toArray().isEmpty(),
-            "Saved metadata records copied ONNX external-data sidecar");
+    require(savedArtifact.value("checkpoint_file").toString() == "checkpoint.pth",
+            "Saved metadata names the training checkpoint");
+    require(savedArtifact.value("external_data_files").toArray().isEmpty(),
+            "Saved metadata requires no ONNX external-data sidecar");
 
     const QJsonObject afterRegistry = loadRegistryObjectForVerifier(registryFilePath);
     const QJsonArray afterEntries = afterRegistry.value("entries").toArray();
     const QJsonObject entry = registryEntryByIdForVerifier(afterEntries, entryId);
     require(afterEntries.size() == beforeCount + 1, "Registry row count increases for saved trained model");
     require(!entry.isEmpty(), "Saved trained model registry entry exists");
-    require(registryString(entry, "model_status") == "Trained", "Registry entry status is Trained");
-    require(registryString(entry, "promotion_status") == "Trained", "Registry compatibility status is Trained");
-    require(!entry.value("selectable_for_normal_live_sorting").toBool(false),
+    require(QDir::cleanPath(registryString(entry, "package_path")) == QDir::cleanPath(savedFolderPath),
+            "Registry stores the saved package folder");
+    require(!entry.value("active").toBool(false),
             "Saved trained model is not active before use-now confirmation");
     require(QDir::cleanPath(registryString(entry, "model_path")) ==
                 QDir::cleanPath(savedFolder.filePath("model.onnx")),
@@ -636,7 +900,7 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
             "Use-now prompt supports deterministic no response");
     const QJsonObject noPathEntry =
         registryEntryByIdForVerifier(readModelRegistryEntriesFromPath(registryFilePath, nullptr), entryId);
-    require(!noPathEntry.value("selectable_for_normal_live_sorting").toBool(false),
+    require(!noPathEntry.value("active").toBool(false),
             "No response leaves the saved trained model inactive");
 
     qputenv("OVDS_VERIFY_USE_TRAINED_MODEL_NOW", "yes");
@@ -647,10 +911,8 @@ void runTrainerResultModelRegistrationVerifier(QWidget* modelWorkspacePage,
             QString("Saved trained model can be set active through registry activation path: %1").arg(activationError));
     const QJsonArray activeEntries = readModelRegistryEntriesFromPath(registryFilePath, nullptr);
     const QJsonObject activeEntry = registryEntryByIdForVerifier(activeEntries, entryId);
-    require(activeEntry.value("selectable_for_normal_live_sorting").toBool(false),
+    require(activeEntry.value("active").toBool(false),
             "Yes response marks the saved trained model active");
-    require(registryString(activeEntry, "state") == "promoted_current",
-            "Yes response updates registry active model state");
     require(registryString(activeRegistryEntry(activeEntries), "registry_entry_id").compare(entryId, Qt::CaseInsensitive) == 0,
             "Registry active model points to the saved trained model");
     if (refreshLiveModelsFromRegistry)
@@ -838,8 +1100,10 @@ int runTrainerSetupStatusVerifierAppOwned() {
         }
     };
 
-    require(sameCleanPath(expectedPython, documentedTrainerPythonExecutable(QStringLiteral("training-venv"))),
-            "Default Trainer Python resolves to documented CPU venv");
+    require(QFileInfo(expectedPython).isFile() &&
+                (sameCleanPath(expectedPython, documentedTrainerPythonExecutable(QStringLiteral("training-venv"))) ||
+                 sameCleanPath(expectedPython, legacyTrainerPythonExecutable(QStringLiteral("training-venv")))),
+            "Default Trainer Python resolves to a valid OpenDSS or compatible legacy CPU venv");
     require(sameCleanPath(trainerPythonField, expectedPython),
             "Trainer Python field uses resolved documented path");
     require(!settingsTrainerPythonField.trimmed().isEmpty(), "Settings Trainer Python field exists");
@@ -886,7 +1150,36 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     const bool verifyCollectionPostprocessor = qEnvironmentVariableIntValue("OVDS_VERIFY_COLLECTION_POSTPROCESSOR") != 0;
     const bool verifyDatasetHandoff = qEnvironmentVariableIntValue("OVDS_VERIFY_DATASET_HANDOFF") != 0;
     const bool verifyWorkspaceSplitters = qEnvironmentVariableIntValue("OVDS_VERIFY_WORKSPACE_SPLITTERS") != 0;
+    const bool verifyModelsWorkspaceConsolidation =
+        qEnvironmentVariableIntValue("OVDS_VERIFY_MODELS_WORKSPACE_CONSOLIDATION") != 0;
+    const bool verifyProductionModelStatus =
+        qEnvironmentVariableIntValue("OVDS_VERIFY_PRODUCTION_MODEL_STATUS") != 0;
+    const QString verifierTracePath = qEnvironmentVariable("OVDS_VERIFY_TRACE_PATH").trimmed();
+    const auto verifierTrace = [verifierTracePath](const QString& message) {
+        if (verifierTracePath.isEmpty())
+            return;
+        QFile trace(verifierTracePath);
+        if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            trace.write((message + QLatin1Char('\n')).toUtf8());
+            trace.flush();
+        }
+    };
+    verifierTrace(QStringLiteral("startup: verifier flags parsed"));
     const bool verifyResetLayout = qEnvironmentVariableIntValue("OVDS_VERIFY_RESET_LAYOUT") != 0;
+    const bool verifyNavigationInfo = qEnvironmentVariableIntValue("OVDS_VERIFY_NAVIGATION_INFO") != 0;
+    const bool verifyBoundedFullShell = verifyModelsWorkspaceConsolidation || verifyDefaultPaths ||
+                                        verifyNavigationInfo || verifyProductionModelStatus || verifyTrainerLaunch ||
+                                        verifyComputeSettings ||
+                                        qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_MODEL_SELECTION") != 0;
+    if (verifyBoundedFullShell) {
+        const int requestedWatchdogMs = qEnvironmentVariableIntValue("OVDS_VERIFY_WATCHDOG_MS");
+        const int watchdogMs = requestedWatchdogMs > 0 ? requestedWatchdogMs : 45000;
+        QTimer::singleShot(watchdogMs, this, [this, &app, verifierTrace, watchdogMs]() {
+            verifierTrace(QStringLiteral("verifier-watchdog: timed out after %1 ms").arg(watchdogMs));
+            qCritical().noquote() << "VERIFIER WATCHDOG TIMEOUT after" << watchdogMs << "ms";
+            QCoreApplication::exit(124);
+        });
+    }
     const DefaultWorkspacePaths& defaultWorkspacePaths = context_.paths.defaultWorkspacePaths;
     const QString& logPath = context_.paths.sessionLogPath;
     const QString initialDaqStatusText = appState.daqStatusText;
@@ -1028,7 +1321,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     addDisabledAction(trainingMenu, "Open Training Output", "TrainingOpenOutputAction",
                       "Trainer outputs are not wired in this shell step.");
 
-    auto validationMenu = this->menuBar()->addMenu("&Model Testing");
+    auto validationMenu = new QMenu(this);
+    validationMenu->setTitle("Model Testing");
     auto imageValidationAction = validationMenu->addAction("Test Model");
     imageValidationAction->setStatusTip("Open the Model Testing workspace for image-level model checks.");
     auto sequenceValidationAction = addDisabledAction(
@@ -1051,8 +1345,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto openRunFolderAction = sortingMenu->addAction("Open Run Folder");
 
     auto viewMenu = this->menuBar()->addMenu("&View");
-    auto showLogsAction = viewMenu->addAction("Show Logs Dock");
-    auto showDiagnosticsAction = viewMenu->addAction("Show Diagnostics Dock");
+    auto showLogsAction = viewMenu->addAction("Debug Log");
+    auto showDiagnosticsAction = viewMenu->addAction("Diagnostics");
     viewMenu->addSeparator();
     auto resetLayoutAction = viewMenu->addAction("Reset Layout");
 
@@ -1073,6 +1367,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto helpMenu = this->menuBar()->addMenu("&Help");
     auto aboutAction = helpMenu->addAction("&About");
+    auto documentationAction = helpMenu->addAction("&Documentation");
 
     nameWidget(this->menuBar(), "MainMenuBar");
     nameObject(fileMenu, "FileMenu");
@@ -1112,6 +1407,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameAction(resetLayoutAction, "ViewResetLayoutAction");
     nameAction(systemDiagnosticsAction, "ToolsSystemDiagnosticsAction");
     nameAction(aboutAction, "HelpAboutAction");
+    nameAction(documentationAction, "HelpDocumentationAction");
 
     auto commandStrip = new QToolBar("Command Strip", this);
     commandStrip->setObjectName("CommandStrip");
@@ -1673,12 +1969,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerStartingModelCombo->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
     auto trainerTrainingModeCombo = new QComboBox;
     trainerTrainingModeCombo->addItem("Start a new trained copy", "new_copy");
-    trainerTrainingModeCombo->addItem("Keep training this model", "continue_copy");
-    auto trainerStartingModelHintLabel =
-        new QLabel("Pick a starter or trained model from Model workspace. Training always saves a new copy.");
+    trainerTrainingModeCombo->hide();
+    auto trainerStartingModelHintLabel = new QLabel;
     trainerStartingModelHintLabel->setWordWrap(true);
     trainerStartingModelHintLabel->setProperty("mutedText", true);
-    trainerStartingModelHintLabel->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     auto trainerDatasetEdit = new QLineEdit;
     trainerDatasetEdit->setPlaceholderText("Choose the training dataset file (.json)...");
     auto trainerDatasetBrowseBtn = new QPushButton("Browse");
@@ -1708,7 +2002,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerProgressBar->setRange(0, 100);
     trainerProgressBar->setValue(0);
     trainerProgressBar->setTextVisible(true);
-    trainerProgressBar->setFormat("Not running");
+    trainerProgressBar->setFormat("Ready");
 
     auto trainerPathsLayout = new QGridLayout;
     trainerPathsLayout->setColumnStretch(0, 0);
@@ -1716,18 +2010,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerPathsLayout->setColumnStretch(2, 0);
     trainerPathsLayout->setColumnStretch(3, 0);
     int trainerRow = 0;
-    trainerPathsLayout->addWidget(new QLabel("Start from"), trainerRow, 0);
+    trainerPathsLayout->addWidget(new QLabel("Starting model"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerStartingModelCombo, trainerRow++, 1, 1, 3);
-    trainerPathsLayout->addWidget(new QLabel("Training plan"), trainerRow, 0);
-    trainerPathsLayout->addWidget(trainerTrainingModeCombo, trainerRow++, 1, 1, 3);
-    trainerPathsLayout->addWidget(trainerStartingModelHintLabel, trainerRow++, 1, 1, 3);
-    trainerPathsLayout->addWidget(new QLabel("Training dataset file"), trainerRow, 0);
+    trainerPathsLayout->addWidget(new QLabel("Dataset"), trainerRow, 0);
     trainerPathsLayout->addWidget(trainerDatasetEdit, trainerRow, 1, 1, 2);
     trainerPathsLayout->addWidget(trainerDatasetBrowseBtn, trainerRow++, 3);
-    trainerPathsLayout->addWidget(new QLabel("Save new model in"), trainerRow, 0);
-    trainerPathsLayout->addWidget(trainerOutputEdit, trainerRow, 1, 1, 2);
-    trainerPathsLayout->addWidget(trainerOutputBrowseBtn, trainerRow++, 3);
-    auto trainerPathsGroup = new QGroupBox("Training setup");
+    auto trainerDeviceCombo = new QComboBox;
+    trainerDeviceCombo->addItem("Auto", "auto");
+    trainerDeviceCombo->addItem("CPU", "cpu");
+    trainerDeviceCombo->addItem("GPU", "cuda");
+    const int initialTrainerDeviceIndex = trainerDeviceCombo->findData(selectedComputeDevice());
+    trainerDeviceCombo->setCurrentIndex(initialTrainerDeviceIndex >= 0 ? initialTrainerDeviceIndex : 0);
+    nameWidget(trainerDeviceCombo, "TrainerSetupDeviceComboBox");
+    trainerPathsLayout->addWidget(new QLabel("Device"), trainerRow, 0);
+    trainerPathsLayout->addWidget(trainerDeviceCombo, trainerRow++, 1, 1, 3);
+    trainerOutputEdit->hide();
+    trainerOutputBrowseBtn->hide();
+    auto trainerPathsGroup = new QGroupBox;
     trainerPathsGroup->setMinimumWidth(0);
     trainerPathsGroup->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
     trainerPathsGroup->setLayout(trainerPathsLayout);
@@ -1817,7 +2116,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     auto trainerFormLayout = new QVBoxLayout;
     trainerFormLayout->setContentsMargins(12, 12, 12, 12);
     trainerFormLayout->setSpacing(10);
-    auto trainerFormTitle = new QLabel("TRAIN MODEL");
+    auto trainerFormTitle = new QLabel("SETUP");
     trainerFormTitle->setProperty("panelTitle", true);
     trainerFormLayout->addWidget(trainerFormTitle);
     trainerFormLayout->addWidget(trainerPathsGroup);
@@ -1825,9 +2124,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerHyperGrid->setHorizontalSpacing(10);
     trainerHyperGrid->setVerticalSpacing(8);
     auto trainerArchitectureCombo = new QComboBox;
-    trainerArchitectureCombo->addItem("SqueezeNet", "squeezenet1_1");
-    trainerArchitectureCombo->addItem("ResNet-18", "resnet18");
-    trainerArchitectureCombo->addItem("ResNet-34", "resnet34");
+    trainerArchitectureCombo->addItem("MobileNetV3-Small", "mobilenet_v3_small");
+    trainerArchitectureCombo->addItem("EfficientNet-B0", "efficientnet_b0");
     auto trainerPretrainedGroup = new QButtonGroup(this);
     trainerPretrainedGroup->setExclusive(true);
     auto trainerPretrainedImageNetBtn = new QPushButton("Recommended start");
@@ -1851,43 +2149,52 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerEpochsSpin->setValue(50);
     auto trainerBatchSpin = new QSpinBox;
     trainerBatchSpin->setRange(1, 256);
-    trainerBatchSpin->setValue(32);
+    trainerBatchSpin->setValue(64);
     auto trainerLrSpin = new QDoubleSpinBox;
     trainerLrSpin->setDecimals(5);
     trainerLrSpin->setRange(0.0001, 1.0);
     trainerLrSpin->setValue(0.001);
+    auto trainerSelectedArchitectureValue = new QLabel("From selected model");
+    trainerSelectedArchitectureValue->setProperty("mutedText", true);
+    auto trainerHyperparameterJsonEdit = new QPlainTextEdit;
+    trainerHyperparameterJsonEdit->setMinimumHeight(250);
+    trainerHyperparameterJsonEdit->setMaximumHeight(340);
+    trainerHyperparameterJsonEdit->setLineWrapMode(QPlainTextEdit::NoWrap);
+    trainerHyperparameterJsonEdit->setToolTip(
+        "Versioned training settings consumed directly by the OpenDSS trainer. Architecture and device are derived separately.");
+    QString hyperparameterSchemaPath = findPackagedAppPath("models/trainer_hyperparameters.schema.json");
+    QFile hyperparameterSchemaFile(hyperparameterSchemaPath);
+    if (hyperparameterSchemaFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const QJsonDocument schemaDocument = QJsonDocument::fromJson(hyperparameterSchemaFile.readAll());
+        trainerHyperparameterJsonEdit->setPlainText(
+            QString::fromUtf8(QJsonDocument(schemaDocument.object().value("editable_defaults").toObject())
+                                  .toJson(QJsonDocument::Indented)));
+    }
     auto addTrainerFormCell = [&](int row, int column, const QString& labelText, QWidget* editor) {
         auto* label = new QLabel(labelText);
         label->setProperty("metricLabel", true);
         trainerHyperGrid->addWidget(label, row, column);
         trainerHyperGrid->addWidget(editor, row, column + 1);
     };
-    addTrainerFormCell(0, 0, "Model type", trainerArchitectureCombo);
-    addTrainerFormCell(0, 2, "Starting point", trainerPretrainedSegment);
+    trainerArchitectureCombo->hide();
+    trainerPretrainedSegment->hide();
     auto* trainerEpochsLabel = new QLabel("Training rounds");
     trainerEpochsLabel->setProperty("metricLabel", true);
     auto* trainerBatchLabel = new QLabel("Batch size");
     trainerBatchLabel->setProperty("metricLabel", true);
     auto* trainerLrLabel = new QLabel("Learning rate");
     trainerLrLabel->setProperty("metricLabel", true);
-    trainerHyperGrid->addWidget(trainerEpochsLabel, 1, 0);
-    trainerHyperGrid->addWidget(trainerEpochsSpin, 1, 1);
-    trainerHyperGrid->addWidget(trainerBatchLabel, 1, 2);
-    trainerHyperGrid->addWidget(trainerBatchSpin, 1, 3);
-    trainerHyperGrid->addWidget(trainerLrLabel, 2, 0);
-    trainerHyperGrid->addWidget(trainerLrSpin, 2, 1);
+    trainerEpochsSpin->hide();
+    trainerBatchSpin->hide();
+    trainerLrSpin->hide();
+    trainerEpochsLabel->hide();
+    trainerBatchLabel->hide();
+    trainerLrLabel->hide();
+    addTrainerFormCell(0, 0, "Architecture", trainerSelectedArchitectureValue);
+    trainerHyperGrid->addWidget(new QLabel("Editable versioned JSON"), 1, 0, 1, 4);
+    trainerHyperGrid->addWidget(trainerHyperparameterJsonEdit, 2, 0, 1, 4);
     auto trainerAdvancedBasicsPanel = new QWidget;
     trainerAdvancedBasicsPanel->setLayout(trainerHyperGrid);
-    auto trainerAdvancedBasicsToggle = makeTrainerSectionToggle("Show model options", false);
-    trainerAdvancedBasicsPanel->setVisible(false);
-    QObject::connect(trainerAdvancedBasicsToggle, &QToolButton::toggled, trainerAdvancedBasicsPanel,
-                     [trainerAdvancedBasicsToggle, trainerAdvancedBasicsPanel](bool checked) {
-                         trainerAdvancedBasicsPanel->setVisible(checked);
-                         trainerAdvancedBasicsToggle->setText(checked ? "Hide model options" : "Show model options");
-                         trainerAdvancedBasicsToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
-                     });
-    trainerFormLayout->addWidget(trainerAdvancedBasicsToggle);
-    trainerFormLayout->addWidget(trainerAdvancedBasicsPanel);
     auto trainerLaunchRow = new QHBoxLayout;
     trainerLaunchRow->addWidget(trainerStartTrainingBtn);
     trainerLaunchRow->addWidget(trainerDryRunBtn);
@@ -1895,6 +2202,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerLaunchRow->addStretch(1);
     trainerFormLayout->addLayout(trainerLaunchRow);
     trainerFormPanel->setLayout(trainerFormLayout);
+    trainerFormPanel->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
 
     auto trainerLogPanel = new QFrame;
     trainerLogPanel->setProperty("panel", true);
@@ -1918,38 +2226,69 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerLogLayout->addWidget(trainerResultText, 1);
     trainerLogPanel->setLayout(trainerLogLayout);
 
-    auto trainerRecentRunsPanel = new QFrame;
-    trainerRecentRunsPanel->setProperty("panel", true);
-    auto trainerRecentRunsLayout = new QVBoxLayout;
-    trainerRecentRunsLayout->setContentsMargins(12, 12, 12, 12);
-    trainerRecentRunsLayout->setSpacing(10);
-    auto trainerRecentRunsTitle = new QLabel("RECENT RUNS");
-    trainerRecentRunsTitle->setProperty("panelTitle", true);
-    trainerRecentRunsLayout->addWidget(trainerRecentRunsTitle);
-    auto trainerRecentRunsTable = new QTableWidget(3, 3);
-    trainerRecentRunsTable->setObjectName("TrainerRecentRunsTable");
-    trainerRecentRunsTable->setHorizontalHeaderLabels({"Run", "Acc", "State"});
-    trainerRecentRunsTable->verticalHeader()->setVisible(false);
-    trainerRecentRunsTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
-    trainerRecentRunsTable->setSelectionMode(QAbstractItemView::NoSelection);
-    trainerRecentRunsTable->setMinimumHeight(140);
-    const QVector<std::array<QString, 3>> trainerRuns = {
-        {QString("run_2026-04-29"), QString("96.4%"), QString("complete")},
-        {QString("run_2026-04-22"), QString("94.1%"), QString("complete")},
-        {QString("run_2026-04-15"), QString("--"), QString("failed")},
-    };
-    for (int row = 0; row < trainerRuns.size(); ++row) {
-        for (int col = 0; col < 3; ++col) {
-            auto* item = new QTableWidgetItem(trainerRuns.at(row).at(col));
-            item->setToolTip(trainerRuns.at(row).at(col));
-            trainerRecentRunsTable->setItem(row, col, item);
-        }
+    auto trainerResultsPanel = new QFrame;
+    trainerResultsPanel->setProperty("panel", true);
+    auto trainerResultsLayout = new QVBoxLayout;
+    trainerResultsLayout->setContentsMargins(12, 12, 12, 12);
+    trainerResultsLayout->setSpacing(10);
+    auto trainerResultsTitle = new QLabel("RESULTS");
+    trainerResultsTitle->setProperty("panelTitle", true);
+    trainerResultsLayout->addWidget(trainerResultsTitle);
+    auto trainerResultMetrics = new QGridLayout;
+    const QStringList trainerMetricNames = {"Accuracy", "Macro F1", "Best epoch", "Duration"};
+    QVector<QLabel*> trainerResultMetricValues;
+    for (int column = 0; column < trainerMetricNames.size(); ++column) {
+        auto* value = new QLabel("--");
+        trainerResultMetricValues.push_back(value);
+        value->setProperty("metricValue", true);
+        nameWidget(value, QString("TrainerResultMetric%1").arg(column).toUtf8().constData());
+        auto* label = new QLabel(trainerMetricNames.at(column));
+        label->setProperty("metricLabel", true);
+        trainerResultMetrics->addWidget(value, 0, column);
+        trainerResultMetrics->addWidget(label, 1, column);
     }
-    trainerRecentRunsTable->horizontalHeader()->setStretchLastSection(true);
-    trainerRecentRunsLayout->addWidget(trainerRecentRunsTable);
-    trainerRecentRunsPanel->setLayout(trainerRecentRunsLayout);
+    trainerResultsLayout->addLayout(trainerResultMetrics);
+    const auto makeTrainingPlot = [](const QString& title, const QString& objectName) {
+        auto* frame = new QFrame;
+        frame->setProperty("panel", true);
+        frame->setObjectName(objectName);
+        frame->setMinimumHeight(220);
+        frame->setMaximumHeight(260);
+        auto* layout = new QVBoxLayout;
+        layout->setContentsMargins(10, 8, 10, 8);
+        auto* heading = new QLabel(title);
+        heading->setProperty("metricLabel", true);
+        auto* empty = new QLabel;
+        empty->setObjectName(objectName + "Values");
+        empty->setAlignment(Qt::AlignCenter);
+        empty->setProperty("mutedText", true);
+        frame->setProperty("xAxisLabel", "Epoch");
+        frame->setProperty("yAxisLabel", objectName.contains("Loss") ? "Loss" : "Score");
+        frame->setProperty("gridVisible", true);
+        frame->setProperty("legendVisible", true);
+        renderTrainerCurves(empty, {}, {}, objectName.contains("Loss") ? QColor(42, 124, 201) : QColor(38, 151, 96),
+                            objectName.contains("Loss") ? QColor(222, 118, 42) : QColor(112, 83, 196));
+        layout->addWidget(heading);
+        layout->addWidget(empty, 1);
+        frame->setLayout(layout);
+        return frame;
+    };
+    trainerResultsLayout->addWidget(makeTrainingPlot("Training and validation loss", "TrainerLossCurve"));
+    trainerResultsLayout->addWidget(makeTrainingPlot("Validation accuracy and Macro F1", "TrainerPerformanceCurve"));
+    auto trainerSavedModelLabel = new QLabel;
+    trainerSavedModelLabel->setProperty("mutedText", true);
+    nameWidget(trainerSavedModelLabel, "TrainerSavedModelLabel");
+    auto trainerUseModelButton = new QPushButton("Use Model");
+    nameWidget(trainerUseModelButton, "TrainerUseModelButton");
+    trainerUseModelButton->setEnabled(false);
+    auto trainerResultActions = new QHBoxLayout;
+    trainerResultActions->addWidget(trainerSavedModelLabel, 1);
+    trainerResultActions->addWidget(trainerUseModelButton);
+    trainerResultsLayout->addLayout(trainerResultActions);
+    trainerResultsPanel->setLayout(trainerResultsLayout);
+    trainerResultsPanel->setObjectName("TrainerResultsPanel");
 
-    auto trainerAdvancedPanel = new QGroupBox("Advanced setup");
+    auto trainerAdvancedPanel = new QGroupBox("More settings");
     auto trainerAdvancedLayout = new QVBoxLayout;
     auto trainerFlipCheck = new QCheckBox("Random horizontal flip");
     trainerFlipCheck->setChecked(true);
@@ -1967,14 +2306,24 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerAdvancedLayout->addWidget(new QLabel("Learning schedule"));
     trainerAdvancedLayout->addWidget(trainerSchedulerCombo);
     trainerAdvancedPanel->setLayout(trainerAdvancedLayout);
-    auto trainerAdvancedToggle = makeTrainerSectionToggle("Show advanced setup", false);
-    trainerAdvancedPanel->setVisible(false);
-    QObject::connect(trainerAdvancedToggle, &QToolButton::toggled, trainerAdvancedPanel,
-                     [trainerAdvancedToggle, trainerAdvancedPanel](bool checked) {
-                         trainerAdvancedPanel->setVisible(checked);
-                         trainerAdvancedToggle->setText(checked ? "Hide advanced setup" : "Show advanced setup");
-                         trainerAdvancedToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
+    auto trainerSettingsBody = new QWidget;
+    auto trainerSettingsLayout = new QVBoxLayout;
+    trainerSettingsLayout->setContentsMargins(12, 8, 12, 8);
+    trainerSettingsLayout->setSpacing(10);
+    trainerAdvancedBasicsPanel->setVisible(true);
+    trainerSettingsLayout->addWidget(trainerAdvancedBasicsPanel);
+    trainerSettingsLayout->addWidget(trainerAdvancedPanel);
+    trainerSettingsBody->setLayout(trainerSettingsLayout);
+    trainerSettingsBody->setVisible(false);
+    auto trainerSettingsToggle = makeTrainerSectionToggle("Hyperparameter Settings", false);
+    auto trainerAdvancedToggle = trainerSettingsToggle;
+    QObject::connect(trainerSettingsToggle, &QToolButton::toggled, trainerSettingsBody,
+                     [trainerSettingsToggle, trainerSettingsBody](bool checked) {
+                         trainerSettingsBody->setVisible(checked);
+                         trainerSettingsToggle->setArrowType(checked ? Qt::DownArrow : Qt::RightArrow);
                      });
+    auto trainerRecentRunsPanel = new QFrame;
+    trainerRecentRunsPanel->hide();
 
     auto trainerWidget = new QWidget;
     auto trainerLayout = new QHBoxLayout;
@@ -1985,6 +2334,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerLeftScroll->setWidgetResizable(true);
     trainerLeftScroll->setFrameShape(QFrame::NoFrame);
     trainerLeftScroll->setMinimumWidth(520);
+    trainerLeftScroll->setMaximumWidth(980);
     trainerLeftScroll->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Expanding);
     auto trainerLeftContent = new QWidget;
     trainerLeftContent->setMinimumWidth(0);
@@ -1993,36 +2343,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     trainerLeftLayout->setContentsMargins(0, 0, 0, 0);
     trainerLeftLayout->setSpacing(12);
     trainerLeftLayout->addWidget(trainerFormPanel);
-    trainerLeftLayout->addWidget(trainerSetupDetailsToggle);
-    trainerLeftLayout->addWidget(trainerEnvironmentPanel);
-    trainerLeftLayout->addWidget(trainerLogPanel, 1);
+    trainerLeftLayout->addWidget(trainerLogPanel);
+    trainerLeftLayout->addWidget(trainerSettingsToggle);
+    trainerLeftLayout->addWidget(trainerSettingsBody);
+    trainerLeftLayout->addWidget(trainerResultsPanel);
     trainerLeftContent->setLayout(trainerLeftLayout);
     trainerLeftScroll->setWidget(trainerLeftContent);
-    auto trainerRightScroll = new QScrollArea;
-    trainerRightScroll->setObjectName("TrainerWorkspaceRightScrollArea");
-    trainerRightScroll->setWidgetResizable(true);
-    trainerRightScroll->setFrameShape(QFrame::NoFrame);
-    trainerRightScroll->setMinimumWidth(300);
-    auto trainerRightContent = new QWidget;
-    trainerRightContent->setObjectName("TrainerWorkspaceRightStack");
-    auto trainerRightLayout = new QVBoxLayout;
-    trainerRightLayout->setContentsMargins(0, 0, 0, 0);
-    trainerRightLayout->setSpacing(12);
-    trainerRightLayout->addWidget(trainerRecentRunsPanel);
-    trainerRightLayout->addWidget(trainerAdvancedToggle);
-    trainerRightLayout->addWidget(trainerAdvancedPanel);
-    trainerRightLayout->addStretch(1);
-    trainerRightContent->setLayout(trainerRightLayout);
-    trainerRightScroll->setWidget(trainerRightContent);
-    auto* trainerSplitter = new QSplitter(Qt::Horizontal);
-    nameWidget(trainerSplitter, "TrainerWorkspaceSplitter");
-    trainerSplitter->addWidget(trainerLeftScroll);
-    trainerSplitter->addWidget(trainerRightScroll);
-    trainerSplitter->setStretchFactor(0, 1);
-    trainerSplitter->setStretchFactor(1, 0);
-    desktop_app::ui::configureWorkspaceSplitter(trainerSplitter, "workspace/trainer/splitter", {780, 360},
-                                                {520, 300});
-    trainerLayout->addWidget(trainerSplitter, 1);
+    trainerLayout->addWidget(trainerLeftScroll, 1);
+    trainerLayout->addStretch(1);
     trainerWidget->setLayout(trainerLayout);
 
     auto trainerDockProxy = new QWidget;
@@ -2165,6 +2493,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     nameWidget(trainerEpochsSpin, "TrainerEpochsSpinBox");
     nameWidget(trainerBatchSpin, "TrainerBatchSizeSpinBox");
     nameWidget(trainerLrSpin, "TrainerLearningRateSpinBox");
+    nameWidget(trainerSelectedArchitectureValue, "TrainerSelectedArchitectureValue");
+    nameWidget(trainerHyperparameterJsonEdit, "TrainerHyperparameterJsonEdit");
     nameWidget(trainerRecentRunsPanel, "TrainerRecentRunsPanel");
     nameWidget(trainerAdvancedPanel, "TrainerAdvancedAugmentationSchedulerGroup");
     nameWidget(trainerFlipCheck, "TrainerRandomHorizontalFlipCheckBox");
@@ -2315,12 +2645,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
     auto liveFitTool = addViewerTool("Fit to View: fit the live image inside the viewer.", "fit");
     auto liveCrosshairTool = addViewerTool("Crosshair: show or hide the center reticle.", "crosshair", false);
+    auto liveOpenViewerTool = addViewerTool("Open Viewer", "viewer");
     liveCrosshairTool->setCheckable(true);
     nameWidget(liveFitTool, "LiveViewerFitButton");
     nameWidget(liveCrosshairTool, "LiveViewerCrosshairToggle");
+    nameWidget(liveOpenViewerTool, "LiveViewerOpenViewerButton");
     liveFitTool->setAccessibleName("Live Fit to View");
     liveCrosshairTool->setAccessibleName("Live Crosshair");
+    liveOpenViewerTool->setAccessibleName("Open Viewer");
     QObject::connect(liveFitTool, &QToolButton::clicked, fitAction, &QAction::trigger);
+    QObject::connect(liveOpenViewerTool, &QToolButton::clicked, openViewerAction, &QAction::trigger);
     liveHudToolbar->setLayout(liveHudToolbarLayout);
     liveHudTop->addWidget(liveHudResolution);
     liveHudTop->addWidget(liveHudFrameTime);
@@ -2997,7 +3331,42 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 readModelRegistryEntriesFromPath(registryFilePath, &warning));
         }
     };
-    modelWorkspacePage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
+    verifierTrace(QStringLiteral("startup: building model library"));
+    auto* modelLibraryPage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
+    verifierTrace(QStringLiteral("startup: model library built"));
+    modelLibraryPage->setObjectName("ModelLibraryPage");
+    auto* modelWorkspaceTabs = new QTabWidget;
+    nameWidget(modelWorkspaceTabs, "ModelWorkspaceTabs");
+    modelWorkspaceTabs->addTab(modelLibraryPage, "Library");
+    modelWorkspaceTabs->addTab(trainerWorkspacePage, "Train");
+    modelWorkspaceTabs->addTab(validatorWorkspacePage, "Test");
+    modelWorkspaceTabs->setDocumentMode(true);
+    modelWorkspaceTabs->tabBar()->setExpanding(false);
+    modelWorkspaceTabs->tabBar()->setDrawBase(false);
+    modelWorkspaceTabs->tabBar()->setFocusPolicy(Qt::StrongFocus);
+    modelWorkspaceTabs->tabBar()->setMinimumHeight(44);
+    modelWorkspaceTabs->tabBar()->setMaximumWidth(480);
+    modelWorkspaceTabs->setProperty("openDssSegmentedTabs", true);
+    modelWorkspaceTabs->setStyleSheet(
+        "QTabWidget#ModelWorkspaceTabs::pane { border: 0; top: -1px; }"
+        "QTabWidget#ModelWorkspaceTabs QTabBar::tab {"
+        "  min-width: 112px; min-height: 34px; padding: 4px 16px; margin: 4px 2px;"
+        "  color: palette(button-text); background: palette(button);"
+        "  border: 1px solid palette(mid); border-radius: 7px; font-size: 14px;"
+        "}"
+        "QTabWidget#ModelWorkspaceTabs QTabBar::tab:hover { background: palette(alternate-base); }"
+        "QTabWidget#ModelWorkspaceTabs QTabBar::tab:selected {"
+        "  color: palette(highlighted-text); background: palette(highlight); font-weight: 600;"
+        "}"
+        "QTabWidget#ModelWorkspaceTabs QTabBar::tab:disabled { color: palette(mid); }"
+        "QTabWidget#ModelWorkspaceTabs QTabBar:focus { outline: 1px solid palette(highlight); }");
+    modelWorkspaceTabs->setCurrentIndex(0);
+    modelWorkspacePage = new QWidget;
+    nameWidget(modelWorkspacePage, "ModelWorkspace");
+    auto* modelWorkspaceHostLayout = new QVBoxLayout;
+    modelWorkspaceHostLayout->setContentsMargins(0, 0, 0, 0);
+    modelWorkspaceHostLayout->addWidget(modelWorkspaceTabs);
+    modelWorkspacePage->setLayout(modelWorkspaceHostLayout);
 
     desktop_app::workspace::ReportsWorkspaceControls reportsWorkspaceControls;
     reportsWorkspaceControls.logPath = logPath;
@@ -3008,6 +3377,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     reportsWorkspaceControls.openRunFolderAction = openRunFolderAction;
     reportsWorkspaceControls.outputRootEdit = outputEdit;
     auto reportsWorkspacePage = desktop_app::workspace::buildReportsWorkspace(reportsWorkspaceControls);
+    verifierTrace(QStringLiteral("startup: reports workspace built"));
 
     desktop_app::workspace::SettingsWorkspaceControls settingsWorkspaceControls;
     settingsWorkspaceControls.outputRoot = defaultWorkspacePaths.runs;
@@ -3030,10 +3400,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     settingsWorkspaceControls.trainerPythonEdit = trainerPythonEdit;
     settingsWorkspaceControls.trainerDatasetRootEdit = trainerDatasetEdit;
     settingsWorkspaceControls.operationDock = operationDock;
+    settingsWorkspaceControls.resetLayoutAction = resetLayoutAction;
     settingsWorkspaceControls.operationalTabs = operationalTabs;
     settingsWorkspaceControls.analysisTab = leftAnalysisTab;
     settingsWorkspaceControls.devicesTab = leftDevicesTab;
     auto settingsWorkspacePage = desktop_app::workspace::buildSettingsWorkspace(settingsWorkspaceControls);
+    verifierTrace(QStringLiteral("startup: settings workspace built"));
     auto* validatorWorkspaceDeviceCombo =
         validatorWorkspacePage->findChild<QComboBox*>("ValidatorWorkspaceDeviceComboBox");
     auto syncValidatorComputeDevice = [validatorWorkspaceDeviceCombo, selectedComputeDevice]() {
@@ -3045,9 +3417,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             validatorWorkspaceDeviceCombo->setCurrentIndex(index);
         }
     };
+    auto syncTrainerComputeDevice = [trainerDeviceCombo, selectedComputeDevice]() {
+        if (!trainerDeviceCombo)
+            return;
+        const int index = trainerDeviceCombo->findData(selectedComputeDevice());
+        if (index >= 0 && trainerDeviceCombo->currentIndex() != index) {
+            QSignalBlocker blocker(trainerDeviceCombo);
+            trainerDeviceCombo->setCurrentIndex(index);
+        }
+    };
     syncValidatorComputeDevice();
+    syncTrainerComputeDevice();
     QObject::connect(computeDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
-                     [persistComputeDevice, selectedComputeDevice, syncValidatorComputeDevice, trainerPythonEdit](int) {
+                     [persistComputeDevice, selectedComputeDevice, syncValidatorComputeDevice,
+                      syncTrainerComputeDevice, trainerPythonEdit](int) {
                          persistComputeDevice(selectedComputeDevice());
                          const QString currentPython = trainerPythonEdit ? trainerPythonEdit->text().trimmed() : QString();
                          const QString cpuPython = documentedTrainerPythonExecutable(QStringLiteral("training-venv"));
@@ -3058,8 +3441,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                               sameCleanPath(currentPython, cpuPython) || sameCleanPath(currentPython, gpuPython))) {
                              trainerPythonEdit->setText(QDir::toNativeSeparators(
                                  resolvedTrainerPythonExecutable(currentPython, selectedComputeDevice())));
-                         }
-                         syncValidatorComputeDevice();
+                          }
+                          syncValidatorComputeDevice();
+                          syncTrainerComputeDevice();
+                      });
+    QObject::connect(trainerDeviceCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
+                     [trainerDeviceCombo, computeDeviceCombo](int) {
+                         if (!trainerDeviceCombo || !computeDeviceCombo)
+                             return;
+                         const int settingsIndex = computeDeviceCombo->findData(trainerDeviceCombo->currentData());
+                         if (settingsIndex >= 0 && computeDeviceCombo->currentIndex() != settingsIndex)
+                             computeDeviceCombo->setCurrentIndex(settingsIndex);
                      });
 
     auto workspaceStack = new QStackedWidget;
@@ -3067,8 +3459,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     workspaceStack->addWidget(liveWorkspacePage);
     workspaceStack->addWidget(modelWorkspacePage);
     workspaceStack->addWidget(datasetWorkspacePage);
-    workspaceStack->addWidget(trainerWorkspacePage);
-    workspaceStack->addWidget(validatorWorkspacePage);
     workspaceStack->addWidget(reportsWorkspacePage);
     workspaceStack->addWidget(settingsWorkspacePage);
     workspaceStack->setCurrentWidget(liveWorkspacePage);
@@ -3110,28 +3500,22 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     headerModelChip->setProperty("chipTone", "warn");
     headerDaqChip->setProperty("chipTone", !kDaqBuildEnabled ? "disabled" : "warn");
     headerTriggerChip->setProperty("chipTone", "warn");
-    auto shellMenuButton = new QToolButton;
-    nameWidget(shellMenuButton, "OpenDssHeaderMenuButton");
-    shellMenuButton->setProperty("headerIcon", true);
-    shellMenuButton->setProperty("brandIconKey", "menu");
-    shellMenuButton->setIcon(makeBrandIcon("menu", QColor("#FFFFFF"), QColor("#7DD3FC")));
-    shellMenuButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    shellMenuButton->setToolTip("Menu");
-    shellMenuButton->setAccessibleName("OpenDssHeaderMenuButton");
-    shellMenuButton->setPopupMode(QToolButton::InstantPopup);
-    auto shellMenu = new QMenu(shellMenuButton);
-    for (auto* action : this->menuBar()->actions()) {
-        shellMenu->addAction(action);
-    }
-    shellMenuButton->setMenu(shellMenu);
     auto diagnosticsHeaderButton = new QToolButton;
     nameWidget(diagnosticsHeaderButton, "OpenDssHeaderDiagnosticsButton");
     diagnosticsHeaderButton->setProperty("headerIcon", true);
     diagnosticsHeaderButton->setProperty("brandIconKey", "info");
     diagnosticsHeaderButton->setIcon(makeBrandIcon("info", QColor("#FFFFFF"), QColor("#7DD3FC")));
     diagnosticsHeaderButton->setToolButtonStyle(Qt::ToolButtonIconOnly);
-    diagnosticsHeaderButton->setToolTip("Diagnostics");
-    diagnosticsHeaderButton->setAccessibleName("OpenDssHeaderDiagnosticsButton");
+    diagnosticsHeaderButton->setToolTip("Information and support");
+    diagnosticsHeaderButton->setAccessibleName("Information and support");
+    diagnosticsHeaderButton->setPopupMode(QToolButton::InstantPopup);
+    auto informationMenu = new QMenu(diagnosticsHeaderButton);
+    nameObject(informationMenu, "OpenDssInformationMenu");
+    informationMenu->addAction(aboutAction);
+    informationMenu->addAction(showDiagnosticsAction);
+    informationMenu->addAction(showLogsAction);
+    informationMenu->addAction(documentationAction);
+    diagnosticsHeaderButton->setMenu(informationMenu);
     auto themeToggleButton = new QToolButton;
     nameWidget(themeToggleButton, "OpenDssHeaderThemeToggleButton");
     themeToggleButton->setCheckable(true);
@@ -3175,7 +3559,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     shellHeaderLayout->addWidget(headerTriggerChip);
     shellHeaderLayout->addStretch(1);
     shellHeaderLayout->addWidget(themeToggleButton);
-    shellHeaderLayout->addWidget(shellMenuButton);
     shellHeaderLayout->addWidget(diagnosticsHeaderButton);
     shellHeader->setLayout(shellHeaderLayout);
 
@@ -3248,11 +3631,38 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         });
         return button;
     };
+    verifierTrace(QStringLiteral("startup: building navigation"));
     auto liveNavButton = addNavButton("Live View", "play", liveWorkspacePage, "NavLiveButton");
-    auto modelNavButton = addNavButton("Model", "model", modelWorkspacePage, "NavModelButton");
+    auto modelNavButton = addNavButton("Models", "model", modelWorkspacePage, "NavModelButton");
     auto datasetNavButton = addNavButton("Dataset", "dataset", datasetWorkspacePage, "NavDatasetButton");
-    auto trainerNavButton = addNavButton("Trainer", "trainer", trainerWorkspacePage, "NavTrainerButton");
-    auto validatorNavButton = addNavButton("Model Testing", "validator", validatorWorkspacePage, "NavValidatorButton");
+    auto trainerNavButton = new QPushButton(modelWorkspacePage);
+    nameWidget(trainerNavButton, "ModelsTrainTabRoute");
+    trainerNavButton->hide();
+    auto validatorNavButton = new QPushButton(modelWorkspacePage);
+    nameWidget(validatorNavButton, "ModelsTestTabRoute");
+    validatorNavButton->hide();
+    QObject::connect(trainerNavButton, &QPushButton::clicked, [=]() {
+        workspaceStack->setCurrentWidget(modelWorkspacePage);
+        modelWorkspaceTabs->setCurrentIndex(1);
+        modelNavButton->setChecked(true);
+        headerTitleLabel->setText("/ Models / Train");
+        headerStatusText->setText("Train model");
+    });
+    QObject::connect(validatorNavButton, &QPushButton::clicked, [=]() {
+        workspaceStack->setCurrentWidget(modelWorkspacePage);
+        modelWorkspaceTabs->setCurrentIndex(2);
+        modelNavButton->setChecked(true);
+        headerTitleLabel->setText("/ Models / Test");
+        headerStatusText->setText("Test model");
+    });
+    QObject::connect(modelWorkspaceTabs, &QTabWidget::currentChanged, [=](int index) {
+        if (workspaceStack->currentWidget() != modelWorkspacePage)
+            return;
+        static const QStringList tabNames = {"Library", "Train", "Test"};
+        const QString tabName = tabNames.value(index, "Library");
+        headerTitleLabel->setText("/ Models / " + tabName);
+        headerStatusText->setText(tabName == "Library" ? "Models workspace" : tabName);
+    });
     auto reportsNavButton = addNavButton("Reports", "reports", reportsWorkspacePage, "NavReportsButton");
     navLayout->addStretch(1);
     auto settingsNavButton = addNavButton("Settings", "settings", settingsWorkspacePage, "NavSettingsButton");
@@ -3272,7 +3682,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             button->setIcon(makeBrandIcon(iconKey, shellColors.shellIconFg, accent));
         };
 
-        applyIcon(shellMenuButton, headerAccent);
         applyIcon(diagnosticsHeaderButton, headerAccent);
         applyIcon(liveNavButton, railAccent);
         applyIcon(modelNavButton, railAccent);
@@ -3282,7 +3691,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         applyIcon(reportsNavButton, railAccent);
         applyIcon(settingsNavButton, railAccent);
     };
+    verifierTrace(QStringLiteral("startup: navigation built"));
     refreshThemeDependentChrome();
+    verifierTrace(QStringLiteral("startup: navigation icons refreshed"));
     auto wireHeaderChipNavigation = [&](QLabel* chip, QPushButton* destination, const QString& tooltip) {
         chip->setCursor(Qt::PointingHandCursor);
         chip->setToolTip(tooltip);
@@ -3310,15 +3721,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         headerStatusText->setText("Dataset workspace");
         datasetNavButton->setChecked(true);
     } else if (options.initialWorkspace == "trainer") {
-        workspaceStack->setCurrentWidget(trainerWorkspacePage);
-        headerTitleLabel->setText("/ Trainer");
-        headerStatusText->setText("Trainer workspace");
-        trainerNavButton->setChecked(true);
+        trainerNavButton->click();
     } else if (options.initialWorkspace == "validator") {
-        workspaceStack->setCurrentWidget(validatorWorkspacePage);
-        headerTitleLabel->setText("/ Model Testing");
-        headerStatusText->setText("Model testing workspace");
-        validatorNavButton->setChecked(true);
+        validatorNavButton->click();
     } else if (options.initialWorkspace == "reports") {
         workspaceStack->setCurrentWidget(reportsWorkspacePage);
         headerTitleLabel->setText("/ Reports");
@@ -3348,15 +3753,276 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     shellLayout->setContentsMargins(0, 0, 0, 0);
     shellLayout->setSpacing(0);
     shellLayout->addWidget(navRail);
+    verifierTrace(QStringLiteral("startup: shell content assembled"));
     shellLayout->addWidget(shellContent, 1);
     centralWidget->setLayout(shellLayout);
     this->setCentralWidget(centralWidget);
 
+    std::function<int()> runModelsWorkspaceVerification;
+    if (verifyModelsWorkspaceConsolidation) {
+        verifierTrace(QStringLiteral("verify-models: entering assertions"));
+        runModelsWorkspaceVerification = [=, &app]() {
+            QStringList failures;
+            const auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    qCritical().noquote() << "MODELS WORKSPACE VERIFY FAIL:" << message;
+                } else {
+                    qInfo().noquote() << "MODELS WORKSPACE VERIFY PASS:" << message;
+                }
+            };
+            modelNavButton->click();
+            app.processEvents();
+            require(workspaceStack->currentWidget() == modelWorkspacePage, "Models navigation opens the consolidated workspace");
+            require(modelWorkspaceTabs->count() == 3, "Models workspace owns Library, Train, and Test tabs only");
+            require(modelWorkspaceTabs->tabText(0) == "Library" && modelWorkspaceTabs->tabText(1) == "Train" &&
+                        modelWorkspaceTabs->tabText(2) == "Test",
+                    "Models tabs use the required task names");
+            require(modelWorkspaceTabs->tabBar()->minimumHeight() >= 44 &&
+                        modelWorkspaceTabs->tabBar()->maximumWidth() <= 480 &&
+                        modelWorkspaceTabs->property("openDssSegmentedTabs").toBool() &&
+                        !modelWorkspaceTabs->tabBar()->expanding() && !modelWorkspaceTabs->tabBar()->drawBase(),
+                    "Models use a compact constrained OpenDSS segmented tab control");
+            require(modelWorkspaceTabs->styleSheet().contains("palette(highlight)") &&
+                        modelWorkspaceTabs->styleSheet().contains("tab:selected") &&
+                        modelWorkspaceTabs->styleSheet().contains("tab:hover") &&
+                        !modelWorkspaceTabs->styleSheet().contains("border-bottom: 3") &&
+                        modelWorkspaceTabs->tabBar()->focusPolicy() == Qt::StrongFocus,
+                    "Models tabs expose themed selected, hover, and keyboard-focus states without heavy separators");
+            require(modelWorkspaceTabs->currentIndex() == 0, "Library is the default Models tab");
+            require(this->findChild<QPushButton*>("NavTrainerButton") == nullptr &&
+                        this->findChild<QPushButton*>("NavValidatorButton") == nullptr,
+                    "Trainer and Model Testing no longer have top-level navigation entries");
+            auto* registryTable = this->findChild<QTableWidget*>("ModelWorkspaceRegistryTable");
+            require(registryTable != nullptr, "Library model list exists");
+            bool namesOnly = registryTable != nullptr;
+            bool activeIconFound = false;
+            bool activeEntryExpected = false;
+            for (const QJsonValue& value : registryEntries) {
+                const QJsonObject entry = value.toObject();
+                activeEntryExpected = activeEntryExpected || entry.value("selectable_for_normal_live_sorting").toBool() ||
+                                      registryString(entry, "state").contains("promoted", Qt::CaseInsensitive) ||
+                                      registryString(entry, "promotion_status").contains("current", Qt::CaseInsensitive);
+            }
+            if (registryTable) {
+                for (int row = 0; row < registryTable->rowCount(); ++row) {
+                    const auto* item = registryTable->item(row, 0);
+                    namesOnly = namesOnly && item && !item->text().contains('\n') && !item->text().contains("target:") &&
+                                !item->text().contains("current live model", Qt::CaseInsensitive);
+                    activeIconFound = activeIconFound || (item && !item->icon().isNull() && item->toolTip() == "Active model");
+                }
+            }
+            require(namesOnly, "Library rows contain model names only");
+            require(!activeEntryExpected || activeIconFound,
+                    "An active model uses a separate check icon when the isolated registry has one");
+            this->resize(1600, 1000);
+            this->show();
+            app.processEvents();
+            auto* librarySplitter = modelWorkspacePage->findChild<QSplitter*>("ModelWorkspaceSplitter");
+            require(librarySplitter && librarySplitter->width() * 3 <= modelWorkspacePage->width() * 2 + 6,
+                    "Library primary content is constrained to two-thirds of the usable width");
+            auto* libraryAddButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceAddModelButton");
+            auto* libraryAddBlankButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceAddBlankModelButton");
+            auto* libraryAddPretrainedButton =
+                modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceAddPretrainedModelButton");
+            auto* libraryRemoveButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRemoveModelButton");
+            auto* librarySetActiveButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceSetActiveButton");
+            require(!libraryAddButton && libraryAddBlankButton && !libraryAddBlankButton->isHidden() &&
+                        libraryAddPretrainedButton && !libraryAddPretrainedButton->isHidden() &&
+                        libraryRemoveButton && !libraryRemoveButton->isHidden() &&
+                        libraryRemoveButton->text() == "Remove model" && librarySetActiveButton &&
+                        !librarySetActiveButton->isHidden() && librarySetActiveButton->text() == "Set Active",
+                    "Library exposes explicit Blank/Pre-trained, Remove, and Set Active actions only");
+            trainerNavButton->click();
+            require(workspaceStack->currentWidget() == modelWorkspacePage && modelWorkspaceTabs->currentIndex() == 1,
+                    "Trainer routes to the Models Train tab");
+            require(trainerTrainingModeCombo->isHidden(), "Training-plan choice is removed from the Train setup");
+            require(trainerAdvancedToggle->text() == "Hyperparameter Settings" && !trainerAdvancedToggle->isChecked(),
+                    "Train uses one collapsed Hyperparameter Settings section");
+            require(trainerFormTitle->text() == "SETUP" && trainerPathsGroup->title().isEmpty(),
+                    "Setup is the actual Train section title without a redundant nested title");
+            require(trainerDeviceCombo && trainerDeviceCombo->isVisible() &&
+                        trainerDeviceCombo->findData("auto") >= 0 && trainerDeviceCombo->findData("cpu") >= 0 &&
+                        trainerDeviceCombo->findData("cuda") >= 0,
+                    "Train Setup exposes the shared Auto, CPU, and GPU device selector");
+            require(!trainerEnvironmentPanel->isVisible() &&
+                        trainerWorkspacePage->findChild<QWidget*>("TrainerEnvironmentPanel") == nullptr,
+                    "Train Setup Details panel is absent");
+            require(trainerLeftLayout->indexOf(trainerLogPanel) >= 0 && trainerLogPanel->isVisible() &&
+                        !trainerLogToggle->isChecked() && trainerResultText->isHidden(),
+                    "Train keeps controlled Status and a collapsed Detailed Log as the only raw surface");
+            QJsonParseError hyperparameterParseError;
+            const QJsonDocument hyperparameterDocument = QJsonDocument::fromJson(
+                trainerHyperparameterJsonEdit->toPlainText().toUtf8(), &hyperparameterParseError);
+            require(trainerArchitectureCombo->isHidden() && trainerPretrainedSegment->isHidden() &&
+                        !trainerHyperparameterJsonEdit->isHidden() &&
+                        hyperparameterParseError.error == QJsonParseError::NoError && hyperparameterDocument.isObject() &&
+                        hyperparameterDocument.object().value("schema_version").toInt() == 2 &&
+                        hyperparameterDocument.object().value("batch_size").toInt() == 64 &&
+                        hyperparameterDocument.object().value("input_size").toArray() == QJsonArray{96, 96, 3} &&
+                        hyperparameterDocument.object().value("stages").toArray().size() == 2 &&
+                        qAbs(hyperparameterDocument.object().value("imbalance").toObject()
+                                 .value("sampler_alpha").toDouble() - 0.65) < 0.0001,
+                    "Train derives architecture from the selected model and exposes valid versioned staged JSON");
+            require(!trainerStatusLabel->text().contains("Start from:", Qt::CaseInsensitive) &&
+                        !trainerStatusLabel->text().contains("Training plan:", Qt::CaseInsensitive) &&
+                        !trainerStatusLabel->text().contains("Save new model in:", Qt::CaseInsensitive),
+                    "Main Status excludes legacy setup prose and paths");
+            TrainerUiEvent actualSchemaEvent;
+            require(parseTrainerUiEvent(
+                        R"({"schema_version":1,"event":"epoch_metrics","stage":"fine_tune","epoch":3,"metrics":{"train_loss":0.42,"val_loss":0.51,"val_accuracy":0.875,"val_macro_f1":0.81,"elapsed_seconds":12.5}})",
+                        &actualSchemaEvent) && actualSchemaEvent.type == "epoch_metrics" &&
+                        actualSchemaEvent.stage == "fine_tune" && actualSchemaEvent.epoch == 3 &&
+                        qAbs(actualSchemaEvent.trainLoss - 0.42) < 0.0001 &&
+                        qAbs(actualSchemaEvent.validationLoss - 0.51) < 0.0001 &&
+                        qAbs(actualSchemaEvent.accuracy - 0.875) < 0.0001 &&
+                        qAbs(actualSchemaEvent.macroF1 - 0.81) < 0.0001,
+                    "Actual trainer epoch_metrics schema populates progress metrics and plots");
+            QVector<QPointF> twoStageLossHistory;
+            QVector<QPointF> twoStageScoreHistory;
+            bool twoStageParsed = true;
+            for (int globalEpoch = 1; globalEpoch <= 14; ++globalEpoch) {
+                const int stageEpoch = globalEpoch <= 6 ? globalEpoch : globalEpoch - 6;
+                const QString stage = globalEpoch <= 6 ? QStringLiteral("head") : QStringLiteral("fine_tune");
+                TrainerUiEvent parsed;
+                const QString json = QString(
+                    "{\"event\":\"epoch_metrics\",\"stage\":\"%1\",\"epoch\":%2,"
+                    "\"global_epoch\":%3,\"metrics\":{\"train_loss\":0.4,\"val_accuracy\":0.8}}")
+                    .arg(stage).arg(stageEpoch).arg(globalEpoch);
+                twoStageParsed = twoStageParsed && parseTrainerUiEvent(json, &parsed) &&
+                                 parsed.stageEpoch == stageEpoch && parsed.globalEpoch == globalEpoch;
+                upsertTrainerHistoryPoint(twoStageLossHistory, parsed.globalEpoch, parsed.trainLoss);
+                upsertTrainerHistoryPoint(twoStageScoreHistory, parsed.globalEpoch, parsed.accuracy);
+            }
+            upsertTrainerHistoryPoint(twoStageLossHistory, 7, 0.39);
+            bool monotonicUnique = twoStageLossHistory.size() == 14 && twoStageScoreHistory.size() == 14;
+            for (int index = 0; index < twoStageLossHistory.size(); ++index) {
+                monotonicUnique = monotonicUnique && qRound(twoStageLossHistory.at(index).x()) == index + 1 &&
+                                  qRound(twoStageScoreHistory.at(index).x()) == index + 1;
+            }
+            require(twoStageParsed && monotonicUnique,
+                    "Two-stage plot histories use unique monotonic global epochs 1..14 without backward segments");
+            for (const QString& eventName : {QString("run_started"), QString("environment"),
+                                             QString("dataset_summary"), QString("warning")}) {
+                TrainerUiEvent parsed;
+                require(parseTrainerUiEvent(QString("{\"event\":\"%1\"}").arg(eventName), &parsed) &&
+                            parsed.type == eventName,
+                        "Trainer parses actual event " + eventName);
+            }
+            bool trainerNamesOnly = true;
+            for (int index = 0; index < trainerStartingModelCombo->count(); ++index) {
+                const QString text = trainerStartingModelCombo->itemText(index);
+                trainerNamesOnly = trainerNamesOnly && !text.contains('|') && !text.contains("target:", Qt::CaseInsensitive) &&
+                                   !text.contains("current live model", Qt::CaseInsensitive);
+            }
+            require(trainerNamesOnly, "Train model choices show names only");
+            auto* lossCurve = this->findChild<QFrame*>("TrainerLossCurve");
+            auto* performanceCurve = this->findChild<QFrame*>("TrainerPerformanceCurve");
+            require(trainerLeftLayout->indexOf(trainerResultsPanel) >= 0 && lossCurve && performanceCurve,
+                    "Train retains Results metrics and both learning-curve plots");
+            auto* lossCanvas = this->findChild<QLabel*>("TrainerLossCurveValues");
+            auto* performanceCanvas = this->findChild<QLabel*>("TrainerPerformanceCurveValues");
+            require(trainerResultsPanel->isVisible() && lossCurve->isVisible() && performanceCurve->isVisible() &&
+                        lossCanvas && !lossCanvas->pixmap().isNull() && performanceCanvas &&
+                        !performanceCanvas->pixmap().isNull(),
+                    "Train Results and both blank plot canvases are visible before training");
+            require(lossCurve->property("xAxisLabel") == "Epoch" && lossCurve->property("yAxisLabel") == "Loss" &&
+                        performanceCurve->property("xAxisLabel") == "Epoch" &&
+                        performanceCurve->property("yAxisLabel") == "Score" &&
+                        lossCurve->property("gridVisible").toBool() && lossCurve->property("legendVisible").toBool() &&
+                        performanceCurve->property("gridVisible").toBool() &&
+                        performanceCurve->property("legendVisible").toBool(),
+                    "Blank plots retain Epoch/Loss/Score axes, numeric grids, and legends");
+            require(lossCurve && performanceCurve && lossCurve->minimumHeight() >= 220 &&
+                        lossCurve->maximumHeight() <= 260 && performanceCurve->minimumHeight() >= 220 &&
+                        performanceCurve->maximumHeight() <= 260,
+                    "Train learning-curve regions use constrained full-width heights");
+            const QString plotMetricsPath =
+                qEnvironmentVariable("OVDS_VERIFY_TRAINER_PLOT_METRICS_JSON").trimmed();
+            if (!plotMetricsPath.isEmpty()) {
+                const QJsonObject metrics = loadRegistryObjectForVerifier(plotMetricsPath);
+                QVector<QPointF> trainLoss;
+                QVector<QPointF> validationLoss;
+                QVector<QPointF> validationAccuracy;
+                QVector<QPointF> macroF1;
+                for (const QJsonValue& value : metrics.value("history").toArray()) {
+                    const QJsonObject row = value.toObject();
+                    const int epoch = row.value("global_epoch").toInt(row.value("epoch").toInt());
+                    if (epoch <= 0)
+                        continue;
+                    trainLoss.push_back(QPointF(epoch, row.value("train_loss").toDouble()));
+                    validationLoss.push_back(QPointF(epoch, row.value("val_loss").toDouble()));
+                    validationAccuracy.push_back(QPointF(epoch, row.value("val_accuracy").toDouble()));
+                    macroF1.push_back(QPointF(epoch, row.value("val_macro_f1").toDouble()));
+                }
+                require(!trainLoss.isEmpty(), "Completed trainer metrics provide plot epochs");
+                renderTrainerCurves(lossCanvas, trainLoss, validationLoss,
+                                    QColor(42, 124, 201), QColor(222, 118, 42));
+                renderTrainerCurves(performanceCanvas, validationAccuracy, macroF1,
+                                    QColor(38, 151, 96), QColor(112, 83, 196));
+            }
+            validatorNavButton->click();
+            require(workspaceStack->currentWidget() == modelWorkspacePage && modelWorkspaceTabs->currentIndex() == 2,
+                    "Model testing routes to the Models Test tab");
+            auto* classMetrics = this->findChild<QTableWidget*>("ValidatorWorkspaceClassMetricsTable");
+            require(classMetrics && classMetrics->columnCount() == 5 &&
+                        classMetrics->horizontalHeaderItem(0)->text() == "Class" &&
+                        classMetrics->horizontalHeaderItem(4)->text() == "Correct / Total",
+                    "Test exposes the required per-class performance columns");
+            QStringList testLabels;
+            for (auto* label : validatorWorkspacePage->findChildren<QLabel*>())
+                testLabels << label->text();
+            require(testLabels.contains("Accuracy") && testLabels.contains("Macro F1") &&
+                        testLabels.contains("Correct / Total") && testLabels.contains("Incorrect"),
+                    "Test prioritizes Accuracy, Macro F1, Correct / Total, and Incorrect");
+            require(!testLabels.contains("Images checked") && !testLabels.contains("Review summary"),
+                    "Test removes count and review-summary cards");
+            bool rawTestTextHidden = true;
+            for (auto* rawText : validatorWorkspacePage->findChildren<QPlainTextEdit*>())
+                rawTestTextHidden = rawTestTextHidden && rawText->isHidden();
+            require(!testLabels.contains("Details") && rawTestTextHidden,
+                    "Test workspace has no visible Details label or raw JSON viewer");
+            const QString captureDirectory = qEnvironmentVariable("OVDS_CAPTURE_MODELS_UI_DIR").trimmed();
+            if (!captureDirectory.isEmpty()) {
+                require(QDir().mkpath(captureDirectory), "Release UI capture directory exists");
+                this->resize(1600, 1000);
+                this->show();
+                const QStringList captureNames = {"Library", "Train", "Test"};
+                for (int tab = 0; tab < captureNames.size(); ++tab) {
+                    modelWorkspaceTabs->setCurrentIndex(tab);
+                    if (tab == 1) {
+                        trainerLeftScroll->verticalScrollBar()->setValue(
+                            trainerLeftScroll->verticalScrollBar()->maximum());
+                    }
+                    app.processEvents();
+                    const QString capturePath = QDir(captureDirectory).filePath(captureNames.at(tab) + ".png");
+                    require(this->grab().save(capturePath), "Captured Release " + captureNames.at(tab) + " UI");
+                    auto* captureModelCombo =
+                        tab == 2 ? this->findChild<QComboBox*>("ValidatorWorkspaceModelCombo") : nullptr;
+                    if (captureModelCombo && captureModelCombo->count() > 0) {
+                        captureModelCombo->showPopup();
+                        app.processEvents();
+                        const QString openComboCapture =
+                            QDir(captureDirectory).filePath("TestModelsOpen.png");
+                        require(captureModelCombo->view() &&
+                                    captureModelCombo->view()->grab().save(openComboCapture),
+                                "Captured Test model list with all eligible names visible");
+                        captureModelCombo->hidePopup();
+                    }
+                }
+            }
+            if (!failures.isEmpty())
+                verifierTrace(QStringLiteral("verify-models: failures: %1").arg(failures.join("; ")));
+            verifierTrace(QStringLiteral("verify-models: assertions complete"));
+            return failures.isEmpty() ? 0 : 2;
+        };
+        const int verifierResult = runModelsWorkspaceVerification();
+        verifierTrace(QStringLiteral("verify-models: returning %1").arg(verifierResult));
+        return verifierResult;
+    }
+
     QObject::connect(trainerDockProxyButton, &QPushButton::clicked, [&]() {
-        workspaceStack->setCurrentWidget(trainerWorkspacePage);
-        headerTitleLabel->setText("/ Trainer");
-        headerStatusText->setText("Trainer workspace");
-        trainerNavButton->setChecked(true);
+        trainerNavButton->click();
         trainerPythonEdit->setFocus();
     });
     auto logDock = new QDockWidget("Logs", this);
@@ -3390,7 +4056,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     diagnosticsDock->setWidget(diagnosticsLabel);
     this->addDockWidget(Qt::BottomDockWidgetArea, diagnosticsDock);
     diagnosticsDock->hide();
-    QObject::connect(diagnosticsHeaderButton, &QToolButton::clicked, diagnosticsDock, &QDockWidget::show);
 
     auto cameraStatusItem = new QLabel("Camera: startup pending");
     auto modelStatusItem = new QLabel("Model: not loaded");
@@ -3465,11 +4130,24 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return QStringLiteral("Camera startup");
     };
     auto modelHeaderText = [&](const QString& modelText) {
-        const QString model = statusValue(modelText, "Model").toLower();
-        if (model.contains("loaded"))
-            return QStringLiteral("Model SqueezeNet");
-        if (model.contains("error"))
-            return QStringLiteral("Model error");
+        const QString modelValue = statusValue(modelText, "Model");
+        const QString model = modelValue.toLower();
+        if (model == QStringLiteral("loaded")) {
+            QString selectedModel;
+            const QString selectedId = liveModelCombo
+                                           ? liveModelCombo->currentData(Qt::UserRole + 1).toString().trimmed()
+                                           : QString();
+            for (const QJsonValue& value : registryEntries) {
+                const QJsonObject entry = value.toObject();
+                if (registryString(entry, "registry_entry_id").compare(selectedId, Qt::CaseInsensitive) == 0) {
+                    selectedModel = registryString(entry, "display_name").trimmed();
+                    break;
+                }
+            }
+            return selectedModel.isEmpty() ? QStringLiteral("Model loaded") : selectedModel;
+        }
+        if (model.contains("missing") || model.contains("invalid") || model.contains("could not"))
+            return titleCaseStatus(modelValue);
         return QStringLiteral("Model not loaded");
     };
     auto daqHeaderText = [&](const QString& daqText) {
@@ -3630,11 +4308,45 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     });
     QObject::connect(exitAction, &QAction::triggered, this, &QWidget::close);
     QObject::connect(aboutAction, &QAction::triggered, [&]() {
-        QMessageBox::about(this, "About OpenDSS",
-                           "OpenDSS\n\n"
-                           "Qt desktop app for live-view, model-backed droplet sorting, and hardware controls.\n\n"
-                           "Model testing runs in the Model Testing workspace. Trainer launch saves completed training "
-                           "runs into the Model workspace.");
+        auto* dialog = new QDialog(this);
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setWindowTitle("About OpenDSS");
+        dialog->setMinimumWidth(520);
+        nameWidget(dialog, "OpenDssAboutDialog");
+        auto* layout = new QVBoxLayout(dialog);
+        auto* title = new QLabel("OpenDSS");
+        title->setProperty("sectionTitle", true);
+        layout->addWidget(title);
+        const QString github = QStringLiteral("https://github.com/haeminjung12/OpenDSS_clean");
+        const QString docs = github + QStringLiteral("#readme");
+        const QString support = QStringLiteral("haeminjung@tamu.edu");
+        const QString version = QCoreApplication::applicationVersion();
+        auto* details = new QLabel(
+            QStringLiteral("<b>Software version:</b> %4<br><br>"
+                           "<b>GitHub Repository:</b><br><a href=\"%1\">%1</a><br><br>"
+                           "<b>Documentation:</b><br><a href=\"%2\">%2</a><br><br>"
+                           "<b>Support:</b><br><a href=\"mailto:%3\">%3</a>")
+                .arg(github, docs, support, version));
+        nameWidget(details, "OpenDssAboutDetails");
+        details->setTextFormat(Qt::RichText);
+        details->setTextInteractionFlags(Qt::TextBrowserInteraction);
+        details->setOpenExternalLinks(true);
+        details->setWordWrap(true);
+        layout->addWidget(details);
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Close);
+        auto* copyButton = buttons->addButton("Copy information", QDialogButtonBox::ActionRole);
+        nameWidget(copyButton, "OpenDssAboutCopyButton");
+        QObject::connect(copyButton, &QPushButton::clicked, dialog, [github, docs, support, version]() {
+            QGuiApplication::clipboard()->setText(
+                QStringLiteral("OpenDSS\nSoftware version: %4\nGitHub Repository: %1\nDocumentation: %2\nSupport: %3")
+                    .arg(github, docs, support, version));
+        });
+        QObject::connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+        layout->addWidget(buttons);
+        dialog->open();
+    });
+    QObject::connect(documentationAction, &QAction::triggered, this, []() {
+        QDesktopServices::openUrl(QUrl(QStringLiteral("https://github.com/haeminjung12/OpenDSS_clean#readme")));
     });
 
     // Logging helper
@@ -3862,6 +4574,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             trainerEpochsSpin,
             trainerBatchSpin,
             trainerLrSpin,
+            trainerHyperparameterJsonEdit,
+            trainerSelectedArchitectureValue,
             trainerFlipCheck,
             trainerRotationCheck,
             trainerColorJitterCheck,
@@ -3878,12 +4592,106 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QProcess* trainerProcess = nullptr;
     bool trainerCommandWasTraining = false;
     bool trainerCommandWasDryRun = false;
+    bool trainerStopRequested = false;
     QString trainerStdoutLog;
+    QString trainerStdoutLineBuffer;
+    QVector<QPointF> trainerTrainLossHistory;
+    QVector<QPointF> trainerValidationLossHistory;
+    QVector<QPointF> trainerAccuracyHistory;
+    QVector<QPointF> trainerF1History;
+    QElapsedTimer trainerElapsed;
+    int trainerBestEpoch = 0;
+    double trainerBestAccuracy = -1.0;
+    QString savedTrainerModelEntryId;
     auto appendTrainerLog = [datasetController](const QString& text) { datasetController->appendTrainerLog(text); };
     auto trainerCommandPreview = [datasetController](const QString& program, const QStringList& args) {
         return datasetController->trainerCommandPreview(program, args);
     };
     auto saveTrainerSettings = [datasetController]() { datasetController->saveTrainerSettings(); };
+    auto presentTrainerEvent = [&](const TrainerUiEvent& event) {
+        const auto percentageText = [](double value) {
+            return value < 0.0 ? QStringLiteral("--") : QString::number(value <= 1.0 ? value * 100.0 : value, 'f', 1) + "%";
+        };
+        if (event.percent >= 0.0) {
+            trainerProgressBar->setRange(0, 100);
+            trainerProgressBar->setValue(qBound(0, qRound(event.percent), 100));
+            trainerProgressBar->setFormat(QString("%1%").arg(trainerProgressBar->value()));
+        } else if (event.epoch > 0 && event.epochs > 0) {
+            trainerProgressBar->setRange(0, 100);
+            trainerProgressBar->setValue(qBound(0, qRound(100.0 * event.epoch / event.epochs), 100));
+            trainerProgressBar->setFormat(QString("Epoch %1 of %2").arg(event.epoch).arg(event.epochs));
+        }
+
+        if (event.type.contains("dataset")) {
+            trainerStatusLabel->setText(datasetController->trainerSummaryText("Preparing the training dataset..."));
+        } else if (event.type.contains("validation")) {
+            trainerStatusLabel->setText(datasetController->trainerSummaryText("Checking model performance..."));
+        } else if (event.type == QStringLiteral("checkpoint_loaded")) {
+            trainerStatusLabel->setText(datasetController->trainerSummaryText(
+                "Loaded the selected model weights. Preparing baseline evaluation..."));
+        } else if (event.type.contains("checkpoint")) {
+            trainerStatusLabel->setText(datasetController->trainerSummaryText(
+                QString("Best result improved to %1 accuracy.").arg(percentageText(event.accuracy))));
+        } else if (event.type.contains("saving") || event.type.contains("export")) {
+            trainerStatusLabel->setText(datasetController->trainerSummaryText("Saving the trained model..."));
+        } else if (event.type.contains("error") || event.type.contains("failed")) {
+            trainerStatusLabel->setText(datasetController->trainerSummaryText(
+                "Training could not continue.", trainerPlainLanguageError(event.errorCode)));
+        } else if (event.epoch > 0) {
+            QString detail;
+            if (event.batch > 0 && event.batches > 0)
+                detail = QString("Batch %1 of %2").arg(event.batch).arg(event.batches);
+            trainerStatusLabel->setText(datasetController->trainerSummaryText(
+                QString("Training epoch %1%2").arg(event.epoch).arg(event.epochs > 0 ? QString(" of %1").arg(event.epochs) : QString()), detail));
+        }
+
+        if (event.trainLoss >= 0.0 || event.validationLoss >= 0.0) {
+            if (event.trainLoss >= 0.0)
+                upsertTrainerHistoryPoint(trainerTrainLossHistory, event.globalEpoch, event.trainLoss);
+            if (event.validationLoss >= 0.0)
+                upsertTrainerHistoryPoint(trainerValidationLossHistory, event.globalEpoch, event.validationLoss);
+            while (trainerTrainLossHistory.size() > 100)
+                trainerTrainLossHistory.removeFirst();
+            while (trainerValidationLossHistory.size() > 100)
+                trainerValidationLossHistory.removeFirst();
+            if (auto* values = this->findChild<QLabel*>("TrainerLossCurveValues"))
+                renderTrainerCurves(values, trainerTrainLossHistory, trainerValidationLossHistory,
+                                    QColor(42, 124, 201), QColor(222, 118, 42));
+        }
+        if (event.accuracy >= 0.0 || event.macroF1 >= 0.0) {
+            if (event.accuracy >= 0.0)
+                upsertTrainerHistoryPoint(trainerAccuracyHistory, event.globalEpoch,
+                                          event.accuracy <= 1.0 ? event.accuracy : event.accuracy / 100.0);
+            if (event.macroF1 >= 0.0)
+                upsertTrainerHistoryPoint(trainerF1History, event.globalEpoch, event.macroF1);
+            while (trainerAccuracyHistory.size() > 100)
+                trainerAccuracyHistory.removeFirst();
+            while (trainerF1History.size() > 100)
+                trainerF1History.removeFirst();
+            if (auto* values = this->findChild<QLabel*>("TrainerPerformanceCurveValues"))
+                renderTrainerCurves(values, trainerAccuracyHistory, trainerF1History,
+                                    QColor(38, 151, 96), QColor(112, 83, 196));
+            if (event.accuracy > trainerBestAccuracy) {
+                trainerBestAccuracy = event.accuracy;
+                trainerBestEpoch = event.globalEpoch;
+            }
+            trainerResultsPanel->show();
+            trainerResultMetricValues.value(0)->setText(percentageText(event.accuracy));
+            trainerResultMetricValues.value(1)->setText(event.macroF1 >= 0.0 ? QString::number(event.macroF1, 'f', 3) : "--");
+            trainerResultMetricValues.value(2)->setText(trainerBestEpoch > 0 ? QString::number(trainerBestEpoch) : "--");
+            trainerResultMetricValues.value(3)->setText(trainerElapsed.isValid() ? QTime(0, 0).addMSecs(trainerElapsed.elapsed()).toString("hh:mm:ss") : "--");
+        }
+        const QString trainerCapturePath = qEnvironmentVariable("OVDS_CAPTURE_TRAINER_UI_PATH").trimmed();
+        const bool hasPlotMetric = event.trainLoss >= 0.0 || event.validationLoss >= 0.0 ||
+                                   event.accuracy >= 0.0 || event.macroF1 >= 0.0;
+        if (hasPlotMetric && event.epoch > 0 && !trainerCapturePath.isEmpty()) {
+            trainerNavButton->click();
+            QTimer::singleShot(250, this, [this, trainerCapturePath]() {
+                QDir().mkpath(QFileInfo(trainerCapturePath).absolutePath());
+                this->grab().save(trainerCapturePath);
+            });
+        }
+    };
     auto handOffPreparedDatasetForReview = [trainerDatasetEdit, saveTrainerSettings,
                                             openDatasetLabelerPath](const QString& datasetPath) {
         const QString normalizedPath = datasetPath.trimmed();
@@ -3949,8 +4757,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return withComputeDeviceArg(datasetController->trainerTrainArgs(dryRun));
     };
     auto refreshModelWorkspaceAndTrainer = [&](const QString& entryId) {
-        if (auto* refreshButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceRefreshButton")) {
-            refreshButton->click();
+        if (auto* reloadButton = modelWorkspacePage->findChild<QPushButton*>("ModelWorkspaceInternalReloadButton")) {
+            reloadButton->click();
             QCoreApplication::processEvents();
         }
         if (auto* modelTable = modelWorkspacePage->findChild<QTableWidget*>("ModelWorkspaceRegistryTable")) {
@@ -3966,20 +4774,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
     std::function<void(const QString&)> refreshLiveModelsFromRegistry;
     auto saveCompletedTrainingArtifacts = [&](const TrainerCompletionArtifacts& artifacts) {
-        QString defaultName = QFileInfo(artifacts.runDir).fileName();
-        QFile metadataFile(artifacts.metadataJsonPath);
-        if (metadataFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
-            const QJsonDocument metadataDoc = QJsonDocument::fromJson(metadataFile.readAll());
-            if (metadataDoc.isObject()) {
-                const QString metadataName = metadataDoc.object().value("model_name").toString().trimmed();
-                if (!metadataName.isEmpty())
-                    defaultName = metadataName;
-            }
-        }
+        const QString baseName = trainerStartingModelCombo->currentText().trimmed().isEmpty()
+                                     ? QString("Trained model copy")
+                                     : trainerStartingModelCombo->currentText().trimmed() + " copy";
+        QString defaultName = baseName;
+        int suffix = 2;
+        while (QFileInfo::exists(QDir(modelsRootForSaveModelUi()).filePath(trainedModelFolderNameForUi(defaultName))))
+            defaultName = QString("%1 %2").arg(baseName).arg(suffix++);
         const QString modelName = promptForTrainedModelName(this, defaultName);
         if (modelName.isEmpty()) {
             appendTrainerLog("Model save canceled: no model name was saved.\n");
-            setTrainerSummary("Model training completed.", "Model save was canceled; run artifacts remain available.");
+            for (const QString& artifact : {artifacts.modelOnnxPath, artifacts.metadataJsonPath,
+                                            artifacts.metricsCsvPath, artifacts.metricsJsonPath,
+                                            artifacts.classMetricsCsvPath, artifacts.confusionMatrixCsvPath}) {
+                if (!artifact.trimmed().isEmpty())
+                    QFile::remove(artifact);
+            }
+            setTrainerSummary("Completed training result discarded.", "The diagnostic log was kept.");
             return;
         }
 
@@ -3997,27 +4808,32 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
         appendTrainerLog(QString("Saved trained model to the Model workspace: %1\n").arg(entryId));
         refreshModelWorkspaceAndTrainer(entryId);
-        bool modelMadeActive = false;
-        if (promptUseTrainedModelForSortingNow(this)) {
+        savedTrainerModelEntryId = entryId;
+        trainerSavedModelLabel->setText("Saved model: " + modelName);
+        trainerUseModelButton->setEnabled(true);
+        trainerResultsPanel->show();
+        setTrainerSummary("Model trained and saved.", "Review the results or use the model for sorting.");
+        if (qEnvironmentVariableIntValue("OVDS_VERIFY_AUTO_USE_SAVED_MODEL") != 0)
+            QTimer::singleShot(0, trainerUseModelButton, &QPushButton::click);
+    };
+    QObject::connect(trainerUseModelButton, &QPushButton::clicked, this, [&, trainerUseModelButton]() {
+        if (savedTrainerModelEntryId.isEmpty())
+            return;
             QString activationError;
-            if (!activateModelRegistryEntry(registryFilePath, entryId, &activationError)) {
+            if (!activateModelRegistryEntry(registryFilePath, savedTrainerModelEntryId, &activationError)) {
                 appendTrainerLog("Model active selection failed: " + activationError + "\n");
                 QMessageBox::warning(this, "Use trained model", activationError);
-                setTrainerSummary("Model trained and saved.",
-                                  "The trained model was saved, but could not be selected for sorting.");
+                setTrainerSummary("The saved model could not be activated.", activationError);
             } else {
-                appendTrainerLog(QString("Using trained model for sorting now: %1\n").arg(entryId));
-                refreshModelWorkspaceAndTrainer(entryId);
+                appendTrainerLog(QString("Using trained model for sorting now: %1\n").arg(savedTrainerModelEntryId));
+                refreshModelWorkspaceAndTrainer(savedTrainerModelEntryId);
                 if (refreshLiveModelsFromRegistry)
-                    refreshLiveModelsFromRegistry(entryId);
-                modelMadeActive = true;
+                    refreshLiveModelsFromRegistry(savedTrainerModelEntryId);
+                trainerUseModelButton->setEnabled(false);
+                trainerUseModelButton->setText("Active");
+                setTrainerSummary("Model is active.");
             }
-        }
-        modelNavButton->click();
-        setTrainerSummary(modelMadeActive ? "Model trained, saved, and ready for sorting." : "Model trained and saved.",
-                          modelMadeActive ? "Live View is using the newly trained model."
-                                          : "Trained model is available in the Model workspace but is not active.");
-    };
+    });
     auto startTrainerCommand = [&](const QString& label, const QStringList& args, bool isTraining, bool isDryRun) {
         refreshTrainerUi();
         if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
@@ -4035,6 +4851,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             setTrainerSummary("Choose Python setup before continuing.");
             return;
         }
+        if (!QFileInfo(python).isFile()) {
+            const QString recovered = resolvedTrainerPythonExecutable(python, selectedComputeDevice());
+            python = recovered;
+            trainerPythonEdit->setText(QDir::toNativeSeparators(recovered));
+            QSettings settings;
+            settings.setValue("settings/pythonTrainer", recovered);
+            settings.sync();
+        }
+        if (!QFileInfo(python).isFile()) {
+            setTrainerSummary("Training tools are not installed or configured.",
+                              "Open Settings and configure the Python trainer before continuing.");
+            pythonStatusItem->setText("Python: setup required");
+            return;
+        }
         if ((isTraining || isDryRun) &&
             (trainerDatasetEdit->text().trimmed().isEmpty() || trainerOutputEdit->text().trimmed().isEmpty())) {
             setTrainerSummary("Choose a training dataset file and a save location before continuing.");
@@ -4049,7 +4879,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         saveTrainerSettings();
         trainerCommandWasTraining = isTraining;
         trainerCommandWasDryRun = isDryRun;
+        trainerStopRequested = false;
         trainerStdoutLog.clear();
+        trainerStdoutLineBuffer.clear();
+        trainerTrainLossHistory.clear();
+        trainerValidationLossHistory.clear();
+        trainerAccuracyHistory.clear();
+        trainerF1History.clear();
+        renderTrainerCurves(this->findChild<QLabel*>("TrainerLossCurveValues"), {}, {},
+                            QColor(42, 124, 201), QColor(222, 118, 42));
+        renderTrainerCurves(this->findChild<QLabel*>("TrainerPerformanceCurveValues"), {}, {},
+                            QColor(38, 151, 96), QColor(112, 83, 196));
+        trainerBestEpoch = 0;
+        trainerBestAccuracy = -1.0;
+        trainerElapsed.restart();
         trainerResultText->clear();
         appendTrainerLog(QString("Running %1\n%2\n\n").arg(label, trainerCommandPreview(python, args)));
         if (isTraining) {
@@ -4087,15 +4930,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             const QString chunk = QString::fromLocal8Bit(process->readAllStandardOutput());
             trainerStdoutLog += chunk;
             appendTrainerLog(chunk);
-            int progressIndex = chunk.indexOf("\"percent\"");
-            if (progressIndex >= 0) {
-                QRegularExpression rx("\"percent\"\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)");
-                auto match = rx.match(chunk, progressIndex);
-                if (match.hasMatch()) {
-                    trainerProgressBar->setRange(0, 100);
-                    trainerProgressBar->setValue(qBound(0, static_cast<int>(match.captured(1).toDouble()), 100));
-                    trainerProgressBar->setFormat(QString("%1%").arg(trainerProgressBar->value()));
-                }
+            trainerStdoutLineBuffer += chunk;
+            qsizetype newline = -1;
+            while ((newline = trainerStdoutLineBuffer.indexOf('\n')) >= 0) {
+                const QString line = trainerStdoutLineBuffer.left(newline).trimmed();
+                trainerStdoutLineBuffer.remove(0, newline + 1);
+                TrainerUiEvent event;
+                if (parseTrainerUiEvent(line, &event))
+                    presentTrainerEvent(event);
             }
         });
         QObject::connect(process, &QProcess::readyReadStandardError, this, [&, process]() {
@@ -4118,9 +4960,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     setTrainerSummary(ok ? "Setup check completed." : "Setup check failed.",
                                       ok ? QString() : "Review the detailed log for the failure.");
                 } else if (trainerCommandWasTraining) {
-                    setTrainerSummary(ok ? "Model training completed." : "Model training failed.",
-                                      ok ? QString() : "Review the detailed log for the failure.");
-                    if (ok) {
+                    setTrainerSummary(trainerStopRequested ? "Training stopped."
+                                                           : (ok ? "Model training completed." : "Model training failed."),
+                                      trainerStopRequested ? "The incomplete result was discarded. The diagnostic log was kept."
+                                                           : (ok ? QString() : "Review the detailed log for the failure."));
+                    if (ok && !trainerStopRequested) {
                         const TrainerCompletionArtifacts artifacts = parseSuccessfulTrainingArtifactsJsonl(trainerStdoutLog);
                         if (artifacts.complete) {
                             appendTrainerLog("Training artifacts found. Choose where to save the trained model.\n");
@@ -4176,10 +5020,16 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QObject::connect(trainerDryRunBtn, &QPushButton::clicked,
                      [&]() { startTrainerCommand("Setup check", trainerTrainArgs(true), false, true); });
     QObject::connect(trainerStartTrainingBtn, &QPushButton::clicked,
-                     [&]() { startTrainerCommand("Train model", trainerTrainArgs(false), true, false); });
+                     [&]() {
+                         QStringList args = trainerTrainArgs(false);
+                         if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_SMOKE") != 0)
+                             args << QStringLiteral("--smoke");
+                         startTrainerCommand("Train model", args, true, false);
+                     });
     QObject::connect(trainerCancelBtn, &QPushButton::clicked, [&]() {
         if (!trainerProcess || trainerProcess->state() == QProcess::NotRunning)
             return;
+        trainerStopRequested = true;
         setTrainerSummary("Stopping the current setup or training task...");
         trainerProcess->terminate();
         QPointer<QProcess> processPtr(trainerProcess);
@@ -4190,6 +5040,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         });
     });
     QObject::connect(trainerNavButton, &QPushButton::clicked, [&]() { refreshTrainerUi(); });
+    verifierTrace(QStringLiteral("startup: trainer controls wired"));
     if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_RESULT_MODEL_REGISTRATION") != 0) {
         QTimer::singleShot(0, this, [&]() {
             runTrainerResultModelRegistrationVerifier(modelWorkspacePage, datasetController, trainerStartingModelCombo,
@@ -4199,10 +5050,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     }
     QObject::connect(datasetReadinessAction, &QAction::triggered, [&]() {
         refreshTrainerUi();
-        workspaceStack->setCurrentWidget(trainerWorkspacePage);
-        headerTitleLabel->setText("/ Trainer");
-        headerStatusText->setText("Trainer workspace");
-        trainerNavButton->setChecked(true);
+        trainerNavButton->click();
         trainerDryRunBtn->setFocus();
     });
     QObject::connect(trainerConfigurePathBtn, &QPushButton::clicked, [&]() {
@@ -4214,10 +5062,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     });
     QObject::connect(trainingEnvironmentSettingsAction, &QAction::triggered, [&]() {
         refreshTrainerUi();
-        workspaceStack->setCurrentWidget(trainerWorkspacePage);
-        headerTitleLabel->setText("/ Trainer");
-        headerStatusText->setText("Trainer workspace");
-        trainerNavButton->setChecked(true);
+        trainerNavButton->click();
         trainerPythonEdit->setFocus();
     });
     if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_MODEL_SELECTION") != 0) {
@@ -4237,14 +5082,11 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     "Trainer starting-model default selection is non-empty");
             require(trainerTrainingModeCombo->currentData().toString() == "new_copy",
                     "Trainer training-plan default is the safe new-copy mode");
-            const QString startingModelHintText = trainerStartingModelHintLabel->text();
-            require(startingModelHintText.contains("new copy", Qt::CaseInsensitive) ||
-                        startingModelHintText.contains("new trained copy", Qt::CaseInsensitive),
-                    "Trainer hint explains that training saves a new copy");
-            require(trainerStatusLabel->text().contains("Start from:", Qt::CaseInsensitive),
-                    "Trainer summary reports the selected starting model");
-            require(trainerStatusLabel->text().contains("unchanged", Qt::CaseInsensitive),
-                    "Trainer summary keeps the original model unchanged");
+            require(trainerStartingModelHintLabel->isHidden(),
+                    "Legacy training-copy explanation is removed from the main Train surface");
+            require(!trainerStatusLabel->text().contains("Start from:", Qt::CaseInsensitive) &&
+                        !trainerStatusLabel->text().contains("Training plan:", Qt::CaseInsensitive),
+                    "Trainer summary contains controlled status only");
             require(trainerOutputEdit->placeholderText().contains("new trained model", Qt::CaseInsensitive),
                     "Trainer output text describes saving a new trained model");
             const QString expectedModel = qEnvironmentVariable("OVDS_VERIFY_TRAINER_EXPECT_MODEL").trimmed();
@@ -4296,11 +5138,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             if (autoIndex >= 0)
                 computeDeviceCombo->setCurrentIndex(autoIndex);
         }
-        const QString expectedPython = resolvedTrainerPythonExecutable(QString(), QStringLiteral("auto"));
+        const QString stalePython = QStringLiteral("C:/legacy/python.exe");
+        verifierSettings.setValue("settings/pythonTrainer", stalePython);
+        const QString expectedPython = resolvedTrainerPythonExecutable(stalePython, QStringLiteral("auto"));
+        verifierSettings.setValue("settings/pythonTrainer", expectedPython);
+        verifierSettings.sync();
         trainerPythonEdit->setText(QDir::toNativeSeparators(expectedPython));
         refreshTrainerUi();
         workspaceStack->setCurrentWidget(trainerWorkspacePage);
-        trainerSetupDetailsToggle->setChecked(true);
         refreshTrainerSetupDetails();
         app.processEvents();
 
@@ -4311,9 +5156,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         };
 
         auto* settingsTrainerPythonEdit = settingsWorkspacePage->findChild<QLineEdit*>("SettingsWorkspacePythonTrainerEdit");
-        require(trainerEnvironmentPanel->isVisible(), "Trainer setup details panel is visible when expanded");
-        require(sameCleanPath(expectedPython, documentedTrainerPythonExecutable(QStringLiteral("training-venv"))),
-                "Default Trainer Python resolves to the documented CPU venv");
+        require(!trainerEnvironmentPanel->isVisible(), "Trainer setup details panel is absent from Train");
+        require(QFileInfo(expectedPython).isFile() &&
+                    (sameCleanPath(expectedPython, documentedTrainerPythonExecutable(QStringLiteral("training-venv"))) ||
+                     sameCleanPath(expectedPython, legacyTrainerPythonExecutable(QStringLiteral("training-venv")))),
+                "Default Trainer Python resolves to a valid OpenDSS or compatible legacy CPU venv");
+        require(!sameCleanPath(expectedPython, stalePython),
+                "A missing persisted Trainer Python path is rejected before process launch");
+        require(sameCleanPath(verifierSettings.value("settings/pythonTrainer").toString(), expectedPython),
+                "Recovered Trainer Python path is persisted for the next launch");
         require(sameCleanPath(trainerPythonEdit->text().trimmed(), expectedPython),
                 "Trainer Python edit uses the resolved documented install path");
         require(settingsTrainerPythonEdit != nullptr, "Settings Trainer Python field exists");
@@ -4343,13 +5194,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return exitCode;
     };
     if (verifyTrainerLaunch) {
-        QTimer::singleShot(0, this, [&, datasetController]() {
+        QTimer::singleShot(1000, this, [&, datasetController]() {
+            verifierTrace(QStringLiteral("trainer-launch: entered"));
             const QString verifierPrefix = QStringLiteral("TRAINER LAUNCH VERIFY");
             const QString datasetPath = qEnvironmentVariable("OVDS_VERIFY_TRAINER_DATASET").trimmed();
             const QString outputPath = qEnvironmentVariable("OVDS_VERIFY_TRAINER_OUTPUT").trimmed();
             const QString pythonPath = qEnvironmentVariable("OVDS_VERIFY_TRAINER_PYTHON").trimmed();
             const QString requestedModel = qEnvironmentVariable("OVDS_VERIFY_TRAINER_MODEL").trimmed();
             const QString requestedMode = qEnvironmentVariable("OVDS_VERIFY_TRAINER_MODE").trimmed();
+            const bool requireSuccessfulLifecycle =
+                qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_REQUIRE_SUCCESS") != 0;
+            const QString verifierHyperparameters =
+                qEnvironmentVariable("OVDS_VERIFY_TRAINER_HYPERPARAMETERS_JSON").trimmed();
             const QByteArray timeoutEnv = qgetenv("OVDS_VERIFY_TRAINER_TIMEOUT_MS");
             const int timeoutMs = timeoutEnv.trimmed().isEmpty() ? 30000 : qMax(1000, timeoutEnv.toInt());
 
@@ -4357,8 +5213,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             auto require = [&](bool condition, const QString& message) {
                 if (!condition) {
                     failures.push_back(message);
+                    verifierTrace(QStringLiteral("trainer-launch: FAIL: ") + message);
                     qCritical().noquote() << verifierPrefix << "FAIL:" << message;
                 } else {
+                    verifierTrace(QStringLiteral("trainer-launch: PASS: ") + message);
                     qInfo().noquote() << verifierPrefix << "PASS:" << message;
                 }
             };
@@ -4399,13 +5257,20 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 return -1;
             };
 
+            trainerPythonEdit->setText(QDir::toNativeSeparators(pythonPath));
+            trainerDatasetEdit->setText(QDir::toNativeSeparators(datasetPath));
+            trainerOutputEdit->setText(QDir::toNativeSeparators(outputPath));
+            if (!verifierHyperparameters.isEmpty())
+                trainerHyperparameterJsonEdit->setPlainText(verifierHyperparameters);
             refreshTrainerUi();
+            verifierTrace(QStringLiteral("trainer-launch: initial refresh complete"));
             workspaceStack->setCurrentWidget(trainerWorkspacePage);
             headerTitleLabel->setText("/ Trainer");
             headerStatusText->setText("Trainer workspace");
             trainerNavButton->setChecked(true);
             app.processEvents();
             waitForUi(250);
+            verifierTrace(QStringLiteral("trainer-launch: workspace selected"));
 
             require(!datasetPath.isEmpty(), "Dataset path env is provided");
             require(!outputPath.isEmpty(), "Output path env is provided");
@@ -4440,10 +5305,54 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             refreshTrainerUi();
             app.processEvents();
             waitForUi(250);
+            verifierTrace(QStringLiteral("trainer-launch: requested model selected"));
 
-            const QStringList trainArgs = trainerTrainArgs(false);
+            QStringList trainArgs = trainerTrainArgs(false);
+            if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_SMOKE") != 0)
+                trainArgs << QStringLiteral("--smoke");
+            verifierTrace(QStringLiteral("trainer-launch: arguments generated"));
+            verifierTrace(QStringLiteral("trainer-launch: arguments: %1")
+                              .arg(trainArgs.join(QStringLiteral(" | "))));
             require(!trainArgs.isEmpty(), "Trainer arguments are generated");
             require(!trainArgs.contains(QString()), "Trainer arguments do not contain empty values");
+
+            if (qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_CONFIG_ONLY") != 0) {
+                const int configIndex = trainArgs.indexOf(QStringLiteral("--config"));
+                const QString configPath = configIndex >= 0 ? trainArgs.value(configIndex + 1) : QString();
+                const QJsonObject generatedConfig = loadRegistryObjectForVerifier(configPath);
+                require(QFileInfo(configPath).isFile(), "GUI-generated trainer config exists");
+                QStringList generatedClassIds;
+                for (const QJsonValue& value : generatedConfig.value("classes").toArray()) {
+                    generatedClassIds << (value.isObject() ? value.toObject().value("id").toString()
+                                                          : value.toString());
+                }
+                QStringList expectedClassIds;
+                for (int i = 0; i < generatedClassIds.size(); ++i)
+                    expectedClassIds << QString::number(i);
+                require(generatedClassIds == expectedClassIds &&
+                            (generatedClassIds.size() == 2 || generatedClassIds.size() == 3),
+                        "GUI-generated config preserves ordered 2/3-class dataset ids");
+                const QJsonObject initialization = generatedConfig.value("initialization").toObject();
+                if (requestedModel.contains(QStringLiteral("Blank"), Qt::CaseInsensitive)) {
+                    require(initialization.value("mode").toString() == QStringLiteral("imagenet") &&
+                                !initialization.value("weight_id").toString().isEmpty() &&
+                                QFileInfo(initialization.value("weight_path").toString()).isFile(),
+                            "GUI-generated Blank config selects available ImageNet weights");
+                } else {
+                    require(initialization.value("mode").toString() == QStringLiteral("checkpoint") &&
+                                QFileInfo(initialization.value("checkpoint_path").toString()).isFile(),
+                            "GUI-generated Pre-trained config selects its packaged checkpoint");
+                }
+                for (const QString& ambiguousKey : {QStringLiteral("pretrained"),
+                                                    QStringLiteral("source_checkpoint"),
+                                                    QStringLiteral("source_checkpoint_path"),
+                                                    QStringLiteral("classifier_initialization")}) {
+                    require(!generatedConfig.contains(ambiguousKey),
+                            "GUI-generated config omits ambiguous field " + ambiguousKey);
+                }
+                finish(failures.isEmpty() ? 0 : 2);
+                return;
+            }
 
             if (!failures.isEmpty()) {
                 finish(2);
@@ -4503,14 +5412,32 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             const bool launchedTrain =
                 finalLog.contains(QStringLiteral("-m droplet_trainer train"), Qt::CaseInsensitive);
             require(launchedTrain, "Trainer launch log still shows the train command after process exit");
+            if (requireSuccessfulLifecycle) {
+                waitForUi(1500);
+                const QString completedLog = trainerResultText->toPlainText();
+                require(completedLog.contains(QStringLiteral("\"event\": \"checkpoint_loaded\"")),
+                        "Pre-trained GUI run emitted checkpoint_loaded");
+                require(completedLog.contains(QStringLiteral("\"event\": \"run_finished\"")) &&
+                            completedLog.contains(QStringLiteral("\"status\": \"ok\"")),
+                        "GUI run emitted strict run_finished status ok");
+                const TrainerCompletionArtifacts completed = parseSuccessfulTrainingArtifactsJsonl(completedLog);
+                require(completed.complete && QFileInfo(completed.modelOnnxPath).isFile() &&
+                            QFileInfo(completed.metadataJsonPath).isFile() &&
+                            QFileInfo(QDir(completed.runDir).filePath("checkpoint.pth")).isFile(),
+                        "Successful GUI run produced checkpoint.pth, model.onnx, and metadata.json");
+                require(!savedTrainerModelEntryId.isEmpty(), "GUI Save/Use registered the real completed package");
+                if (!savedTrainerModelEntryId.isEmpty()) {
+                    const QJsonArray persistedEntries = readModelRegistryEntriesFromPath(registryFilePath, nullptr);
+                    const QJsonObject savedEntry = registryEntryByIdForVerifier(persistedEntries, savedTrainerModelEntryId);
+                    require(!savedEntry.isEmpty() && savedEntry.value("active").toBool(false),
+                            "GUI Save/Use activated the real completed package");
+                }
+            }
             finish(failures.isEmpty() ? 0 : 2);
         });
     }
     QObject::connect(trainingValidateEnvironmentAction, &QAction::triggered, [&]() {
-        workspaceStack->setCurrentWidget(trainerWorkspacePage);
-        headerTitleLabel->setText("/ Trainer");
-        headerStatusText->setText("Trainer workspace");
-        trainerNavButton->setChecked(true);
+        trainerNavButton->click();
         trainerEnvCheckBtn->click();
     });
 
@@ -4572,16 +5499,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QString label = registryString(entry, "display_name");
         if (label.isEmpty())
             label = registryString(entry, "registry_entry_id");
-        label += " - " + registryString(entry, "state");
+        const ModelPackageInspection package = inspectModelPackage(entry);
+        label += " - " + package.status;
         if (!targetId.isEmpty()) {
             label += " - " + (targetDisplay.isEmpty() ? targetId : QString("%1 (%2)").arg(targetDisplay, targetId));
         }
-        const bool selectable = entry.value("selectable_for_normal_live_sorting").toBool(false) &&
-                                registryString(entry, "live_use_mode") != "blocked";
+        const bool selectable = package.canActivate;
         addLiveModelRow(label, registryString(entry, "registry_entry_id"),
-                        runtimePathFromRegistryPath(registryString(entry, "model_path")),
-                        runtimePathFromRegistryPath(registryString(entry, "metadata_path")),
-                        registryString(entry, "state"), selectable ? registryString(entry, "live_use_mode") : "blocked",
+                        package.onnxPath, package.metadataPath,
+                        package.status, selectable ? "normal" : "blocked",
                         targetId, registryEntrySummary(entry, registryFilePath, registryLoadWarning),
                         registryString(entry, "model_sha256"), registryString(entry, "metadata_sha256"), selectable);
     }
@@ -4592,13 +5518,28 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         "34eec09f49ab4612a34e3a24ccf85eccc98516b388fbadbfb0736ecbf8fb1769",
                         "528ac091764c09cd9c2c6ad2a6ff1e38bb009184a26e7352b71b3a025c30902d", true);
     }
-    int activeLiveModelIndex = 0;
+    const QString activeRegistryId =
+        registryString(activeRegistryEntry(registryEntries), "registry_entry_id").trimmed();
+    int activeLiveModelIndex = -1;
     for (int i = 0; i < liveModelCombo->count(); ++i) {
+        if (!activeRegistryId.isEmpty() &&
+            liveModelCombo->itemData(i, kLiveModelIdRole).toString().compare(
+                activeRegistryId, Qt::CaseInsensitive) == 0 &&
+            liveModelCombo->itemData(i, kLiveModelModeRole).toString() != "blocked") {
+            activeLiveModelIndex = i;
+            break;
+        }
+    }
+    for (int i = 0; i < liveModelCombo->count(); ++i) {
+        if (activeLiveModelIndex >= 0)
+            break;
         if (liveModelCombo->itemData(i, kLiveModelModeRole).toString() != "blocked") {
             activeLiveModelIndex = i;
             break;
         }
     }
+    if (activeLiveModelIndex < 0)
+        activeLiveModelIndex = 0;
     liveModelCombo->setCurrentIndex(activeLiveModelIndex);
     appState.activeModelId = liveModelCombo->currentData(kLiveModelIdRole).toString();
     liveModelSummaryText->setPlainText(liveModelCombo->currentData(kLiveModelSummaryRole).toString());
@@ -4913,17 +5854,13 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
         const QString onnxPath = liveModelCombo->currentData(kLiveModelOnnxRole).toString();
         const QString metadataPath = liveModelCombo->currentData(kLiveModelMetadataRole).toString();
-        const QJsonObject packagedActiveEntry = activeRegistryEntry(registryEntries);
-        const bool selectedPackagedActive =
-            appState.activeModelId == registryString(packagedActiveEntry, "registry_entry_id");
-        if (selectedPackagedActive && !defaultWorkspacePaths.activeModel.isEmpty()) {
-            onnxEdit->setText(defaultWorkspacePaths.activeModel);
-        } else if (!onnxPath.isEmpty()) {
+        // Always load the selected registry artifact in place. A copied "active"
+        // alias can be stale and, for ONNX external-data models, separates the
+        // graph from its required .data sidecar.
+        if (!onnxPath.isEmpty()) {
             onnxEdit->setText(onnxPath);
         }
-        if (selectedPackagedActive && !defaultWorkspacePaths.activeMetadata.isEmpty()) {
-            metaEdit->setText(defaultWorkspacePaths.activeMetadata);
-        } else if (!metadataPath.isEmpty()) {
+        if (!metadataPath.isEmpty()) {
             metaEdit->setText(metadataPath);
         }
         const QString targetClassId = liveModelCombo->currentData(kLiveModelTargetRole).toString();
@@ -4952,16 +5889,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QString label = registryString(entry, "display_name");
             if (label.isEmpty())
                 label = registryString(entry, "registry_entry_id");
-            label += " - " + registryString(entry, "state");
+            const ModelPackageInspection package = inspectModelPackage(entry);
+            label += " - " + package.status;
             if (!targetId.isEmpty())
                 label += " - " + (targetDisplay.isEmpty() ? targetId : QString("%1 (%2)").arg(targetDisplay, targetId));
 
-            const bool selectable = entry.value("selectable_for_normal_live_sorting").toBool(false) &&
-                                    registryString(entry, "live_use_mode") != "blocked";
+            const bool selectable = package.canActivate;
             addLiveModelRow(label, registryString(entry, "registry_entry_id"),
-                            runtimePathFromRegistryPath(registryString(entry, "model_path")),
-                            runtimePathFromRegistryPath(registryString(entry, "metadata_path")),
-                            registryString(entry, "state"), selectable ? registryString(entry, "live_use_mode") : "blocked",
+                            package.onnxPath, package.metadataPath,
+                            package.status, selectable ? "normal" : "blocked",
                             targetId, registryEntrySummary(entry, registryFilePath, registryLoadWarning),
                             registryString(entry, "model_sha256"), registryString(entry, "metadata_sha256"), selectable);
         }
@@ -5079,6 +6015,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     validatorWorkspaceControllerDeps.backgroundTasks = &backgroundTasks;
     auto* validatorWorkspaceController = new ValidatorWorkspaceController(validatorWorkspaceControllerDeps, this);
     bool labviewTriggerReady = false;
+    verifierTrace(QStringLiteral("startup: creating runtime controllers"));
     SettingsWorkspaceController::Dependencies settingsControllerDeps;
     settingsControllerDeps.appState = &appState;
     settingsControllerDeps.daqDeviceCombo = daqDeviceCombo;
@@ -5139,32 +6076,19 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     restoreRuntimeSettings();
     syncValidatorWorkspaceRuntimeModel();
     auto repairRuntimeModelPaths = [&]() {
-        auto rawPathExists = [&](const QString& path) {
-            const QString trimmed = path.trimmed();
-            if (trimmed.isEmpty())
-                return false;
-            QFileInfo info(trimmed);
-            if (info.isAbsolute())
-                return info.exists();
-            return QFileInfo(QDir(appDir).absoluteFilePath(trimmed)).exists();
-        };
-        if (rawPathExists(onnxEdit->text()) && rawPathExists(metaEdit->text()) &&
-            !isDeveloperInternalDefaultPath(onnxEdit->text()) && !isDeveloperInternalDefaultPath(metaEdit->text())) {
-            return;
-        }
         const QString registryOnnx = liveModelCombo->currentData(kLiveModelOnnxRole).toString();
         const QString registryMeta = liveModelCombo->currentData(kLiveModelMetadataRole).toString();
-        if (!defaultWorkspacePaths.activeModel.isEmpty()) {
-            onnxEdit->setText(defaultWorkspacePaths.activeModel);
-        } else if (!registryOnnx.isEmpty() && !isDeveloperInternalDefaultPath(registryOnnx)) {
+        if (!registryOnnx.isEmpty()) {
             onnxEdit->setText(registryOnnx);
+        } else if (!defaultWorkspacePaths.activeModel.isEmpty()) {
+            onnxEdit->setText(defaultWorkspacePaths.activeModel);
         } else {
             onnxEdit->setText(documentsOnnxFallback);
         }
-        if (!defaultWorkspacePaths.activeMetadata.isEmpty()) {
-            metaEdit->setText(defaultWorkspacePaths.activeMetadata);
-        } else if (!registryMeta.isEmpty() && !isDeveloperInternalDefaultPath(registryMeta)) {
+        if (!registryMeta.isEmpty()) {
             metaEdit->setText(registryMeta);
+        } else if (!defaultWorkspacePaths.activeMetadata.isEmpty()) {
+            metaEdit->setText(defaultWorkspacePaths.activeMetadata);
         } else {
             metaEdit->setText(documentsMetaFallback);
         }
@@ -5377,7 +6301,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         QString metaResolved = resolveAppRelative(metaEdit->text());
         cfg.onnxPath = onnxResolved.toStdString();
         cfg.metadataPath = metaResolved.toStdString();
-        cfg.computeDevice = selectedComputeDevice().toStdString();
+        // Live sorting uses the qualified CPU inference path. The shared device
+        // selector continues to control training and Model Testing.
+        cfg.computeDevice = "cpu";
         appState.targetClassId = selectedTargetClassId();
         appState.sortNonTarget = sortNonTargetEnabled();
         cfg.targetClassId = appState.targetClassId.toStdString();
@@ -5440,7 +6366,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             try {
                 if (!pipeline.init(cfg, err)) {
                     pipelineStatusLabel->setText(QString("Pipeline error: %1").arg(QString::fromStdString(err)));
-                    modelStatusItem->setText("Model: error");
+                    modelStatusItem->setText("Model: " + conciseModelLoadFailure(QString::fromStdString(err)));
                     this->statusBar()->showMessage("Pipeline initialization failed");
                     pipelineEnabled.store(false);
                     pipelineEnableCheck->setChecked(false);
@@ -5457,7 +6383,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             } catch (const std::exception& e) {
                 const QString exceptionText = QString::fromLocal8Bit(e.what());
                 pipelineStatusLabel->setText(QString("Pipeline error: %1").arg(exceptionText));
-                modelStatusItem->setText("Model: error");
+                modelStatusItem->setText("Model: " + conciseModelLoadFailure(exceptionText));
                 daqStatusItem->setText("DAQ: unavailable");
                 appState.daqAvailable = false;
                 appState.daqDisabled = false;
@@ -5476,7 +6402,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 return;
             } catch (...) {
                 pipelineStatusLabel->setText("Pipeline error: unknown startup exception");
-                modelStatusItem->setText("Model: error");
+                modelStatusItem->setText("Model: Model could not be loaded");
                 daqStatusItem->setText("DAQ: unavailable");
                 appState.daqAvailable = false;
                 appState.daqDisabled = false;
@@ -7358,15 +8284,76 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         logMessage("Dataset workspace verifier: camera startup skipped to keep checks no-hardware.");
     } else if (verifyWorkspaceSplitters) {
         logMessage("Workspace splitter verifier: camera startup skipped to keep checks no-hardware.");
-    } else if (verifyResetLayout) {
+    } else if (verifyResetLayout || verifyNavigationInfo || verifyModelsWorkspaceConsolidation ||
+               verifyProductionModelStatus) {
         logMessage("Reset layout verifier: camera startup skipped to keep checks no-hardware.");
     } else {
         cameraController->initializeCamera();
     }
+    verifierTrace(QStringLiteral("startup: scheduling final verifiers"));
     if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger && !options.verifyLiveViewSortPolicy &&
         !options.verifyValidationWorkspace && !verifyTrainerLaunch && !verifyTrainerSetupStatus && !verifyDefaultPaths &&
-        !verifyDatasetWorkspace && !verifyWorkspaceSplitters && !verifyResetLayout) {
+        !verifyDatasetWorkspace && !verifyWorkspaceSplitters && !verifyResetLayout && !verifyNavigationInfo &&
+        !verifyModelsWorkspaceConsolidation && !verifyProductionModelStatus) {
         QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
+    }
+    if (verifyProductionModelStatus) {
+        QTimer::singleShot(0, this, [&, verifierTrace]() {
+            QStringList failures;
+            const auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    verifierTrace(QStringLiteral("production-model-status: FAIL: ") + message);
+                    qCritical().noquote() << "PRODUCTION MODEL STATUS VERIFY FAIL:" << message;
+                } else {
+                    verifierTrace(QStringLiteral("production-model-status: PASS: ") + message);
+                    qInfo().noquote() << "PRODUCTION MODEL STATUS VERIFY PASS:" << message;
+                }
+            };
+            const QString selectedId = liveModelCombo->currentData(kLiveModelIdRole).toString();
+            const QString selectedOnnx = liveModelCombo->currentData(kLiveModelOnnxRole).toString();
+            const QString selectedMetadata = liveModelCombo->currentData(kLiveModelMetadataRole).toString();
+            require(!selectedId.isEmpty(), "active registry entry is selected");
+            require(QFileInfo(resolveAppRelative(selectedOnnx)).isFile(), "selected registry ONNX exists");
+            require(QFileInfo(resolveAppRelative(selectedMetadata)).isFile(), "selected registry metadata exists");
+            loadPipeline(false, true);
+            QEventLoop headerRefreshLoop;
+            QTimer::singleShot(600, &headerRefreshLoop, &QEventLoop::quit);
+            headerRefreshLoop.exec();
+            verifierTrace(QStringLiteral("production-model-status: entry=%1 onnx=%2 metadata=%3 status=%4 pipeline=%5")
+                              .arg(selectedId, selectedOnnx, selectedMetadata, modelStatusItem->text(),
+                                   pipelineStatusLabel->text()));
+            require(modelStatusItem->text() == QStringLiteral("Model: loaded"),
+                    "visible model status is loaded, not generic Model Error (actual: " +
+                        modelStatusItem->text() + ")");
+            QString selectedDisplayName;
+            for (const QJsonValue& value : registryEntries) {
+                const QJsonObject entry = value.toObject();
+                if (registryString(entry, "registry_entry_id").compare(selectedId, Qt::CaseInsensitive) == 0) {
+                    selectedDisplayName = registryString(entry, "display_name").trimmed();
+                    break;
+                }
+            }
+            require(!selectedDisplayName.isEmpty() && headerModelChip->toolTip() == selectedDisplayName &&
+                        selectedDisplayName.startsWith(headerModelChip->text().chopped(
+                            headerModelChip->text().endsWith(QChar(0x2026)) ? 1 : 0), Qt::CaseInsensitive),
+                    "header model badge shows the active package name, with the complete name in its tooltip "
+                    "(actual: " + headerModelChip->text() + ", expected: " + selectedDisplayName + ")");
+            require(!headerModelChip->text().contains(QStringLiteral("SqueezeNet"), Qt::CaseInsensitive),
+                    "header model badge is not the removed hard-coded SqueezeNet label");
+            require(!pipelineStatusLabel->text().startsWith("Pipeline error", Qt::CaseInsensitive),
+                    "pipeline status has no load error (actual: " + pipelineStatusLabel->text() + ")");
+            require(sameCleanPath(resolveAppRelative(onnxEdit->text()), resolveAppRelative(selectedOnnx)),
+                    "runtime uses the registry-resolved ONNX in place");
+            require(sameCleanPath(resolveAppRelative(metaEdit->text()), resolveAppRelative(selectedMetadata)),
+                    "runtime uses the registry-resolved metadata in place");
+            qInfo().noquote() << "PRODUCTION MODEL STATUS VERIFY ENTRY:" << selectedId
+                              << "status=" << modelStatusItem->text()
+                              << "pipeline=" << pipelineStatusLabel->text();
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            verifierTrace(QStringLiteral("production-model-status: returning %1").arg(exitCode));
+            QCoreApplication::exit(exitCode);
+        });
     }
     if (verifyTrainerSetupStatus) {
         const int exitCode = runTrainerSetupStatusVerifier();
@@ -7375,14 +8362,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         return exitCode;
     }
     if (verifyDefaultPaths) {
-        QTimer::singleShot(0, [&app, trainerDatasetEdit, trainerOutputEdit, onnxEdit, validatorWorkspaceModelEdit,
-                                defaultWorkspacePaths]() {
+        QTimer::singleShot(0, [&app, trainerDatasetEdit, trainerOutputEdit, defaultWorkspacePaths, verifierTrace]() {
             QStringList failures;
             auto require = [&](bool condition, const QString& message) {
                 if (!condition) {
                     failures << message;
+                    verifierTrace(QStringLiteral("default-paths: FAIL: ") + message);
                     qCritical().noquote() << "DEFAULT PATH VERIFY FAIL:" << message;
                 } else {
+                    verifierTrace(QStringLiteral("default-paths: PASS: ") + message);
                     qInfo().noquote() << "DEFAULT PATH VERIFY PASS:" << message;
                 }
             };
@@ -7393,13 +8381,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
             const QString trainerDatasetPath = trainerDatasetEdit ? trainerDatasetEdit->text().trimmed() : QString();
             const QString trainerOutputPath = trainerOutputEdit ? trainerOutputEdit->text().trimmed() : QString();
-            const QString validatorModelPath = validatorWorkspaceModelEdit ? validatorWorkspaceModelEdit->text().trimmed()
-                                                                           : (onnxEdit ? onnxEdit->text().trimmed()
-                                                                                       : QString());
             qInfo().noquote() << "DEFAULT PATH VERIFY VALUES:"
                               << "trainerDataset=" << trainerDatasetPath
                               << "trainerOutput=" << trainerOutputPath
-                              << "validatorModel=" << validatorModelPath
                               << "documentsRoot=" << defaultWorkspacePaths.root;
 
             require(isDocumentsPath(trainerOutputPath), "Trainer output defaults under Documents/OpenDSS");
@@ -7408,16 +8392,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(isDocumentsPath(trainerDatasetPath), "Trainer image-set defaults under Documents/OpenDSS");
             require(!isDeveloperInternalDefaultPath(trainerDatasetPath),
                     "Trainer image-set does not use repo source dataset path");
-            require(isDocumentsPath(validatorModelPath), "Validator model defaults under Documents/OpenDSS");
-            require(!isDeveloperInternalDefaultPath(validatorModelPath),
-                    "Validator model does not use internal release build model path");
 
             const int exitCode = failures.isEmpty() ? 0 : 2;
             QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
         });
     }
     if (verifyComputeSettings) {
-        QTimer::singleShot(0, [&app, computeDeviceCombo, validatorWorkspaceDeviceCombo, trainerTrainArgs]() {
+        QTimer::singleShot(0, [&app, computeDeviceCombo, trainerDeviceCombo,
+                               validatorWorkspaceDeviceCombo, trainerTrainArgs]() {
             QStringList failures;
             auto require = [&](bool condition, const QString& message) {
                 if (!condition) {
@@ -7448,13 +8430,38 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(computeDeviceCombo && computeDeviceCombo->findData("auto") >= 0, "Compute selector has Auto");
             require(computeDeviceCombo && computeDeviceCombo->findData("cpu") >= 0, "Compute selector has CPU");
             require(computeDeviceCombo && computeDeviceCombo->findData("cuda") >= 0, "Compute selector has GPU");
+            require(trainerDeviceCombo != nullptr, "Train compute selector exists");
+            require(trainerDeviceCombo && trainerDeviceCombo->findData("auto") >= 0,
+                    "Train compute selector has Auto");
+            require(trainerDeviceCombo && trainerDeviceCombo->findData("cpu") >= 0,
+                    "Train compute selector has CPU");
+            require(trainerDeviceCombo && trainerDeviceCombo->findData("cuda") >= 0,
+                    "Train compute selector has GPU");
 
-            if (computeDeviceCombo) {
-                const int gpuIndex = computeDeviceCombo->findData("cuda");
-                require(gpuIndex >= 0, "GPU option can be selected by stable data value");
-                if (gpuIndex >= 0)
-                    computeDeviceCombo->setCurrentIndex(gpuIndex);
-                app.processEvents();
+            for (const QString& device : {QStringLiteral("auto"), QStringLiteral("cpu"), QStringLiteral("cuda")}) {
+                if (trainerDeviceCombo) {
+                    const int trainIndex = trainerDeviceCombo->findData(device);
+                    require(trainIndex >= 0, "Train can select " + device + " by stable data value");
+                    if (trainIndex >= 0)
+                        trainerDeviceCombo->setCurrentIndex(trainIndex);
+                    app.processEvents();
+                }
+                require(computeDeviceCombo && computeDeviceCombo->currentData().toString() == device,
+                        "Train selection updates Settings for " + device);
+                require(settings.value("settings/computeDevice").toString() == device,
+                        "Train selection persists " + device);
+                require(deviceValueAfter(trainerTrainArgs(false), "--device") == device,
+                        "Training command uses Train-selected " + device);
+
+                if (computeDeviceCombo) {
+                    const int settingsIndex = computeDeviceCombo->findData(device);
+                    require(settingsIndex >= 0, "Settings can select " + device + " by stable data value");
+                    if (settingsIndex >= 0)
+                        computeDeviceCombo->setCurrentIndex(settingsIndex);
+                    app.processEvents();
+                }
+                require(trainerDeviceCombo && trainerDeviceCombo->currentData().toString() == device,
+                        "Settings selection updates Train for " + device);
             }
 
             require(settings.value("settings/computeDevice").toString() == "cuda",
@@ -7930,6 +8937,61 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
         });
     }
+    if (verifyNavigationInfo) {
+        QTimer::singleShot(0, this, [this, &app, aboutAction, showDiagnosticsAction, showLogsAction,
+                                    documentationAction, diagnosticsDock, logDock, verifierTrace]() {
+            QStringList failures;
+            auto require = [&](bool condition, const QString& message) {
+                if (!condition) {
+                    failures << message;
+                    verifierTrace(QStringLiteral("navigation-info: FAIL: ") + message);
+                    qCritical().noquote() << "NAVIGATION INFO VERIFY FAIL:" << message;
+                } else {
+                    verifierTrace(QStringLiteral("navigation-info: PASS: ") + message);
+                    qInfo().noquote() << "NAVIGATION INFO VERIFY PASS:" << message;
+                }
+            };
+            auto* infoButton = this->findChild<QToolButton*>("OpenDssHeaderDiagnosticsButton");
+            require(this->findChild<QToolButton*>("OpenDssHeaderMenuButton") == nullptr,
+                    "redundant hamburger menu is absent");
+            require(this->findChild<QPushButton*>("NavSettingsButton") != nullptr,
+                    "Settings is available from the navigation rail");
+            require(this->findChild<QPushButton*>("SettingsWorkspaceResetLayoutButton") != nullptr,
+                    "Reset Layout is available in Settings");
+            require(this->findChild<QToolButton*>("LiveViewerOpenViewerButton") != nullptr,
+                    "Open Viewer is available in the Live View toolbar");
+            require(infoButton && infoButton->menu(), "information button owns a dropdown menu");
+            if (infoButton && infoButton->menu()) {
+                const QStringList labels = [&]() {
+                    QStringList values;
+                    for (auto* action : infoButton->menu()->actions())
+                        values << action->text().remove('&');
+                    return values;
+                }();
+                require(labels == QStringList({"About", "Diagnostics", "Debug Log", "Documentation"}),
+                        "information menu exposes About, Diagnostics, Debug Log, and Documentation actions");
+            }
+            showDiagnosticsAction->trigger();
+            showLogsAction->trigger();
+            app.processEvents();
+            require(diagnosticsDock->isVisible(), "Diagnostics action opens its dock");
+            require(logDock->isVisible(), "Debug Log action opens its dock");
+            require(documentationAction->text().contains("Documentation"), "Documentation action is available");
+            aboutAction->trigger();
+            app.processEvents();
+            auto* aboutDialog = this->findChild<QDialog*>("OpenDssAboutDialog");
+            auto* aboutDetails = aboutDialog ? aboutDialog->findChild<QLabel*>("OpenDssAboutDetails") : nullptr;
+            require(aboutDetails && aboutDetails->text().contains("0.9.0"), "About shows software version 0.9.0");
+            require(aboutDetails && aboutDetails->text().contains("OpenDSS_clean"), "About shows clickable repository links");
+            require(aboutDetails && aboutDetails->text().contains("haeminjung@tamu.edu"), "About shows support email");
+            require(aboutDetails && (aboutDetails->textInteractionFlags() & Qt::TextSelectableByMouse),
+                    "About information is selectable and copyable");
+            if (aboutDialog)
+                aboutDialog->close();
+            const int exitCode = failures.isEmpty() ? 0 : 2;
+            QTimer::singleShot(0, &app, [exitCode]() { QCoreApplication::exit(exitCode); });
+        });
+    }
     if (verifyDatasetWorkspace) {
         auto* datasetVerifierExitTimer = new QTimer(this);
         datasetVerifierExitTimer->setInterval(50);
@@ -7996,7 +9058,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             waitForUi(250);
 
             auto* modelValidateButton = this->findChild<QPushButton*>("ModelWorkspaceValidateButton");
-            auto* modelAddBlankButton = this->findChild<QPushButton*>("ModelWorkspaceAddBlankModelButton");
+            auto* modelAddPretrainedButton = this->findChild<QPushButton*>("ModelWorkspaceAddPretrainedModelButton");
             auto* revalidateButton = this->findChild<QPushButton*>("ModelWorkspaceRevalidateButton");
             auto* openReportButton = this->findChild<QPushButton*>("ModelWorkspaceOpenReportButton");
             auto* runValidationButton = this->findChild<QPushButton*>("ModelWorkspaceRunValidationButton");
@@ -8041,17 +9103,39 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(validatorRunButton != nullptr, "Validator workspace run button exists");
             require(validatorRunButton && validatorRunButton->text() == "Test Model",
                     "Validator workspace uses Test Model as the primary action");
-            require(validatorModelCombo && validatorModelCombo->count() == registryEntries.size(),
-                    "Model Testing uses the Model workspace registry list");
+            int expectedTestingModelCount = 0;
+            QStringList expectedTestingNames;
+            QString expectedActiveTestingId;
+            for (const QJsonValue& value : registryEntries) {
+                const QJsonObject entry = value.toObject();
+                const ModelPackageInspection package = inspectModelPackage(entry);
+                if (!package.canActivate)
+                    continue;
+                ++expectedTestingModelCount;
+                expectedTestingNames << registryString(entry, "display_name");
+                if (entry.value("active").toBool(false))
+                    expectedActiveTestingId = registryString(entry, "registry_entry_id");
+            }
+            QStringList actualTestingNames;
+            if (validatorModelCombo) {
+                for (int index = 0; index < validatorModelCombo->count(); ++index)
+                    actualTestingNames << validatorModelCombo->itemText(index);
+            }
+            require(validatorModelCombo && validatorModelCombo->count() == expectedTestingModelCount &&
+                        actualTestingNames == expectedTestingNames,
+                    "Model Testing lists every eligible inference package from Library in registry order");
+            require(!validatorModelCombo || expectedActiveTestingId.isEmpty() ||
+                        validatorModelCombo->currentData().toString() == expectedActiveTestingId,
+                    "Model Testing selects the active Library model");
             require(validatorModelBrowseButton == nullptr,
                     "Model Testing does not expose a raw model file selector");
             if (qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_TESTING_REGISTRY_REFRESH") != 0) {
                 require(!qEnvironmentVariable("OVDS_MODEL_REGISTRY_PATH").trimmed().isEmpty(),
                         "Model Testing registry-refresh verifier uses an isolated registry override");
                 const int initialTestingModelCount = validatorModelCombo ? validatorModelCombo->count() : -1;
-                require(modelAddBlankButton != nullptr, "Model workspace Add blank model button exists");
-                if (modelAddBlankButton)
-                    modelAddBlankButton->click();
+                require(modelAddPretrainedButton != nullptr, "Model workspace Add pre-trained model button exists");
+                if (modelAddPretrainedButton)
+                    modelAddPretrainedButton->click();
                 app.processEvents();
                 require(validatorModelCombo && validatorModelCombo->count() == initialTestingModelCount + 1,
                         "Adding a Model workspace entry refreshes Model Testing");
@@ -8090,6 +9174,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(validatorDatasetBrowseButton &&
                         validatorDatasetBrowseButton->property("fileDialogFilter").toString().contains("*.json"),
                     "Validator workspace Test dataset Browse filters for JSON manifests");
+            require(validatorDatasetBrowseButton &&
+                        QDir::cleanPath(validatorDatasetBrowseButton->property("workspacePath").toString()) ==
+                            QDir::cleanPath(defaultWorkspacePaths.preparedDatasets),
+                    "Validator workspace Test Browse opens exactly at Documents/OpenDSS/datasets/prepared");
             require(normalizedValidatorDatasetPath.endsWith("/metadata/dataset_manifest.json"),
                     "Validator workspace Test dataset defaults to dataset_manifest.json");
             require(normalizedValidatorDatasetPath.startsWith(normalizedPreparedDatasetsPath),

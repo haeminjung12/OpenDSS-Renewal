@@ -54,6 +54,8 @@ class DatasetWorkspaceController : public QObject {
         QSpinBox* trainerEpochsSpin = nullptr;
         QSpinBox* trainerBatchSpin = nullptr;
         QDoubleSpinBox* trainerLrSpin = nullptr;
+        QPlainTextEdit* trainerHyperparameterJsonEdit = nullptr;
+        QLabel* trainerSelectedArchitectureValue = nullptr;
         QCheckBox* trainerFlipCheck = nullptr;
         QCheckBox* trainerRotationCheck = nullptr;
         QCheckBox* trainerColorJitterCheck = nullptr;
@@ -80,8 +82,9 @@ class DatasetWorkspaceController : public QObject {
 
   private:
     struct TrainerDatasetCounts {
-        int hitCount = -1;
-        int wasteCount = -1;
+        int class0Count = -1;
+        int class1Count = -1;
+        int class2Count = -1;
         int totalCount = -1;
         bool available = false;
     };

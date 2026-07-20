@@ -152,7 +152,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
         form->addWidget(new QLabel("Model"), 0, 0);
         form->addWidget(modelCombo, 0, 1, 1, 2);
         addPathRow(form, 1, "Training images", datasetEdit, false, "Training images JSON manifest",
-                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"),
+                   defaultOpenDssPreparedDatasetsPath(), QString(),
                    kJsonManifestFileFilter);
         addPathRow(form, 2, "Results folder", outputEdit, true, "Validation output folder",
                    defaultOpenDssValidationRunsPath());
@@ -163,7 +163,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
         addPathRow(form, 2, "Model details", metadataEdit, false, "Model details JSON", defaultOpenDssModelsPath(),
                    findPackagedAppPath("models"));
         addPathRow(form, 3, "Training images", datasetEdit, false, "Training images JSON manifest",
-                   defaultOpenDssPreparedDatasetsPath(), findPackagedAppPath("datasets/prepared"),
+                   defaultOpenDssDatasetsPath(), QString(),
                    kJsonManifestFileFilter);
         addPathRow(form, 4, "Results folder", outputEdit, true, "Validation output folder",
                    defaultOpenDssValidationRunsPath());
@@ -244,13 +244,7 @@ ImageValidationWidget::ImageValidationWidget(QWidget* parent, const QString& ini
         schemaCombo->hide();
         classesEdit->hide();
         commandPreview->hide();
-        detailsLabel = new QLabel("Details");
-        detailsLabel->setProperty("metricLabel", true);
-        detailsLabel->hide();
         logText->hide();
-        logText->setMaximumHeight(140);
-        layout->addWidget(detailsLabel);
-        layout->addWidget(logText);
     }
     setLayout(layout);
 
@@ -312,6 +306,8 @@ void ImageValidationWidget::refreshModelRegistry(const QJsonArray& entries, cons
     QString selectedId = preferredEntryId.trimmed();
     if (selectedId.isEmpty())
         selectedId = modelCombo->currentData().toString();
+    if (selectedId.isEmpty())
+        selectedId = registryString(activeRegistryEntry(entries), "registry_entry_id").trimmed();
     const QString currentModel = QDir::cleanPath(modelEdit->text().trimmed());
     QSignalBlocker blocker(modelCombo);
     modelCombo->clear();
@@ -320,14 +316,15 @@ void ImageValidationWidget::refreshModelRegistry(const QJsonArray& entries, cons
         const QJsonObject entry = value.toObject();
         const QString entryId = registryString(entry, "registry_entry_id").trimmed();
         const QString displayName = registryString(entry, "display_name").trimmed();
-        const QString modelPath = resolvePackagedPathFromRegistryPath(registryString(entry, "model_path"));
-        const QString metadataPath = resolvePackagedPathFromRegistryPath(registryString(entry, "metadata_path"));
-        const bool available = QFileInfo(modelPath).isFile() && QFileInfo(metadataPath).isFile();
-        const QString label = (displayName.isEmpty() ? entryId : displayName) +
-                              (available ? QString() : QString(" (unavailable)"));
-        const QVariantMap selection{{"model_path", available ? modelPath : QString()},
-                                    {"metadata_path", available ? metadataPath : QString()},
-                                    {"diagnostic", available ? QString() : QString("Model or metadata file is unavailable.")}};
+        const ModelPackageInspection package = inspectModelPackage(entry);
+        if (!package.canActivate)
+            continue;
+        const QString modelPath = package.onnxPath;
+        const QString metadataPath = package.metadataPath;
+        const QString label = displayName.isEmpty() ? entryId : displayName;
+        const QVariantMap selection{{"model_path", modelPath},
+                                    {"metadata_path", metadataPath},
+                                    {"diagnostic", QString()}};
         modelCombo->addItem(label, entryId);
         modelCombo->setItemData(modelCombo->count() - 1, selection, Qt::UserRole + 1);
         if ((!selectedId.isEmpty() && entryId.compare(selectedId, Qt::CaseInsensitive) == 0) ||
@@ -480,9 +477,10 @@ void ImageValidationWidget::updatePreviewAndGate() {
 void ImageValidationWidget::loadSettings() {
     QSettings settings;
     pythonEdit->setText(settings.value("validator/pythonExecutable", pythonEdit->text()).toString());
+    const QString datasetSelection =
+        workspaceMode ? datasetEdit->text() : settings.value("validator/imageDataset", datasetEdit->text()).toString();
     datasetEdit->setText(
-        QDir::toNativeSeparators(resolveValidationDatasetManifestPath(
-            settings.value("validator/imageDataset", datasetEdit->text()).toString())));
+        QDir::toNativeSeparators(resolveValidationDatasetManifestPath(datasetSelection)));
     outputEdit->setText(settings.value("validator/outputFolder", outputEdit->text()).toString());
     const QString device = settings.value("validator/device", deviceCombo->currentText()).toString();
     int index = deviceCombo->findText(device);
@@ -597,9 +595,8 @@ void ImageValidationWidget::appendLog(const QString& text) {
     if (text.isEmpty())
         return;
     if (workspaceMode) {
-        if (detailsLabel)
-            detailsLabel->show();
-        logText->show();
+        // Retain complete command/stdout payloads for summary discovery without exposing raw JSON in the workspace.
+        logText->hide();
     }
     logText->moveCursor(QTextCursor::End);
     logText->insertPlainText(text);

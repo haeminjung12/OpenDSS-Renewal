@@ -3,5 +3,4 @@ pillow==12.2.0
 scikit-learn==1.8.0
 pandas==3.0.2
 onnx==1.21.0
-onnxruntime==1.25.1
 onnxscript==0.7.0

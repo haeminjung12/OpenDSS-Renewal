@@ -65,6 +65,7 @@ def build_parser() -> argparse.ArgumentParser:
     train.add_argument("--output", required=True)
     train.add_argument("--config")
     train.add_argument("--smoke", action="store_true", help="Apply a bounded one-epoch smoke-training configuration after loading any config file.")
+    train.add_argument("--preflight-only", action="store_true", help="Validate the complete frozen split contract through the trainer entry path without creating a model or optimizer.")
     train.add_argument("--device", choices=["auto", "cpu", "cuda"], default="auto")
     train.add_argument("--run-name")
     train.add_argument(

@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "status": "rejected",
+  "onnxruntime_version": "1.23.2",
+  "reason_code": "ALIGNED_ORT_1_23_2_NUMERICAL_PARITY_NOT_ACCEPTED",
+  "auto_behavior": "cpu_with_warning",
+  "explicit_cuda_behavior": "controlled_error",
+  "training_cuda_affected": false,
+  "evidence": "docs/worker-reports/aligned-onnx-cuda-runtime-2026-07-19/align-package-and-qualify-onnx-cuda-runtime.md"
+}

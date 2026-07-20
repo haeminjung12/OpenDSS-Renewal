@@ -1,0 +1,117 @@
+{
+  "schema_version": "model-metadata-v2",
+  "model_id": "opendss-blank-efficientnet_b0-3class",
+  "model_name": "EfficientNet-B0 \u2014 More Accurate",
+  "status": "imagenet_transfer_start",
+  "architecture": {
+    "id": "efficientnet_b0",
+    "family": "EfficientNet-B0",
+    "num_classes": 3
+  },
+  "origin": "blank",
+  "user_facing_label": "EfficientNet-B0 \u2014 More Accurate",
+  "recommended": false,
+  "classes": [
+    "0",
+    "1",
+    "2"
+  ],
+  "class_to_idx": {
+    "0": 0,
+    "1": 1,
+    "2": 2
+  },
+  "display_labels": {
+    "0": "Empty",
+    "1": "Single",
+    "2": "MoreThanOne"
+  },
+  "label_schema_version": "opendss-droplet-3class-v1",
+  "sorting_policy": {
+    "target_class_id": "1",
+    "target_display_label": "Single",
+    "waste_class_ids": [
+      "0",
+      "2"
+    ],
+    "trigger_rule": "trigger_on_target_class"
+  },
+  "input_size": [
+    96,
+    96,
+    3
+  ],
+  "normalization": {
+    "mean": [
+      0.485,
+      0.456,
+      0.406
+    ],
+    "std": [
+      0.229,
+      0.224,
+      0.225
+    ]
+  },
+  "artifact": {
+    "onnx_file": "model.onnx",
+    "onnx_sha256": "84611ab2380d1cb4c63b90a34fe8105e634046b36d59710cfa71dddfe74c082d",
+    "byte_size": 681859,
+    "external_data_files": [
+      {
+        "filename": "model.onnx.data",
+        "sha256": "16b78b05e79864be975f6248317b2863c211ea9ddbcfb45111ca9bd9e54731c3",
+        "byte_size": 16056320,
+        "required": true
+      }
+    ],
+    "format": "onnx",
+    "opset": 18,
+    "input_tensor": {
+      "name": "input",
+      "shape": [
+        "batch",
+        3,
+        96,
+        96
+      ],
+      "dtype": "float32",
+      "layout": "NCHW"
+    },
+    "output_tensor": {
+      "name": "logits",
+      "shape": [
+        "batch",
+        3
+      ],
+      "dtype": "float32",
+      "score_type": "signed_logits"
+    }
+  },
+  "initialization": {
+    "source": "official torchvision ImageNet weights",
+    "weight_id": "EfficientNet_B0_Weights.IMAGENET1K_V1",
+    "source_checkpoint_sha256": "7f5810bc96def8f7552d5b7e68d53c4786f81167d28291b21c0d90e1fca14934",
+    "classifier_head_seed": 2718,
+    "classifier_head_policy": "deterministic_new_signed_three_logit_head",
+    "not_droplet_trained": true
+  },
+  "training_config": {
+    "architecture": "efficientnet_b0",
+    "pretrained": true,
+    "classifier_output": "signed_logits",
+    "seed": 2718
+  },
+  "validation_summary": {
+    "image_validation": {
+      "status": "not_run"
+    }
+  },
+  "provenance": {
+    "source_manifest": null,
+    "performance_report": "docs/worker-reports/publication-gpu-training-experiments-2026-07-18/phase-3c-architecture-comparison.md"
+  },
+  "limitations": [
+    "ImageNet-start template; not droplet-trained or live-sorting ready."
+  ]
+}

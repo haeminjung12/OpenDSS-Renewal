@@ -218,7 +218,13 @@ def _item_image_path(raw: dict[str, Any], dataset_root: Path) -> Path:
         if candidate.is_file():
             return candidate
 
-    source_path = _manifest_path_candidate(raw, "source_path", dataset_root)
+    source_path_value = str(raw.get("source_path", "")).strip()
+    source_root_value = str(raw.get("source_root", "")).strip()
+    source_path = None
+    if source_path_value and source_root_value and not Path(source_path_value).is_absolute():
+        source_path = Path(source_root_value).expanduser() / source_path_value
+    if source_path is None:
+        source_path = _manifest_path_candidate(raw, "source_path", dataset_root)
     if source_path is not None:
         return source_path
 
@@ -232,7 +238,7 @@ def _scan_manifest_mode(dataset_root: Path, manifest_path: Path, schema: ClassSc
     manifest_schema_version = str(manifest.get("schema_version", ""))
     builder_mode = _is_dataset_builder_manifest(manifest)
     builder_label_map = _dataset_builder_label_map(manifest, schema, manifest_path) if builder_mode else {}
-    raw_items = manifest.get("items", [])
+    raw_items = manifest.get("items") or manifest.get("records") or []
     if not isinstance(raw_items, list):
         raise CliError("DATASET_MANIFEST_INVALID", "Manifest items must be a list.", EXIT_MANIFEST_INVALID, {"path": str(manifest_path)})
     items: list[dict[str, Any]] = []
@@ -295,6 +301,8 @@ def _scan_manifest_mode(dataset_root: Path, manifest_path: Path, schema: ClassSc
                 "origin": raw.get("provenance", {}).get("origin", raw.get("origin", "manifest")),
                 "source_kind": source_kind,
                 "image_id": raw.get("image_id"),
+                "record_id": raw.get("record_id", raw.get("image_id")),
+                "content_sha256": raw.get("content_sha256", raw.get("sha256")),
                 "review_state": review_state,
             }
         )

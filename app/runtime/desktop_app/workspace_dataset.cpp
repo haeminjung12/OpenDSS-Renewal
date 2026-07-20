@@ -1247,11 +1247,7 @@ class DatasetWorkspaceWidget final : public QWidget {
     }
 
     void browseForDatasetJson() {
-        const QString currentPath =
-            preferredDatasetMetadataPath(manifestPath_.trimmed().isEmpty() ? datasetRoot_ : manifestPath_);
-        const QString startPath = chooseOpenFileDialogPath(
-            currentPath, preferredDatasetMetadataPath(defaultOpenDssPreparedDatasetsPath()),
-            findPackagedAppPath("datasets/prepared"));
+        const QString startPath = defaultOpenDssDatasetsPath();
         const QString selected = QFileDialog::getOpenFileName(this, "Select dataset file", startPath,
                                                               "Dataset files (*.json);;All files (*.*)");
         if (!selected.isEmpty())
@@ -1429,9 +1425,7 @@ class DatasetWorkspaceWidget final : public QWidget {
     }
 
     void browseAndCreateDatasetFromImages() {
-        const QString startPath = chooseExistingDirectoryDialogPath(defaultOpenDssPreparedDatasetsPath(),
-                                                                    QDir::homePath(),
-                                                                    findPackagedAppPath("datasets/prepared"));
+        const QString startPath = defaultOpenDssDatasetsPath();
         const QString folder = QFileDialog::getExistingDirectory(this, "Select image folder", startPath);
         if (folder.isEmpty())
             return;

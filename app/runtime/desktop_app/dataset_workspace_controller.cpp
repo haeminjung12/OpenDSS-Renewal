@@ -1,6 +1,7 @@
 #include "dataset_workspace_controller.h"
 
 #include <QtCore/QCoreApplication>
+#include <QtCore/QCryptographicHash>
 #include <QtCore/QDir>
 #include <QtCore/QDirIterator>
 #include <QtCore/QFile>
@@ -9,6 +10,7 @@
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
 #include <QtCore/QSettings>
+#include <QtCore/QSet>
 #include <QtCore/QSignalBlocker>
 #include <QtCore/QTimer>
 #include <QtGui/QAction>
@@ -42,15 +44,45 @@ struct TrainerModelOption {
     QString detailText;
     QString modelPath;
     QString metadataPath;
+    QString checkpointPath;
     QString architectureId;
+    QString pretrainedWeightId;
+    QString pretrainedWeightSha256;
     bool isStarter = false;
     bool isLiveModel = false;
     bool supportsContinue = false;
     bool defaultPretrained = true;
 };
 
+QString sha256FileHex(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&file))
+        return {};
+    return QString::fromLatin1(hash.result().toHex());
+}
+
+QString officialWeightCachePath(const QString& architectureId) {
+    const QString filename = architectureId == "mobilenet_v3_small"
+                                 ? QStringLiteral("mobilenet_v3_small-047dcff4.pth")
+                                 : architectureId == "efficientnet_b0"
+                                       ? QStringLiteral("efficientnet_b0_rwightman-7f5810bc.pth")
+                                       : QString();
+    return filename.isEmpty() ? QString() : QDir::home().absoluteFilePath(".cache/torch/hub/checkpoints/" + filename);
+}
+
 QString readRegistryPath(const QJsonObject& entry, const QString& key) {
-    return resolvePackagedPathFromRegistryPath(registryString(entry, key));
+    const QString configured = registryString(entry, key);
+    if (!configured.isEmpty())
+        return resolvePackagedPathFromRegistryPath(configured);
+    if (key == "checkpoint_path") {
+        const QString metadata = resolvePackagedPathFromRegistryPath(registryString(entry, "metadata_path"));
+        if (!metadata.isEmpty())
+            return QFileInfo(metadata).dir().filePath("checkpoint.pth");
+    }
+    return {};
 }
 
 QJsonObject loadJsonObjectFile(const QString& path) {
@@ -63,6 +95,9 @@ QJsonObject loadJsonObjectFile(const QString& path) {
 }
 
 QString architectureIdFromMetadata(const QJsonObject& metadataDoc) {
+    const QString directId = metadataDoc.value("architecture").toObject().value("id").toString().trimmed();
+    if (!directId.isEmpty())
+        return directId;
     const QString configArchitecture = metadataDoc.value("training_config").toObject().value("architecture").toString().trimmed();
     if (!configArchitecture.isEmpty()) {
         return configArchitecture;
@@ -80,6 +115,65 @@ QString architectureIdFromMetadata(const QJsonObject& metadataDoc) {
         }
     }
     return QString();
+}
+
+QJsonObject datasetClassContract(const QString& selectedPath) {
+    QString manifestPath = selectedPath;
+    if (QFileInfo(selectedPath).isDir()) {
+        const QDir dir(selectedPath);
+        manifestPath = QFileInfo(dir.filePath("metadata/dataset_manifest.json")).isFile()
+                           ? dir.filePath("metadata/dataset_manifest.json")
+                           : dir.filePath("manifest.json");
+    }
+    const QJsonObject manifest = loadJsonObjectFile(manifestPath);
+    QJsonObject schema = manifest.value("class_schema").toObject();
+    QJsonArray rawClasses = schema.value("classes").toArray();
+    if (rawClasses.isEmpty())
+        rawClasses = manifest.value("classes").toArray();
+    QJsonObject labels = schema.value("display_labels").toObject();
+    if (labels.isEmpty()) labels = manifest.value("display_labels").toObject();
+    if (labels.isEmpty()) labels = manifest.value("class_semantics").toObject();
+    struct IndexedClass { int index; QString id; QString displayName; };
+    QVector<IndexedClass> indexedClasses;
+    for (int position = 0; position < rawClasses.size(); ++position) {
+        const QJsonValue value = rawClasses.at(position);
+        const QJsonObject object = value.toObject();
+        const QString id = value.isObject() ? object.value("id").toVariant().toString().trimmed()
+                                            : value.toVariant().toString().trimmed();
+        if (id.isEmpty())
+            continue;
+        indexedClasses.push_back({value.isObject() ? object.value("index").toInt(position) : position,
+                                  id, object.value("display_name").toString().trimmed()});
+    }
+    std::sort(indexedClasses.begin(), indexedClasses.end(), [](const IndexedClass& left, const IndexedClass& right) {
+        return left.index < right.index || (left.index == right.index && left.id < right.id);
+    });
+    QJsonArray classes;
+    for (const IndexedClass& entry : indexedClasses) {
+        classes.append(entry.id);
+        if (!entry.displayName.isEmpty())
+            labels[entry.id] = entry.displayName;
+    }
+    if (classes.isEmpty()) {
+        QSet<QString> observed;
+        QJsonArray items = manifest.value("items").toArray();
+        if (items.isEmpty())
+            items = manifest.value("records").toArray();
+        for (const QJsonValue& value : items) {
+            const QJsonObject item = value.toObject();
+            QString id = item.value("class_id").toVariant().toString().trimmed();
+            if (id.isEmpty()) id = item.value("label").toVariant().toString().trimmed();
+            if (!id.isEmpty()) observed.insert(id);
+        }
+        QStringList sorted = observed.values();
+        std::sort(sorted.begin(), sorted.end());
+        for (const QString& id : sorted) classes.append(id);
+    }
+    QJsonObject result;
+    result["classes"] = classes;
+    result["display_labels"] = labels;
+    result["count"] = classes.size();
+    return result;
 }
 
 QString architectureIdFromRegistryEntry(const QJsonObject& entry, const QJsonObject& metadataDoc) {
@@ -118,7 +212,7 @@ bool metadataLooksLikeStarter(const QJsonObject& entry, const QJsonObject& metad
 }
 
 bool entryIsLiveModel(const QJsonObject& entry) {
-    return entry.value("selectable_for_normal_live_sorting").toBool(false) ||
+    return entry.value("active").toBool(false) || entry.value("selectable_for_normal_live_sorting").toBool(false) ||
            registryString(entry, "state").contains("promoted", Qt::CaseInsensitive) ||
            registryString(entry, "promotion_status").contains("current", Qt::CaseInsensitive);
 }
@@ -173,24 +267,46 @@ QString normalizedDatasetSelectionPath(const QString& path) {
 }
 
 QString trainerDatasetBrowseStartPath(const DatasetWorkspaceController::Dependencies& deps) {
-    const QString currentSelection =
-        normalizedDatasetSelectionPath(deps.trainerDatasetEdit ? deps.trainerDatasetEdit->text() : QString());
-    const QString defaultSelection = normalizedDatasetSelectionPath(deps.defaultTrainerDataset);
+    Q_UNUSED(deps);
+    return defaultOpenDssDatasetsPath();
+}
 
-    QSettings settings;
-    const QString savedSelection = normalizedDatasetSelectionPath(settings.value("settings/datasetsRoot").toString());
-    const bool verifyingDefaultPaths = qEnvironmentVariableIntValue("OVDS_VERIFY_DEFAULT_PATHS") != 0;
-    const bool hasRecentSavedSelection = !verifyingDefaultPaths && settings.contains("settings/datasetsRoot") &&
-                                         !savedSelection.isEmpty() &&
-                                         !isDeveloperInternalDefaultPath(savedSelection);
-    const bool currentSelectionIsExplicit =
-        !currentSelection.isEmpty() && currentSelection.compare(defaultSelection, Qt::CaseInsensitive) != 0 &&
-        !isDeveloperInternalDefaultPath(currentSelection);
-
-    const QString strongSelection = hasRecentSavedSelection ? savedSelection
-                                                            : (currentSelectionIsExplicit ? currentSelection : QString());
-    return chooseOpenFileDialogPath(strongSelection, defaultOpenDssPreparedDatasetsPath(),
-                                    findPackagedAppPath("datasets/prepared"));
+QString validateHyperparameterConfig(const QJsonObject& config) {
+    if (config.value("schema_version").toInt() != 2)
+        return "Hyperparameter JSON must use schema_version 2.";
+    const int batchSize = config.value("batch_size").toInt();
+    if (batchSize < 1 || batchSize > 256)
+        return "Batch size must be between 1 and 256.";
+    if (config.value("patience").toInt() < 1)
+        return "Early-stopping patience must be positive.";
+    if (config.value("weight_decay").toDouble(-1.0) < 0.0)
+        return "Weight decay must be zero or positive.";
+    const QJsonArray inputSize = config.value("input_size").toArray();
+    if (inputSize != QJsonArray{96, 96, 3})
+        return "Input size must remain [96, 96, 3] for the packaged models.";
+    const QJsonArray stages = config.value("stages").toArray();
+    if (stages.size() != 2)
+        return "Exactly two staged-training entries are required.";
+    int totalEpochs = 0;
+    for (const QJsonValue& value : stages) {
+        const QJsonObject stage = value.toObject();
+        if (stage.value("name").toString().trimmed().isEmpty() || stage.value("epochs").toInt() < 1 ||
+            stage.value("learning_rate").toDouble() <= 0.0) {
+            return "Each training stage needs a name, positive epoch budget, and positive learning rate.";
+        }
+        totalEpochs += stage.value("epochs").toInt();
+    }
+    if (totalEpochs < 2 || totalEpochs > 1000)
+        return "The combined staged epoch budget is invalid.";
+    const QString imbalanceMode = config.value("imbalance").toObject().value("mode").toString();
+    const QSet<QString> supportedImbalance = {"none", "class_weighted_loss", "effective_number",
+                                               "balanced_sampler", "balanced_sampler_effective_number", "focal_loss"};
+    if (!supportedImbalance.contains(imbalanceMode))
+        return "The selected imbalance strategy is not supported.";
+    const double samplerAlpha = config.value("imbalance").toObject().value("sampler_alpha").toDouble(1.0);
+    if (samplerAlpha < 0.0 || samplerAlpha > 1.0)
+        return "Sampler alpha must be between 0 and 1.";
+    return {};
 }
 
 } // namespace
@@ -247,9 +363,7 @@ void DatasetWorkspaceController::appendTrainerLog(const QString& text) {
 
 void DatasetWorkspaceController::saveTrainerSettings() const {
     if (!deps_.trainerPythonEdit || !deps_.trainerDatasetEdit || !deps_.trainerOutputEdit ||
-        !deps_.trainerEpochsSpin || !deps_.trainerBatchSpin || !deps_.trainerLrSpin || !deps_.trainerFlipCheck ||
-        !deps_.trainerRotationCheck || !deps_.trainerColorJitterCheck || !deps_.trainerRandomCropCheck ||
-        !deps_.trainerSchedulerCombo) {
+        !deps_.trainerHyperparameterJsonEdit) {
         return;
     }
 
@@ -257,25 +371,13 @@ void DatasetWorkspaceController::saveTrainerSettings() const {
     settings.setValue("settings/pythonTrainer", deps_.trainerPythonEdit->text().trimmed());
     settings.setValue("settings/datasetsRoot", deps_.trainerDatasetEdit->text().trimmed());
     settings.setValue("trainer/outputDir", deps_.trainerOutputEdit->text().trimmed());
-    settings.setValue("trainer/architecture",
-                      deps_.trainerArchitectureCombo ? deps_.trainerArchitectureCombo->currentData().toString()
-                                                     : QString("squeezenet1_1"));
-    settings.setValue("trainer/pretrained",
-                      deps_.trainerPretrainedImageNetBtn ? deps_.trainerPretrainedImageNetBtn->isChecked() : true);
     if (deps_.trainerStartingModelCombo) {
         settings.setValue("trainer/startingModelId", deps_.trainerStartingModelCombo->currentData().toString());
     }
     if (deps_.trainerTrainingModeCombo) {
         settings.setValue("trainer/trainingMode", trainerModeKey(deps_.trainerTrainingModeCombo));
     }
-    settings.setValue("trainer/epochs", deps_.trainerEpochsSpin->value());
-    settings.setValue("trainer/batchSize", deps_.trainerBatchSpin->value());
-    settings.setValue("trainer/learningRate", deps_.trainerLrSpin->value());
-    settings.setValue("trainer/augment/randomFlip", deps_.trainerFlipCheck->isChecked());
-    settings.setValue("trainer/augment/randomRotation", deps_.trainerRotationCheck->isChecked());
-    settings.setValue("trainer/augment/colorJitter", deps_.trainerColorJitterCheck->isChecked());
-    settings.setValue("trainer/augment/randomCrop", deps_.trainerRandomCropCheck->isChecked());
-    settings.setValue("trainer/scheduler", deps_.trainerSchedulerCombo->currentText());
+    settings.setValue("trainer/hyperparametersJson", deps_.trainerHyperparameterJsonEdit->toPlainText());
 }
 
 void DatasetWorkspaceController::setTrainerBusy(bool busy, bool trainerCommandWasTraining) const {
@@ -306,13 +408,9 @@ void DatasetWorkspaceController::setTrainerBusy(bool busy, bool trainerCommandWa
 }
 
 QString DatasetWorkspaceController::trainingConfigPath() const {
-    if (!deps_.trainerOutputEdit || !deps_.trainerEpochsSpin || !deps_.trainerBatchSpin || !deps_.trainerLrSpin ||
-        !deps_.trainerFlipCheck || !deps_.trainerRotationCheck || !deps_.trainerColorJitterCheck ||
-        !deps_.trainerRandomCropCheck || !deps_.trainerSchedulerCombo) {
+    if (!deps_.trainerOutputEdit || !deps_.trainerHyperparameterJsonEdit) {
         return {};
     }
-
-    populateTrainerModelOptions();
 
     const QString outputDir = deps_.trainerOutputEdit->text().trimmed();
     if (outputDir.isEmpty()) {
@@ -350,56 +448,100 @@ QString DatasetWorkspaceController::trainingConfigPath() const {
             selectedOption.displayName = fallbackDisplayName(entry);
             selectedOption.modelPath = readRegistryPath(entry, "model_path");
             selectedOption.metadataPath = readRegistryPath(entry, "metadata_path");
-            selectedOption.architectureId = architectureIdFromMetadata(metadataDoc);
+            selectedOption.checkpointPath = readRegistryPath(entry, "checkpoint_path");
+            selectedOption.architectureId = architectureIdFromRegistryEntry(entry, metadataDoc);
             selectedOption.isStarter = metadataLooksLikeStarter(entry, metadataDoc);
             selectedOption.isLiveModel = entryIsLiveModel(entry);
-            selectedOption.supportsContinue = QFileInfo(selectedOption.modelPath).isFile();
+            selectedOption.supportsContinue = QFileInfo(selectedOption.checkpointPath).isFile();
             selectedOption.defaultPretrained =
                 metadataDoc.value("training_config").toObject().value("pretrained").toBool(selectedOption.isStarter);
+            const QJsonObject initialization = metadataDoc.value("initialization").toObject();
+            selectedOption.pretrainedWeightId = initialization.value("weight_id").toString().trimmed();
+            selectedOption.pretrainedWeightSha256 = initialization.value("source_checkpoint_sha256").toString().trimmed();
             break;
         }
     }
 
-    QString architecture = selectedOption.architectureId;
-    if (architecture.isEmpty() && deps_.trainerArchitectureCombo) {
-        architecture = deps_.trainerArchitectureCombo->currentData().toString().trimmed();
-    }
-    if (architecture.isEmpty()) {
-        architecture = "squeezenet1_1";
-    }
-
-    bool pretrained = deps_.trainerPretrainedImageNetBtn ? deps_.trainerPretrainedImageNetBtn->isChecked() : true;
-    if (!selectedOption.registryEntryId.isEmpty() && selectedMode == "new_copy" && selectedOption.isStarter) {
-        pretrained = selectedOption.defaultPretrained;
-    }
-    if (selectedMode == "continue_copy") {
-        pretrained = false;
+    const QString architecture = selectedOption.architectureId;
+    if (architecture != "mobilenet_v3_small" && architecture != "efficientnet_b0") {
+        if (deps_.trainerStatusLabel)
+            deps_.trainerStatusLabel->setText(trainerSummaryText(
+                "Could not prepare the training setup.", "The selected model architecture is not supported for new training."));
+        return {};
     }
 
+    const bool usesSelectedWeights = !selectedOption.isStarter && selectedOption.supportsContinue;
+
+    QJsonParseError parseError;
+    const QJsonDocument parsedConfig =
+        QJsonDocument::fromJson(deps_.trainerHyperparameterJsonEdit->toPlainText().toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !parsedConfig.isObject()) {
+        if (deps_.trainerStatusLabel)
+            deps_.trainerStatusLabel->setText(trainerSummaryText(
+                "Could not prepare the training setup.", "Hyperparameter Settings contains malformed JSON."));
+        return {};
+    }
+    QJsonObject config = parsedConfig.object();
+    const QString configError = validateHyperparameterConfig(config);
+    if (!configError.isEmpty()) {
+        if (deps_.trainerStatusLabel)
+            deps_.trainerStatusLabel->setText(trainerSummaryText("Could not prepare the training setup.", configError));
+        return {};
+    }
     QDir().mkpath(outputDir);
-    QJsonObject config;
-    config["schema_version"] = 1;
+    int totalEpochs = 0;
+    for (const QJsonValue& value : config.value("stages").toArray())
+        totalEpochs += value.toObject().value("epochs").toInt();
+    config["epochs"] = totalEpochs;
     config["architecture"] = architecture;
-    config["batch_size"] = deps_.trainerBatchSpin->value();
-    config["epochs"] = deps_.trainerEpochsSpin->value();
-    config["pretrained"] = pretrained;
+    for (const QString& ambiguousKey : {QStringLiteral("pretrained"), QStringLiteral("source_checkpoint"),
+                                        QStringLiteral("source_checkpoint_path"), QStringLiteral("source_model_path"),
+                                        QStringLiteral("pretrained_weight_id"), QStringLiteral("pretrained_weight_path"),
+                                        QStringLiteral("pretrained_weight_sha256"),
+                                        QStringLiteral("classifier_initialization")}) {
+        config.remove(ambiguousKey);
+    }
+    config["device_request"] = QSettings().value("settings/computeDevice", "auto").toString();
+    const QJsonObject classContract = datasetClassContract(deps_.trainerDatasetEdit->text().trimmed());
+    const int datasetClassCount = classContract.value("count").toInt();
+    if (datasetClassCount != 2 && datasetClassCount != 3) {
+        if (deps_.trainerStatusLabel)
+            deps_.trainerStatusLabel->setText(trainerSummaryText("Could not prepare the training setup.",
+                "The selected dataset metadata must define exactly 2 or 3 classes."));
+        return {};
+    }
+    const int sourceClassCount = loadJsonObjectFile(selectedOption.metadataPath)
+                                     .value("architecture").toObject().value("num_classes").toInt();
+    if (usesSelectedWeights && sourceClassCount != datasetClassCount) {
+        if (deps_.trainerStatusLabel)
+            deps_.trainerStatusLabel->setText(trainerSummaryText("Could not prepare the training setup.",
+                QString("This model has %1 outputs but the dataset defines %2 classes. Choose a matching model or an ImageNet starter.")
+                    .arg(sourceClassCount).arg(datasetClassCount)));
+        return {};
+    }
+    config["classes"] = classContract.value("classes").toArray();
+    config["display_labels"] = classContract.value("display_labels").toObject();
 
-    QJsonArray stages;
-    QJsonObject stage;
-    stage["name"] = "gui";
-    stage["epochs"] = deps_.trainerEpochsSpin->value();
-    stage["learning_rate"] = deps_.trainerLrSpin->value();
-    stage["trainable"] = "fine_tune";
-    stages.append(stage);
-    config["stages"] = stages;
-
-    QJsonObject augmentation;
-    augmentation["random_flip"] = deps_.trainerFlipCheck->isChecked();
-    augmentation["random_rotation"] = deps_.trainerRotationCheck->isChecked();
-    augmentation["color_jitter"] = deps_.trainerColorJitterCheck->isChecked();
-    augmentation["random_crop"] = deps_.trainerRandomCropCheck->isChecked();
-    config["augmentation"] = augmentation;
-    config["scheduler"] = deps_.trainerSchedulerCombo->currentText();
+    QJsonObject initialization;
+    if (!usesSelectedWeights) {
+        const QString weightPath = QDir(QFileInfo(selectedOption.metadataPath).absolutePath())
+                                       .filePath("imagenet_weights.pth");
+        if (!QFileInfo(weightPath).isFile()) {
+            if (deps_.trainerStatusLabel) {
+                deps_.trainerStatusLabel->setText(trainerSummaryText(
+                    "Could not prepare the training setup.",
+                    "The selected Blank model package is missing imagenet_weights.pth. Repair or reinstall OpenDSS."));
+            }
+            return {};
+        }
+        initialization["mode"] = "imagenet";
+        initialization["weight_id"] = selectedOption.pretrainedWeightId;
+        initialization["weight_path"] = QFileInfo(weightPath).absoluteFilePath();
+    } else {
+        initialization["mode"] = "checkpoint";
+        initialization["checkpoint_path"] = QFileInfo(selectedOption.checkpointPath).absoluteFilePath();
+    }
+    config["initialization"] = initialization;
 
     QJsonObject outputBehavior;
     outputBehavior["mode"] = "new_run_folder";
@@ -416,12 +558,9 @@ QString DatasetWorkspaceController::trainingConfigPath() const {
         startingModel["mode"] = selectedMode;
         startingModel["mode_label"] = trainerModeLabel(selectedMode);
         startingModel["architecture"] = architecture;
-        startingModel["uses_selected_weights"] = selectedMode == "continue_copy";
+        startingModel["uses_selected_weights"] = usesSelectedWeights;
         startingModel["preserve_original"] = true;
         config["starting_model"] = startingModel;
-        if (selectedMode == "continue_copy" && !selectedOption.modelPath.isEmpty()) {
-            config["source_model_path"] = selectedOption.modelPath;
-        }
     }
 
     const QString path = QDir(outputDir).absoluteFilePath("trainer_gui_config.json");
@@ -452,7 +591,7 @@ QStringList DatasetWorkspaceController::trainerTrainArgs(bool dryRun) const {
                         trainingConfigPath(),
                         "--jsonl"};
     if (dryRun) {
-        args << "--dry-run";
+        args << "--smoke";
     }
     return args;
 }
@@ -471,11 +610,6 @@ QString DatasetWorkspaceController::trainerSummaryText(const QString& stateHeadl
 
     QStringList issues;
     const bool ready = trainerSetupReady(&issues);
-    const TrainerDatasetCounts counts = collectTrainerDatasetCounts();
-    const QString selectedModel = deps_.trainerStartingModelCombo ? deps_.trainerStartingModelCombo->currentText().trimmed()
-                                                                 : QString();
-    const QString selectedMode = trainerModeLabel(trainerModeKey(deps_.trainerTrainingModeCombo));
-
     QString headline = stateHeadline.trimmed();
     if (headline.isEmpty()) {
         headline = ready ? "Setup ready. You can check setup or train the model."
@@ -485,41 +619,24 @@ QString DatasetWorkspaceController::trainerSummaryText(const QString& stateHeadl
     QStringList lines;
     lines << headline;
 
-    if (counts.available) {
-        lines << QString("Training dataset: %1 total, %2 Target examples, %3 Non-target examples.")
-                     .arg(counts.totalCount)
-                     .arg(counts.hitCount)
-                     .arg(counts.wasteCount);
-    } else if (deps_.trainerDatasetEdit && !deps_.trainerDatasetEdit->text().trimmed().isEmpty()) {
-        lines << "Training dataset: selected, but counts are not available for this file yet.";
-    } else {
-        lines << "Training dataset: choose a dataset file with Target and Non-target examples.";
-    }
-
-    if (deps_.trainerOutputEdit && !deps_.trainerOutputEdit->text().trimmed().isEmpty()) {
-        lines << "Save new model in: " + QDir::toNativeSeparators(deps_.trainerOutputEdit->text().trimmed());
-    } else {
-        lines << "Save new model in: choose a folder for the trained model.";
-    }
-
-    if (!selectedModel.isEmpty()) {
-        lines << "Start from: " + selectedModel;
-    } else {
-        lines << "Start from: choose a starter or trained model from Model workspace.";
-    }
-
-    lines << "Training plan: " + selectedMode + ".";
-    lines << "Original model stays unchanged. Training saves a new copy in the selected folder.";
-
-    if (deps_.trainerStartingModelCombo && deps_.trainerStartingModelCombo->currentData().toString().trimmed().isEmpty()) {
-        lines << "Starting model: no compatible model is available in Model workspace yet.";
-    }
-
     const QString detail = stateDetail.trimmed();
     if (!detail.isEmpty()) {
         lines << detail;
     } else if (!ready && !issues.isEmpty()) {
         lines << "Still needed: " + issues.join(", ") + ".";
+    }
+
+    if (deps_.trainerDatasetEdit && !deps_.trainerDatasetEdit->text().trimmed().isEmpty()) {
+        lines << "Selected dataset: " + QDir::toNativeSeparators(deps_.trainerDatasetEdit->text().trimmed());
+        const TrainerDatasetCounts counts = collectTrainerDatasetCounts();
+        if (counts.available && counts.totalCount > 0) {
+            lines << QString("Class counts: Empty %1 | Single %2 | MoreThanOne %3 | Total %4")
+                         .arg(counts.class0Count).arg(counts.class1Count).arg(counts.class2Count).arg(counts.totalCount);
+            const int minimumClass = std::min({counts.class0Count, counts.class1Count, counts.class2Count});
+            if (minimumClass < 50 || static_cast<double>(minimumClass) / counts.totalCount < 0.02) {
+                lines << "WARNING: Severe class imbalance detected. Verify the dataset identity before launching training. Accepted combined manifest: C:\\Users\\goals\\Documents\\OpenDSS\\runs\\publication-experiments\\organoid_wellplate_combined\\prep\\derived_manifest.json";
+            }
+        }
     }
 
     return lines.join("\n");
@@ -558,6 +675,21 @@ bool DatasetWorkspaceController::trainerSetupReady(QStringList* issues) const {
 
     if (!deps_.trainerOutputEdit || deps_.trainerOutputEdit->text().trimmed().isEmpty()) {
         missing << "choose where to save the model";
+    }
+
+    if (!deps_.trainerHyperparameterJsonEdit) {
+        missing << "load Hyperparameter Settings";
+    } else {
+        QJsonParseError parseError;
+        const QJsonDocument document =
+            QJsonDocument::fromJson(deps_.trainerHyperparameterJsonEdit->toPlainText().toUtf8(), &parseError);
+        if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+            missing << "fix malformed Hyperparameter Settings JSON";
+        } else {
+            const QString validationError = validateHyperparameterConfig(document.object());
+            if (!validationError.isEmpty())
+                missing << validationError;
+        }
     }
 
     if (issues) {
@@ -601,30 +733,34 @@ DatasetWorkspaceController::TrainerDatasetCounts DatasetWorkspaceController::col
             return false;
         }
 
-        const QJsonArray items = doc.object().value("items").toArray();
-        int hit = 0;
-        int waste = 0;
+        QJsonArray items = doc.object().value("items").toArray();
+        if (items.isEmpty())
+            items = doc.object().value("records").toArray();
+        int class0 = 0;
+        int class1 = 0;
+        int class2 = 0;
         for (const QJsonValue& value : items) {
             const QJsonObject item = value.toObject();
             QString label = item.value("reviewed_label").toString().trimmed().toLower();
             if (label.isEmpty()) {
                 label = item.value("auto_label").toString().trimmed().toLower();
             }
-            if (label == "1") {
-                label = "hit";
-            } else if (label == "0" || label == "empty") {
-                label = "waste";
-            }
-            if (label == "hit") {
-                ++hit;
-            } else if (label == "waste") {
-                ++waste;
-            }
+            if (label.isEmpty())
+                label = item.value("class_id").toString().trimmed().toLower();
+            if (label.isEmpty())
+                label = item.value("label").toString().trimmed().toLower();
+            if (label == "0" || label == "empty" || label == "non-target a")
+                ++class0;
+            else if (label == "1" || label == "single" || label == "target" || label == "hit")
+                ++class1;
+            else if (label == "2" || label == "morethanone" || label == "non-target b" || label == "multiple")
+                ++class2;
         }
 
-        counts.hitCount = hit;
-        counts.wasteCount = waste;
-        counts.totalCount = hit + waste;
+        counts.class0Count = class0;
+        counts.class1Count = class1;
+        counts.class2Count = class2;
+        counts.totalCount = class0 + class1 + class2;
         counts.available = counts.totalCount >= 0;
         return true;
     };
@@ -684,8 +820,9 @@ DatasetWorkspaceController::TrainerDatasetCounts DatasetWorkspaceController::col
     }
 
     if (hit > 0 || waste > 0) {
-        counts.hitCount = hit;
-        counts.wasteCount = waste;
+        counts.class0Count = waste;
+        counts.class1Count = hit;
+        counts.class2Count = 0;
         counts.totalCount = hit + waste;
         counts.available = true;
     }
@@ -695,9 +832,7 @@ DatasetWorkspaceController::TrainerDatasetCounts DatasetWorkspaceController::col
 
 void DatasetWorkspaceController::loadTrainerSettings() const {
     if (!deps_.trainerPythonEdit || !deps_.trainerDatasetEdit || !deps_.trainerOutputEdit ||
-        !deps_.trainerEpochsSpin || !deps_.trainerBatchSpin || !deps_.trainerLrSpin || !deps_.trainerFlipCheck ||
-        !deps_.trainerRotationCheck || !deps_.trainerColorJitterCheck || !deps_.trainerRandomCropCheck ||
-        !deps_.trainerSchedulerCombo) {
+        !deps_.trainerHyperparameterJsonEdit) {
         return;
     }
 
@@ -723,41 +858,9 @@ void DatasetWorkspaceController::loadTrainerSettings() const {
         trainerOutput = QDir::toNativeSeparators(deps_.defaultTrainerOutput);
     }
     deps_.trainerOutputEdit->setText(trainerOutput);
-
-    if (deps_.trainerArchitectureCombo) {
-        const QString arch =
-            settings.value("trainer/architecture", deps_.trainerArchitectureCombo->currentData().toString()).toString();
-        const int archIndex = deps_.trainerArchitectureCombo->findData(arch);
-        if (archIndex >= 0) {
-            deps_.trainerArchitectureCombo->setCurrentIndex(archIndex);
-        }
-    }
-
-    const bool pretrained = settings.value("trainer/pretrained", true).toBool();
-    if (deps_.trainerPretrainedImageNetBtn) {
-        deps_.trainerPretrainedImageNetBtn->setChecked(pretrained);
-    }
-    if (deps_.trainerPretrainedNoneBtn) {
-        deps_.trainerPretrainedNoneBtn->setChecked(!pretrained);
-    }
-    deps_.trainerEpochsSpin->setValue(settings.value("trainer/epochs", deps_.trainerEpochsSpin->value()).toInt());
-    deps_.trainerBatchSpin->setValue(settings.value("trainer/batchSize", deps_.trainerBatchSpin->value()).toInt());
-    deps_.trainerLrSpin->setValue(settings.value("trainer/learningRate", deps_.trainerLrSpin->value()).toDouble());
-    deps_.trainerFlipCheck->setChecked(
-        settings.value("trainer/augment/randomFlip", deps_.trainerFlipCheck->isChecked()).toBool());
-    deps_.trainerRotationCheck->setChecked(
-        settings.value("trainer/augment/randomRotation", deps_.trainerRotationCheck->isChecked()).toBool());
-    deps_.trainerColorJitterCheck->setChecked(
-        settings.value("trainer/augment/colorJitter", deps_.trainerColorJitterCheck->isChecked()).toBool());
-    deps_.trainerRandomCropCheck->setChecked(
-        settings.value("trainer/augment/randomCrop", deps_.trainerRandomCropCheck->isChecked()).toBool());
-
-    const QString scheduler =
-        settings.value("trainer/scheduler", deps_.trainerSchedulerCombo->currentText()).toString();
-    const int schedulerIndex = deps_.trainerSchedulerCombo->findText(scheduler);
-    if (schedulerIndex >= 0) {
-        deps_.trainerSchedulerCombo->setCurrentIndex(schedulerIndex);
-    }
+    const QString savedHyperparameters = settings.value("trainer/hyperparametersJson").toString().trimmed();
+    if (!savedHyperparameters.isEmpty())
+        deps_.trainerHyperparameterJsonEdit->setPlainText(savedHyperparameters);
 
     populateTrainerModelOptions();
     if (deps_.trainerTrainingModeCombo) {
@@ -830,6 +933,8 @@ void DatasetWorkspaceController::wireTrainerSettingsPersistence() {
             connect(edit, &QLineEdit::textChanged, this, save);
         }
     }
+    if (deps_.trainerHyperparameterJsonEdit)
+        connect(deps_.trainerHyperparameterJsonEdit, &QPlainTextEdit::textChanged, this, save);
     if (deps_.trainerStartingModelCombo) {
         connect(deps_.trainerStartingModelCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, save);
     }
@@ -1043,7 +1148,7 @@ void DatasetWorkspaceController::populateTrainerModelOptions() const {
 
             const QJsonObject metadataDoc = loadJsonObjectFile(metadataPath);
             const QString architectureId = architectureIdFromRegistryEntry(entry, metadataDoc);
-            if (architectureId != "squeezenet1_0" && architectureId != "squeezenet1_1") {
+            if (architectureId != "mobilenet_v3_small" && architectureId != "efficientnet_b0") {
                 continue;
             }
 
@@ -1052,15 +1157,19 @@ void DatasetWorkspaceController::populateTrainerModelOptions() const {
             option.displayName = fallbackDisplayName(entry);
             option.modelPath = modelPath;
             option.metadataPath = metadataPath;
+            option.checkpointPath = readRegistryPath(entry, "checkpoint_path");
             option.architectureId = architectureId;
             option.isStarter = metadataLooksLikeStarter(entry, metadataDoc);
+            if (!option.isStarter && !QFileInfo(option.checkpointPath).isFile()) {
+                continue;
+            }
             option.isLiveModel = entryIsLiveModel(entry);
-            option.supportsContinue = true;
+            option.supportsContinue = option.isStarter || QFileInfo(option.checkpointPath).isFile();
             option.defaultPretrained =
                 metadataDoc.value("training_config").toObject().value("pretrained").toBool(option.isStarter);
 
             QStringList detailParts;
-            detailParts << (option.isStarter ? "Starter" : "Trained");
+            detailParts << (option.isStarter ? "ImageNet weights" : "Previously trained weights");
             if (option.isLiveModel) {
                 detailParts << "current live model";
             }
@@ -1085,9 +1194,7 @@ void DatasetWorkspaceController::populateTrainerModelOptions() const {
     const QSignalBlocker blocker(deps_.trainerStartingModelCombo);
     deps_.trainerStartingModelCombo->clear();
     for (const auto& option : options) {
-        const QString label = option.detailText.isEmpty() ? option.displayName
-                                                          : QString("%1  |  %2").arg(option.displayName, option.detailText);
-        deps_.trainerStartingModelCombo->addItem(label, option.registryEntryId);
+        deps_.trainerStartingModelCombo->addItem(option.displayName, option.registryEntryId);
     }
 
     int selectedIndex = -1;
@@ -1115,9 +1222,16 @@ void DatasetWorkspaceController::populateTrainerModelOptions() const {
 
     if (selectedIndex >= 0) {
         deps_.trainerStartingModelCombo->setCurrentIndex(selectedIndex);
+        if (deps_.trainerSelectedArchitectureValue) {
+            const QString architecture = options.at(selectedIndex).architectureId;
+            deps_.trainerSelectedArchitectureValue->setText(
+                architecture == "mobilenet_v3_small" ? "MobileNetV3-Small" : "EfficientNet-B0");
+        }
     } else {
         deps_.trainerStartingModelCombo->addItem("No compatible training model found", QString());
         deps_.trainerStartingModelCombo->setCurrentIndex(0);
+        if (deps_.trainerSelectedArchitectureValue)
+            deps_.trainerSelectedArchitectureValue->setText("No supported model selected");
     }
 }
 
@@ -1134,7 +1248,7 @@ void DatasetWorkspaceController::refreshTrainerModeHint() const {
 
     if (modelId.isEmpty()) {
         deps_.trainerStartingModelHintLabel->setText(
-            "Add or keep a SqueezeNet model in Model workspace before training from the Trainer workspace.");
+            "Add a MobileNetV3-Small or EfficientNet-B0 model in Library before training.");
         return;
     }
 
@@ -1146,8 +1260,7 @@ void DatasetWorkspaceController::refreshTrainerModeHint() const {
     }
 
     deps_.trainerStartingModelHintLabel->setText(
-        QString("Uses \"%1\" as the model choice for this run and saves a new trained copy without changing the original file.")
-            .arg(modelText));
+        QString("Uses ImageNet weights for \"%1\" and saves a new trained copy.").arg(modelText));
 }
 
 void DatasetWorkspaceController::refreshTrainerUi() const {

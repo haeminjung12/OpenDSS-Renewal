@@ -304,10 +304,7 @@ DatasetLabelerDialog::DatasetLabelerDialog(QWidget* parent, const QString& initi
     setLayout(layout);
 
     QObject::connect(openManifestButton, &QPushButton::clicked, [this]() {
-        const QString startPath =
-            chooseOpenFileDialogPath(preferredDatasetMetadataPath(currentDatasetPath),
-                                     preferredDatasetMetadataPath(defaultDatasetRoot),
-                                     findPackagedAppPath("datasets/prepared"));
+        const QString startPath = defaultOpenDssDatasetsPath();
         const QString selected = QFileDialog::getOpenFileName(
             this, "Select dataset file", startPath, "Dataset files (*.json);;All files (*.*)");
         if (!selected.isEmpty())

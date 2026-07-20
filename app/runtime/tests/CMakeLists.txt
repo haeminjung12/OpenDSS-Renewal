@@ -33,3 +33,16 @@ add_test(
   NAME opendss_event_direction_test
   COMMAND opendss_event_direction_test
 )
+
+add_executable(opendss_trainer_plot_math_test
+  trainer_plot_math_test.cpp
+)
+
+target_include_directories(opendss_trainer_plot_math_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+)
+
+add_test(
+  NAME opendss_trainer_plot_math_test
+  COMMAND opendss_trainer_plot_math_test
+)

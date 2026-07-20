@@ -21,21 +21,23 @@ It is designed for lab setups that use Hamamatsu camera hardware and NI output h
 - ONNX Runtime inference for model-backed classification
 - NI-DAQmx trigger output for hardware-integrated sorting setups
 - Hardware settings workspace for camera and DAQ configuration
-- Windows training helpers for preparing datasets and training updated models outside the desktop app
+- Models workspace for creating, fine-tuning, testing, saving, and activating models
+- Packaged MobileNetV3-Small (faster) and EfficientNet-B0 (more accurate) starters
+- Windows training helpers with CPU and optional NVIDIA CUDA training environments
 
 ## Hardware Requirements
 
-### Required
+### Application-only use
 
 - Windows 10 or Windows 11
-- A supported Hamamatsu camera
-- Hamamatsu DCAM-API / DCAM-SDK installed on the machine
-- NI DAQ hardware supported by NI-DAQmx for trigger output
-- NI-DAQmx runtime/driver installed on the machine
+- Microsoft Visual C++ Redistributable x64 if it is not already installed
 
-### Optional
+The Models Library, Train, and Test workflows can be installed and tested without a camera or NI DAQ device. Packaged ONNX inference uses the qualified CPU provider. CUDA is used by the optional PyTorch training environment, not by production ONNX inference.
 
-- A trained ONNX model suitable for your droplet-classification workflow
+### Hardware-integrated operation
+
+- A supported Hamamatsu camera plus Hamamatsu DCAM-API / DCAM-SDK for live acquisition
+- Supported NI DAQ hardware plus NI-DAQmx for trigger output
 
 ## Downloads
 
@@ -43,7 +45,7 @@ It is designed for lab setups that use Hamamatsu camera hardware and NI output h
 
 - Public installer release: [GitHub Releases](https://github.com/haeminjung12/OpenDSS_clean/releases/latest)
 - Release assets are distributed through GitHub Releases.
-- Release packages include the current trained binary SqueezeNet, its required `model.onnx.data` sidecar, and a blank SqueezeNet template that is not validated for live sorting.
+- Release packages include Blank and Pre-trained MobileNetV3-Small and EfficientNet-B0 packages. Blank packages start training from bundled ImageNet weights; Pre-trained packages include trainable OpenDSS checkpoints and ONNX models for immediate CPU inference and Test use.
 - The public installer does not bundle or run NI-DAQmx, Hamamatsu DCAM, or Microsoft Visual C++ Redistributable installers; install those prerequisites separately.
 
 ### Vendor Prerequisites
@@ -60,21 +62,26 @@ It is designed for lab setups that use Hamamatsu camera hardware and NI output h
 The release includes trainer helper scripts under `training/python`, but Python, PyTorch, CUDA, datasets, checkpoints, and virtual environments are installed separately by the user. Install Python 3.12 x64, then run this from `training/python`:
 
 ```powershell
-.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenDSS\training-venv"
-.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenDSS\training-venv"
+.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
+.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
 ```
 
-`install-training-cpu.ps1` verifies the environment and updates the app's Python trainer setting to `%LOCALAPPDATA%\OpenDSS\training-venv\Scripts\python.exe`.
+`install-training-cpu.ps1` verifies the environment and updates the app's Python trainer setting to the selected environment's `Scripts\python.exe`.
 
-For GPU training, use one CUDA-specific installer wrapper instead of the CPU installer: `install-training-gpu-cu130.ps1` or `install-training-gpu-cu128.ps1`. Each GPU installer also verifies the environment and updates the app's Python trainer setting to the selected venv.
+For GPU training, create a separate environment and use one CUDA-specific installer wrapper instead of the CPU installer: `install-training-gpu-cu130.ps1` or `install-training-gpu-cu128.ps1`. Use the wrapper compatible with the target computer's NVIDIA driver. Each wrapper installs its pinned PyTorch runtime, requires `torch.cuda.is_available()` to pass, and updates the app's trainer setting. It does not install or change the NVIDIA driver.
 
 ## Quick Start
 
 1. Build from source, or use the public installer after it is posted to [GitHub Releases](https://github.com/haeminjung12/OpenDSS_clean/releases/latest).
-2. Install Hamamatsu DCAM-API before connecting a supported camera.
-3. Install Microsoft Visual C++ Redistributable x64 if it is not already present on the target machine.
-4. Install NI-DAQmx for NI-based trigger output.
-5. Launch OpenDSS and configure camera, detector, model, and hardware settings for your workflow.
+2. Install Microsoft Visual C++ Redistributable x64 if it is not already present.
+3. Launch OpenDSS. The Models workspace can be evaluated without camera or DAQ hardware.
+4. In Models > Library, confirm the two Blank and two Pre-trained MobileNet/EfficientNet entries appear. Blank entries are training starters and cannot be activated until trained; Pre-trained entries can be activated and tested immediately.
+5. For training, install Python 3.12 x64 and create either the CPU environment or one supported CUDA environment using the bundled `training\python` scripts.
+6. Select a prepared dataset manifest. Dataset metadata determines whether the model has two or three output classes. A trained checkpoint may be continued when its output count matches the dataset.
+7. Use Models > Train, then Save/Use to register the completed package. Confirm activation when prompted. Models > Test lists inference-capable packages and evaluates the selected model.
+8. Install DCAM and NI-DAQmx only before testing the corresponding camera or DAQ workflow.
+
+Training writes a self-contained model package containing `metadata.json`, `checkpoint.pth`, and `model.onnx`. If training reports class collapse or missing prediction classes, the run completed computationally but its model was rejected as scientifically unusable; review the dataset balance and class labels rather than bypassing the safeguard.
 
 ## Screenshots
 

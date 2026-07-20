@@ -117,25 +117,18 @@ if (-not (Test-Path $registryPath)) {
     throw "Required model registry not found: $registryPath"
 }
 $registry = Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json
-$requiredModelFiles = New-Object System.Collections.Generic.List[string]
-$requiredModelFiles.Add("model_registry.json")
-foreach ($entry in @($registry.entries)) {
-    foreach ($assetPath in @($entry.model_path, $entry.metadata_path)) {
-        if ($assetPath) {
-            $requiredModelFiles.Add((Split-Path -Leaf $assetPath))
-        }
-    }
-    foreach ($sidecar in @($entry.model_sidecars)) {
-        if ($sidecar.required -and $sidecar.path) {
-            $requiredModelFiles.Add((Split-Path -Leaf $sidecar.path))
-        }
-    }
+if ([string]$registry.schema_version -ne "model-registry-v3-simple") {
+    throw "Unsupported model registry schema: $($registry.schema_version)"
 }
-$requiredModelFiles = @($requiredModelFiles | Select-Object -Unique)
-foreach ($modelFile in $requiredModelFiles) {
-    $modelPath = Join-Path $ModelsDir $modelFile
-    if (-not (Test-Path $modelPath)) {
-        throw "Required model asset not found: $modelPath"
+foreach ($entry in @($registry.entries)) {
+    $packagePath = [string]$entry.package_path
+    if (-not $packagePath -or [System.IO.Path]::IsPathRooted($packagePath)) {
+        throw "Registry entry $($entry.registry_entry_id) has an invalid package_path: $packagePath"
+    }
+    $relativePackagePath = $packagePath -replace '^[.]?[\\/]*models[\\/]', ''
+    $sourcePackagePath = Join-Path $ModelsDir $relativePackagePath
+    if (-not (Test-Path -LiteralPath (Join-Path $sourcePackagePath "metadata.json"))) {
+        throw "Model package metadata not found: $sourcePackagePath"
     }
 }
 foreach ($datasetDir in $requiredDatasetDirs) {
@@ -201,12 +194,10 @@ if ($CopyNidaq -and (Test-Path $NidaqBin)) {
     }
 }
 
-# Copy model assets into the package contract expected by the runtime.
+# Copy the complete model tree so each registry package keeps its checkpoint,
+# embedded/external ONNX data, metadata, and audit companions.
 $modelsOut = Join-Path $packageDir "models"
-New-Item -ItemType Directory -Path $modelsOut -Force | Out-Null
-foreach ($modelFile in $requiredModelFiles) {
-    Copy-Item -Path (Join-Path $ModelsDir $modelFile) -Destination $modelsOut -Force
-}
+Copy-FilteredTree -SourceDir $ModelsDir -DestinationDir $modelsOut
 
 $datasetsOut = Join-Path $packageDir "datasets\prepared"
 New-Item -ItemType Directory -Path $datasetsOut -Force | Out-Null

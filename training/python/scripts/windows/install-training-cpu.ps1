@@ -18,6 +18,8 @@ $requirements = Resolve-Path (Join-Path $PSScriptRoot "..\..\requirements\window
 $source = Resolve-Path $TrainerSourcePath
 
 Write-Host "Installing CPU training dependencies from $requirements"
+& $venvPython -m pip uninstall -y onnxruntime-gpu onnxruntime
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 & $venvPython -m pip install -r $requirements
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 

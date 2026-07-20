@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import importlib.metadata
 import os
 import platform
 import sys
@@ -13,6 +14,16 @@ from . import __version__
 
 REQUIRED_TRAINING_PACKAGES = ["torch", "torchvision", "numpy", "PIL", "sklearn", "pandas"]
 REQUIRED_ONNX_PACKAGES = ["onnx", "onnxruntime", "onnxscript"]
+
+
+def _ort_distributions() -> dict[str, str]:
+    installed: dict[str, str] = {}
+    for name in ("onnxruntime", "onnxruntime-gpu"):
+        try:
+            installed[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            pass
+    return installed
 
 
 def _import_status(module_name: str) -> dict[str, Any]:
@@ -66,6 +77,7 @@ def run_env_check(args: Any) -> tuple[dict[str, Any], int]:
 
     ort_status = packages.get("onnxruntime") if "onnxruntime" in packages else _import_status("onnxruntime")
     providers: list[str] = []
+    ort_distributions = _ort_distributions()
     if ort_status["status"] == "ok":
         import onnxruntime
 
@@ -73,14 +85,7 @@ def run_env_check(args: Any) -> tuple[dict[str, Any], int]:
 
     warnings: list[dict[str, Any]] = []
     selected = "cuda" if args.device == "auto" and cuda_available else args.device
-    if args.device == "cuda" and not cuda_available:
-        selected = "cpu"
-        warnings.append(
-            {
-                "code": "REQUESTED_DEVICE_FALLBACK_CPU",
-                "message": "CUDA was requested but is unavailable; falling back to CPU.",
-            }
-        )
+    cuda_provider_available = "CUDAExecutionProvider" in providers
     if selected == "auto":
         selected = "cpu"
     exit_code = 0
@@ -94,6 +99,31 @@ def run_env_check(args: Any) -> tuple[dict[str, Any], int]:
             "message": "One or more required packages are not importable.",
             "details": {"packages": missing},
         }
+    elif args.device == "cuda" and args.require_onnx and (not cuda_available or not cuda_provider_available):
+        status = "error"
+        exit_code = 12
+        selected = "unavailable"
+        error = {
+            "code": "CUDA_PROVIDER_UNAVAILABLE",
+            "message": "CUDA was requested but the training environment cannot create CUDA ONNX Runtime sessions.",
+            "details": {
+                "torch_cuda_available": cuda_available,
+                "onnxruntime_providers": providers,
+                "installed_onnxruntime_distributions": ort_distributions,
+            },
+        }
+    elif args.device == "cuda" and (args.require_training or not args.require_onnx) and not cuda_available:
+        selected = "cpu"
+        warnings.append({
+            "code": "REQUESTED_DEVICE_FALLBACK_CPU",
+            "message": "CUDA training was requested but PyTorch CUDA is unavailable; training will use CPU.",
+        })
+    elif args.device == "auto" and args.require_onnx and cuda_available and not cuda_provider_available:
+        selected = "cpu"
+        warnings.append({
+            "code": "ONNX_CUDA_PROVIDER_FALLBACK_CPU",
+            "message": "CUDA is available to PyTorch, but ONNX Runtime lacks CUDAExecutionProvider; ONNX inference will use CPU.",
+        })
     writable, writable_error = check_output_writable(args.check_output)
     if writable is False:
         status = "error"
@@ -134,6 +164,10 @@ def run_env_check(args: Any) -> tuple[dict[str, Any], int]:
             "cuda_version": cuda_version,
             "gpu_names": gpu_names,
             "onnxruntime_providers": providers,
+            "onnxruntime_distributions": ort_distributions,
+            "onnxruntime_selected_provider": (
+                "CUDAExecutionProvider" if selected == "cuda" and cuda_provider_available else "CPUExecutionProvider"
+            ),
         },
         "checks": {"output_writable": writable},
         "warnings": warnings,

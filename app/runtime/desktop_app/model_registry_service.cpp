@@ -2,6 +2,7 @@
 
 #include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QHash>
 #include <QDateTime>
 #include <QDir>
 #include <QDirIterator>
@@ -12,6 +13,8 @@
 
 #include "app_utils.h"
 #include "json_persistence.h"
+
+QString packagedModelRegistryPath();
 
 namespace {
 
@@ -564,6 +567,33 @@ QString packagedPathCandidate(const QString& relativePath) {
     const QString trimmed = QDir::fromNativeSeparators(relativePath.trimmed());
     if (trimmed.isEmpty())
         return QString();
+
+    // Registry paths historically used source-tree-relative
+    // "app/runtime/models/..." values.  A deployed build contains the same
+    // payload under <applicationDir>/models, and must not depend on either the
+    // process working directory or a discoverable source checkout.
+    QString modelsRelative = trimmed;
+    const QString internalPrefix = "internal-release/app/runtime/";
+    const QString sourcePrefix = "app/runtime/";
+    if (modelsRelative.startsWith(internalPrefix, Qt::CaseInsensitive))
+        modelsRelative.remove(0, internalPrefix.size());
+    else if (modelsRelative.startsWith(sourcePrefix, Qt::CaseInsensitive))
+        modelsRelative.remove(0, sourcePrefix.size());
+
+    if (modelsRelative.startsWith("models/", Qt::CaseInsensitive)) {
+        const QString modelsOverride = qEnvironmentVariable(kModelsRootOverrideEnv).trimmed();
+        if (!modelsOverride.isEmpty()) {
+            QString belowModels = modelsRelative.mid(QString("models/").size());
+            const QString overridden = QDir(modelsOverride).absoluteFilePath(belowModels);
+            if (QFileInfo::exists(overridden))
+                return QDir::cleanPath(overridden);
+        }
+
+        const QString deployed = QDir(QCoreApplication::applicationDirPath()).absoluteFilePath(modelsRelative);
+        if (QFileInfo::exists(deployed))
+            return QDir::cleanPath(deployed);
+    }
+
     QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         const QString direct = QDir(projectRoot).absoluteFilePath(trimmed);
@@ -735,6 +765,76 @@ QJsonObject makePackagedPretrainedModelRegistryEntry() {
     return backup;
 }
 
+QJsonObject makePackagedModernModelRegistryEntry(const QString& architectureId, const QString& origin) {
+    const bool mobile = architectureId == "mobilenet_v3_small";
+    const bool blank = origin == "blank";
+    const QString architecture = mobile ? QString("mobilenet_v3_small") : QString("efficientnet_b0");
+    const QString registryEntryId = QString("opendss_%1_%2").arg(origin, architecture);
+
+    // The deployed registry is the signed package manifest.  Reuse its fixed
+    // hashes rather than deriving "expected" hashes from files that may
+    // already have been altered on disk.
+    QString manifestError;
+    const QJsonObject manifest = readJsonObjectFile(packagedModelRegistryPath(), &manifestError);
+    for (const QJsonValue& value : manifest.value("entries").toArray()) {
+        QJsonObject packagedEntry = value.toObject();
+        if (registryString(packagedEntry, "registry_entry_id").compare(registryEntryId, Qt::CaseInsensitive) == 0) {
+            packagedEntry["package_path"] = QString("models/templates/%1/%2").arg(origin, architecture);
+            packagedEntry.remove("model_sha256");
+            packagedEntry.remove("metadata_sha256");
+            packagedEntry.remove("model_sidecars");
+            return packagedEntry;
+        }
+    }
+
+    const QString family = mobile ? QString("MobileNetV3-Small") : QString("EfficientNet-B0");
+    const QString qualifier = mobile ? QString("Faster") : QString("More Accurate");
+    const QString base = QString("models/templates/%1/%2").arg(origin, architecture);
+    const QString modelPath = base + "/model.onnx";
+    const QString metadataPath = base + "/metadata.json";
+    const QString sidecarPath = base + "/model.onnx.data";
+    const QString absoluteModel = resolvePackagedPathFromRegistryPath(modelPath);
+    const QString absoluteMetadata = resolvePackagedPathFromRegistryPath(metadataPath);
+    const QString absoluteSidecar = resolvePackagedPathFromRegistryPath(sidecarPath);
+    QJsonObject entry;
+    entry["registry_entry_id"] = registryEntryId;
+    entry["model_id"] = entry["registry_entry_id"];
+    entry["user_facing_label"] = QString("%1 — %2").arg(family, qualifier);
+    entry["display_name"] = QString("%1 %2").arg(blank ? QString("Blank") : QString("Pre-trained"),
+                                                   entry["user_facing_label"].toString());
+    entry["architecture_id"] = architecture;
+    entry["origin"] = origin;
+    entry["recommended"] = mobile;
+    entry["legacy"] = false;
+    entry["state"] = "available";
+    entry["model_status"] = blank ? "Untrained" : "Trained";
+    entry["live_use_mode"] = blank ? "blocked" : "normal";
+    entry["selectable_for_normal_live_sorting"] = false;
+    entry["active"] = false;
+    entry["package_path"] = base;
+    entry["model_path"] = modelPath;
+    entry["metadata_path"] = metadataPath;
+    entry["metadata_schema_version"] = "model-metadata-v2";
+    entry["metadata_status"] = blank ? "ImageNet-start template" : "Verified production candidate";
+    entry["validation_status"] = blank ? "Not droplet-trained" : "Two-fold cross-validation evidence accepted";
+    entry["promotion_status"] = blank ? "Starter only" : "Available";
+    entry["classes"] = QJsonArray{"0", "1", "2"};
+    entry["display_labels"] = QJsonObject{{"0", "Empty"}, {"1", "Single"}, {"2", "MoreThanOne"}};
+    entry["label_schema_version"] = "opendss-droplet-3class-v1";
+    entry["target_policy"] = QJsonObject{{"target_class_id", "1"}, {"target_display_label", "Single"},
+                                           {"waste_class_id", "0"}, {"waste_display_label", "Empty"},
+                                           {"trigger_rule", "trigger_on_target_class"}};
+    entry["limitations"] = blank
+                                ? QJsonArray{"ImageNet-start three-class template; train and validate before live sorting."}
+                                : QJsonArray{"All-data deployment fit; performance evidence is the accepted cross-validation report."};
+    entry["blockers"] = blank ? QJsonArray{QJsonObject{{"blocker", "Training required"},
+                                                         {"required_next_action", "Train and validate this template."}}}
+                               : QJsonArray{};
+    entry["provenance_reference"] = blank ? QString("official torchvision ImageNet weights")
+                                           : QString("docs/worker-reports/production-model-training-2026-07-19/train-final-all-data-models.md");
+    return entry;
+}
+
 QJsonObject entryByRegistryId(const QJsonArray& entries, const QString& registryEntryId) {
     for (const auto& value : entries) {
         const QJsonObject entry = value.toObject();
@@ -746,8 +846,7 @@ QJsonObject entryByRegistryId(const QJsonArray& entries, const QString& registry
 
 QJsonObject freshSeedBlankEntry(QJsonObject entry) {
     if (entry.isEmpty())
-        entry = makePackagedBlankModelRegistryEntry();
-    entry["display_name"] = "Blank model";
+        entry = makePackagedModernModelRegistryEntry("mobilenet_v3_small", "blank");
     entry["state"] = "available";
     entry["selectable_for_normal_live_sorting"] = false;
     entry["promotion_status"] = "Starter only";
@@ -756,19 +855,18 @@ QJsonObject freshSeedBlankEntry(QJsonObject entry) {
 
 QJsonObject freshSeedPretrainedEntry(QJsonObject entry) {
     if (entry.isEmpty())
-        entry = makePackagedPretrainedModelRegistryEntry();
-    entry["display_name"] = "Pre-trained model";
-    entry["state"] = "promoted_current";
-    entry["selectable_for_normal_live_sorting"] = true;
-    entry["promotion_status"] = "Active in workspace";
+        entry = makePackagedModernModelRegistryEntry("mobilenet_v3_small", "pretrained");
+    entry["state"] = "available";
+    entry["selectable_for_normal_live_sorting"] = false;
+    entry["promotion_status"] = "Available";
     return entry;
 }
 
 QJsonObject freshSeedRegistryFromPackaged(QJsonObject registry) {
     const QJsonArray packagedEntries = registry.value("entries").toArray();
     QJsonArray entries;
-    entries.append(freshSeedBlankEntry(entryByRegistryId(packagedEntries, "blank_squeezenet_template_seed42")));
-    entries.append(freshSeedPretrainedEntry(entryByRegistryId(packagedEntries, "pre_binary_promotion_backup")));
+    entries.append(freshSeedBlankEntry(entryByRegistryId(packagedEntries, "opendss_blank_mobilenet_v3_small_3class")));
+    entries.append(freshSeedPretrainedEntry(entryByRegistryId(packagedEntries, "opendss_pretrained_mobilenet_v3_small_3class")));
     registry["entries"] = entries;
     return registry;
 }
@@ -836,11 +934,61 @@ QJsonObject packagedPromotedModelRegistryEntry() {
 }
 
 QJsonObject packagedBlankModelRegistryEntry() {
-    return makePackagedBlankModelRegistryEntry();
+    return makePackagedModernModelRegistryEntry("mobilenet_v3_small", "blank");
 }
 
 QJsonObject packagedPretrainedModelRegistryEntry() {
-    return makePackagedPretrainedModelRegistryEntry();
+    return makePackagedModernModelRegistryEntry("mobilenet_v3_small", "pretrained");
+}
+
+QJsonObject packagedModernModelRegistryEntry(const QString& architectureId, const QString& origin) {
+    return makePackagedModernModelRegistryEntry(architectureId, origin);
+}
+
+QJsonArray packagedModernModelRegistryEntries(const QString& origin) {
+    return QJsonArray{makePackagedModernModelRegistryEntry("mobilenet_v3_small", origin),
+                      makePackagedModernModelRegistryEntry("efficientnet_b0", origin)};
+}
+
+QString packagedModelEntryAvailabilityError(const QJsonObject& entry) {
+    const QString configuredModel = registryString(entry, "model_path");
+    const QString modelPath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(configuredModel));
+    if (!QFileInfo(modelPath).isFile())
+        return QString("Packaged model asset is missing: %1")
+            .arg(QDir::toNativeSeparators(modelPath.isEmpty() ? configuredModel : modelPath));
+    const QString expectedModelHash = registryString(entry, "model_sha256").trimmed();
+    if (!expectedModelHash.isEmpty() &&
+        sha256FileHex(modelPath).compare(expectedModelHash, Qt::CaseInsensitive) != 0) {
+        return "Packaged model asset failed its SHA-256 integrity check.";
+    }
+
+    const QString configuredMetadata = registryString(entry, "metadata_path");
+    const QString metadataPath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(configuredMetadata));
+    if (!QFileInfo(metadataPath).isFile())
+        return QString("Packaged model metadata is missing: %1")
+            .arg(QDir::toNativeSeparators(metadataPath.isEmpty() ? configuredMetadata : metadataPath));
+    const QString expectedMetadataHash = registryString(entry, "metadata_sha256").trimmed();
+    if (!expectedMetadataHash.isEmpty() &&
+        sha256FileHex(metadataPath).compare(expectedMetadataHash, Qt::CaseInsensitive) != 0) {
+        return "Packaged model metadata failed its SHA-256 integrity check.";
+    }
+
+    for (const QJsonValue& value : entry.value("model_sidecars").toArray()) {
+        const QJsonObject sidecar = value.toObject();
+        if (!sidecar.value("required").toBool(true))
+            continue;
+        const QString configuredSidecar = sidecar.value("path").toString();
+        const QString sidecarPath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(configuredSidecar));
+        if (!QFileInfo(sidecarPath).isFile())
+            return QString("Packaged model sidecar is missing: %1")
+                .arg(QDir::toNativeSeparators(sidecarPath.isEmpty() ? configuredSidecar : sidecarPath));
+        const QString expectedSidecarHash = sidecar.value("sha256").toString().trimmed();
+        if (!expectedSidecarHash.isEmpty() &&
+            sha256FileHex(sidecarPath).compare(expectedSidecarHash, Qt::CaseInsensitive) != 0) {
+            return "Packaged model sidecar failed its SHA-256 integrity check.";
+        }
+    }
+    return {};
 }
 
 bool copyFileIfMissing(const QString& sourcePath, const QString& destinationPath) {
@@ -916,7 +1064,43 @@ bool writeRegistryFile(const QString& targetPath, const QJsonObject& registry, Q
             *error = "Unable to create model registry directory: " + targetInfo.absolutePath();
         return false;
     }
-    return desktop_app::writeJsonObjectAtomically(targetPath, registry, error);
+    QJsonObject simpleRegistry = registry;
+    QJsonArray simpleEntries;
+    for (const QJsonValue& value : registry.value("entries").toArray()) {
+        const QJsonObject oldEntry = value.toObject();
+        QString packagePath = oldEntry.value("package_path").toString().trimmed();
+        if (packagePath.isEmpty()) {
+            QString metadataPath = oldEntry.value("metadata_path").toString().trimmed();
+            if (!metadataPath.isEmpty())
+                packagePath = QFileInfo(metadataPath).path();
+            else {
+                const QString modelPath = oldEntry.value("model_path").toString().trimmed();
+                if (!modelPath.isEmpty()) packagePath = QFileInfo(modelPath).path();
+            }
+        }
+        if (packagePath.isEmpty())
+            continue;
+        QJsonObject entry;
+        entry["registry_entry_id"] = oldEntry.value("registry_entry_id").toString();
+        entry["display_name"] = oldEntry.value("display_name").toString(entry.value("registry_entry_id").toString());
+        entry["package_path"] = QDir::cleanPath(packagePath);
+        entry["active"] = oldEntry.value("active").toBool(oldEntry.value("selectable_for_normal_live_sorting").toBool(false));
+        simpleEntries.append(entry);
+    }
+    simpleRegistry["schema_version"] = "model-registry-v3-simple";
+    simpleRegistry["entries"] = simpleEntries;
+    simpleRegistry.remove("package_options");
+    if (QFileInfo(targetPath).isFile() && registry.value("schema_version").toString() != "model-registry-v3-simple") {
+        const QStringList existingBackups = targetInfo.dir().entryList(
+            {"model_registry.before_simple_migration_*.json"}, QDir::Files, QDir::Name);
+        if (existingBackups.isEmpty()) {
+            const QString backup = targetInfo.dir().filePath(
+                QString("model_registry.before_simple_migration_%1.json")
+                    .arg(QDateTime::currentDateTimeUtc().toString("yyyyMMdd_HHmmsszzz")));
+            QFile::copy(targetPath, backup);
+        }
+    }
+    return desktop_app::writeJsonObjectAtomically(targetPath, simpleRegistry, error);
 }
 
 bool repairRegistryFromDiscoveredTrainedModels(const QString& registryFilePath, QJsonObject* registry,
@@ -1008,6 +1192,54 @@ bool seedRegistryFile(const QString& targetPath, const QString& packagedPath, QS
     return writeRegistryFile(targetPath, temporaryStaticModelRegistry(), error);
 }
 
+bool reconcilePackagedCopies(const QString& registryPath, const QString& packagedPath, QJsonObject* registry,
+                             QStringList* repairedIds, QString* error) {
+    if (!registry || !QFileInfo(packagedPath).isFile())
+        return true;
+    QFile packagedFile(packagedPath);
+    if (!packagedFile.open(QIODevice::ReadOnly | QIODevice::Text))
+        return true;
+    const QJsonDocument packagedDoc = QJsonDocument::fromJson(packagedFile.readAll());
+    if (!packagedDoc.isObject())
+        return true;
+    QHash<QString, QJsonObject> options;
+    for (const QJsonValue& value : packagedDoc.object().value("entries").toArray()) {
+        const QJsonObject option = value.toObject();
+        options.insert(option.value("registry_entry_id").toString(), option);
+    }
+    QJsonArray entries = registry->value("entries").toArray();
+    bool changed = false;
+    const QStringList trustedKeys = {"architecture_id", "classes", "display_labels", "label_schema_version",
+                                     "metadata_path", "metadata_schema_version", "metadata_sha256", "metadata_status",
+                                     "model_id", "model_path", "model_sha256", "model_sidecars", "model_status",
+                                     "origin", "recommended", "user_facing_label"};
+    for (int index = 0; index < entries.size(); ++index) {
+        QJsonObject entry = entries.at(index).toObject();
+        const QString sourceId = entry.value("source_registry_entry_id").toString();
+        if (!options.contains(sourceId))
+            continue;
+        const QJsonObject option = options.value(sourceId);
+        bool entryChanged = false;
+        for (const QString& key : trustedKeys) {
+            if (option.contains(key) && entry.value(key) != option.value(key)) {
+                entry[key] = option.value(key);
+                entryChanged = true;
+            }
+        }
+        if (entryChanged) {
+            entries[index] = entry;
+            changed = true;
+            if (repairedIds)
+                repairedIds->append(entry.value("registry_entry_id").toString());
+        }
+    }
+    if (!changed)
+        return true;
+    (*registry)["entries"] = entries;
+    (*registry)["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    return writeRegistryFile(registryPath, *registry, error);
+}
+
 QString runtimeModelArtifactPath(const QString& projectRoot, const QString& relativePath) {
     if (projectRoot.isEmpty() || relativePath.trimmed().isEmpty())
         return QString();
@@ -1063,13 +1295,33 @@ QJsonObject loadModelRegistry(QString* loadedPath, QString* loadWarning) {
         return temporaryStaticModelRegistry();
     }
     QJsonObject registry = doc.object();
-    if (registry.value("schema_version").toString() != "model-registry-v1" || !registry.value("entries").isArray()) {
+    const QString schemaVersion = registry.value("schema_version").toString();
+    if ((schemaVersion != "model-registry-v1" && schemaVersion != "model-registry-v2" &&
+         schemaVersion != "model-registry-v3-simple") ||
+        !registry.value("entries").isArray()) {
         if (loadWarning)
             *loadWarning = "Model registry schema missing/unsupported; using temporary static fallback.";
         return temporaryStaticModelRegistry();
     }
     QStringList repairedEntryIds;
     QString repairError;
+    if (schemaVersion != "model-registry-v3-simple") {
+        if (!writeRegistryFile(path, registry, &repairError)) {
+            if (loadWarning) *loadWarning = repairError;
+            return registry;
+        }
+        QFile migrated(path);
+        if (migrated.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            const QJsonDocument migratedDoc = QJsonDocument::fromJson(migrated.readAll());
+            if (migratedDoc.isObject()) registry = migratedDoc.object();
+        }
+    }
+    if (schemaVersion != "model-registry-v3-simple" &&
+        !reconcilePackagedCopies(path, packagedPath, &registry, &repairedEntryIds, &repairError)) {
+        if (loadWarning)
+            *loadWarning = repairError.isEmpty() ? "Model registry package reconciliation failed." : repairError;
+        return registry;
+    }
     if (!repairRegistryFromDiscoveredTrainedModels(path, &registry, &repairedEntryIds, &repairError)) {
         if (loadWarning)
             *loadWarning = repairError.isEmpty() ? "Model registry trained-model recovery failed." : repairError;
@@ -1111,7 +1363,19 @@ QJsonArray readModelRegistryEntriesFromPath(const QString& registryFilePath, QSt
 }
 
 QString registryString(const QJsonObject& entry, const QString& key) {
-    return entry.value(key).toString();
+    const QString direct = entry.value(key).toString();
+    if (!direct.isEmpty())
+        return direct;
+    const QString packageFolder = entry.value("package_path").toString().trimmed();
+    if (packageFolder.isEmpty())
+        return {};
+    if (key == "model_path")
+        return QDir(packageFolder).filePath("model.onnx");
+    if (key == "metadata_path")
+        return QDir(packageFolder).filePath("metadata.json");
+    if (key == "checkpoint_path")
+        return QDir(packageFolder).filePath("checkpoint.pth");
+    return {};
 }
 
 QString registryNestedString(const QJsonObject& entry, const QString& objectKey, const QString& key) {
@@ -1264,13 +1528,16 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
 
     const QString promotedModelPath = QDir(destinationDirPath).filePath("model.onnx");
     const QString promotedMetadataPath = QDir(destinationDirPath).filePath("metadata.json");
+    const QString promotedCheckpointPath = QDir(destinationDirPath).filePath("checkpoint.pth");
     const QString promotedMetricsPath = QDir(destinationDirPath).filePath("metrics.csv");
     const QString promotedMetricsJsonPath = QDir(destinationDirPath).filePath("metrics.json");
     const QString promotedClassMetricsPath = QDir(destinationDirPath).filePath("class_metrics.csv");
     const QString promotedConfusionMatrixPath = QDir(destinationDirPath).filePath("confusion_matrix.csv");
     const QString promotedConfigPath = QDir(destinationDirPath).filePath("training_config.json");
 
+    const QString sourceCheckpointPath = QDir(absoluteCleanPath(runDir)).filePath("checkpoint.pth");
     if (!copyRequiredModelFile(modelOnnxPath, promotedModelPath, "Trained ONNX model", error) ||
+        !copyRequiredModelFile(sourceCheckpointPath, promotedCheckpointPath, "Trained checkpoint", error) ||
         !copyRequiredModelFile(metadataJsonPath, promotedMetadataPath, "Trained model metadata", error)) {
         cleanupOnFailure();
         return false;
@@ -1307,7 +1574,8 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
 
     QJsonObject artifact = metadata.value("artifact").toObject();
     artifact["onnx_file"] = "model.onnx";
-    artifact["onnx_sha256"] = sha256FileHex(promotedModelPath);
+    artifact["checkpoint_file"] = "checkpoint.pth";
+    artifact.remove("onnx_sha256");
     artifact["format"] = "onnx";
     QJsonArray externalDataFiles;
     for (const QString& sidecarName : sidecarNames) {
@@ -1350,7 +1618,72 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
     return true;
 }
 
+ModelPackageInspection inspectModelPackage(const QJsonObject& entry) {
+    ModelPackageInspection result;
+    QString packagePath = registryString(entry, "package_path").trimmed();
+    if (packagePath.isEmpty()) {
+        const QString metadataConfigured = registryString(entry, "metadata_path").trimmed();
+        if (!metadataConfigured.isEmpty())
+            packagePath = QFileInfo(resolvePackagedPathFromRegistryPath(metadataConfigured)).absolutePath();
+    }
+    result.packagePath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(packagePath));
+    result.metadataPath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(
+        registryString(entry, "metadata_path").isEmpty() ? QDir(packagePath).filePath("metadata.json")
+                                                         : registryString(entry, "metadata_path")));
+    if (!QFileInfo(result.metadataPath).isFile()) {
+        result.status = "Invalid";
+        result.message = "metadata.json is missing.";
+        return result;
+    }
+    QString metadataError;
+    const QJsonObject metadata = readJsonObjectFile(result.metadataPath, &metadataError);
+    if (metadata.isEmpty()) {
+        result.status = "Invalid";
+        result.message = metadataError.isEmpty() ? "metadata.json is malformed." : metadataError;
+        return result;
+    }
+    const QJsonObject architecture = metadata.value("architecture").toObject();
+    result.architectureId = architecture.value("id").toString(metadata.value("architecture_id").toString());
+    result.classCount = architecture.value("num_classes").toInt(metadata.value("classes").toArray().size());
+    const QJsonObject artifact = metadata.value("artifact").toObject();
+    const QString onnxName = artifact.value("onnx_file").toString("model.onnx");
+    const QString checkpointName = artifact.value("checkpoint_file").toString("checkpoint.pth");
+    const QDir packageDir(QFileInfo(result.metadataPath).absolutePath());
+    result.onnxPath = packageDir.filePath(onnxName);
+    result.checkpointPath = packageDir.filePath(checkpointName);
+    const bool hasOnnx = QFileInfo(result.onnxPath).isFile() && QFileInfo(result.onnxPath).size() > 0;
+    const bool hasCheckpoint = QFileInfo(result.checkpointPath).isFile() && QFileInfo(result.checkpointPath).size() > 0;
+    const bool blank = metadata.value("status").toString().compare("trained", Qt::CaseInsensitive) != 0 ||
+                       metadata.value("origin").toString().compare("blank", Qt::CaseInsensitive) == 0;
+    if (blank) {
+        result.status = "Blank starter";
+        result.message = "Ready to train from ImageNet weights.";
+        result.canTrain = true;
+        return result;
+    }
+    result.canTrain = hasCheckpoint;
+    result.canActivate = hasOnnx;
+    if (hasCheckpoint && hasOnnx) {
+        result.status = "Ready";
+        result.message = "Ready for training, testing, and activation.";
+    } else if (hasOnnx) {
+        result.status = "Inference only";
+        result.message = "The training checkpoint is missing; this model can still be tested and activated.";
+    } else if (hasCheckpoint) {
+        result.status = "Training only";
+        result.message = "The ONNX model is missing; continue training or export before activation.";
+    } else {
+        result.status = "Invalid";
+        result.message = "Both checkpoint.pth and model.onnx are missing.";
+    }
+    return result;
+}
+
 ActiveModelReadiness evaluateActiveModelReadiness(const QJsonObject& entry) {
+    const ModelPackageInspection package = inspectModelPackage(entry);
+    if (!package.canActivate)
+        return blockedReadiness(package.status, package.message);
+#if 0
     const QString configuredModelPath = registryString(entry, "model_path").trimmed();
     const QString modelPath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(configuredModelPath));
     if (!QFileInfo(modelPath).isFile()) {
@@ -1358,6 +1691,23 @@ ActiveModelReadiness evaluateActiveModelReadiness(const QJsonObject& entry) {
             "model.onnx",
             QString("This model cannot become active because the ONNX model file is missing.\n\nExpected file:\n%1")
                 .arg(QDir::toNativeSeparators(modelPath.isEmpty() ? configuredModelPath : modelPath)));
+    }
+    const QString expectedModelHash = registryString(entry, "model_sha256").trimmed();
+    if (!expectedModelHash.isEmpty() && sha256FileHex(modelPath).compare(expectedModelHash, Qt::CaseInsensitive) != 0) {
+        return blockedReadiness("model.onnx hash", "This model cannot become active because the ONNX graph hash does not match its package metadata.");
+    }
+
+    for (const auto& value : entry.value("model_sidecars").toArray()) {
+        const QJsonObject sidecar = value.toObject();
+        if (!sidecar.value("required").toBool(true))
+            continue;
+        const QString configuredSidecar = sidecar.value("path").toString();
+        const QString sidecarPath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(configuredSidecar));
+        if (!QFileInfo(sidecarPath).isFile())
+            return blockedReadiness("model.onnx.data", "This model cannot become active because its required ONNX external-data sidecar is missing.");
+        const QString expectedSidecarHash = sidecar.value("sha256").toString().trimmed();
+        if (!expectedSidecarHash.isEmpty() && sha256FileHex(sidecarPath).compare(expectedSidecarHash, Qt::CaseInsensitive) != 0)
+            return blockedReadiness("model.onnx.data hash", "This model cannot become active because its ONNX external-data sidecar hash does not match.");
     }
 
     const QString configuredMetadataPath = registryString(entry, "metadata_path").trimmed();
@@ -1368,6 +1718,9 @@ ActiveModelReadiness evaluateActiveModelReadiness(const QJsonObject& entry) {
             QString("This model cannot become active because the metadata file is missing.\n\nExpected file:\n%1")
                 .arg(QDir::toNativeSeparators(metadataPath.isEmpty() ? configuredMetadataPath : metadataPath)));
     }
+    const QString expectedMetadataHash = registryString(entry, "metadata_sha256").trimmed();
+    if (!expectedMetadataHash.isEmpty() && sha256FileHex(metadataPath).compare(expectedMetadataHash, Qt::CaseInsensitive) != 0)
+        return blockedReadiness("metadata.json hash", "This model cannot become active because its metadata hash does not match.");
 
     QString metadataError;
     const QJsonObject metadata = readJsonObjectFile(metadataPath, &metadataError);
@@ -1394,6 +1747,11 @@ ActiveModelReadiness evaluateActiveModelReadiness(const QJsonObject& entry) {
             "This model cannot become active because the target/non-target sorting policy could not be read.");
     }
 
+    ActiveModelReadiness readiness;
+    readiness.ready = true;
+    readiness.message = "This model is ready to become active.";
+    return readiness;
+#endif
     ActiveModelReadiness readiness;
     readiness.ready = true;
     readiness.message = "This model is ready to become active.";
@@ -1461,6 +1819,7 @@ bool activateModelRegistryEntry(const QString& registryFilePath, const QString& 
     for (int i = 0; i < entries.size(); ++i) {
         QJsonObject entry = entries.at(i).toObject();
         const bool active = i == selectedIndex;
+        entry["active"] = active;
         entry["selectable_for_normal_live_sorting"] = active;
         if (active) {
             entry["state"] = "promoted_current";
@@ -1742,6 +2101,10 @@ QString resolvePackagedPathFromRegistryPath(const QString& registryPath) {
     const QString trimmed = registryPath.trimmed();
     if (trimmed.isEmpty() || QFileInfo(trimmed).isAbsolute())
         return trimmed;
+    const QString packaged = packagedPathCandidate(trimmed);
+    if (!packaged.isEmpty())
+        return packaged;
+
     const QString projectRoot = findProjectRootFromApp();
     if (!projectRoot.isEmpty()) {
         const QString resolved = runtimeModelArtifactPath(projectRoot, trimmed);
@@ -1766,6 +2129,12 @@ QString resolvePackagedPathFromRegistryPath(const QString& registryPath) {
 }
 
 QJsonObject activeRegistryEntry(const QJsonArray& entries) {
+    for (const auto& value : entries) {
+        const QJsonObject entry = value.toObject();
+        if (entry.value("active").toBool(false) && registryString(entry, "live_use_mode") != "blocked") {
+            return entry;
+        }
+    }
     for (const auto& value : entries) {
         const QJsonObject entry = value.toObject();
         if (entry.value("selectable_for_normal_live_sorting").toBool(false) &&

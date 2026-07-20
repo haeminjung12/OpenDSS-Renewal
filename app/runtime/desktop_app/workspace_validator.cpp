@@ -156,16 +156,6 @@ QString csvValue(const CsvTable& table, const QStringList& row, const QString& h
     return row.at(index);
 }
 
-QString reviewSummaryText(int samplesEvaluated, int samplesIncorrect, int samplesFailed) {
-    if (samplesEvaluated <= 0)
-        return "--";
-    if (samplesFailed > 0)
-        return "Fail";
-    if (samplesIncorrect > 0)
-        return "Needs review";
-    return "Pass";
-}
-
 QString defaultDisplayLabelForClassId(const QStringList& classIds, const QString& classId) {
     if (classIds == QStringList{"0", "1"}) {
         if (classId == "0")
@@ -256,7 +246,7 @@ void populateConfusionTable(QTableWidget* table, const QStringList& classIds,
     for (int row = 0; row < classIds.size(); ++row) {
         for (int column = 0; column < classIds.size(); ++column) {
             auto* item = new QTableWidgetItem("--");
-            item->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+            item->setTextAlignment(Qt::AlignCenter);
             table->setItem(row, column, item);
         }
     }
@@ -272,8 +262,43 @@ void populateConfusionTable(QTableWidget* table, const QStringList& classIds,
                 item->setText(value.isEmpty() ? "0" : value);
         }
     }
-    table->horizontalHeader()->setStretchLastSection(true);
-    table->resizeColumnsToContents();
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+}
+
+QString percentageText(const QString& value) {
+    bool ok = false;
+    const double number = value.toDouble(&ok);
+    return ok ? QString::number(number * 100.0, 'f', 1) + "%" : QString("--");
+}
+
+void populateClassMetricsTable(QTableWidget* table, const QStringList& classIds,
+                               const QMap<QString, QString>& displayLabels, const QString& metricsPath) {
+    table->clearContents();
+    table->setRowCount(0);
+    const CsvTable csv = readCsvTable(metricsPath);
+    if (csv.headers.isEmpty())
+        return;
+
+    table->setRowCount(csv.rows.size());
+    for (int row = 0; row < csv.rows.size(); ++row) {
+        const QStringList values = csv.rows.at(row);
+        const QString classId = csvValue(csv, values, "label");
+        const int support = csvValue(csv, values, "support").toInt();
+        const int correct = csvValue(csv, values, "true_positive").toInt();
+        const QStringList cells = {
+            displayLabelForClassId(classIds, displayLabels, classId),
+            percentageText(csvValue(csv, values, "precision")),
+            percentageText(csvValue(csv, values, "recall")),
+            percentageText(csvValue(csv, values, "f1")),
+            QString("%1 / %2").arg(correct).arg(support),
+        };
+        for (int column = 0; column < cells.size(); ++column) {
+            auto* item = new QTableWidgetItem(cells.at(column));
+            item->setTextAlignment(Qt::AlignCenter);
+            table->setItem(row, column, item);
+        }
+    }
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
 }
 
 void clearLayout(QLayout* layout) {
@@ -399,7 +424,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorLeftLayout->setContentsMargins(0, 0, 2, 0);
     validatorLeftLayout->setSpacing(12);
 
-    auto validatorImagePanel = makePanel("Test Model", "Run the current model on a prepared test dataset");
+    auto validatorImagePanel = makePanel("Setup", "Choose a model and prepared test dataset");
     validatorImagePanel->setObjectName("ValidatorImageValidationPanel");
     auto validatorImageBody = makePanelBody(validatorImagePanel);
     auto* validatorImageWidget =
@@ -416,14 +441,14 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     auto validatorReportBody = makePanelBody(validatorReportPanel);
     auto validatorMetricsRow = new QHBoxLayout;
     validatorMetricsRow->setSpacing(8);
-    const ValidatorMetricWidget checkedMetric = makeValidatorMetric("Images checked");
-    const ValidatorMetricWidget hitMetric = makeValidatorMetric("Target");
-    const ValidatorMetricWidget wasteMetric = makeValidatorMetric("Non-target");
-    const ValidatorMetricWidget reviewMetric = makeValidatorMetric("Review summary");
-    validatorMetricsRow->addWidget(checkedMetric.frame);
-    validatorMetricsRow->addWidget(hitMetric.frame);
-    validatorMetricsRow->addWidget(wasteMetric.frame);
-    validatorMetricsRow->addWidget(reviewMetric.frame);
+    const ValidatorMetricWidget accuracyMetric = makeValidatorMetric("Accuracy");
+    const ValidatorMetricWidget macroF1Metric = makeValidatorMetric("Macro F1");
+    const ValidatorMetricWidget correctMetric = makeValidatorMetric("Correct / Total");
+    const ValidatorMetricWidget incorrectMetric = makeValidatorMetric("Incorrect");
+    validatorMetricsRow->addWidget(accuracyMetric.frame);
+    validatorMetricsRow->addWidget(macroF1Metric.frame);
+    validatorMetricsRow->addWidget(correctMetric.frame);
+    validatorMetricsRow->addWidget(incorrectMetric.frame);
     validatorReportBody->addLayout(validatorMetricsRow);
 
     auto validatorSummaryDiagnostic = new QLabel("Choose a model and test dataset, then run model testing.");
@@ -432,7 +457,7 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     nameWidget(validatorSummaryDiagnostic, "ValidatorWorkspaceSummaryDiagnosticLabel");
     validatorReportBody->addWidget(validatorSummaryDiagnostic);
 
-    auto validatorConfusionLabel = new QLabel("Results by label");
+    auto validatorConfusionLabel = new QLabel("Confusion matrix");
     validatorConfusionLabel->setProperty("metricLabel", true);
     validatorReportBody->addWidget(validatorConfusionLabel);
     auto validatorConfusion = new QTableWidget(0, 0);
@@ -440,8 +465,25 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorConfusion->setEditTriggers(QAbstractItemView::NoEditTriggers);
     validatorConfusion->setSelectionMode(QAbstractItemView::NoSelection);
     validatorConfusion->setShowGrid(false);
+    validatorConfusion->setFont(QFont(validatorConfusion->font().family(), 11));
+    validatorConfusion->verticalHeader()->setDefaultSectionSize(34);
     validatorConfusion->setMaximumHeight(150);
     validatorReportBody->addWidget(validatorConfusion);
+
+    auto validatorClassMetricsLabel = new QLabel("Performance by class");
+    validatorClassMetricsLabel->setProperty("metricLabel", true);
+    validatorReportBody->addWidget(validatorClassMetricsLabel);
+    auto validatorClassMetrics = new QTableWidget(0, 5);
+    nameWidget(validatorClassMetrics, "ValidatorWorkspaceClassMetricsTable");
+    validatorClassMetrics->setHorizontalHeaderLabels(
+        {"Class", "Precision", "Recall", "F1", "Correct / Total"});
+    validatorClassMetrics->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    validatorClassMetrics->setSelectionMode(QAbstractItemView::NoSelection);
+    validatorClassMetrics->setShowGrid(false);
+    validatorClassMetrics->setFont(QFont(validatorClassMetrics->font().family(), 11));
+    validatorClassMetrics->verticalHeader()->setDefaultSectionSize(34);
+    validatorClassMetrics->setMaximumHeight(180);
+    validatorReportBody->addWidget(validatorClassMetrics);
 
     validatorLeftLayout->addWidget(validatorImagePanel);
     validatorLeftLayout->addWidget(validatorReportPanel);
@@ -483,9 +525,11 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
     validatorWorkspaceSplitter->addWidget(validatorRightScroll);
     validatorWorkspaceSplitter->setStretchFactor(0, 1);
     validatorWorkspaceSplitter->setStretchFactor(1, 0);
+    validatorWorkspaceSplitter->setMaximumWidth(1100);
     desktop_app::ui::configureWorkspaceSplitter(validatorWorkspaceSplitter, "workspace/validator/splitter",
                                                 {760, 400}, {520, 390});
     validatorWorkspaceLayout->addWidget(validatorWorkspaceSplitter, 1);
+    validatorWorkspaceLayout->addStretch(1);
     validatorWorkspacePage->setLayout(validatorWorkspaceLayout);
 
     auto refreshReport = [=](const QString& requestedSummaryPath) {
@@ -493,29 +537,29 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
         QString parseDiagnostic;
         const QJsonObject summary = summaryPath.isEmpty() ? QJsonObject() : loadSummaryArtifact(summaryPath, &parseDiagnostic);
         if (!parseDiagnostic.isEmpty()) {
-            setMetricTitle(hitMetric, "Target");
-            setMetricTitle(wasteMetric, "Non-target");
-            setMetricValue(checkedMetric, "--");
-            setMetricValue(hitMetric, "--");
-            setMetricValue(wasteMetric, "--");
-            setMetricValue(reviewMetric, "Needs review");
+            validatorSummaryDiagnostic->setVisible(true);
+            setMetricValue(accuracyMetric, "--");
+            setMetricValue(macroF1Metric, "--");
+            setMetricValue(correctMetric, "--");
+            setMetricValue(incorrectMetric, "--");
             validatorSummaryDiagnostic->setText("The latest test results could not be read: " + parseDiagnostic);
-            validatorConfusionLabel->setText("Results by label");
+            validatorConfusionLabel->setText("Confusion matrix");
             populateConfusionTable(validatorConfusion, QStringList(), QMap<QString, QString>(), QString());
+            populateClassMetricsTable(validatorClassMetrics, QStringList(), QMap<QString, QString>(), QString());
             populateFailureGrid(validatorSampleGrid, QStringList(), QMap<QString, QString>(), QString());
             return;
         }
 
         if (summary.isEmpty()) {
-            setMetricTitle(hitMetric, "Target");
-            setMetricTitle(wasteMetric, "Non-target");
-            setMetricValue(checkedMetric, "--");
-            setMetricValue(hitMetric, "--");
-            setMetricValue(wasteMetric, "--");
-            setMetricValue(reviewMetric, "--");
+            validatorSummaryDiagnostic->setVisible(true);
+            setMetricValue(accuracyMetric, "--");
+            setMetricValue(macroF1Metric, "--");
+            setMetricValue(correctMetric, "--");
+            setMetricValue(incorrectMetric, "--");
             validatorSummaryDiagnostic->setText("Choose a model and test dataset, then run model testing.");
-            validatorConfusionLabel->setText("Results by label");
+            validatorConfusionLabel->setText("Confusion matrix");
             populateConfusionTable(validatorConfusion, QStringList(), QMap<QString, QString>(), QString());
+            populateClassMetricsTable(validatorClassMetrics, QStringList(), QMap<QString, QString>(), QString());
             populateFailureGrid(validatorSampleGrid, QStringList(), QMap<QString, QString>(), QString());
             return;
         }
@@ -532,66 +576,29 @@ QWidget* buildValidatorWorkspace(const ValidatorWorkspaceControls& controls) {
         const int samplesEvaluated = dataset.value("samples_evaluated").toInt();
         const int samplesFailed = dataset.value("samples_failed").toInt();
         const int samplesIncorrect = metrics.value("samples_incorrect").toInt();
-        const QJsonObject classCounts = dataset.value("class_counts").toObject();
-        const QString reviewSummary = reviewSummaryText(samplesEvaluated, samplesIncorrect, samplesFailed);
         const QString accuracyText = metrics.contains("accuracy")
-                                         ? QString::number(metrics.value("accuracy").toDouble() * 100.0, 'f', 1) + "%"
-                                         : QString();
+                                          ? QString::number(metrics.value("accuracy").toDouble() * 100.0, 'f', 1) + "%"
+                                          : QString();
+        const QString macroF1Text = metrics.contains("macro_f1")
+                                        ? QString::number(metrics.value("macro_f1").toDouble(), 'f', 3)
+                                        : QString();
+        const int correct = metrics.value("samples_correct").toInt(qMax(0, samplesEvaluated - samplesIncorrect));
+        setMetricValue(accuracyMetric, accuracyText);
+        setMetricValue(macroF1Metric, macroF1Text);
+        setMetricValue(correctMetric, QString("%1 / %2").arg(correct).arg(samplesEvaluated));
+        setMetricValue(incorrectMetric, QString::number(samplesIncorrect));
+        validatorSummaryDiagnostic->setText(samplesFailed > 0
+                                                ? QString("%1 image%2 could not be evaluated.")
+                                                      .arg(samplesFailed)
+                                                      .arg(samplesFailed == 1 ? QString() : QString("s"))
+                                                : QString());
+        validatorSummaryDiagnostic->setVisible(samplesFailed > 0);
 
-        if (classIds.size() <= 2) {
-            const QString firstClassId = classIds.value(0);
-            const QString secondClassId = classIds.value(1);
-            setMetricTitle(hitMetric, displayLabelForClassId(classIds, displayLabels, firstClassId));
-            setMetricTitle(wasteMetric, displayLabelForClassId(classIds, displayLabels, secondClassId));
-            setMetricValue(hitMetric, firstClassId.isEmpty() ? QString() : QString::number(classCounts.value(firstClassId).toInt()),
-                           firstClassId.isEmpty() ? QString() : QString("class id %1").arg(firstClassId));
-            setMetricValue(wasteMetric,
-                           secondClassId.isEmpty() ? QString() : QString::number(classCounts.value(secondClassId).toInt()),
-                           secondClassId.isEmpty() ? QString() : QString("class id %1").arg(secondClassId));
-        } else {
-            const QString targetClassId = targetClassIdFromSummary(summary, classIds);
-            const QString targetLabel = displayLabelForClassId(classIds, displayLabels, targetClassId);
-            QStringList nonTargetLabels;
-            int nonTargetCount = 0;
-            for (const QString& classId : classIds) {
-                if (classId == targetClassId)
-                    continue;
-                nonTargetCount += classCounts.value(classId).toInt();
-                nonTargetLabels << displayLabelForClassId(classIds, displayLabels, classId);
-            }
-            setMetricTitle(hitMetric, targetLabel.isEmpty() ? "Target class" : targetLabel);
-            setMetricTitle(wasteMetric, "Other labels");
-            setMetricValue(hitMetric, targetClassId.isEmpty() ? QString() : QString::number(classCounts.value(targetClassId).toInt()),
-                           targetClassId.isEmpty() ? QString() : QString("class id %1").arg(targetClassId));
-            setMetricValue(wasteMetric, QString::number(nonTargetCount),
-                           nonTargetLabels.isEmpty() ? QString() : nonTargetLabels.join(", "));
-        }
-
-        setMetricValue(checkedMetric, QString("%1 / %2").arg(samplesEvaluated).arg(samplesTotal),
-                       samplesFailed > 0 ? QString("%1 failed").arg(samplesFailed) : QString());
-        setMetricValue(reviewMetric, reviewSummary, accuracyText.isEmpty() ? QString() : "accuracy " + accuracyText);
-
-        QStringList summaryLines;
-        summaryLines << QString("Latest run: %1.").arg(titleCaseLabel(summary.value("status").toString("unknown")));
-        summaryLines << QString("Checked %1 of %2 images.").arg(samplesEvaluated).arg(samplesTotal);
-        if (!classIds.isEmpty()) {
-            QStringList labelSummary;
-            for (const QString& classId : classIds)
-                labelSummary << QString("%1 (%2)").arg(displayLabelForClassId(classIds, displayLabels, classId), classId);
-            summaryLines << "Labels: " + labelSummary.join(", ") + ".";
-        }
-        if (samplesIncorrect > 0 || samplesFailed > 0) {
-            summaryLines << QString("%1 images need review and %2 failed to evaluate.")
-                                .arg(samplesIncorrect)
-                                .arg(samplesFailed);
-        } else {
-            summaryLines << "No misclassified samples were reported in the latest run.";
-        }
-        validatorSummaryDiagnostic->setText(summaryLines.join(" "));
-
-        validatorConfusionLabel->setText("Results by label");
+        validatorConfusionLabel->setText("Confusion matrix");
         populateConfusionTable(validatorConfusion, classIds, displayLabels,
                                artifacts.value("confusion_matrix_csv").toString());
+        populateClassMetricsTable(validatorClassMetrics, classIds, displayLabels,
+                                  artifacts.value("class_metrics_csv").toString());
         populateFailureGrid(validatorSampleGrid, classIds, displayLabels,
                             artifacts.value("failure_cases_csv").toString());
     };

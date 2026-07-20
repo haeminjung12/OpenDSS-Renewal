@@ -4,6 +4,11 @@
 #include <array>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
+#include <fstream>
+#include <mutex>
+#include <regex>
+#include <sstream>
 #include <limits>
 #include <string>
 #include <vector>
@@ -15,6 +20,64 @@
 #endif
 
 namespace {
+std::mutex gReadinessMutex;
+std::string gVerifierReadinessPath;
+bool gVerifierForceAccepted = false;
+
+std::string executableDirectory() {
+#ifdef _WIN32
+    std::array<wchar_t, 32768> buffer{};
+    const DWORD length = GetModuleFileNameW(nullptr, buffer.data(), static_cast<DWORD>(buffer.size()));
+    if (length > 0 && length < buffer.size()) {
+        const std::wstring path(buffer.data(), length);
+        const size_t slash = path.find_last_of(L"\\/");
+        const std::wstring directory = slash == std::wstring::npos ? L"." : path.substr(0, slash);
+        const int needed = WideCharToMultiByte(CP_UTF8, 0, directory.c_str(), -1, nullptr, 0, nullptr, nullptr);
+        std::string utf8(static_cast<size_t>(std::max(0, needed - 1)), '\0');
+        if (needed > 1)
+            WideCharToMultiByte(CP_UTF8, 0, directory.c_str(), -1, utf8.data(), needed, nullptr, nullptr);
+        return utf8;
+    }
+#endif
+    return ".";
+}
+
+bool cudaReadinessAccepted(std::string* reason) {
+    std::string path;
+    bool forceAccepted = false;
+    {
+        std::lock_guard<std::mutex> lock(gReadinessMutex);
+        path = gVerifierReadinessPath;
+        forceAccepted = gVerifierForceAccepted;
+    }
+    if (forceAccepted)
+        return true;
+    if (path.empty())
+        path = executableDirectory() + "/cuda_inference_readiness.json";
+    std::ifstream input(path, std::ios::binary);
+    if (!input) {
+        if (reason) *reason = "CUDA inference readiness artifact is missing";
+        return false;
+    }
+    std::ostringstream stream;
+    stream << input.rdbuf();
+    const std::string document = stream.str();
+    const bool schemaOk = std::regex_search(document, std::regex(R"("schema_version"\s*:\s*1\s*[,}])"));
+    const bool accepted = std::regex_search(document, std::regex(R"("status"\s*:\s*"accepted")"));
+    const std::regex hashPattern(R"("[a-zA-Z0-9_]+"\s*:\s*"[0-9a-fA-F]{64}")");
+    const size_t hashCount = static_cast<size_t>(std::distance(
+        std::sregex_iterator(document.begin(), document.end(), hashPattern), std::sregex_iterator()));
+    const bool contractOk = std::regex_search(document, std::regex(R"("acceptance_contract"\s*:\s*\{)")) &&
+                            std::regex_search(document, std::regex(R"("cpu_cuda_class_agreement"\s*:\s*1(?:\.0+)?\s*[,}])")) &&
+                            std::regex_search(document, std::regex(R"("model_package_hashes"\s*:\s*\{[^}]+\})")) && hashCount >= 2;
+    const std::string runtimePattern = std::string(R"("onnxruntime_version"\s*:\s*")") +
+                                       Ort::GetVersionString() + R"(")";
+    if (!schemaOk || !accepted || !contractOk || !std::regex_search(document, std::regex(runtimePattern))) {
+        if (reason) *reason = "CUDA inference readiness artifact is malformed, rejected, or incompatible with this runtime";
+        return false;
+    }
+    return true;
+}
 #ifdef _WIN32
 std::wstring widenPath(const std::string& path) {
     if (path.empty())
@@ -32,6 +95,12 @@ std::wstring widenPath(const std::string& path) {
 
 OnnxClassifier::OnnxClassifier() : ready_(false) {}
 
+void OnnxClassifier::configureReadinessVerifier(const std::string& readinessPath, bool forceAccepted) {
+    std::lock_guard<std::mutex> lock(gReadinessMutex);
+    gVerifierReadinessPath = readinessPath;
+    gVerifierForceAccepted = forceAccepted;
+}
+
 namespace {
 
 std::string normalizedRequestedDevice(std::string value) {
@@ -45,6 +114,10 @@ std::string normalizedRequestedDevice(std::string value) {
 }
 
 bool cudaProviderAvailable() {
+    if (std::getenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE") != nullptr)
+        return false;
+    if (!cudaReadinessAccepted(nullptr))
+        return false;
     try {
         const std::vector<std::string> providers = Ort::GetAvailableProviders();
         return std::find(providers.begin(), providers.end(), "CUDAExecutionProvider") != providers.end();
@@ -99,6 +172,17 @@ bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, co
         opts.SetGraphOptimizationLevel(GraphOptimizationLevel::ORT_ENABLE_BASIC);
 
         if (useCuda) {
+            std::string readinessReason;
+            if (!cudaReadinessAccepted(&readinessReason)) {
+                if (outErr)
+                    *outErr = readinessReason;
+                return {};
+            }
+            if (std::getenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE") != nullptr) {
+                if (outErr)
+                    *outErr = "CUDA provider unavailable (deterministic verifier override)";
+                return {};
+            }
             try {
                 OrtCUDAProviderOptions cudaOptions{};
                 cudaOptions.device_id = 0;
@@ -128,19 +212,29 @@ bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, co
 
     const std::string normalizedDevice = normalizedRequestedDevice(requestedDevice);
     const bool explicitCuda = normalizedDevice == "cuda";
-    const bool preferCuda = explicitCuda || (normalizedDevice == "auto" && cudaProviderAvailable());
+    const bool autoDevice = normalizedDevice == "auto";
+    const bool cudaAvailable = cudaProviderAvailable();
+    const bool preferCuda = explicitCuda || (autoDevice && cudaAvailable);
+    if (autoDevice && !cudaAvailable)
+        lastWarning_ = "CUDA provider unavailable; Auto mode fell back to CPU";
     bool usingCuda = false;
     std::string sessionErr;
     session_ = createSessionWithOptions(preferCuda, &sessionErr);
     usingCuda = preferCuda && session_;
     if (!session_ && preferCuda) {
         const std::string fallbackReason = sessionErr;
+        if (explicitCuda) {
+            err = fallbackReason.empty()
+                      ? "CUDA provider unavailable or failed to initialize; explicit GPU mode does not fall back to CPU"
+                      : fallbackReason;
+            return false;
+        }
         std::string cpuErr;
         session_ = createSessionWithOptions(false, &cpuErr);
         sessionErr = cpuErr;
-        if (session_ && explicitCuda) {
+        if (session_) {
             lastWarning_ = fallbackReason.empty()
-                               ? "CUDA provider unavailable or failed to initialize; falling back to CPU"
+                               ? "CUDA provider unavailable or failed to initialize; Auto mode fell back to CPU"
                                : fallbackReason;
         }
     }

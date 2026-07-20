@@ -25,7 +25,7 @@ def _dependency_missing() -> str | None:
 
 
 def _normalization(metadata_status: dict[str, Any], metadata_path: Path) -> dict[str, Any]:
-    with metadata_path.open("r", encoding="utf-8") as handle:
+    with metadata_path.open("r", encoding="utf-8-sig") as handle:
         metadata = json.load(handle)
     normalization = metadata.get("normalization") if isinstance(metadata.get("normalization"), dict) else {}
     input_size = metadata.get("input_size", [96, 96, 3])

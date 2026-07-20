@@ -63,10 +63,18 @@ void ReportsWorkspaceController::wireActions() {
         connect(deps_.liveOpenRunButton, &QPushButton::clicked, this, [this]() { openCurrentRunFolder(); });
     }
     if (deps_.showLogsAction && deps_.logDock) {
-        connect(deps_.showLogsAction, &QAction::triggered, deps_.logDock, &QDockWidget::show);
+        connect(deps_.showLogsAction, &QAction::triggered, this, [this]() {
+            deps_.logDock->show();
+            deps_.logDock->raise();
+            deps_.logDock->activateWindow();
+        });
     }
     if (deps_.showDiagnosticsAction && deps_.diagnosticsDock) {
-        connect(deps_.showDiagnosticsAction, &QAction::triggered, deps_.diagnosticsDock, &QDockWidget::show);
+        connect(deps_.showDiagnosticsAction, &QAction::triggered, this, [this]() {
+            deps_.diagnosticsDock->show();
+            deps_.diagnosticsDock->raise();
+            deps_.diagnosticsDock->activateWindow();
+        });
     }
     if (deps_.systemDiagnosticsAction && deps_.diagnosticsDock) {
         connect(deps_.systemDiagnosticsAction, &QAction::triggered, deps_.diagnosticsDock, &QDockWidget::show);

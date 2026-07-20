@@ -8,6 +8,7 @@ from types import SimpleNamespace
 
 from droplet_trainer.dataset import scan_dataset
 from droplet_trainer.schema import parse_schema
+from droplet_trainer.errors import CliError
 
 
 def _args(dataset: str, classes: str | None = None) -> SimpleNamespace:
@@ -22,6 +23,31 @@ def _write_manifest(root: Path, payload: dict[str, object]) -> Path:
 
 
 class ManifestSchemaInferenceTests(unittest.TestCase):
+    def test_manifest_without_class_metadata_fails_specifically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "prepared"
+            _write_manifest(root, {"items": []})
+            with self.assertRaisesRegex(CliError, "does not declare class IDs") as raised:
+                parse_schema(_args(str(root)))
+        self.assertEqual(raised.exception.code, "DATASET_CLASS_METADATA_MISSING")
+
+    def test_malformed_manifest_fails_specifically(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "prepared"
+            path = _write_manifest(root, {})
+            path.write_text("{broken", encoding="utf-8")
+            with self.assertRaises(CliError) as raised:
+                parse_schema(_args(str(root)))
+        self.assertEqual(raised.exception.code, "DATASET_CLASS_METADATA_INVALID")
+
+    def test_parse_schema_infers_publication_class_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp) / "prepared"
+            _write_manifest(root, {"class_semantics": {"0": "Empty", "1": "Single", "2": "MoreThanOne"}, "records": []})
+            schema = parse_schema(_args(str(root)))
+        self.assertEqual(schema.classes, ["0", "1", "2"])
+        self.assertEqual(schema.display_labels, {"0": "Empty", "1": "Single", "2": "MoreThanOne"})
+
     def test_parse_schema_infers_ternary_manifest_classes(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp) / "prepared"

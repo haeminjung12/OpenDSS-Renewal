@@ -16,6 +16,7 @@ struct ClassificationResult {
 class OnnxClassifier {
   public:
     OnnxClassifier();
+    static void configureReadinessVerifier(const std::string& readinessPath, bool forceAccepted);
 
     bool init(const std::string& modelPath, const Metadata& meta, const std::string& requestedDevice, std::string& err);
     bool init(const std::string& modelPath, const Metadata& meta, bool preferCuda, std::string& err);

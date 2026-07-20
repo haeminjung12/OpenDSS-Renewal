@@ -11,7 +11,7 @@ from .errors import CliError, EXIT_SCHEMA_MISMATCH
 DEFAULT_BINARY_CLASSES = ["0", "1"]
 DEFAULT_BINARY_DISPLAY_LABELS = {"0": "Non-target", "1": "Target"}
 DEFAULT_BINARY_ALIASES = {
-    "0": ["0", "Non-target", "non-target", "Nontarget", "Empty", "empty", "Waste", "waste", "MoreThanTwo", "MoreThan2", "More than two", ">2", "2", "Multiple"],
+    "0": ["0", "Non-target", "non-target", "Nontarget", "Empty", "empty", "Waste", "waste"],
     "1": ["1", "Target", "target", "Single", "single", "Hit", "Hits", "hit", "hits"],
 }
 DEFAULT_TERNARY_CLASSES = ["0", "1", "2"]
@@ -216,6 +216,18 @@ def _schema_from_manifest(manifest: dict[str, Any]) -> ClassSchema | None:
     classes, display_labels = _class_ids_and_labels(class_schema.get("classes"))
     if not classes:
         classes, display_labels = _class_ids_and_labels(manifest.get("classes"))
+    if not classes and isinstance(manifest.get("class_semantics"), dict):
+        semantics = manifest["class_semantics"]
+        classes = sorted((str(class_id) for class_id in semantics), key=lambda value: int(value) if value.isdigit() else value)
+        display_labels = {class_id: str(semantics[class_id]) for class_id in classes}
+    if not classes:
+        records = manifest.get("items") or manifest.get("records") or []
+        if isinstance(records, list):
+            observed = {str(item.get("class_id", "")).strip() for item in records if isinstance(item, dict)}
+            observed.discard("")
+            if observed:
+                classes = sorted(observed, key=lambda value: int(value) if value.isdigit() else value)
+                display_labels = default_display_labels_for_classes(classes)
     if not classes:
         return None
 
@@ -263,11 +275,21 @@ def infer_schema_from_dataset(dataset_arg: str | None) -> ClassSchema | None:
     manifest_path = _manifest_path_for_dataset(dataset_arg)
     if manifest_path is None:
         return None
-    with manifest_path.open("r", encoding="utf-8-sig") as handle:
-        manifest = json.load(handle)
+    try:
+        with manifest_path.open("r", encoding="utf-8-sig") as handle:
+            manifest = json.load(handle)
+    except (OSError, json.JSONDecodeError) as exc:
+        raise CliError("DATASET_CLASS_METADATA_INVALID", "Dataset class metadata could not be read.",
+                       EXIT_SCHEMA_MISMATCH, {"path": str(manifest_path), "error": str(exc)}) from exc
     if not isinstance(manifest, dict):
-        return None
-    return _schema_from_manifest(manifest)
+        raise CliError("DATASET_CLASS_METADATA_INVALID", "Dataset class metadata must be a JSON object.",
+                       EXIT_SCHEMA_MISMATCH, {"path": str(manifest_path)})
+    schema = _schema_from_manifest(manifest)
+    if schema is None:
+        raise CliError("DATASET_CLASS_METADATA_MISSING",
+                       "Dataset metadata does not declare class IDs. Add class_schema, classes, class_semantics, or record class_id values.",
+                       EXIT_SCHEMA_MISMATCH, {"path": str(manifest_path)})
+    return schema
 
 
 def parse_schema(args: Any) -> ClassSchema:

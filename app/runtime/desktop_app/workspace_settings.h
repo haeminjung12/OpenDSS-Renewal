@@ -3,6 +3,7 @@
 #include <QString>
 
 class QCheckBox;
+class QAction;
 class QComboBox;
 class QDockWidget;
 class QDoubleSpinBox;
@@ -38,6 +39,7 @@ struct SettingsWorkspaceControls {
     QTabWidget* operationalTabs = nullptr;
     QWidget* analysisTab = nullptr;
     QWidget* devicesTab = nullptr;
+    QAction* resetLayoutAction = nullptr;
 };
 
 QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls);

@@ -193,54 +193,42 @@ function Test-JsonFile {
     }
 }
 
-function Test-RegistryEntryAssetContract {
+function Test-SimpleModelPackageContract {
     param(
         [System.Collections.ArrayList]$List,
         [System.Collections.ArrayList]$Errors,
         [string]$Name,
         $Entry,
-        [string]$ExpectedRegistryEntryId,
-        [string]$ExpectedModelPath,
-        [string]$ExpectedMetadataPath
+        [string]$PackageDir
     )
 
-    if (-not $Entry) {
-        $message = "Missing required model registry entry: $ExpectedRegistryEntryId"
-        Add-CheckResult -List $List -Name $Name -Status "fail" -Path $ExpectedRegistryEntryId -Detail $message
-        [void]$Errors.Add($message)
-        return
-    }
-
     $issues = New-Object System.Collections.Generic.List[string]
-    $registryEntryId = [string]$Entry.registry_entry_id
-    $modelPath = [string]$Entry.model_path
-    $metadataPath = [string]$Entry.metadata_path
-
-    if ($registryEntryId -ne $ExpectedRegistryEntryId) {
-        $issues.Add("registry_entry_id=$registryEntryId")
+    $entryFields = @($Entry.PSObject.Properties.Name | Sort-Object)
+    $expectedFields = @("active", "display_name", "package_path", "registry_entry_id")
+    if (($entryFields -join '|') -ne ($expectedFields -join '|')) {
+        $issues.Add("registry fields must be exactly: " + ($expectedFields -join ', '))
     }
-    if ($modelPath -ne $ExpectedModelPath) {
-        $issues.Add("model_path=$modelPath")
+    $relativePackagePath = [string]$Entry.package_path
+    if (-not $relativePackagePath -or [System.IO.Path]::IsPathRooted($relativePackagePath)) {
+        $issues.Add("package_path must be package-relative")
     }
-    if ($metadataPath -ne $ExpectedMetadataPath) {
-        $issues.Add("metadata_path=$metadataPath")
-    }
-    if ([System.IO.Path]::IsPathRooted($modelPath) -or $modelPath.StartsWith("\\") -or $modelPath.StartsWith("/")) {
-        $issues.Add("model_path must stay package-relative")
-    }
-    if ([System.IO.Path]::IsPathRooted($metadataPath) -or $metadataPath.StartsWith("\\") -or $metadataPath.StartsWith("/")) {
-        $issues.Add("metadata_path must stay package-relative")
-    }
+    $resolvedPackagePath = Join-Path $PackageDir $relativePackagePath
+    $metadataPath = Join-Path $resolvedPackagePath "metadata.json"
+    if (-not (Test-Path -LiteralPath $metadataPath)) { $issues.Add("metadata.json missing") }
+    $isBlank = ([string]$Entry.registry_entry_id).StartsWith("opendss_blank_")
+    $checkpointName = $(if ($isBlank) { "imagenet_weights.pth" } else { "checkpoint.pth" })
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedPackagePath $checkpointName))) { $issues.Add("$checkpointName missing") }
+    if (-not (Test-Path -LiteralPath (Join-Path $resolvedPackagePath "model.onnx"))) { $issues.Add("model.onnx missing") }
 
     if ($issues.Count -gt 0) {
-        $message = "Bundled asset contract failed for ${ExpectedRegistryEntryId}: " + ($issues -join "; ")
-        Add-CheckResult -List $List -Name $Name -Status "fail" -Path $ExpectedRegistryEntryId -Detail $message
+        $message = "Bundled asset contract failed for $($Entry.registry_entry_id): " + ($issues -join "; ")
+        Add-CheckResult -List $List -Name $Name -Status "fail" -Path $relativePackagePath -Detail $message
         [void]$Errors.Add($message)
         return
     }
 
-    $detail = "Registry entry points to bundled assets via $modelPath and $metadataPath."
-    Add-CheckResult -List $List -Name $Name -Status "pass" -Path $ExpectedRegistryEntryId -Detail $detail
+    $detail = "Simple registry entry resolves to a complete model package."
+    Add-CheckResult -List $List -Name $Name -Status "pass" -Path $relativePackagePath -Detail $detail
 }
 
 $PackageDir = (Resolve-Path -LiteralPath $PackageDir).Path
@@ -303,21 +291,6 @@ foreach ($datasetDir in $requiredDatasetDirs) {
 }
 
 $packageRegistryPath = Join-Path $PackageDir "models\model_registry.json"
-if (Test-Path -LiteralPath $packageRegistryPath) {
-    $packageRegistry = Get-Content -LiteralPath $packageRegistryPath -Raw | ConvertFrom-Json
-    foreach ($entry in @($packageRegistry.entries)) {
-        foreach ($assetPath in @($entry.model_path, $entry.metadata_path)) {
-            if ($assetPath) {
-                $requiredPackageFiles.Add("models\" + (Split-Path -Leaf $assetPath))
-            }
-        }
-        foreach ($sidecar in @($entry.model_sidecars)) {
-            if ($sidecar.required -and $sidecar.path) {
-                $requiredPackageFiles.Add("models\" + (Split-Path -Leaf $sidecar.path))
-            }
-        }
-    }
-}
 $requiredPackageFiles = @($requiredPackageFiles | Select-Object -Unique)
 
 foreach ($relativePath in $requiredPackageFiles) {
@@ -343,67 +316,15 @@ foreach ($datasetDir in $requiredDatasetDirs) {
 $registryPath = Join-Path $PackageDir "models\model_registry.json"
 if (Test-Path -LiteralPath $registryPath) {
     $registry = Get-Content -LiteralPath $registryPath -Raw | ConvertFrom-Json
-    foreach ($entry in @($registry.entries)) {
-        $modelName = Split-Path -Leaf $entry.model_path
-        $metadataName = Split-Path -Leaf $entry.metadata_path
-        if ($modelName) {
-            Test-Hash -List $checks -Errors $errors -Name ("registry model hash: " + $entry.registry_entry_id) -Path (Join-Path $PackageDir ("models\" + $modelName)) -Expected $entry.model_sha256
-        }
-        if ($metadataName) {
-            Test-Hash -List $checks -Errors $errors -Name ("registry metadata hash: " + $entry.registry_entry_id) -Path (Join-Path $PackageDir ("models\" + $metadataName)) -Expected $entry.metadata_sha256
-        }
-        foreach ($sidecar in @($entry.model_sidecars)) {
-            if ($sidecar.required) {
-                Test-Hash -List $checks -Errors $errors -Name ("registry sidecar hash: " + $entry.registry_entry_id) -Path (Join-Path $PackageDir ("models\" + (Split-Path -Leaf $sidecar.path))) -Expected $sidecar.sha256
-            }
-        }
-    }
-    $blankEntry = $registry.entries | Where-Object { $_.registry_entry_id -eq "blank_squeezenet_template_seed42" } | Select-Object -First 1
-    Test-RegistryEntryAssetContract `
-        -List $checks `
-        -Errors $errors `
-        -Name "blank starter bundled registry contract" `
-        -Entry $blankEntry `
-        -ExpectedRegistryEntryId "blank_squeezenet_template_seed42" `
-        -ExpectedModelPath "app/runtime/models/blank_squeezenet_template.onnx" `
-        -ExpectedMetadataPath "app/runtime/models/blank_squeezenet_template_metadata.json"
-    $expectedPromotedEntryId = "run_20260429_221500_wsl2_binary_linuxmirror_onnx"
-    $expectedPromotedModelPath = "app/runtime/models/squeezenet_final_new_condition.onnx"
-    $expectedPromotedMetadataPath = "app/runtime/models/metadata.json"
-    $expectedPromotedEntry = $registry.entries | Where-Object { $_.registry_entry_id -eq $expectedPromotedEntryId } | Select-Object -First 1
-    Test-RegistryEntryAssetContract `
-        -List $checks `
-        -Errors $errors `
-        -Name "promoted/current runtime registry contract" `
-        -Entry $expectedPromotedEntry `
-        -ExpectedRegistryEntryId $expectedPromotedEntryId `
-        -ExpectedModelPath $expectedPromotedModelPath `
-        -ExpectedMetadataPath $expectedPromotedMetadataPath
-
-    $promotedEntries = @($registry.entries | Where-Object { $_.state -eq "promoted_current" })
-    if ($promotedEntries.Count -ne 1) {
-        $message = "Expected exactly one promoted_current entry in model registry; found $($promotedEntries.Count)."
-        Add-CheckResult -List $checks -Name "model registry promoted entry" -Status "fail" -Path $registryPath -Detail $message
+    if ([string]$registry.schema_version -ne "model-registry-v3-simple") {
+        $message = "Expected model-registry-v3-simple; got $($registry.schema_version)."
+        Add-CheckResult -List $checks -Name "simple model registry schema" -Status "fail" -Path $registryPath -Detail $message
         [void]$errors.Add($message)
     } else {
-        $currentEntry = $promotedEntries[0]
-        $issues = New-Object System.Collections.Generic.List[string]
-        if ([string]$currentEntry.registry_entry_id -ne $expectedPromotedEntryId) {
-            $issues.Add("registry_entry_id=$($currentEntry.registry_entry_id)")
-        }
-        if (-not [bool]$currentEntry.selectable_for_normal_live_sorting) {
-            $issues.Add("selectable_for_normal_live_sorting=false")
-        }
-        if ([string]$currentEntry.live_use_mode -ne "normal") {
-            $issues.Add("live_use_mode=$($currentEntry.live_use_mode)")
-        }
-        if ($issues.Count -gt 0) {
-            $message = "promoted_current contract mismatch: " + ($issues -join "; ")
-            Add-CheckResult -List $checks -Name "model registry promoted entry" -Status "fail" -Path $registryPath -Detail $message
-            [void]$errors.Add($message)
-        } else {
-            Add-CheckResult -List $checks -Name "model registry promoted entry" -Status "pass" -Path $registryPath -Detail ("promoted_current=" + $currentEntry.registry_entry_id)
-        }
+        Add-CheckResult -List $checks -Name "simple model registry schema" -Status "pass" -Path $registryPath -Detail "model-registry-v3-simple"
+    }
+    foreach ($entry in @($registry.entries)) {
+        Test-SimpleModelPackageContract -List $checks -Errors $errors -Name ("model package: " + $entry.registry_entry_id) -Entry $entry -PackageDir $PackageDir
     }
 }
 

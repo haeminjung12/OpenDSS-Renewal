@@ -1,0 +1,103 @@
+{
+  "schema_version": "opendss-bundle-candidate-v1",
+  "model_id": "production-mobilenet_v3_small-3class",
+  "model_name": "OpenDSS MobileNetV3 Small 3-Class",
+  "architecture": "mobilenet_v3_small",
+  "classes": [
+    "0",
+    "1",
+    "2"
+  ],
+  "display_labels": {
+    "0": "Empty",
+    "1": "Single",
+    "2": "MoreThanOne"
+  },
+  "input": {
+    "shape": [
+      "N",
+      3,
+      96,
+      96
+    ],
+    "layout": "NCHW",
+    "dtype": "float32",
+    "normalization": {
+      "mean": [
+        0.485,
+        0.456,
+        0.406
+      ],
+      "std": [
+        0.229,
+        0.224,
+        0.225
+      ]
+    }
+  },
+  "output": {
+    "shape": [
+      "N",
+      3
+    ],
+    "meaning": "signed logits in class order"
+  },
+  "artifact": {
+    "onnx_file": "model.onnx",
+    "sha256": "a7f93d6eca761e72ebdef2065fc179e8a6f165dda7605251145862bbe80ba531",
+    "byte_size": 326732,
+    "opset": 18,
+    "total_byte_size": 6421580,
+    "external_data_files": [
+      {
+        "file": "model.onnx.data",
+        "sha256": "9e9b6ea08e15fd6908e1729b8bfb5d2be5c25d715b89535ab09dbb7bd9dfe09f",
+        "byte_size": 6094848
+      }
+    ]
+  },
+  "training": {
+    "contract": "all_data_final_fit",
+    "records": 4311,
+    "class_counts": {
+      "0": 3142,
+      "1": 1055,
+      "2": 114
+    },
+    "config_sha256": "3ea774ab85ca67259c19c1f3f811eccb07258fb6ef15095170c661e0d2e1e0bc",
+    "checkpoint_sha256": "0542c4955ebcbe74fba96169967241a9453b2af135f241097b5cfae774dd1e35"
+  },
+  "performance_evidence": {
+    "report": "docs/worker-reports/publication-gpu-training-experiments-2026-07-18/phase-3c-architecture-comparison.md",
+    "claim_source": "cross-validation only"
+  },
+  "limitations": [
+    "All-data predictions are training diagnostics, not generalization estimates.",
+    "Not registered or activated."
+  ],
+  "artifact_verification": {
+    "providers": [
+      "CPUExecutionProvider"
+    ],
+    "input_shape": [
+      "batch",
+      3,
+      96,
+      96
+    ],
+    "output_shape": [
+      "batch",
+      3
+    ],
+    "parity_max_abs_error": 5.1021575927734375e-05,
+    "parity_inputs": 4,
+    "latency": {
+      "iterations": 200,
+      "median_ms": 2.2064,
+      "p95_ms": 3.54716,
+      "mean_ms": 2.3842589999999997,
+      "std_ms": 0.7323439650321425,
+      "throughput_per_second": 419.41752133472085
+    }
+  }
+}

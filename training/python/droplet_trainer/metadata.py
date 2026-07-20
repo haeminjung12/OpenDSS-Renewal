@@ -165,7 +165,7 @@ def _present_onnx_external_data_files(metadata_dir: Path, onnx_file: str | None)
 
 
 def validate_metadata(path: Path, promotion_gate: bool = False) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as handle:
+    with path.open("r", encoding="utf-8-sig") as handle:
         metadata = json.load(handle)
     classes = metadata.get("classes")
     class_to_idx = metadata.get("class_to_idx")
@@ -184,7 +184,7 @@ def validate_metadata(path: Path, promotion_gate: bool = False) -> dict[str, Any
         if found != expected:
             message = "metadata class_to_idx does not match ordered classes"
             rejection_reasons.append("class_to_idx_mismatch")
-            if schema_version == "model-metadata-v1" or promotion_gate:
+            if schema_version in {"model-metadata-v1", "model-metadata-v2", "simple-model-package-v1"} or promotion_gate:
                 errors.append(message)
             else:
                 warnings.append(message)
@@ -194,8 +194,8 @@ def validate_metadata(path: Path, promotion_gate: bool = False) -> dict[str, Any
         mode = "legacy_unvalidated"
         rejection_reasons.append("missing_class_to_idx")
 
-    if schema_version != "model-metadata-v1":
-        warnings.append("metadata.schema_version is missing or is not model-metadata-v1")
+    if schema_version not in {"model-metadata-v1", "model-metadata-v2", "simple-model-package-v1"}:
+        warnings.append("metadata.schema_version is missing or unsupported")
         mode = "legacy_unvalidated"
         rejection_reasons.append("missing_model_metadata_v1_schema")
 

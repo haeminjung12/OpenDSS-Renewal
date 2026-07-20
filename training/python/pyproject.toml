@@ -17,9 +17,12 @@ dependencies = [
   "scikit-learn",
   "pandas",
   "onnx",
-  "onnxruntime",
   "onnxscript",
 ]
+
+[project.optional-dependencies]
+onnx-cpu = ["onnxruntime==1.25.1"]
+onnx-gpu = ["onnxruntime-gpu==1.25.1"]
 
 [project.scripts]
 droplet-trainer = "droplet_trainer.cli:main"

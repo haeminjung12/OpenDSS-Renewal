@@ -26,6 +26,19 @@ struct ActiveModelReadiness {
     QString message;
 };
 
+struct ModelPackageInspection {
+    QString status;
+    QString message;
+    QString packagePath;
+    QString metadataPath;
+    QString checkpointPath;
+    QString onnxPath;
+    QString architectureId;
+    int classCount = 0;
+    bool canTrain = false;
+    bool canActivate = false;
+};
+
 QString defaultOpenDssRootPath();
 QString defaultOpenDssModelsPath();
 QString defaultOpenDssDatasetsPath();
@@ -43,6 +56,9 @@ bool isDeveloperInternalDefaultPath(const QString& path);
 QJsonObject packagedPromotedModelRegistryEntry();
 QJsonObject packagedBlankModelRegistryEntry();
 QJsonObject packagedPretrainedModelRegistryEntry();
+QJsonObject packagedModernModelRegistryEntry(const QString& architectureId, const QString& origin);
+QJsonArray packagedModernModelRegistryEntries(const QString& origin);
+QString packagedModelEntryAvailabilityError(const QJsonObject& entry);
 
 QString runtimeModelArtifactPath(const QString& projectRoot, const QString& relativePath);
 QString modelRegistryPath();
@@ -61,6 +77,7 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
                                const QString& confusionMatrixCsvPath, const QString& modelName,
                                QString* registeredEntryId = nullptr, QString* error = nullptr);
 ActiveModelReadiness evaluateActiveModelReadiness(const QJsonObject& entry);
+ModelPackageInspection inspectModelPackage(const QJsonObject& entry);
 bool activateModelRegistryEntry(const QString& registryFilePath, const QString& registryEntryId,
                                 QString* error = nullptr);
 bool updateModelRegistryImageValidationSummary(const QString& registryFilePath, const QString& validationSummaryPath,

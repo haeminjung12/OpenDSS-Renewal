@@ -1,0 +1,40 @@
+{
+  "schema_version": "opendss-trainer-hyperparameters-v1",
+  "supported_architectures": ["mobilenet_v3_small", "efficientnet_b0"],
+  "editable_defaults": {
+    "schema_version": 2,
+    "input_size": [96, 96, 3],
+    "batch_size": 64,
+    "num_workers": 0,
+    "epochs": 35,
+    "stages": [
+      {"name": "head_and_late_blocks", "epochs": 20, "learning_rate": 0.0001, "trainable": "classifier_and_last_blocks"},
+      {"name": "controlled_fine_tune", "epochs": 15, "learning_rate": 0.00001, "trainable": "controlled_fine_tune"}
+    ],
+    "weight_decay": 0.0001,
+    "patience": 5,
+    "min_delta": 0.000001,
+    "seed": 1729,
+    "deterministic": true,
+    "use_amp": true,
+    "classifier_output": "signed_logits",
+    "optimizer": {"name": "adam"},
+    "scheduler": {"name": "reduce_on_plateau", "factor": 0.5, "patience": 2, "min_lr": 1e-7},
+    "augmentation": {"random_resized_crop": true, "affine": true, "color_jitter": true, "horizontal_flip": false},
+    "imbalance": {"mode": "balanced_sampler", "sampler_alpha": 0.65, "computed_from": "training_split_only"},
+    "split_mode": "auto",
+    "export_onnx": true,
+    "onnx_opset": 18
+  },
+  "validation": {
+    "batch_size": {"minimum": 1, "maximum": 256},
+    "num_workers": {"minimum": 0, "maximum": 32},
+    "stage_epochs": {"minimum": 1, "maximum": 500},
+    "learning_rate": {"exclusive_minimum": 0, "maximum": 1},
+    "weight_decay": {"minimum": 0, "maximum": 1},
+    "patience": {"minimum": 1, "maximum": 100},
+    "sampler_alpha": {"minimum": 0, "maximum": 1},
+    "seed": {"minimum": 0, "maximum": 2147483647}
+  },
+  "derived_read_only": ["architecture", "classes", "display_labels", "initialization", "device_request"]
+}

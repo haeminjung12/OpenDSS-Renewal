@@ -281,6 +281,13 @@ QWidget* buildSettingsWorkspace(const SettingsWorkspaceControls& controls) {
         settings.sync();
     });
     settingsLoggingBody->addWidget(settingsPruneLogsCheck);
+    if (controls.resetLayoutAction) {
+        auto* resetLayoutButton = new QPushButton("Reset workspace layout");
+        nameWidget(resetLayoutButton, "SettingsWorkspaceResetLayoutButton");
+        resetLayoutButton->setToolTip("Restore the default dock and workspace arrangement.");
+        QObject::connect(resetLayoutButton, &QPushButton::clicked, controls.resetLayoutAction, &QAction::trigger);
+        settingsLoggingBody->addWidget(resetLayoutButton, 0, Qt::AlignLeft);
+    }
     settingsStackLayout->addStretch(1);
     settingsStack->setLayout(settingsStackLayout);
 

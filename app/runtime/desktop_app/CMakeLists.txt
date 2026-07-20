@@ -211,7 +211,10 @@ if (WIN32)
     message(FATAL_ERROR "onnxruntime.dll not found beside ONNX Runtime import library. Set ONNXRUNTIME_DIR to the runtime that should be deployed.")
   endif()
 
-  add_custom_command(TARGET desktop_app POST_BUILD
+add_custom_command(TARGET desktop_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${CMAKE_CURRENT_SOURCE_DIR}/../models/cuda_inference_readiness.json"
+            "$<TARGET_FILE_DIR:desktop_app>/cuda_inference_readiness.json"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${ONNXRUNTIME_DLL}" $<TARGET_FILE_DIR:desktop_app>
     COMMENT "Deploying ONNX Runtime DLL from ${ONNXRUNTIME_DLL}"
   )
@@ -235,9 +238,18 @@ endif()
 set(RUNTIME_MODELS_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../models")
 if (EXISTS "${RUNTIME_MODELS_DIR}")
   add_custom_command(TARGET desktop_app POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E remove_directory "$<TARGET_FILE_DIR:desktop_app>/models"
+    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:desktop_app>/models"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${RUNTIME_MODELS_DIR}/model_registry.json"
+      "$<TARGET_FILE_DIR:desktop_app>/models/model_registry.json"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+      "${RUNTIME_MODELS_DIR}/trainer_hyperparameters.schema.json"
+      "$<TARGET_FILE_DIR:desktop_app>/models/trainer_hyperparameters.schema.json"
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-      "${RUNTIME_MODELS_DIR}"
-      "$<TARGET_FILE_DIR:desktop_app>/models"
+      "${RUNTIME_MODELS_DIR}/templates"
+      "$<TARGET_FILE_DIR:desktop_app>/models/templates"
+    COMMENT "Deploying active MobileNetV3-Small and EfficientNet-B0 model bundles"
   )
 endif()
 

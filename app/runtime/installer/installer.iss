@@ -3,7 +3,7 @@
 #endif
 
 #define AppName "OpenDSS"
-#define AppVersion "1.0.0"
+#define AppVersion "0.9.0"
 #define AppPublisher "haeminjung"
 #define AppExeName "OpenDSS.exe"
 #define DefaultDirName "{pf}\OpenDSS"

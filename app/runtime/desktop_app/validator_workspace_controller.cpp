@@ -15,6 +15,7 @@
 
 #include "background_task_registry.h"
 #include "image_validation_dialog.h"
+#include "model_registry_service.h"
 
 ValidatorWorkspaceController::ValidatorWorkspaceController(const Dependencies& dependencies, QObject* parent)
     : QObject(parent), deps_(dependencies) {
@@ -156,8 +157,8 @@ void ValidatorWorkspaceController::wireValidatorAction() {
 void ValidatorWorkspaceController::wireSequenceControls() {
     if (deps_.seqBrowseBtn && deps_.seqFolderEdit) {
         connect(deps_.seqBrowseBtn, &QPushButton::clicked, this, [this]() {
-            const QString dir = QFileDialog::getExistingDirectory(deps_.parentWindow, "Select sequence folder",
-                                                                  deps_.seqFolderEdit->text());
+            const QString dir = QFileDialog::getExistingDirectory(
+                deps_.parentWindow, "Select sequence folder", defaultOpenDssDatasetsPath());
             if (!dir.isEmpty())
                 deps_.seqFolderEdit->setText(dir);
         });

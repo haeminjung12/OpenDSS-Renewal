@@ -1,0 +1,60 @@
+from __future__ import annotations
+import argparse, json, os, subprocess, time, statistics
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+from .screen import attach_frozen_contract, create_immutable_execution_root, load_inputs, manifest_for_fold, parse_events, recompute_retained_metrics, sha256_file
+
+ARCHS=("mobilenet_v3_small","efficientnet_b0")
+
+def weight_provenance(arch:str)->dict[str,Any]:
+    import torch
+    from torchvision import models
+    if arch=="mobilenet_v3_small": enum=models.MobileNet_V3_Small_Weights.DEFAULT; models.mobilenet_v3_small(weights=enum)
+    else: enum=models.EfficientNet_B0_Weights.DEFAULT; models.efficientnet_b0(weights=enum)
+    filename=Path(enum.url).name; path=Path(torch.hub.get_dir())/"checkpoints"/filename
+    if not path.is_file(): raise RuntimeError(f"Official pretrained cache missing after load: {path}")
+    return {"weight_id":str(enum),"url":enum.url,"cache_path":str(path.resolve()),"sha256":sha256_file(path),"transforms":str(enum.transforms()),"categories":len(enum.meta.get("categories",[])),"source":"torchvision official model weights","license":"Torchvision code BSD-3-Clause; ImageNet-trained weight provenance per torchvision metadata"}
+
+def config_for(arch:str,seed:int,provenance:dict)->dict:
+    return {"schema_version":2,"architecture":arch,"classes":["0","1","2"],"display_labels":{"0":"Empty","1":"Single","2":"MoreThanOne"},"seed":seed,"input_size":[96,96,3],"normalization":{"mean":[.485,.456,.406],"std":[.229,.224,.225]},"batch_size":64,"num_workers":0,"weight_decay":1e-4,"patience":5,"min_delta":1e-6,"use_amp":True,"classifier_output":"signed_logits","classifier_initialization":"deterministic_new_head","pretrained":True,"pretrained_weight_id":provenance["weight_id"],"pretrained_weight_path":provenance["cache_path"],"pretrained_weight_sha256":provenance["sha256"],"source_model_path":None,"source_model_sha256":None,"export_onnx":True,"optimizer":{"name":"adam"},"scheduler":{"name":"reduce_on_plateau","factor":.5,"patience":2,"min_lr":1e-7},"augmentation":{"random_resized_crop":True,"affine":True,"color_jitter":True,"horizontal_flip":False},"imbalance":{"mode":"balanced_sampler","sampler_alpha":.65,"class_weight_formula":"none","computed_from":"training_split_only","class_weights":{}},"stages":[{"name":"head_late_blocks","epochs":20,"learning_rate":1e-4,"trainable":"classifier_and_last_blocks"},{"name":"controlled_fine_tune","epochs":15,"learning_rate":1e-5,"trainable":"controlled_fine_tune"}]}
+
+def invoke(repo:Path,python:Path,dataset:Path,output:Path,config:Path,name:str,preflight=False)->tuple[int,Path,list[dict],float]:
+    env=os.environ.copy(); env["PYTHONPATH"]=str(repo/"training"/"python"); cmd=[str(python),"-m","droplet_trainer","train","--dataset",str(dataset),"--output",str(output),"--config",str(config),"--device","cuda","--classes","0,1,2","--run-name",name,"--jsonl"]+(["--preflight-only"] if preflight else []); started=time.perf_counter(); cp=subprocess.run(cmd,cwd=repo,env=env,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True,encoding="utf-8",errors="replace"); wall=time.perf_counter()-started; events=output.parent/f"{name}.jsonl"; events.write_text(cp.stdout,encoding="utf-8"); return cp.returncode,events,parse_events(events),wall
+
+def summarize_run(arch:str,binding:dict,run_root:Path,events:Path|None=None,wall:float|None=None)->dict:
+    trainer=run_root/"trainer"/"run"; metrics=json.loads((trainer/"metrics.json").read_text(encoding="utf-8"))["test"]; history=json.loads((trainer/"metrics.json").read_text(encoding="utf-8"))["history"]; predictions=trainer/"validation_predictions.jsonl"; recomputed=recompute_retained_metrics(predictions,metrics); recalls=[r["recall"] for r in metrics["class_metrics"]]; gate=min(recalls)>=.70; event_docs=parse_events(events) if events and events.exists() else []; stages=[e.get("trainable_parameters") for e in event_docs if e.get("event")=="stage_started"]
+    return {"architecture":arch,**binding,"status":"pass" if gate else "reject","exit_code":0,"wall_seconds":wall,"balanced_accuracy":metrics["balanced_accuracy"],"macro_f1":metrics["macro_f1"],"recalls":recalls,"prediction_distribution":metrics["logit_diagnostics"]["prediction_distribution"],"optimizer_updates":max(r["optimizer_updates"] for r in history),"parameter_delta_l2":max(r["parameter_delta_l2"] for r in history),"telemetry":metrics["telemetry"],"metric_recomputation":recomputed,"stage_trainable_parameters":stages,"checkpoints":{p.name:sha256_file(p) for p in (trainer/"checkpoints").glob("*.pth")},"onnx":str(trainer/"model.onnx"),"trainer_dir":str(trainer),"events":str(events) if events else None}
+
+def resume_existing(execution:Path,repo:Path,python:Path)->dict:
+    plan=json.loads((execution/"frozen_plan.json").read_text(encoding="utf-8")); bindings=plan["bindings"]; preflights=[]
+    roots=sorted([p for p in execution.iterdir() if p.is_dir() and p.name[:2].isdigit()])
+    for run_root in roots:
+        parts=run_root.name.split("-"); arch="mobilenet_v3_small" if "mobilenet_v3_small" in run_root.name else "efficientnet_b0"; seed=1729 if "seed1729" in run_root.name else 2718; fold=0 if "fold0" in run_root.name else 1; events=run_root/"preflight.jsonl"; docs=parse_events(events); preflights.append({"arch":arch,"seed":seed,"fold":fold,"accepted":any(e.get("event")=="split_contract_accepted" for e in docs) and any(e.get("status")=="preflight_ok" for e in docs),"events":str(events)})
+    if len(preflights)!=4 or not all(p["accepted"] for p in preflights): raise RuntimeError(f"Cannot resume: preflight evidence incomplete {preflights}")
+    results=[]
+    first=roots[0]; results.append(summarize_run("mobilenet_v3_small",{"seed":1729,"fold":0},first,None,None)); (execution/"adopted_process_disposition.json").write_text(json.dumps({"pid":29780,"disposition":"adopted_completed_no_duplicate","run":str(first),"metrics_sha256":sha256_file(first/"trainer"/"run"/"metrics.json"),"onnx_sha256":sha256_file(first/"trainer"/"run"/"model.onnx")},indent=2),encoding="utf-8")
+    for run_root in roots[1:]:
+        arch="mobilenet_v3_small" if "mobilenet_v3_small" in run_root.name else "efficientnet_b0"; binding={"seed":1729 if "seed1729" in run_root.name else 2718,"fold":0 if "fold0" in run_root.name else 1}; code,events,docs,wall=invoke(repo,python,run_root/"dataset",run_root/"trainer",run_root/"immutable_config.json","run",False)
+        trainer=run_root/"trainer"/"run"
+        if code!=0 or not (trainer/"metrics.json").exists(): raise RuntimeError(f"Architecture run failed: {run_root}, exit {code}")
+        results.append(summarize_run(arch,binding,run_root,events,wall))
+    ledger={"plan_sha256":sha256_file(execution/"frozen_plan.json"),"preflights":preflights,"training_runs":len(results),"runs":results,"strict_passing_architectures":[a for a in ARCHS if all(r["status"]=="pass" for r in results if r["architecture"]==a)],"phase4_launched":False,"resumed_after_parent_interruption":True}; (execution/"run_ledger.json").write_text(json.dumps(ledger,indent=2),encoding="utf-8"); return ledger
+
+def execute(root:Path,repo:Path,python:Path)->dict:
+    derived,folds,_,_=load_inputs(root/"prep"); execution_id="phase3c-"+datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ"); out=create_immutable_execution_root(root/"architecture-comparison",execution_id); provenance={a:weight_provenance(a) for a in ARCHS}; plan={"execution_id":execution_id,"maximum_training_runs":4,"architectures":list(ARCHS),"bindings":[{"seed":1729,"fold":0},{"seed":2718,"fold":1}],"strict_recall_gate":.70,"fixed_contract":{"input":"96x96 RGB ImageNet normalized","batch":64,"amp":True,"optimizer":"Adam","scheduler":"ReduceLROnPlateau","sampler_alpha":.65,"stages":"20@1e-4 head/late + 15@1e-5 controlled fine-tune"},"weights":provenance,"phase4_launched":False}; plan_path=out/"frozen_plan.json"; plan_path.write_text(json.dumps(plan,indent=2),encoding="utf-8")
+    preflights=[]; prepared=[]
+    seq=0
+    for arch in ARCHS:
+      for binding in plan["bindings"]:
+        seq+=1; fold=next(f for f in folds["folds"] if int(f["fold"])==binding["fold"]); run_root=out/f"{seq:02d}-{arch}-seed{binding['seed']}-fold{binding['fold']}"; run_root.mkdir(); dataset=run_root/"dataset"; (dataset/"metadata").mkdir(parents=True); manifest=manifest_for_fold(derived,fold); manifest_path=dataset/"metadata"/"dataset_manifest.json"; manifest_path.write_text(json.dumps(manifest,indent=2),encoding="utf-8"); cfg=attach_frozen_contract(config_for(arch,binding["seed"],provenance[arch]),manifest,manifest_path,root/"prep",fold); cfg_path=run_root/"immutable_config.json"; cfg_path.write_text(json.dumps(cfg,indent=2),encoding="utf-8"); code,events,docs,wall=invoke(repo,python,dataset,run_root/"preflight",cfg_path,"preflight",True); accepted=[e for e in docs if e.get("event")=="split_contract_accepted"]; ok=code==0 and bool(accepted) and not any(e.get("event")=="stage_started" for e in docs); preflights.append({"arch":arch,**binding,"accepted":ok,"exit_code":code,"events":str(events)}); prepared.append((arch,binding,run_root,dataset,cfg_path))
+    if not all(p["accepted"] for p in preflights): raise RuntimeError(f"Architecture preflight failed: {preflights}")
+    results=[]
+    for arch,binding,run_root,dataset,cfg_path in prepared:
+        code,events,docs,wall=invoke(repo,python,dataset,run_root/"trainer",cfg_path,"run",False); trainer=run_root/"trainer"/"run"; metrics_path=trainer/"metrics.json"; failure=trainer/"failure_diagnostics.json"; metrics=json.loads(metrics_path.read_text(encoding="utf-8"))["test"] if metrics_path.exists() else json.loads(failure.read_text(encoding="utf-8"))["metrics"] if failure.exists() else {}; epochs=[e.get("metrics",{}) for e in docs if e.get("event")=="epoch_metrics"]; predictions=trainer/"validation_predictions.jsonl"; recomputed=recompute_retained_metrics(predictions,metrics) if predictions.exists() and metrics else None; recalls=[r["recall"] for r in metrics.get("class_metrics",[])]; gate=code==0 and len(recalls)==3 and min(recalls)>=.70; stages=[e for e in docs if e.get("event")=="stage_started"]
+        results.append({"architecture":arch,**binding,"status":"pass" if gate else "reject","exit_code":code,"wall_seconds":wall,"balanced_accuracy":metrics.get("balanced_accuracy"),"macro_f1":metrics.get("macro_f1"),"recalls":recalls,"prediction_distribution":metrics.get("logit_diagnostics",{}).get("prediction_distribution"),"optimizer_updates":max((e.get("optimizer_updates",0) for e in epochs),default=0),"parameter_delta_l2":max((e.get("parameter_delta_l2",0) for e in epochs),default=0),"telemetry":metrics.get("telemetry"),"metric_recomputation":recomputed,"stage_trainable_parameters":[e.get("trainable_parameters") for e in stages],"checkpoints":{p.name:sha256_file(p) for p in (trainer/"checkpoints").glob("*.pth")},"onnx":str(trainer/"model.onnx") if (trainer/"model.onnx").exists() else None,"trainer_dir":str(trainer),"events":str(events)})
+    ledger={"plan_sha256":sha256_file(plan_path),"preflights":preflights,"training_runs":len(results),"runs":results,"strict_passing_architectures":[a for a in ARCHS if all(r["status"]=="pass" for r in results if r["architecture"]==a)],"phase4_launched":False}; (out/"run_ledger.json").write_text(json.dumps(ledger,indent=2),encoding="utf-8"); (root/"architecture-comparison"/"latest.json").write_text(json.dumps({"execution":str(out),"ledger":str(out/"run_ledger.json")},indent=2),encoding="utf-8"); return ledger
+
+def main(argv=None):
+ p=argparse.ArgumentParser(); p.add_argument("--root",type=Path,required=True); p.add_argument("--repo",type=Path,required=True); p.add_argument("--python",type=Path,required=True); p.add_argument("--resume-existing",type=Path); args=p.parse_args(argv); result=resume_existing(args.resume_existing.resolve(),args.repo.resolve(),args.python.resolve()) if args.resume_existing else execute(args.root.resolve(),args.repo.resolve(),args.python.resolve()); print(json.dumps(result,indent=2)); return 0
+if __name__=="__main__": raise SystemExit(main())

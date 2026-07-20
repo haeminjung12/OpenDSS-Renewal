@@ -25,6 +25,8 @@
 #include "workspace_dataset.h"
 #include "workspace_model.h"
 #include "../cli_runner.h"
+#include "../metadata_loader.h"
+#include "../onnx_classifier.h"
 
 namespace {
 
@@ -72,8 +74,69 @@ int runSequenceStopThreadingVerifier(int argc, char* argv[]) {
     return firstStopPassed && repeatedStopPassed && shutdownPassed ? 0 : 2;
 }
 
+int runOnnxProviderVerifier(int argc, char* argv[]) {
+    QCoreApplication app(argc, argv);
+    OnnxClassifier::configureReadinessVerifier(
+        qEnvironmentVariable("OVDS_ORT_VERIFY_READINESS").toStdString(),
+        qEnvironmentVariableIntValue("OVDS_ORT_VERIFY_FORCE_ACCEPTED") != 0);
+    const QString appDir = QCoreApplication::applicationDirPath();
+    const QString device = qEnvironmentVariable("OVDS_ORT_VERIFY_DEVICE", "cuda").trimmed().toLower();
+    const QString packageOverride = qEnvironmentVariable("OVDS_ORT_VERIFY_PACKAGE").trimmed();
+    const QStringList architectures = packageOverride.isEmpty()
+                                          ? QStringList{QStringLiteral("mobilenet_v3_small"), QStringLiteral("efficientnet_b0")}
+                                          : QStringList{QStringLiteral("package")};
+    QJsonArray results;
+    bool passed = true;
+    for (const QString& architecture : architectures) {
+        const QString root = packageOverride.isEmpty()
+                                 ? QDir(appDir).filePath(QStringLiteral("models/templates/pretrained/%1").arg(architecture))
+                                 : QFileInfo(packageOverride).absoluteFilePath();
+        Metadata metadata;
+        std::string error;
+        const bool metadataOk = LoadMetadata(QDir(root).filePath("metadata.json").toStdString(), metadata, error);
+        OnnxClassifier classifier;
+        const bool initialized = metadataOk && classifier.init(QDir(root).filePath("model.onnx").toStdString(), metadata,
+                                                                device.toStdString(), error);
+        const QString provider = initialized ? QString::fromStdString(classifier.executionProvider()) : QString();
+        const bool cudaAccepted = qEnvironmentVariableIntValue("OVDS_ORT_VERIFY_FORCE_ACCEPTED") != 0 ||
+                                  qEnvironmentVariableIntValue("OVDS_ORT_VERIFY_EXPECT_ACCEPTED") != 0;
+        const bool unavailable = qEnvironmentVariableIsSet("OVDS_TEST_FORCE_CUDA_UNAVAILABLE") || !cudaAccepted;
+        const bool explicitUnavailable = unavailable && device == "cuda";
+        const bool autoUnavailable = unavailable && device == "auto";
+        bool rowPassed = initialized && ((device == "cpu" && provider == "CPU") ||
+                         (device == "cuda" && provider == "CUDA") ||
+                         (device == "auto" && provider == (autoUnavailable ? "CPU" : "CUDA")));
+        if (explicitUnavailable)
+            rowPassed = !initialized &&
+                        (QString::fromStdString(error).contains("CUDA provider unavailable") ||
+                         QString::fromStdString(error).contains("readiness artifact"));
+        if (initialized) {
+            cv::Mat input(metadata.inputH, metadata.inputW, CV_8UC3, cv::Scalar(0, 0, 0));
+            const ClassificationResult prediction = classifier.classify(input);
+            rowPassed = rowPassed && prediction.scores.size() == static_cast<std::size_t>(metadata.classes.size()) &&
+                        std::all_of(prediction.scores.begin(), prediction.scores.end(), [](float value) { return std::isfinite(value); });
+        }
+        passed = passed && rowPassed;
+        QJsonObject row{{"architecture", architecture}, {"requested_device", device}, {"initialized", initialized},
+                        {"selected_provider", provider}, {"message", QString::fromStdString(error)}, {"passed", rowPassed}};
+        results.append(row);
+    }
+    QJsonObject output{{"passed", passed}, {"results", results}};
+    const QString outputPath = qEnvironmentVariable("OVDS_ORT_VERIFY_OUTPUT").trimmed();
+    if (!outputPath.isEmpty()) {
+        QFile file(outputPath);
+        QDir().mkpath(QFileInfo(file).absolutePath());
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate) ||
+            file.write(QJsonDocument(output).toJson(QJsonDocument::Indented)) < 0)
+            return 2;
+    }
+    std::printf("%s\n", QJsonDocument(output).toJson(QJsonDocument::Compact).constData());
+    return passed ? 0 : 2;
+}
+
 constexpr const char* kOrganizationName = "Hamamatsu";
 constexpr const char* kApplicationName = "OpenDSS";
+constexpr const char* kApplicationVersion = "0.9.0";
 constexpr const char* kLegacyApplicationName = "OpenVisualDropletSorter";
 constexpr const char* kLegacySettingsMigrationMarker = "migration/v1/importedOpenVisualDropletSorter";
 
@@ -114,6 +177,7 @@ void preferBundledQtPlugins(int argc, char* argv[]) {
 void setOpenDssApplicationIdentity() {
     QCoreApplication::setOrganizationName(kOrganizationName);
     QCoreApplication::setApplicationName(kApplicationName);
+    QCoreApplication::setApplicationVersion(kApplicationVersion);
 }
 
 void configureSettingsRootFromEnv() {
@@ -124,6 +188,70 @@ void configureSettingsRootFromEnv() {
     QDir().mkpath(absoluteSettingsRoot);
     QSettings::setDefaultFormat(QSettings::IniFormat);
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, absoluteSettingsRoot);
+}
+
+bool isVerifierProcess(int argc, char* argv[]) {
+    const QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
+    for (const QString& key : environment.keys()) {
+        if (!key.startsWith(QStringLiteral("OVDS_VERIFY_"), Qt::CaseInsensitive))
+            continue;
+        const QString value = environment.value(key).trimmed();
+        if (!value.isEmpty() && value != QStringLiteral("0") &&
+            value.compare(QStringLiteral("false"), Qt::CaseInsensitive) != 0)
+            return true;
+    }
+    for (int index = 1; index < argc; ++index) {
+        if (QString::fromLocal8Bit(argv[index]).startsWith(QStringLiteral("--verify-")))
+            return true;
+    }
+    return false;
+}
+
+bool copyDirectoryRecursively(const QString& sourcePath, const QString& destinationPath) {
+    const QDir source(sourcePath);
+    if (!source.exists() || !QDir().mkpath(destinationPath))
+        return false;
+    QDirIterator iterator(sourcePath, QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        const QFileInfo sourceInfo(iterator.next());
+        const QString relativePath = source.relativeFilePath(sourceInfo.absoluteFilePath());
+        const QString destination = QDir(destinationPath).absoluteFilePath(relativePath);
+        if (sourceInfo.isDir()) {
+            if (!QDir().mkpath(destination))
+                return false;
+        } else {
+            QDir().mkpath(QFileInfo(destination).absolutePath());
+            QFile::remove(destination);
+            if (!QFile::copy(sourceInfo.absoluteFilePath(), destination))
+                return false;
+        }
+    }
+    return true;
+}
+
+std::unique_ptr<QTemporaryDir> isolateVerifierState(int argc, char* argv[]) {
+    if (!isVerifierProcess(argc, argv))
+        return {};
+    auto sandbox = std::make_unique<QTemporaryDir>(
+        QDir(QDir::tempPath()).absoluteFilePath(QStringLiteral("opendss-verifier-state-XXXXXX")));
+    if (!sandbox->isValid())
+        return {};
+
+    if (qEnvironmentVariable("OVDS_SETTINGS_ROOT_PATH").trimmed().isEmpty()) {
+        const QString settingsRoot = QDir(sandbox->path()).absoluteFilePath(QStringLiteral("settings"));
+        QDir().mkpath(settingsRoot);
+        qputenv("OVDS_SETTINGS_ROOT_PATH", settingsRoot.toUtf8());
+    }
+    if (qEnvironmentVariable("OVDS_MODEL_REGISTRY_PATH").trimmed().isEmpty()) {
+        const QString productionModels = QDir::home().absoluteFilePath(QStringLiteral("Documents/OpenDSS/models"));
+        const QString isolatedModels = QDir(sandbox->path()).absoluteFilePath(QStringLiteral("models"));
+        copyDirectoryRecursively(productionModels, isolatedModels);
+        qputenv("OVDS_MODELS_ROOT_PATH", isolatedModels.toUtf8());
+        qputenv("OVDS_MODEL_REGISTRY_PATH",
+                QDir(isolatedModels).absoluteFilePath(QStringLiteral("model_registry.json")).toUtf8());
+    }
+    return sandbox;
 }
 
 bool migrateLegacyOpenVisualDropletSorterSettings(QString* errorMessage = nullptr) {
@@ -363,6 +491,20 @@ int runDatasetWorkspaceWidgetVerifier(int argc, char* argv[]) {
 }
 
 int runModelWorkspaceWidgetVerifier(int argc, char* argv[]) {
+    const bool mutationVerifier =
+        qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_WORKSPACE_ADD_BUTTONS") != 0 ||
+         qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_WORKSPACE_LIST_MANAGEMENT") != 0 ||
+         qEnvironmentVariableIntValue("OVDS_VERIFY_MODEL_ACTIVE_SIMPLIFICATION") != 0;
+    const QString registryOverride = qEnvironmentVariable("OVDS_MODEL_REGISTRY_PATH").trimmed();
+    if (mutationVerifier && registryOverride.isEmpty()) {
+        std::fprintf(stderr,
+                     "Model workspace mutation verifier requires OVDS_MODEL_REGISTRY_PATH; refusing to modify the production registry.\n");
+        return 2;
+    }
+    if (mutationVerifier && qEnvironmentVariable("OVDS_MODELS_ROOT_PATH").trimmed().isEmpty()) {
+        const QString isolatedModelsRoot = QFileInfo(registryOverride).absolutePath();
+        qputenv("OVDS_MODELS_ROOT_PATH", isolatedModelsRoot.toUtf8());
+    }
     QApplication app(argc, argv);
     setOpenDssApplicationIdentity();
 
@@ -392,11 +534,25 @@ int runModelWorkspaceWidgetVerifier(int argc, char* argv[]) {
 
 int main(int argc, char* argv[]) {
     preferBundledQtPlugins(argc, argv);
+    const std::unique_ptr<QTemporaryDir> verifierState = isolateVerifierState(argc, argv);
     configureSettingsRootFromEnv();
+    const QString verifierTracePath = qEnvironmentVariable("OVDS_VERIFY_TRACE_PATH").trimmed();
+    const auto verifierTrace = [verifierTracePath](const QString& message) {
+        if (verifierTracePath.isEmpty())
+            return;
+        QFile trace(verifierTracePath);
+        if (trace.open(QIODevice::WriteOnly | QIODevice::Append | QIODevice::Text)) {
+            trace.write((message + QLatin1Char('\n')).toUtf8());
+            trace.flush();
+        }
+    };
+    verifierTrace(QStringLiteral("main: entered"));
     if (qEnvironmentVariableIntValue("OVDS_VERIFY_SEQUENCE_STOP_THREADING") != 0 ||
         hasArgument(argc, argv, QStringLiteral("--verify-sequence-stop-threading"))) {
         return runSequenceStopThreadingVerifier(argc, argv);
     }
+    if (hasArgument(argc, argv, QStringLiteral("--verify-onnx-provider")))
+        return runOnnxProviderVerifier(argc, argv);
     if (qEnvironmentVariableIntValue("OVDS_VERIFY_SETTINGS_MIGRATION") != 0 ||
         hasArgument(argc, argv, QStringLiteral("--verify-settings-migration"))) {
         return runSettingsMigrationVerifier(argc, argv);
@@ -443,10 +599,23 @@ int main(int argc, char* argv[]) {
             return run_cli(argc, argv);
         }
     }
+    const bool verifyFullShell =
+        qEnvironmentVariableIntValue("OVDS_VERIFY_MODELS_WORKSPACE_CONSOLIDATION") != 0 ||
+        qEnvironmentVariableIntValue("OVDS_VERIFY_DEFAULT_PATHS") != 0 ||
+        qEnvironmentVariableIntValue("OVDS_VERIFY_NAVIGATION_INFO") != 0 ||
+        qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_LAUNCH") != 0 ||
+        qEnvironmentVariableIntValue("OVDS_VERIFY_TRAINER_MODEL_SELECTION") != 0 ||
+        qEnvironmentVariableIntValue("OVDS_VERIFY_COMPUTE_SETTINGS") != 0;
+    if (verifyFullShell && qEnvironmentVariable("QT_QPA_PLATFORM").compare("offscreen", Qt::CaseInsensitive) == 0) {
+        qputenv("QT_QPA_PLATFORM", "windows");
+        verifierTrace(QStringLiteral("main: verifier platform changed from offscreen to bundled windows"));
+    }
     AppOptions options = parseAppOptions(argc, argv);
     QApplication app(argc, argv);
+    verifierTrace(QStringLiteral("main: QApplication created"));
     setOpenDssApplicationIdentity();
     migrateLegacyOpenVisualDropletSorterSettings();
+    verifierTrace(QStringLiteral("main: settings migrated"));
     QSettings runtimeSettings;
     desktop_app::AppState appState;
     appState.targetClassId =
@@ -467,6 +636,7 @@ int main(int argc, char* argv[]) {
     QString registryFilePath;
     QString registryLoadWarning;
     QJsonObject modelRegistry = loadModelRegistry(&registryFilePath, &registryLoadWarning);
+    verifierTrace(QStringLiteral("main: registry loaded"));
     QJsonArray registryEntries = modelRegistry.value("entries").toArray();
     if (registryEntries.isEmpty()) {
         modelRegistry = temporaryStaticModelRegistry();
@@ -474,6 +644,7 @@ int main(int argc, char* argv[]) {
         registryLoadWarning = "Model registry had no rows; using temporary static fallback.";
     }
     const AppContext appContext(options, resolveAppPaths(registryEntries));
+    verifierTrace(QStringLiteral("main: app context resolved"));
 
     QPixmap splashPixmap(560, 340);
     splashPixmap.fill(QColor("#0B1F5E"));
@@ -525,6 +696,7 @@ int main(int argc, char* argv[]) {
     logMessage(QString("Log file: %1").arg(logPath));
 
     MainWindow window(appContext);
+    verifierTrace(QStringLiteral("main: entering window setup"));
     return window.runSetupAndEventLoop(app, runtimeSettings, appState, registryEntries, registryFilePath,
                                        registryLoadWarning, splash, splashTimer);
 }

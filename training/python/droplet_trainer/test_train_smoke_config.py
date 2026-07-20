@@ -31,10 +31,12 @@ class TrainSmokeConfigTests(unittest.TestCase):
                 "smoke-run",
                 "--jsonl",
                 "--smoke",
+                "--preflight-only",
             ]
         )
 
         self.assertTrue(args.smoke)
+        self.assertTrue(args.preflight_only)
         self.assertEqual(args.config, "config.json")
         self.assertEqual(args.device, "cpu")
         self.assertEqual(args.run_name, "smoke-run")

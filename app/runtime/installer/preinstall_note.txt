@@ -6,4 +6,6 @@ Pre-install requirements
 - Python trainer dependencies remain external. If you need the packaged training tools, create a separate venv from the bundled `training\python` content after install and follow its Windows setup scripts.
 - Packaged ONNX inference uses the qualified CPU provider. Optional NVIDIA CUDA support accelerates PyTorch training and trainer-side testing; install it through one bundled GPU environment script after installing a compatible NVIDIA driver.
 - NI-DAQmx is required only for NI DAQ trigger output. Install NI-DAQmx from NI before using DAQ features, and use compatible NI hardware. The installer does not bundle or run NI-DAQmx installer payloads.
+  Installer: https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html?srsltid=AfmBOoripP8sW1nXF0W7AAqlBqDBFPvAkvA-Otli6j6Q3Jcj7YSqsefx#590033
+  How to install: https://download.ni.com/support/manuals/373235aa.pdf
 - Packaging validation does not exercise live DAQ output. Verify DAQ behavior separately on approved hardware after NI-DAQmx is installed.

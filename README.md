@@ -52,7 +52,7 @@ The Models Library, Train, and Test workflows can be installed and tested withou
 
 - Hamamatsu DCAM-API for Windows: [official download page](https://www.hamamatsu.com/jp/en/product/cameras/driver-software/dcam-api-for-windows.html)
 - Hamamatsu DCAM-SDK4: [official product page](https://www.hamamatsu.com/all/en/product/cameras/software/driver-software/dcam-sdk4.html)
-- NI-DAQmx Runtime / driver install guidance: [official NI article](https://knowledge.ni.com/KnowledgeArticleDetails?id=kA0VU0000003eH30AI&l=en-CA)
+- NI-DAQmx Runtime / driver: [official NI installer](https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html?srsltid=AfmBOoripP8sW1nXF0W7AAqlBqDBFPvAkvA-Otli6j6Q3Jcj7YSqsefx#590033) ([How to install](https://download.ni.com/support/manuals/373235aa.pdf))
 - Microsoft Visual C++ Redistributable x64: [latest supported downloads](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170)
 - Qt for source builds: [Qt Online Installer](https://www.qt.io/development/download-open-source)
 - ONNX Runtime for source builds: [installation guide](https://onnxruntime.ai/docs/install/)

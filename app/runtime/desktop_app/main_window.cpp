@@ -2893,8 +2893,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     startBtn->setMinimumWidth(138);
     startBtn->setMaximumWidth(150);
     pipelineStartBtn->setMaximumWidth(150);
-    collectionToggleBtn->setMinimumWidth(170);
-    collectionToggleBtn->setMaximumWidth(190);
+    collectionToggleBtn->setFixedWidth(190);
     pipelineStopBtn->setMaximumWidth(138);
     liveForceTriggerBtn->setMaximumWidth(132);
     liveSnapshotBtn->setMaximumWidth(110);
@@ -8480,7 +8479,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         });
     }
     if (verifyCollectionMode) {
-        QTimer::singleShot(0, [&app, collectionToggleBtn, collectionStatusLabel]() {
+        QTimer::singleShot(0, [&app, collectionToggleBtn, collectionStatusLabel, pipelineStopBtn]() {
             QStringList failures;
             auto require = [&](bool condition, const QString& message) {
                 if (!condition) {
@@ -8497,6 +8496,22 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             require(collectionStatusLabel != nullptr, "Live Data Collection status label exists");
             require(collectionStatusLabel && collectionStatusLabel->text().contains("idle"),
                     "Collection status starts idle");
+
+            app.processEvents();
+            const QRect collectionStartGeometry = collectionToggleBtn->geometry();
+            const QRect adjacentStartGeometry = pipelineStopBtn->geometry();
+            collectionToggleBtn->setText("Stop Data Collection");
+            app.processEvents();
+            require(collectionToggleBtn->geometry() == collectionStartGeometry,
+                    "Collection button geometry stays fixed in active/stop state");
+            require(pipelineStopBtn->geometry() == adjacentStartGeometry,
+                    "Adjacent control geometry stays fixed in active/stop state");
+            collectionToggleBtn->setText("Start Data Collection");
+            app.processEvents();
+            require(collectionToggleBtn->geometry() == collectionStartGeometry,
+                    "Collection button geometry stays fixed after reset");
+            require(pipelineStopBtn->geometry() == adjacentStartGeometry,
+                    "Adjacent control geometry stays fixed after reset");
 
             PipelineConfig cfg;
             cfg.detectorOnly = true;

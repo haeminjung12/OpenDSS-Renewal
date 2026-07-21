@@ -1353,31 +1353,63 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         return QString();
     };
     auto choosePackagedEntry = [=](const QString& title, const QJsonArray& options) -> QJsonObject {
-        if (qEnvironmentVariableIsSet(kVerifyAddButtonsEnv) || qEnvironmentVariableIsSet(kVerifyListManagementEnv)) {
-            const QString requestedArchitecture = qEnvironmentVariable(kVerifyArchitectureEnv).trimmed();
-            if (!requestedArchitecture.isEmpty()) {
-                for (const auto& value : options) {
-                    if (registryString(value.toObject(), "architecture_id") == requestedArchitecture)
-                        return value.toObject();
-                }
-            }
-            return options.isEmpty() ? QJsonObject{} : options.first().toObject();
-        }
-        QStringList labels;
+        if (options.isEmpty())
+            return {};
+
+        QDialog dialog(modelWorkspacePage);
+        dialog.setObjectName("ModelArchitectureDialog");
+        dialog.setWindowTitle(title);
+        dialog.setModal(true);
+        auto* layout = new QVBoxLayout(&dialog);
+        auto* prompt = new QLabel("Architecture:", &dialog);
+        auto* architectureCombo = new QComboBox(&dialog);
+        architectureCombo->setObjectName("ModelArchitectureCombo");
+        architectureCombo->setMinimumWidth(360);
         for (const auto& value : options) {
             const QJsonObject option = value.toObject();
-            QString label = registryString(option, "user_facing_label");
+            QString label = registryString(option, "user_facing_label").trimmed();
+            if (label.isEmpty())
+                label = registryString(option, "display_name").remove(QRegularExpression("^(Blank|Pre-trained)\\s+"));
             if (option.value("recommended").toBool())
                 label += " (Recommended)";
-            labels << label;
+            architectureCombo->addItem(label, registryString(option, "architecture_id"));
         }
-        bool accepted = false;
-        const QString selected = QInputDialog::getItem(modelWorkspacePage, title, "Architecture:", labels, 0, false,
-                                                       &accepted);
-        if (!accepted)
+        auto* buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        layout->addWidget(prompt);
+        layout->addWidget(architectureCombo);
+        layout->addWidget(buttons);
+        QObject::connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+        QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+        if (qEnvironmentVariableIsSet(kVerifyAddButtonsEnv) || qEnvironmentVariableIsSet(kVerifyListManagementEnv)) {
+            const QString requestedArchitecture = qEnvironmentVariable(kVerifyArchitectureEnv).trimmed();
+            const int requestedIndex = architectureCombo->findData(requestedArchitecture);
+            architectureCombo->setCurrentIndex(requestedIndex >= 0 ? requestedIndex : 0);
+            QTimer::singleShot(0, &dialog, [&dialog, architectureCombo, title]() {
+                architectureCombo->showPopup();
+                QCoreApplication::processEvents();
+                const QString captureDir = qEnvironmentVariable("OVDS_VERIFY_MODEL_ADD_DIALOG_CAPTURE_DIR").trimmed();
+                if (!captureDir.isEmpty()) {
+                    QDir().mkpath(captureDir);
+                    const QString captureName = title.contains("pre-trained", Qt::CaseInsensitive)
+                                                    ? QString("add-pretrained-model.png")
+                                                    : QString("add-blank-model.png");
+                    dialog.grab().save(QDir(captureDir).filePath(captureName));
+                    const QString popupName = title.contains("pre-trained", Qt::CaseInsensitive)
+                                                  ? QString("add-pretrained-model-options.png")
+                                                  : QString("add-blank-model-options.png");
+                    architectureCombo->view()->grab().save(QDir(captureDir).filePath(popupName));
+                }
+                architectureCombo->hidePopup();
+                dialog.accept();
+            });
+        }
+
+        if (dialog.exec() != QDialog::Accepted)
             return {};
-        const int selectedIndex = labels.indexOf(selected);
-        return selectedIndex >= 0 ? options.at(selectedIndex).toObject() : QJsonObject{};
+        const int selectedIndex = architectureCombo->currentIndex();
+        return selectedIndex >= 0 && selectedIndex < options.size() ? options.at(selectedIndex).toObject()
+                                                                     : QJsonObject{};
     };
     auto removeSelectedModel = [=](bool requireConfirmation) -> QString {
         const int row = modelRegistryList->currentRow();

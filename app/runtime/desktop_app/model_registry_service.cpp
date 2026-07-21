@@ -779,7 +779,21 @@ QJsonObject makePackagedModernModelRegistryEntry(const QString& architectureId, 
     for (const QJsonValue& value : manifest.value("entries").toArray()) {
         QJsonObject packagedEntry = value.toObject();
         if (registryString(packagedEntry, "registry_entry_id").compare(registryEntryId, Qt::CaseInsensitive) == 0) {
-            packagedEntry["package_path"] = QString("models/templates/%1/%2").arg(origin, architecture);
+            const QString family = mobile ? QString("MobileNetV3-Small") : QString("EfficientNet-B0");
+            const QString qualifier = mobile ? QString("Faster") : QString("More Accurate");
+            const QString base = QString("models/templates/%1/%2").arg(origin, architecture);
+            // model-registry-v3 deliberately persists only four fields.  The
+            // Add Model UI, however, needs the package metadata that was
+            // intentionally removed from that compact registry.  Rehydrate
+            // those runtime-only fields here so both choices have distinct,
+            // readable labels and carry their actual architecture/package.
+            packagedEntry["package_path"] = base;
+            packagedEntry["architecture_id"] = architecture;
+            packagedEntry["origin"] = origin;
+            packagedEntry["user_facing_label"] = QString("%1 — %2").arg(family, qualifier);
+            packagedEntry["recommended"] = mobile;
+            packagedEntry["model_path"] = base + "/model.onnx";
+            packagedEntry["metadata_path"] = base + "/metadata.json";
             packagedEntry.remove("model_sha256");
             packagedEntry.remove("metadata_sha256");
             packagedEntry.remove("model_sidecars");

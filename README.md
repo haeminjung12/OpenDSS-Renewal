@@ -1,6 +1,6 @@
 # OpenDSS
 
-OpenDSS is a Windows application for viewing, classifying, and sorting droplets in a laboratory workflow. It brings camera viewing, trained-model testing, and optional sorting hardware controls into one desktop program.
+OpenDSS is a Windows application for viewing, classifying, and sorting droplets in a laboratory workflow. A complete laboratory installation uses a supported Hamamatsu camera and National Instruments DAQ hardware.
 
 <p align="center">
   <img src="assets/branding/opendss-primary-full-color.svg" alt="OpenDSS logo" width="520">
@@ -13,7 +13,70 @@ OpenDSS is a Windows application for viewing, classifying, and sorting droplets 
 3. Double-click the downloaded file and follow the installer.
 4. Open **OpenDSS** from the Start menu.
 
-The installer includes the Microsoft components needed to open OpenDSS. You do not need a camera or sorting device to explore the Models Library or test a model. Model predictions use the computer's processor by default.
+The installer includes the Microsoft Visual C++ components needed to open OpenDSS. Before operating the complete system, install the camera and DAQ prerequisites below, then set up Python if you will train or test models.
+
+## Required Laboratory Hardware And Drivers
+
+These are prerequisites for the complete OpenDSS laboratory workflow. They are not bundled in `OpenDSSSetup.exe`.
+
+### Hamamatsu camera
+
+Connect a supported Hamamatsu camera and install Hamamatsu's DCAM runtime/driver before using Live View:
+
+- [DCAM-API for Windows](https://www.hamamatsu.com/jp/en/product/cameras/driver-software/dcam-api-for-windows.html)
+- [DCAM-SDK4](https://www.hamamatsu.com/all/en/product/cameras/software/driver-software/dcam-sdk4.html)
+
+### National Instruments DAQ
+
+Connect supported National Instruments DAQ hardware and install NI-DAQmx before using sorting or trigger output:
+
+- [Download the official NI-DAQmx installer](https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html?srsltid=AfmBOoripP8sW1nXF0W7AAqlBqDBFPvAkvA-Otli6j6Q3Jcj7YSqsefx#590033)
+- [How to install NI-DAQmx](https://download.ni.com/support/manuals/373235aa.pdf)
+
+After installing either vendor driver, restart Windows before connecting through OpenDSS.
+
+## Set Up Python For Models
+
+Training and trainer-side model testing require **64-bit Python 3.12.x**. Python and the managed training environment are not inside the installer.
+
+1. Download and install [Python 3.12 for Windows (64-bit)](https://www.python.org/downloads/windows/). Keep the Python Launcher selected. **Add Python to PATH is not required** because the setup commands use the `py` launcher.
+2. Open Windows PowerShell.
+3. Go to the training tools installed with OpenDSS:
+
+```powershell
+Set-Location "$env:ProgramFiles\OpenDSS\training\python"
+```
+
+4. Choose one environment:
+
+CPU works on every supported computer:
+
+```powershell
+.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
+.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
+```
+
+GPU training requires a compatible NVIDIA GPU and a current [NVIDIA driver](https://www.nvidia.com/Download/index.aspx). The current packaged GPU environment uses CUDA 13.0 PyTorch wheels:
+
+```powershell
+.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu"
+.\scripts\windows\install-training-gpu-cu130.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu"
+```
+
+The package also contains `install-training-gpu-cu128.ps1` for computers that have been qualified for that CUDA 12.8 environment. Do not run both GPU installers in the same environment.
+
+5. Verify the environment. Use `cpu` and `training-venv` for CPU, or `cuda` and `training-venv-gpu` for GPU:
+
+```powershell
+.\scripts\windows\verify-training-env.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu" -Device cuda -CheckOutput "$env:LOCALAPPDATA\OpenVisualDropletSorter\trainer_env_check"
+```
+
+The command must end with `Training environment verification passed.` The managed Python executables are:
+
+- CPU: `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv\Scripts\python.exe`
+- GPU: `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv-gpu\Scripts\python.exe`
+
+The install scripts register the selected Python with OpenDSS. In **Models > Train**, choose CPU for the CPU environment or GPU for the CUDA environment. Packaged live model inference remains on the qualified CPU path.
 
 ## Start With Models
 
@@ -34,34 +97,14 @@ To train a model:
 
 Datasets are provided separately and are not inside the installer. A completed model contains `metadata.json`, `checkpoint.pth`, and `model.onnx` in one folder.
 
-## Optional Hardware
+## Diagnostic Use Without Hardware
 
-OpenDSS can open and its Models tools can work without any of the hardware below. Install only what your laboratory uses.
-
-### Camera
-
-Live camera use requires a compatible Hamamatsu camera and Hamamatsu's camera software:
-
-- [DCAM-API for Windows](https://www.hamamatsu.com/jp/en/product/cameras/driver-software/dcam-api-for-windows.html)
-- [DCAM-SDK4](https://www.hamamatsu.com/all/en/product/cameras/software/driver-software/dcam-sdk4.html)
-
-### Sorting or trigger output
-
-Sorting output requires compatible National Instruments hardware and NI-DAQmx:
-
-- [Download the official NI-DAQmx installer](https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html?srsltid=AfmBOoripP8sW1nXF0W7AAqlBqDBFPvAkvA-Otli6j6Q3Jcj7YSqsefx#590033)
-- [How to install NI-DAQmx](https://download.ni.com/support/manuals/373235aa.pdf)
-
-### Faster training with an NVIDIA GPU
-
-GPU training requires a compatible NVIDIA graphics card and current NVIDIA driver. OpenDSS includes setup scripts under `training\python\scripts\windows` for the supported GPU environments. Use `install-training-gpu-cu130.ps1` or `install-training-gpu-cu128.ps1`, depending on the target computer's driver. CPU training remains available through `install-training-cpu.ps1`.
-
-These scripts install the training tools; they do not change the NVIDIA driver. Packaged model predictions continue to use the qualified CPU path.
+OpenDSS can be launched without connected laboratory hardware to inspect the interface, open diagnostics, and work with already packaged models. This no-hardware diagnostic mode does not replace the camera, DCAM, NI DAQ, or NI-DAQmx prerequisites for operating the complete droplet-sorting system.
 
 ## Troubleshooting
 
 - **OpenDSS does not open:** restart Windows after installation, then try again. If it still fails, open **Information > Diagnostics** and record any message shown.
-- **Camera or sorting hardware is unavailable:** OpenDSS can still use Models. Install the matching optional driver above before using that hardware.
+- **Camera or sorting hardware is unavailable:** use the no-hardware diagnostic mode only. Install and connect all required laboratory hardware and drivers before operating the full system.
 - **GPU is unavailable in Train:** update the NVIDIA driver and run one bundled GPU setup script. Choose CPU to continue without GPU setup.
 - **A model will not load:** confirm its folder contains all three model files. Open **Information > Diagnostics** for a short cause and expand **Detailed Log** for technical details.
 - **Training is rejected:** review the class labels and balance in the selected dataset. OpenDSS rejects a model that learns to predict only one class instead of silently saving an unusable result.

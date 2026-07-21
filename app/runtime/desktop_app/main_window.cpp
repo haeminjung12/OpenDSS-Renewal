@@ -248,7 +248,11 @@ QString resolvedTrainerPythonExecutable(const QString& savedValue, const QString
     if (QFileInfo(saved).isFile()) {
         const bool savedIsKnownCpu = sameCleanPath(saved, cpuPython) || sameCleanPath(saved, legacyCpuPython);
         const bool savedIsKnownGpu = sameCleanPath(saved, gpuPython) || sameCleanPath(saved, legacyGpuPython);
-        if ((savedIsKnownCpu || savedIsKnownGpu) && wantsGpu != savedIsKnownGpu)
+        // Auto accepts either validated environment. Only an explicit device
+        // selection may replace a known environment with its matching peer.
+        if ((savedIsKnownCpu || savedIsKnownGpu) &&
+            ((normalizedDevice == QLatin1String("cpu") && savedIsKnownGpu) ||
+             (normalizedDevice == QLatin1String("cuda") && savedIsKnownCpu)))
             return preferred;
         return saved;
     }
@@ -1099,6 +1103,21 @@ int runTrainerSetupStatusVerifierAppOwned() {
             qInfo().noquote() << "TRAINER SETUP STATUS VERIFY PASS:" << message;
         }
     };
+
+    QTemporaryDir configuredEnvironment;
+    const QString configuredGpuPython = configuredEnvironment.filePath(QStringLiteral("training-venv-gpu/python.exe"));
+    QDir().mkpath(QFileInfo(configuredGpuPython).absolutePath());
+    QFile configuredPythonFile(configuredGpuPython);
+    require(configuredPythonFile.open(QIODevice::WriteOnly),
+            "Verifier creates a bounded configured GPU interpreter fixture");
+    configuredPythonFile.close();
+    require(sameCleanPath(resolvedTrainerPythonExecutable(configuredGpuPython, QStringLiteral("auto")),
+                          configuredGpuPython),
+            "Auto preserves an existing valid configured GPU interpreter");
+    const QString nonexistentPython = configuredEnvironment.filePath(QStringLiteral("missing/python.exe"));
+    const QString recoveredMissing = resolvedTrainerPythonExecutable(nonexistentPython, QStringLiteral("auto"));
+    require(!QFileInfo(recoveredMissing).isFile() || !sameCleanPath(recoveredMissing, nonexistentPython),
+            "A nonexistent configured interpreter cannot be treated as Ready or persisted as itself");
 
     require(QFileInfo(expectedPython).isFile() &&
                 (sameCleanPath(expectedPython, documentedTrainerPythonExecutable(QStringLiteral("training-venv"))) ||
@@ -1960,8 +1979,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     const QString initialTrainerPython =
         resolvedTrainerPythonExecutable(trainerPythonSettings.value("settings/pythonTrainer").toString(),
                                         selectedComputeDevice());
-    trainerPythonSettings.setValue("settings/pythonTrainer", initialTrainerPython);
-    trainerPythonSettings.sync();
+    if (QFileInfo(initialTrainerPython).isFile()) {
+        trainerPythonSettings.setValue("settings/pythonTrainer", initialTrainerPython);
+        trainerPythonSettings.sync();
+    }
     auto trainerPythonEdit = new QLineEdit(QDir::toNativeSeparators(initialTrainerPython));
     auto trainerPythonBrowseBtn = new QPushButton("Browse");
     auto trainerStartingModelCombo = new QComboBox;
@@ -4855,12 +4876,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             python = recovered;
             trainerPythonEdit->setText(QDir::toNativeSeparators(recovered));
             QSettings settings;
-            settings.setValue("settings/pythonTrainer", recovered);
-            settings.sync();
+            if (QFileInfo(recovered).isFile()) {
+                settings.setValue("settings/pythonTrainer", recovered);
+                settings.sync();
+            }
         }
         if (!QFileInfo(python).isFile()) {
-            setTrainerSummary("Training tools are not installed or configured.",
-                              "Open Settings and configure the Python trainer before continuing.");
+            setTrainerSummary("Python executable is missing.",
+                              "Setup stage: executable check. Path: " + QDir::toNativeSeparators(python));
             pythonStatusItem->setText("Python: setup required");
             return;
         }
@@ -4979,8 +5002,18 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         }
                     }
                 } else {
-                    setTrainerSummary(ok ? "Python setup checked." : "Python setup check failed.",
-                                      ok ? QString() : "Review the detailed log for the failure.");
+                    const bool requestedCuda = selectedComputeDevice() == QLatin1String("cuda");
+                    const bool cudaUnavailable = trainerStdoutLog.contains(QStringLiteral("cuda_available\": false"),
+                                                                            Qt::CaseInsensitive) ||
+                                                 trainerStdoutLog.contains(QStringLiteral("CUDA: unavailable"),
+                                                                            Qt::CaseInsensitive);
+                    setTrainerSummary(ok ? "Python setup ready. You can train the model."
+                                         : (requestedCuda && cudaUnavailable
+                                                ? "Python setup is incompatible with the requested GPU device."
+                                                : "Python environment check failed."),
+                                      ok ? QString()
+                                         : QString("Setup stage: environment/device check. Path: %1")
+                                               .arg(QDir::toNativeSeparators(trainerPythonEdit->text().trimmed())));
                     updateTrainerSetupDetailsFromEnvCheck(trainerStdoutLog, exitCode, crashed);
                 }
                 pythonStatusItem->setText(ok ? "Python: ready" : "Python: issue");
@@ -5353,6 +5386,23 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 return;
             }
 
+            if (!failures.isEmpty()) {
+                finish(2);
+                return;
+            }
+
+            trainerEnvCheckBtn->click();
+            QElapsedTimer setupTimer;
+            setupTimer.start();
+            while (trainerProcess && trainerProcess->state() != QProcess::NotRunning &&
+                   setupTimer.elapsed() < timeoutMs) {
+                waitForUi(100);
+            }
+            const QString setupStatus = trainerStatusLabel->text();
+            require(!trainerProcess && setupStatus.contains(QStringLiteral("ready"), Qt::CaseInsensitive),
+                    "Successful Setup completes and enables the existing training action");
+            require(trainerStartTrainingBtn->isEnabled(),
+                    "Train model is enabled after successful Setup");
             if (!failures.isEmpty()) {
                 finish(2);
                 return;

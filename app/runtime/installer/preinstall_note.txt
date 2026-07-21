@@ -1,7 +1,7 @@
 Pre-install requirements
 
 - Hamamatsu DCAM runtime/driver is required only for camera acquisition. The Models workspace can be installed and tested without camera hardware or DCAM. The installer does not bundle DCAM.
-- Microsoft Visual C++ Redistributable x64 may be required on clean target machines. Install it from Microsoft if the application does not launch because the MSVC runtime is missing. The installer does not bundle or run the redistributable installer.
+- The installer includes the required Microsoft Visual C++ x64 runtime and installs or updates it automatically when needed.
 - This installer layers on the validated portable package output. It copies the packaged application, models, and bundled `training\python` source/scripts/docs, but it does not bundle Python, virtual environments, datasets, checkpoints, smoke outputs, or generated training/model outputs.
 - Python trainer dependencies remain external. If you need the packaged training tools, create a separate venv from the bundled `training\python` content after install and follow its Windows setup scripts.
 - Packaged ONNX inference uses the qualified CPU provider. Optional NVIDIA CUDA support accelerates PyTorch training and trainer-side testing; install it through one bundled GPU environment script after installing a compatible NVIDIA driver.

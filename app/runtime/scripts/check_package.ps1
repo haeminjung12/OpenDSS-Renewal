@@ -4,6 +4,7 @@ param(
     [string]$SourceRoot = (Resolve-Path "$PSScriptRoot\..").Path,
     [string]$NiInstaller = "",
     [string]$VcRedist = "",
+    [switch]$RequireVcRedist,
     [switch]$RequireInstallerInputs,
     [switch]$RequireExternalRuntimes,
     [switch]$WriteManifest,
@@ -169,6 +170,34 @@ function Test-OnnxRuntimePackage {
         Add-CheckResult -List $List -Name "ONNX Runtime source hash" -Status "warn" -Path $ExpectedDll -Detail $message
         [void]$Warnings.Add($message)
     }
+}
+
+function Test-VcRedist {
+    param(
+        [System.Collections.ArrayList]$List,
+        [System.Collections.ArrayList]$Errors,
+        [string]$Path,
+        [bool]$Required
+    )
+    if (-not $Path -or -not (Test-Path -LiteralPath $Path)) {
+        if ($Required) {
+            Add-CheckResult -List $List -Name "Microsoft VC++ x64 runtime payload" -Status "fail" -Path $Path -Detail "Required installer payload is missing."
+            [void]$Errors.Add("Required Microsoft VC++ x64 runtime payload is missing: $Path")
+        }
+        return
+    }
+    $file = Get-Item -LiteralPath $Path
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    $validMicrosoft = $file.Length -gt 0 -and
+        $signature.Status -eq [System.Management.Automation.SignatureStatus]::Valid -and
+        $signature.SignerCertificate.Subject -match '(^|, )O=Microsoft Corporation(,|$)'
+    if (-not $validMicrosoft) {
+        Add-CheckResult -List $List -Name "Microsoft VC++ x64 runtime payload" -Status "fail" -Path $Path -Detail "Payload is empty, unsigned, untrusted, or not signed by Microsoft."
+        [void]$Errors.Add("Invalid Microsoft VC++ x64 runtime payload: $Path")
+        return
+    }
+    $detail = "Version=$($file.VersionInfo.ProductVersion); SHA256=$((Get-FileHash -Algorithm SHA256 -LiteralPath $Path).Hash)"
+    Add-CheckResult -List $List -Name "Microsoft VC++ x64 runtime payload" -Status "pass" -Path $Path -Detail $detail
 }
 
 function Test-JsonFile {
@@ -358,6 +387,7 @@ if ($WriteManifest) {
     $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $packageManifestPath -Encoding UTF8
     Write-Host "Package manifest written to: $packageManifestPath"
 }
+Test-VcRedist -List $checks -Errors $errors -Path $VcRedist -Required ([bool]$RequireVcRedist)
 
 foreach ($warning in $warnings) {
     Write-Warning $warning

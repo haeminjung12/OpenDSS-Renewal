@@ -10,6 +10,7 @@ param(
     [string]$OutputDir = "",
     [string]$NiInstaller = "",
     [string]$VcRedist = "",
+    [string]$VcRedistUrl = "https://aka.ms/vc14/vc_redist.x64.exe",
     [string]$InnoSetup = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     [switch]$CopyNidaq
 )
@@ -37,9 +38,6 @@ if ($OutputDir.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCas
 if ($NiInstaller) {
     Write-Warning "Ignoring -NiInstaller. Public installers do not bundle NI-DAQmx installer payloads; users must install NI-DAQmx from NI before using DAQ output."
 }
-if ($VcRedist) {
-    Write-Warning "Ignoring -VcRedist. Public installers do not bundle Microsoft Visual C++ Redistributable payloads; users must install it from Microsoft if needed."
-}
 if ($CopyNidaq) {
     Write-Warning "Copying NI-DAQmx runtime DLLs was requested. Use this only for internal validation with documented redistribution approval, not for prerequisite-only public releases."
 }
@@ -47,6 +45,26 @@ if ($CopyNidaq) {
 if (-not (Test-Path $InnoSetup)) {
     throw "Inno Setup compiler not found: $InnoSetup"
 }
+
+if (-not $VcRedist) {
+    $prerequisiteDir = Join-Path $RepoParent "artifacts\internal-release\prerequisites"
+    New-Item -ItemType Directory -Path $prerequisiteDir -Force | Out-Null
+    $VcRedist = Join-Path $prerequisiteDir "vc_redist.x64.exe"
+    Write-Host "Downloading the official Microsoft Visual C++ x64 runtime..."
+    Invoke-WebRequest -Uri $VcRedistUrl -OutFile $VcRedist
+}
+$VcRedist = (Resolve-Path -LiteralPath $VcRedist).Path
+$vcFile = Get-Item -LiteralPath $VcRedist
+if ($vcFile.Length -le 0) { throw "VC++ Redistributable payload is empty: $VcRedist" }
+$vcSignature = Get-AuthenticodeSignature -LiteralPath $VcRedist
+if ($vcSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+    $vcSignature.SignerCertificate.Subject -notmatch '(^|, )O=Microsoft Corporation(,|$)') {
+    throw "VC++ Redistributable must have a valid Microsoft Authenticode signature: $VcRedist"
+}
+$vcVersion = $vcFile.VersionInfo.ProductVersion
+if (-not $vcVersion) { throw "VC++ Redistributable ProductVersion is missing: $VcRedist" }
+$vcSha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $VcRedist).Hash
+Write-Host "Validated VC++ Redistributable $vcVersion ($vcSha256)"
 
 $packageScript = Join-Path $SourceRoot "scripts\package_portable.ps1"
 if (-not (Test-Path $packageScript)) {
@@ -75,7 +93,9 @@ $checkScript = Join-Path $SourceRoot "scripts\check_package.ps1"
 & $checkScript `
     -PackageDir $packageDir `
     -SourceRoot $SourceRoot `
-    -WriteManifest
+    -WriteManifest `
+    -VcRedist $VcRedist `
+    -RequireVcRedist
 if ($LASTEXITCODE -ne 0) {
     throw "Package check failed before installer build with exit code $LASTEXITCODE"
 }
@@ -89,10 +109,22 @@ if (-not (Test-Path $issPath)) {
 
 $defineSource = "/DSourceDir=`"$packageDir`""
 $defineOut = "/DOutputDir=`"$OutputDir`""
+$defineVcRedist = "/DVcRedist=`"$VcRedist`""
+$defineVcVersion = "/DVcRedistVersion=`"$vcVersion`""
 
-& $InnoSetup $defineSource $defineOut $issPath
+& $InnoSetup $defineSource $defineOut $defineVcRedist $defineVcVersion $issPath
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed with exit code $LASTEXITCODE"
 }
 
+$installerPath = Join-Path $OutputDir "OpenDSSSetup.exe"
+if (-not (Test-Path -LiteralPath $installerPath)) { throw "Installer output was not created: $installerPath" }
+$installerFile = Get-Item -LiteralPath $installerPath
+if ($installerFile.Length -le $vcFile.Length) { throw "Installer is too small to contain the validated VC++ runtime payload." }
+$evidence = [ordered]@{
+    schema_version = "opendss-installer-evidence-v1"
+    installer = [ordered]@{ path = $installerPath; size = $installerFile.Length; product_version = $installerFile.VersionInfo.ProductVersion; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath).Hash }
+    vc_redist = [ordered]@{ path = $VcRedist; size = $vcFile.Length; product_version = $vcVersion; sha256 = $vcSha256; signature_status = [string]$vcSignature.Status; signer = $vcSignature.SignerCertificate.Subject }
+}
+$evidence | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDir "installer_evidence.json") -Encoding UTF8
 Write-Host "Installer created in: $OutputDir"

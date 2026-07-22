@@ -34,6 +34,25 @@ add_test(
   COMMAND opendss_event_direction_test
 )
 
+add_executable(opendss_detector_characterization_test
+  detector_characterization_test.cpp
+)
+
+target_include_directories(opendss_detector_characterization_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(opendss_detector_characterization_test PRIVATE
+  opendss_runtime
+  ${OpenCV_LIBS}
+)
+
+add_test(
+  NAME opendss_detector_characterization_test
+  COMMAND opendss_detector_characterization_test
+)
+
 add_executable(opendss_trainer_plot_math_test
   trainer_plot_math_test.cpp
 )

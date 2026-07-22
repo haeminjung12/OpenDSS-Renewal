@@ -26,6 +26,10 @@ qt_add_resources(${CMAKE_PROJECT_NAME} "configuration"
     FILES
         qtquickcontrols2.conf)
 
+if (NOT BUILD_QDS_COMPONENTS AND NOT TARGET QtQuickDesignerComponents)
+    add_library(QtQuickDesignerComponents INTERFACE)
+endif()
+
 include(qds)
 
 if (BUILD_QDS_COMPONENTS)

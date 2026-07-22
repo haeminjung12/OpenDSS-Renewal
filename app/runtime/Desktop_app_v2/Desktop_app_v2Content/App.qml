@@ -2,16 +2,18 @@ import QtQuick
 import Desktop_app_v2
 
 Window {
-    width: mainScreen.width
-    height: mainScreen.height
+    width: Constants.width
+    height: Constants.height
+    minimumWidth: 1280
+    minimumHeight: 720
 
     visible: true
-    title: "Desktop_app_v2"
+    title: qsTr("OpenDSS")
 
     Screen01 {
         id: mainScreen
 
-        anchors.centerIn: parent
+        anchors.fill: parent
     }
 
 }

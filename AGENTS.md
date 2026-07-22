@@ -253,3 +253,28 @@ Before consolidating, deleting, replacing, or materially changing a protected mo
 - User-facing detector, crop, routing, internal timing, and training hyperparameter controls must not be restored from old code.
 - One authoritative owner must exist for each domain state.
 - Duplicated widget-local state must not become the v2 architecture.
+
+## Required v2 task context
+
+For v2 implementation work:
+
+1. Read `AGENTS.md`.
+2. Read `docs/v2/CONTEXT.md`.
+3. Read `docs/v2/implementation/current-slice.md`.
+4. Read only the canonical sections referenced by the current slice.
+5. Report a conflict instead of silently resolving it.
+6. Work on one approved slice at a time.
+
+## Lean implementation rules
+
+- Make the smallest coherent change that satisfies the current slice. Prefer direct, conventional code over generalized frameworks, and do not add code for hypothetical future requirements.
+- Every new production class, function, field, flag, and abstraction must have an immediate production consumer or a required characterization test.
+- Do not add unused hooks, placeholder APIs, commented-out implementations, speculative configuration, or TODO scaffolding.
+- Do not add a factory, registry, plugin system, strategy selector, service locator, or dependency-injection framework unless the current slice demonstrates the need.
+- A hardware or test boundary may justify a narrow interface limited to behavior currently required by real consumers.
+- Do not maintain duplicate authoritative state or retain an obsolete path merely “in case.”
+- A temporary parallel implementation requires a documented reason, a concrete removal condition, and tests protecting the retained behavior.
+- Remove code made unreachable by the current slice when removal is safe, tested, and in scope. When immediate removal is unsafe, identify the exact missing evidence instead of creating permanent compatibility machinery.
+- Preserve qualified DCAM, NI-DAQmx, detector, ONNX, trainer, export, and persistence mechanics unless the current slice explicitly authorizes a behavior change.
+- Do not perform broad cleanup or unrelated refactoring in a feature PR. New code must not introduce avoidable warnings.
+- Comments explain non-obvious constraints or rationale; they do not narrate straightforward code.

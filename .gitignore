@@ -2,6 +2,7 @@
 build*/
 out/
 artifacts/
+app/runtime/Desktop_app_v2App-Debug/
 *.obj
 *.pdb
 *.ilk

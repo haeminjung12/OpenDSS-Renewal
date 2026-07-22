@@ -2,7 +2,20 @@
 
 ## Status
 
-Planned — awaiting implementation authorization.
+Planned — Qt Design Studio application bootstrap generated and build-verified; awaiting the approved shell/Single Image visual baseline and implementation authorization.
+
+## Qt Design Studio bootstrap gate
+
+Bootstrap infrastructure completed on 2026-07-22:
+
+1. Qt Design Studio generated the application at `app/runtime/Desktop_app_v2/` in this working tree.
+2. The CMake Generator is enabled and the generated project configures successfully.
+3. Qt Creator builds the generated project with the Desktop Qt 6.11.1 MinGW 64-bit kit using the external build directory `C:\Users\goals\qtbuild\odss-v2-dbg`.
+4. Qt Creator 20.0.0 exposes its local MCP server through Streamable HTTP at `http://127.0.0.1:45678/`; repository-scoped Codex configuration records that exact root endpoint.
+
+The generated starter form remains untouched and is not the approved OpenDSS shell/Single Image visual design. Before production integration begins, create and approve that visual baseline as `*.ui.qml` forms with deterministic `MockDatas/` projections, verify 2D view and Live Preview, and commit it separately. Do not connect DCAM, DAQ, persistence, or other production services during that visual step.
+
+Codex must not synthesize a replacement for the Qt Design Studio-generated shell. After the baseline exists, every work order must list authorized visual forms, read-only visual forms, runtime wrappers, C++/mock/test files, durable CMake integration files, and generated files that must not be edited.
 
 ## Objective
 
@@ -76,6 +89,8 @@ The new executable launches independently of laboratory hardware and opens at **
 - Open or validate the `.ui.qml` forms and check keyboard focus, 1280×720 minimum layout, and relevant scaling states.
 - Run relevant automated tests and inspect changed files for unused or speculative code.
 - Confirm the legacy executable and shared low-level code were not modified. The legacy executable need not be rebuilt unless shared existing code changes; this slice should avoid such changes.
+- Confirm every modified `*.ui.qml` file still opens in Qt Design Studio's 2D view and that Live Preview renders each required mock state.
+- Run `qmllint` and relevant Qt Quick Tests with the Qt 6 kit selected for the generated project.
 
 ## Acceptance criteria
 

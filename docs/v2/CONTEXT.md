@@ -48,5 +48,7 @@ These documents provide engineering evidence and recommendations. They do not ha
 - Reusable-core audit completed.
 - Reuse-first implementation plan completed.
 - P0-1 detector characterization and neutral-contract work is completed and remains accepted groundwork.
-- The Qt Quick/QML v2 Shell and Mock Single Image slice is next and remains planned pending implementation authorization.
+- The Qt Design Studio designer/developer workflow and form-wrapper-controller boundary are adopted as implementation constraints.
+- The untouched Qt Design Studio-generated application baseline exists at `app/runtime/Desktop_app_v2/` and builds with the Desktop Qt 6.11.1 MinGW 64-bit kit.
+- The Qt Quick/QML v2 Shell and Mock Single Image slice is next and remains planned pending the approved shell/Single Image visual baseline and implementation authorization.
 - Real DCAM preview and TIFF capture are a separate later slice.

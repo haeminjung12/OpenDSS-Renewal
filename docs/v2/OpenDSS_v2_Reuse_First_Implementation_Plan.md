@@ -46,7 +46,17 @@ Package-specific commands below add targeted tests. A missing vendor SDK, hardwa
 
 ## Ordered work packages
 
+### Current implementation sequence
+
+- **Completed groundwork:** P0-1 detector characterization and neutral-contract work is accepted and must not be revisited or expanded by the next slice.
+- **Next:** Qt Quick/QML v2 Shell and Mock Single Image, as defined by [`implementation/current-slice.md`](implementation/current-slice.md). This is a deterministic hardware-independent shell and presentation slice.
+- **Later:** connect the existing DCAM implementation to the v2 Camera boundary, display a real preview, capture one frame, save one real TIFF, and perform physical-camera qualification.
+
+The existing package identifiers below remain as the longer-range reuse inventory; this sequencing note controls the immediate implementation order without renumbering every package.
+
 ## P0-1 — Detector contract and consolidation
+
+**Status:** Completed and accepted groundwork.
 
 ### Objective
 
@@ -953,16 +963,15 @@ P0-1 Detector contract/adapters/evidence
 
 P1 packages may overlap only where their contracts are already accepted and they do not create two authoritative owners. Hardware-dependent acceptance remains sequential at the affected boundary.
 
-## Recommended first implementation PR
+## Next implementation slice
 
-The first implementation PR should be **“runtime: add v2 detector contract and characterization adapters.”** It should implement only the evidence-building portion of P0-1:
+P0-1 is completed. The next implementation slice is **Qt Quick/QML v2 Shell and Mock Single Image**, pending separate implementation authorization. It should:
 
-- add `IDropletDetector` and neutral observation/readiness/event-transition result types;
-- add `FastEventDetectorAdapter` and `EventDetectorAdapter` without changing either underlying algorithm;
-- make Fast the fixed provisional production implementation through an internal factory;
-- add the representative replay corpus, detection comparison, crop parity, and timing benchmark;
-- explicitly decompose `FastEventResult::fired` instead of copying it into the new contract;
-- keep DAQ, Hit/Waste Decision, inference, workspace state, and UI configuration outside the contract; and
-- delete neither detector and expose no detector selection or parameters to users/workspaces.
+- add a separate Qt Quick/QML v2 executable beside the legacy application;
+- implement the approved shell, navigation, status header, workspace host, operation-side panel, and shared Hardware drawer presentation;
+- start at Data > Capture > Single Image;
+- use one minimal mock authoritative state owner and a narrow fake Camera service;
+- exercise deterministic Single Image presentation states without hardware or production persistence; and
+- keep real DCAM preview, real TIFF capture, and physical-camera qualification for a separate later slice.
 
-The PR review must approve the contract semantics, corpus coverage, acceptable output differences, and performance evidence. A second PR may remove `EventDetector` from production linkage only after the first PR's evidence is reviewed and the required hardware-trigger qualification demonstrates that required behavior and timing are retained. If that evidence is inconclusive, `EventDetector` remains comparison-only behind the internal contract and retirement is deferred.
+The exact scope, constraints, verification, and acceptance criteria are defined in [`implementation/current-slice.md`](implementation/current-slice.md). This planning update does not authorize implementation.

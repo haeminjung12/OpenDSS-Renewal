@@ -25,7 +25,7 @@ Derived engineering documents, including this file, cannot override canonical sp
 | Protected reusable assets | [Repository agent policy](../../AGENTS.md) | Protected reusable technical assets; Change-control rule for protected assets | [Reusable-core audit](audits/OpenDSS_v2_Reusable_Core_Audit.md) |
 | Persistence/threading requirements | [Approved Product Model](source/OpenDSS_v2_Approved_Product_Model.md) plus nonconflicting [Detailed Workflow Specification](source/OpenDSS_Detailed_Workflow_Specification.md) | Product Model §15 Persistence and provenance; Workflow §31 Event persistence | [Reusable-core audit](audits/OpenDSS_v2_Reusable_Core_Audit.md), especially F-E02; [implementation plan](OpenDSS_v2_Reuse_First_Implementation_Plan.md), P0-2 |
 | Qt Design Studio handoff | [Consolidated Product Design Specification](OpenDSS_v2_Consolidated_Product_Design_Specification.md), subordinate and under review | §24 Qt Design Studio and design-handoff contract | — |
-| Current implementation work package | [Reuse-First Implementation Plan](OpenDSS_v2_Reuse_First_Implementation_Plan.md) | P0-1 Detector contract and consolidation | [Current slice](implementation/current-slice.md) |
+| Current implementation work package | [Reuse-First Implementation Plan](OpenDSS_v2_Reuse_First_Implementation_Plan.md) | Current implementation sequence | [Current slice](implementation/current-slice.md) |
 
 ## Existing derived engineering documents
 
@@ -47,5 +47,6 @@ These documents provide engineering evidence and recommendations. They do not ha
 - Design baseline frozen.
 - Reusable-core audit completed.
 - Reuse-first implementation plan completed.
-- Production v2 implementation not yet started.
-- P0-1 is the next implementation slice.
+- P0-1 detector characterization and neutral-contract work is completed and remains accepted groundwork.
+- The Qt Quick/QML v2 Shell and Mock Single Image slice is next and remains planned pending implementation authorization.
+- Real DCAM preview and TIFF capture are a separate later slice.

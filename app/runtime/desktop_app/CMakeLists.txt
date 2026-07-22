@@ -47,6 +47,7 @@ set(OPENDSS_RUNTIME_SOURCES
   ../dataset_capture_session.cpp
   ../cli_runner.cpp
   ../dcam_camera.cpp
+  ../detection/droplet_detector_adapters.cpp
   ../event_detector.cpp
   ../daq_trigger.cpp
   ../fast_event_detector.cpp

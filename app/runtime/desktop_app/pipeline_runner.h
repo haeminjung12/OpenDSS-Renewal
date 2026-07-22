@@ -8,6 +8,7 @@
 #include <opencv2/core.hpp>
 
 #include "../daq_trigger.h"
+#include "../detection/droplet_detector.h"
 #include "../fast_event_detector.h"
 #include "../metadata_loader.h"
 #include "../onnx_classifier.h"
@@ -80,7 +81,7 @@ class PipelineRunner {
     PipelineConfig cfg_;
     Metadata meta_;
     OnnxClassifier classifier_;
-    std::unique_ptr<FastEventDetector> detector_;
+    std::unique_ptr<IDropletDetector> detector_;
     DaqTrigger trigger_;
     bool ready_ = false;
     bool triggerReady_ = false;

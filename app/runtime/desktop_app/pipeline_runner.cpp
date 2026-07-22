@@ -7,6 +7,8 @@
 #include <opencv2/imgcodecs.hpp>
 #include <opencv2/imgproc.hpp>
 
+#include "../detection/droplet_detector_adapters.h"
+
 namespace fs = std::filesystem;
 namespace {
 std::string sanitizeLabel(const std::string& label) {
@@ -81,7 +83,7 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
     resolvedTargetClassId_.clear();
     resolvedTargetDisplayLabel_.clear();
 
-    detector_ = std::make_unique<FastEventDetector>(cfg_.detect);
+    detector_ = std::make_unique<FastEventDetectorAdapter>(cfg_.detect);
     if (cfg_.detectorOnly) {
         ready_ = true;
         return true;
@@ -207,10 +209,9 @@ bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
     out.frameWidth = gray8.cols;
     out.frameHeight = gray8.rows;
 
-    FastEventResult det;
-    detector_->processFrame(gray8, det);
+    const DropletDetectionFrame det = detector_->processFrame(gray8);
     out.detected = det.detected;
-    out.fired = det.fired;
+    out.fired = det.eventEntered;
     out.area = det.area;
     out.bbox = det.bbox;
     out.centroid = det.centroid;
@@ -219,7 +220,7 @@ bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
         return true;
     }
 
-    if (!det.fired)
+    if (!det.eventEntered)
         return true;
 
     cv::Rect bbox = det.bbox & cv::Rect(0, 0, gray8.cols, gray8.rows);

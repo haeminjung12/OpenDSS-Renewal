@@ -16,8 +16,7 @@
 
 #include "daq_trigger.h"
 #include "dcam_camera.h"
-#include "event_detector.h"
-#include "fast_event_detector.h"
+#include "detection/droplet_detector_adapters.h"
 #include "metadata_loader.h"
 #include "onnx_classifier.h"
 
@@ -379,7 +378,12 @@ int run_cli(int argc, char** argv) {
     }
 
     EventDetectorConfig detCfg;
-    EventDetector detector(detCfg);
+    detCfg.minArea = static_cast<int>(minArea < 0.0 ? 40.0 : minArea);
+    detCfg.maxAreaFrac = maxAreaFrac;
+    detCfg.borderMargin = borderMargin;
+    detCfg.sigma = gaussSigma;
+    detCfg.bgMode = getString(args, "--bg-mode", "mean");
+    EventDetectorAdapter preciseDetector(detCfg, resetFrames, minAreaFrac, minBbox, saveOverlay);
 
     FastEventConfig fastCfg;
     fastCfg.bgFrames = bgFrames;
@@ -395,7 +399,7 @@ int run_cli(int argc, char** argv) {
     fastCfg.morphRadius = morphRadius;
     fastCfg.scale = scale;
     fastCfg.gapFireShift = gapFireShift;
-    FastEventDetector fastDetector(fastCfg);
+    FastEventDetectorAdapter fastDetector(fastCfg);
 
     std::vector<cv::Mat> bgStack;
     if (fastMode) {
@@ -454,13 +458,7 @@ int run_cli(int argc, char** argv) {
                 std::cout << "Background frames collected: " << collected << "/" << initFrames << "\n";
             }
         }
-        detCfg.minArea = static_cast<int>(minArea < 0.0 ? 40.0 : minArea);
-        detCfg.maxAreaFrac = maxAreaFrac;
-        detCfg.borderMargin = borderMargin;
-        detCfg.sigma = gaussSigma;
-        detCfg.bgMode = getString(args, "--bg-mode", "mean");
-        detector = EventDetector(detCfg);
-        if (!detector.buildBackground(bgStack, err)) {
+        if (!preciseDetector.buildBackground(bgStack, err)) {
             std::cerr << "Background error: " << err << "\n";
             shutdownCamera();
             return 1;
@@ -473,7 +471,7 @@ int run_cli(int argc, char** argv) {
             cv::imwrite((fs::path(outputDir) / "background.png").string(), fastDetector.background());
         } else {
             cv::Mat bgVis;
-            detector.background().convertTo(bgVis, CV_8U, 255.0);
+            preciseDetector.background().convertTo(bgVis, CV_8U, 255.0);
             cv::imwrite((fs::path(outputDir) / "background.png").string(), bgVis);
         }
     }
@@ -499,8 +497,8 @@ int run_cli(int argc, char** argv) {
     int fpsCount = 0;
     double fps = 0.0;
     auto fpsStart = std::chrono::steady_clock::now();
-    bool triggeredPrecise = false;
-    int noDetectCountPrecise = 0;
+    IDropletDetector* activeDetector = fastMode ? static_cast<IDropletDetector*>(&fastDetector)
+                                                : static_cast<IDropletDetector*>(&preciseDetector);
 
     int timeoutCount = 0;
     while (true) {
@@ -521,39 +519,8 @@ int run_cli(int argc, char** argv) {
         }
 
         cv::Mat gray8 = toGray8(fd.image, fd.meta.bits);
-        bool detected = false;
-        bool fired = false;
-        EventResult ev;
-        FastEventResult fastEv;
-
-        if (fastMode) {
-            fastDetector.processFrame(gray8, fastEv);
-            detected = fastEv.detected;
-            fired = fastEv.fired;
-        } else {
-            ev = detector.detect(gray8, saveOverlay);
-            detected = ev.detected;
-            if (detected) {
-                double imgArea = static_cast<double>(gray8.rows) * static_cast<double>(gray8.cols);
-                if (ev.area < (minAreaFrac * imgArea) || ev.bbox.width < minBbox || ev.bbox.height < minBbox) {
-                    detected = false;
-                }
-            }
-
-            if (detected) {
-                noDetectCountPrecise = 0;
-                if (!triggeredPrecise) {
-                    fired = true;
-                    triggeredPrecise = true;
-                }
-            } else if (triggeredPrecise) {
-                noDetectCountPrecise++;
-                if (noDetectCountPrecise >= resetFrames) {
-                    triggeredPrecise = false;
-                    noDetectCountPrecise = 0;
-                }
-            }
-        }
+        const DropletDetectionFrame detection = activeDetector->processFrame(gray8);
+        const bool fired = detection.eventEntered;
 
         fpsCount++;
         auto now = std::chrono::steady_clock::now();
@@ -567,7 +534,7 @@ int run_cli(int argc, char** argv) {
         if (!fired)
             continue;
 
-        cv::Rect bbox = fastMode ? fastEv.bbox : ev.bbox;
+        cv::Rect bbox = detection.bbox;
         bbox &= cv::Rect(0, 0, gray8.cols, gray8.rows);
         cv::Rect squareRect = makeSquareRect(bbox, gray8.size());
         if (squareRect.width <= 0 || squareRect.height <= 0)
@@ -575,7 +542,7 @@ int run_cli(int argc, char** argv) {
         cv::Mat crop = gray8(squareRect).clone();
         ClassificationResult cls = classifier.classify(crop);
 
-        double areaOut = fastMode ? fastEv.area : ev.area;
+        double areaOut = detection.area;
         std::cout << "[Event] frame=" << frameCounter << " label=" << cls.label << " area=" << areaOut << " bbox=("
                   << bbox.x << "," << bbox.y << "," << bbox.width << "," << bbox.height << ")"
                   << " fps=" << fps << "\n";
@@ -590,9 +557,9 @@ int run_cli(int argc, char** argv) {
                 cv::Mat overlay;
                 cv::cvtColor(gray8, overlay, cv::COLOR_GRAY2BGR);
                 cv::rectangle(overlay, squareRect, cv::Scalar(0, 255, 0), 2);
-                if (!fastMode && !ev.mask.empty()) {
+                if (!fastMode && !detection.mask.empty()) {
                     cv::Mat colorMask;
-                    cv::applyColorMap(ev.mask, colorMask, cv::COLORMAP_JET);
+                    cv::applyColorMap(detection.mask, colorMask, cv::COLORMAP_JET);
                     cv::addWeighted(overlay, 0.6, colorMask, 0.4, 0.0, overlay);
                 }
                 cv::imwrite((base / (name + "_overlay.png")).string(), overlay);

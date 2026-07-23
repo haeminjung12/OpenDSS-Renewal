@@ -50,8 +50,9 @@ Package-specific commands below add targeted tests. A missing vendor SDK, hardwa
 
 - **Completed groundwork:** P0-1 detector characterization and neutral-contract work is accepted and must not be revisited or expanded by the next slice.
 - **Current slice:** visual-only navigation scaffold and Mock Single Image as bounded by [`current-slice.md`](current-slice.md); approved GUI forms and deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`.
-- **Open gate:** generated Qt Design Studio Content CMake registration and the targeted configure/build remain pending because nine new forms are omitted from generated Content CMake. No generated-CMake workaround, production integration, or manual visual acceptance is recorded; the slice remains open until the gate passes.
-- **Next production direction after that gate:** follow the existing dependency chain `P0-2 → P0-3 → P1-4` before the `P1-7` real Camera vertical slice. Each package remains separately authorized and evidence-gated.
+- **Closed build gate:** Qt Design Studio generator registration was committed at `2019cb0`, followed by the visual test-host fix at `26edf96`; configure in `odss-v2-dbg`, both targeted builds, `ShellSingleImage` CTest (1/1), and the offscreen event-loop smoke without QML runtime warnings passed.
+- **Open visual gate:** user-led overall validation remains required in Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a larger 16:9 size, including focus and non-color cues. Automated GUI interaction is not accepted evidence because it was interrupted by user Escape and its first launch lacked the MinGW runtime on `PATH`.
+- **Next production direction after acceptance:** follow the existing dependency chain `P0-2 → P0-3 → P1-4` before the `P1-7` real Camera vertical slice. Each package remains separately authorized and evidence-gated.
 
 The approved UI delivery order is:
 
@@ -1003,7 +1004,7 @@ P1 packages may overlap only where their contracts are already accepted and they
 
 ## Next implementation slice
 
-P0-1 is completed. The previous **Qt Quick/QML v2 Shell and Mock Single Image** baseline established the generated shell but its Single Image-only Capture composition is superseded by the amended D-014 Capture decision. The approved GUI forms and deterministic hardware-free backbone now provide the corrected visual baseline, but the generated Qt Design Studio Content CMake omits nine new forms. No production continuation is authorized until generator registration and the targeted configure/build gate pass; user-led visual acceptance remains unrecorded. After that gate, production work follows `P0-2 → P0-3 → P1-4` before the `P1-7` real Camera vertical slice.
+P0-1 is completed. The previous **Qt Quick/QML v2 Shell and Mock Single Image** baseline established the generated shell but its Single Image-only Capture composition is superseded by the amended D-014 Capture decision. The approved GUI forms and deterministic hardware-free backbone now provide the corrected visual baseline. Generator registration at `2019cb0` and the visual test-host fix at `26edf96` closed the configure/build/test gate; only user-led overall visual acceptance remains. After that acceptance, production work follows `P0-2 → P0-3 → P1-4` before the `P1-7` real Camera vertical slice.
 
 - add a separate Qt Quick/QML v2 executable beside the legacy application;
 - implement the approved shell, navigation, status header, workspace host, operation-side panel, and shared Hardware panel presentation;

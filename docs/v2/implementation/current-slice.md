@@ -4,7 +4,9 @@
 
 User-authorized for Round 1 visual-only scaffold planning and implementation through bounded work orders. Production behavior remains unauthorized.
 
-All approved GUI forms and the deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`. The generated Qt Design Studio Content CMake omits nine new forms, so generator registration and the targeted configure/build gate remain pending. No generated-CMake workaround or production integration was added. This slice remains open until that gate passes; user-led Qt Design Studio/manual visual acceptance is not yet recorded.
+All approved GUI forms and the deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`. Qt Design Studio generator registration was committed at `2019cb0`, followed by the visual test-host fix at `26edf96`. Configure in `odss-v2-dbg`, the `Desktop_app_v2App` and `tst_ShellSingleImage` builds, `ShellSingleImage` CTest (1/1), and the offscreen runtime smoke reaching the event loop with no QML runtime warnings passed. The generated registration/build gate is closed.
+
+This slice remains open only for user-led overall visual validation: Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a representative larger 16:9 size, including keyboard focus and non-color cues. Do not claim an automated GUI interaction pass: that attempt was interrupted by user Escape, and its first launch lacked the MinGW runtime on `PATH`. At validation handoff the tracked worktree was clean, and the protected untracked `Desktop_app_v2.qmlproject.qtds` was preserved.
 
 The earlier baseline committed as `188a649` remains evidence. Its Single Image-only Capture composition, former smaller minimum, and former Hardware placement are superseded and must not be extended.
 
@@ -111,4 +113,4 @@ The approved implementation order is:
 10. Results
 11. Settings
 
-The all-workspace scaffold does not start the later behaviors listed above. Do not begin Full Capture or any later production behavior without explicit authorization after the generated-CMake/build gate and Round 2 acceptance.
+The all-workspace scaffold does not start the later behaviors listed above. Do not begin Full Capture or any later production behavior without explicit authorization after user-led Round 2 visual acceptance.

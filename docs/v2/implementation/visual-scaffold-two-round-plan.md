@@ -8,7 +8,7 @@
 
 This plan authorizes a visual-only navigation scaffold for every approved OpenDSS v2 workspace. It does not authorize speculative controls, operational behavior, production hardware integration, persistence, scientific processing, or later-workspace implementation.
 
-**Current handoff:** Approved GUI forms and the deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`. Generated Qt Design Studio Content CMake registration and the targeted configure/build gate remain pending because nine new forms are omitted from generated Content CMake. No generated-CMake workaround, production integration, or user-led manual visual acceptance is recorded; the slice remains open.
+**Current handoff:** Approved GUI forms and the deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`. Qt Design Studio generator registration was committed at `2019cb0`, followed by the visual test-host fix at `26edf96`. Configure in `odss-v2-dbg`, both targeted builds, `ShellSingleImage` CTest (1/1), and the offscreen event-loop smoke without QML runtime warnings passed, closing the generated registration/build gate. The slice remains open only for user-led overall visual validation in Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a larger 16:9 size, including focus and non-color cues. Automated GUI interaction is not accepted evidence because it was interrupted by user Escape and its first launch lacked the MinGW runtime on `PATH`. The tracked worktree was clean at handoff, and the protected untracked `.qtds` file was preserved.
 
 Canonical product and interaction documents remain authoritative. This plan controls delivery order, worker ownership, and proportional validation.
 
@@ -110,7 +110,7 @@ Round 2 uses two isolated worktrees/branches from the same accepted Round 1 base
 3. Integrate the design result first only when it preserves the frozen interface.
 4. Integrate the backbone result second.
 5. Resolve visual-contract changes by returning them to the owning worker; do not guess during integration.
-6. Complete generated Content CMake registration and the targeted configure/build gate, then obtain Round 2 acceptance. Do not begin Full Capture or production integration automatically.
+6. Obtain user-led Round 2 visual acceptance after the completed generated Content CMake registration and targeted configure/build gate. Do not begin Full Capture or production integration automatically.
 
 ## Minimal validation policy
 

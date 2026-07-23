@@ -50,7 +50,8 @@ Derived engineering documents, including this file, cannot override canonical sp
 - A bounded work order naming exact files is still required before any form, wrapper, mock, test, or CMake input is edited.
 - Validation for these visual rounds is intentionally proportional and user-led: avoid the full legacy/hardware test matrix and prefer manual Qt Design Studio review where practical.
 - The Qt Design Studio designer/developer workflow and form-wrapper-controller boundary remain adopted implementation constraints.
-- Generated Qt Design Studio Content CMake registration and the targeted configure/build gate remain pending because the generated Content CMake omits nine new forms. No generated-CMake workaround or production integration was added; the slice remains open until that gate passes.
-- User-led Qt Design Studio/manual visual acceptance has not yet been recorded.
+- Qt Design Studio generator registration was committed at `2019cb0`, followed by the visual test-host fix at `26edf96`. Configure in `odss-v2-dbg`, the `Desktop_app_v2App` and `tst_ShellSingleImage` builds, `ShellSingleImage` CTest (1/1), and the offscreen event-loop smoke with no QML runtime warnings passed; the generated registration/build gate is closed.
+- The slice remains open only for user-led overall visual validation in Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a larger 16:9 size, including focus and non-color cues. Automated GUI interaction is not accepted evidence: it was interrupted by user Escape, and its first launch lacked the MinGW runtime on `PATH`.
+- The tracked worktree was clean at validation handoff, and the protected untracked `Desktop_app_v2.qmlproject.qtds` was preserved.
 - P0-1 detector characterization and neutral-contract work remains accepted groundwork.
 - Real Camera preview, TIFF capture, DAQ, Training, Live, Sequence Test, Results, persistence, and other production integrations remain later slices requiring explicit authorization.

@@ -37,7 +37,7 @@ The July 23, 2026 UI/UX amendment is incorporated into this product model withou
 - Normal visible failures use the message `Error`; technical details go to the program log under `Settings > Diagnostics`. Paths appear only after confirmed writes, and failure never projects success.
 - Capture retains one shared Camera preview and three independently collapsible bodies under permanently visible headings: Single Image, Image Sequence, and **Droplet Dataset Capture**. Multiple bodies may be open while idle; an active section remains open while the other headings remain visible but disabled.
 - Workspace outer right panels collapse as a whole and share one consistent expanded width, represented by the current 390 px implementation token. Inner disclosure sections retain intrinsic stacking where applicable.
-- Label is dominated by the Droplet Crop grid. Its fixed-width, outer-collapsible right panel contains, in order, **Load Dataset**, **Dataset Summary**, **Label**, **Filter**, and bottom-right **Save As**. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
+- Label is dominated by the Droplet Crop grid. Its fixed-width, outer-collapsible right panel contains, in order, **Load Dataset**, **Dataset Summary**, **Label**, **Filter**, and bottom-right **Save As**. Configured Datasets may switch between two and three classes. Class 0, Class 1, and Class 2 remain visible; Class 2 is disabled while two classes are selected. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
 - **Sequence Viewer** is frame-navigation only. It has no Play, Pause, automatic playback, speed control, or playback lifecycle state.
 - Train collects Dataset, Faster or More Accurate, Model Name, and Save Location before Start. Successful Training automatically saves the Model Package and makes it Active. Save failure retains temporary artifacts, exposes Retry Save, and does not activate the Model. Dataset Summary remains a main white region, with a separate main white Results region below it for the two approved live plots and specified completion tables.
 - Model Test and Sequence Test always use the Active Model and have no local Model selector. The Active Model cannot be replaced or mutated while Model Test, Live, or Sequence Test uses it. Model Test keeps Dataset Summary as a main white region and places its approved metrics, confusion matrix, and prediction summaries in a separate main white Results region below.
@@ -341,20 +341,20 @@ Droplet detection, crop generation, and associated internal timing use fixed qua
 
 Label opens one OpenDSS v2 `dataset.json` through the authoritative Dataset contract.
 
-For a Dataset without configured classes, the scientist selects exactly one initial class schema:
+The scientist selects either supported class schema during initial setup and may switch a configured Dataset between them later:
 
 ```text
 2 Classes: Class IDs 0 and 1
 3 Classes: Class IDs 0, 1, and 2
 ```
 
-Once configured, the class count and Class IDs are immutable; the normal product does not switch or migrate a configured Dataset between two and three classes. Class Names remain editable.
+Numeric Class IDs remain stable identifiers and Class Names remain editable. Switching the selected schema must not silently reassign or discard existing labels. Before a three-class Dataset changes to two classes, any existing Class 2 labels must be resolved explicitly so every retained label is valid under the selected schema.
 
 The Droplet Crop grid dominates the main area. One fixed-width, outer-collapsible right panel contains, in order:
 
 1. **Load Dataset**, a static, always-expanded card/header;
-2. **Dataset Summary**, showing total and labeled counts, the initial two-or-three-class setup for an unconfigured Dataset, or the immutable configured class schema without class-count switching;
-3. **Label**, showing the selected-crop preview and exactly **Class 0**, **Class 1**, **Class 2**, **Exclude**, **Undo**, **Previous**, and **Next**; Class 2 is unavailable for a two-class Dataset;
+2. **Dataset Summary**, showing total and labeled counts plus the selected two-or-three-class schema, which remains switchable for configured Datasets;
+3. **Label**, showing the selected-crop preview and exactly **Class 0**, **Class 1**, **Class 2**, **Exclude**, **Undo**, **Previous**, and **Next**; all three Class actions remain visible, and Class 2 is disabled for a two-class Dataset;
 4. **Filter**, showing class list/count filters and **Excluded** and **Unreviewed** when applicable;
 5. **Save As** at the bottom-right.
 
@@ -788,7 +788,7 @@ They apply immediately while valid, available, and idle.
 The following remain normal user selections rather than technical tuning parameters:
 
 - Dataset;
-- an initial two-class or three-class schema only for a Dataset that has not yet been configured;
+- a two-class or three-class Dataset schema, including switching a configured Dataset while preserving label consistency;
 - Class Names and labels;
 - Model Type: Faster or More Accurate;
 - Model and Active Model;
@@ -1045,7 +1045,7 @@ This ownership table is an architecture constraint for the next phase, not a req
 | D-009 | Setup Profiles | Ordinary files: Open, Save, Save As | No managed profile library |
 | D-010 | Legacy artifacts | Unsupported by product; convert during engineering work | V2-only public loaders |
 | D-011 | Model Test placement | First-class `Models > Model Test` workspace | Retains dedicated test operation |
-| D-012 | Supported classes | Two and three classes, selected only during initial Dataset class setup and immutable once configured | Retains both scientific workflows without class-count switching or migration |
+| D-012 | Supported classes | Two and three classes, switchable after initial Dataset setup | Retains both scientific workflows; Class 0/1/2 remain visible, Class 2 is disabled in two-class mode, and schema changes cannot silently reassign or discard existing labels |
 | D-013 | Results scope | Runs only | Live Sorting and Sequence Test only |
 | D-014 | Capture composition | One shared live Camera preview with three fixed, independently collapsible right-panel sections; all headings always visible, none expanded by default, expanded bodies sharing space and scrolling independently, and active/result visibility preserved | Shared Capture layout |
 | D-015 | Advanced Training Parameters | Not editable | Qualified fixed configurations only |

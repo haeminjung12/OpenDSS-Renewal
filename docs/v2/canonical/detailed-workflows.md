@@ -982,7 +982,7 @@ The same dataset-loading implementation SHALL be used by Label, Train, and Model
 
 ### 14.5 Class definition
 
-For a Dataset without configured classes, the user SHALL select exactly one initial schema:
+The user SHALL select either supported class schema during initial setup and MAY switch a configured Dataset between them later:
 
 ```text
 2 Classes
@@ -1011,11 +1011,11 @@ Class Names SHALL be stored in `dataset.json`.
 
 Class IDs SHALL never be renamed, reordered, or reassigned.
 
-### 14.6 Class-count stability
+### 14.6 Class-schema switching and label consistency
 
-Once the initial class schema is configured, the Dataset’s Number of Classes SHALL remain fixed in the normal workflow.
+The Dataset’s Number of Classes SHALL remain switchable between two and three after initial setup.
 
-The product SHALL NOT expose class-count switching or migration for an already configured Dataset. This preserves Class IDs and label integrity.
+Numeric Class IDs SHALL remain stable. A schema switch SHALL NOT silently reassign or discard existing labels. Before changing from three classes to two, any existing Class 2 labels SHALL be resolved explicitly so every retained label is valid under the selected schema.
 
 ### 14.7 Required labeling actions
 
@@ -1030,7 +1030,7 @@ The Label panel SHALL present exactly:
 - filter Unreviewed;
 - filter Excluded.
 
-Class assignment SHALL support labeling and relabeling. Class 2 SHALL be unavailable for a two-class Dataset. Skip, Remove, Restore, and other former Label-side actions SHALL NOT appear in this composition. The workspace SHALL NOT require per-crop notes.
+Class assignment SHALL support labeling and relabeling. Class 0, Class 1, and Class 2 SHALL remain visible; Class 2 SHALL be disabled for a two-class Dataset. Skip, Remove, Restore, and other former Label-side actions SHALL NOT appear in this composition. The workspace SHALL NOT require per-crop notes.
 
 ### 14.8 State definitions
 
@@ -1051,7 +1051,7 @@ Selecting **Exclude** SHALL:
 - retain the crop entry in `dataset.json`;
 - apply the existing persisted `removed` state presented to the user as **Excluded**;
 - exclude the crop from Training and Model Test;
-- preserve immutable Class IDs and the configured class schema.
+- preserve stable Class IDs and label consistency under the selected class schema.
 
 ### 14.10 Image Counts
 
@@ -1088,6 +1088,7 @@ Existing model packages SHALL retain the Class Name snapshot stored when each mo
 ### 14.13 Acceptance criteria
 
 - A user can complete a two-class or three-class Dataset.
+- A configured Dataset can switch between two and three classes without silently reassigning or discarding existing labels.
 - Class IDs remain numerical and stable.
 - Class Names are user-editable.
 - Unreviewed and Excluded remain distinct.

@@ -26,8 +26,8 @@ It authorizes no production Camera, DAQ, vendor, filesystem, persistence, detect
 - The Droplet Crop grid remains dominant in the main area.
 - A fixed-width right panel collapses as one outer panel and contains, in order:
   1. **Load Dataset**, a static, always-expanded card/header;
-  2. **Dataset Summary**, with total and labeled counts plus initial setup for exactly two or three classes; a configured Dataset instead shows its immutable class schema with no class-count switching;
-  3. **Label**, with the selected-crop preview and exactly **Class 0**, **Class 1**, **Class 2**, **Exclude**, **Undo**, **Previous**, and **Next**; Class 2 is disabled for a two-class Dataset;
+  2. **Dataset Summary**, with total and labeled counts plus a two-or-three-class selection that remains switchable for configured Datasets; switching must preserve label consistency and never silently reassign or discard existing labels;
+  3. **Label**, with the selected-crop preview and exactly **Class 0**, **Class 1**, **Class 2**, **Exclude**, **Undo**, **Previous**, and **Next**; all three Class actions remain visible, and Class 2 is disabled for a two-class Dataset;
   4. **Filter**, with class list/count filters plus **Excluded** and **Unreviewed** when applicable;
   5. **Save As** at the bottom-right.
 - Class identity remains blue, orange, and purple for Classes 0, 1, and 2. **Skip**, **Remove**, **Restore**, and other former Label-side actions are not part of this composition.

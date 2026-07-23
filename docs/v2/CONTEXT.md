@@ -44,7 +44,7 @@ Except for the expressly scoped user-approved visual-review amendment, derived e
 ## Current status
 
 - The user-approved [July 23, 2026 visual-review amendment](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) is authoritative for its listed visual topics and supersedes conflicting lower visual sources; it does not authorize production behavior.
-- The final approved structure records Label's ordered outer panel and Dataset Save As semantics, the shared 390 px outer-panel width/collapse behavior, Train and Model Test Results placement, and Settings Visuals/Text Size policy. Product decisions D-012 and D-017 reflect the immutable initial class schema and sole application-wide Text Size preference.
+- The final approved structure records Label's ordered outer panel and Dataset Save As semantics, the shared 390 px outer-panel width/collapse behavior, Train and Model Test Results placement, and Settings Visuals/Text Size policy. D-012 permits configured Datasets to switch between two and three classes while preserving label consistency; D-017 defines the sole application-wide Text Size preference.
 - The canonical product, information-architecture, interaction-state, and detailed-workflow baselines incorporate the approved July 23, 2026 UI/UX amendment.
 - The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md). The July 23 visual-review corrections and deterministic hardware-free disclosure backbone are integrated through `7d1c34a`.
 - The user explicitly authorized a visual-only scaffold for every approved workspace with no speculative controls or behavior.

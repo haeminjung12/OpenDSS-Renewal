@@ -236,7 +236,7 @@ Save As
 
 ## 6.2 Dataset Summary
 
-Dataset Summary shows total and labeled counts. For an unconfigured Dataset it contains initial setup for exactly two or three classes. For a configured Dataset it displays the immutable class schema and does not expose class-count switching.
+Dataset Summary shows total and labeled counts plus a two-or-three-class selection. The selection remains available after initial setup, including for configured Datasets. Switching must preserve label consistency and must not silently reassign or discard existing labels.
 
 ## 6.3 Label and Filter
 
@@ -250,7 +250,7 @@ Label contains the selected-crop preview and exactly:
 - Previous;
 - Next.
 
-Class 2 remains visible but disabled for a two-class Dataset. Skip, Remove, Restore, and other former Label-side actions are absent.
+Class 0, Class 1, and Class 2 remain visible. Class 2 is disabled for a two-class Dataset. Skip, Remove, Restore, and other former Label-side actions are absent.
 
 Filter contains class list/count filters and Excluded and Unreviewed when applicable.
 

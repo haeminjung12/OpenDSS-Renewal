@@ -554,7 +554,7 @@ The destination remains independently navigable, and the user may replace the pr
 | **D-014 — Shared Capture composition** | One shared live Camera preview sits beside three independently collapsible operation sections; all headings remain visible and none is expanded by default. |
 | **D-015 — No Advanced Training Parameters** | Train exposes only Dataset, Model Type, factual device/status, progress, metrics, Stop, and model save. |
 | **D-016 — Camera/DAQ settings only; immediate while idle** | Shared shell-level hardware panel and its idle/unavailable/locked/active behavior. |
-| **D-017 — Reduced Settings** | Storage, Application Information, and Diagnostics only. |
+| **D-017 — Reduced Settings** | Storage, Application Information, Diagnostics, and Visuals only; Visuals contains only application-wide Text Size from 80% through 200%, default 100%. |
 | **D-018 — Fixed startup workspace** | Every launch opens Data > Capture with all three Capture sections collapsed; no last-workspace restore. |
 | **D-019 — Simple contextual faults** | Direct disabled reasons, one persistent workspace banner, and direct recovery actions. |
 

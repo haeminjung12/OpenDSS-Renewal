@@ -287,6 +287,7 @@ Every modified `*.ui.qml` file must remain editable in Qt Design Studio's 2D vie
 
 Every frontend work order must identify:
 
+- for any QML job, that the agent must load and apply the `qt-qml` skill before writing, reviewing, diagnosing, refactoring, or validating QML; this supplements the official Qt Documentation requirement for Qt API, version, and Design Studio behavior;
 - visual `*.ui.qml` files authorized for modification;
 - visual files that are read-only;
 - wrapper QML, C++, mock, test, and durable CMake files authorized for modification;

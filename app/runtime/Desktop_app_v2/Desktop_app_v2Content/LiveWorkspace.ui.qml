@@ -15,6 +15,7 @@ Item {
     property alias triggerTimingHeadingButton: triggerTimingSection.headingButton
     property alias outputRecordingHeadingButton: outputRecordingSection.headingButton
     property alias runningHeadingButton: runningSection.headingButton
+    property alias runningHeadingEnabled: runningSection.headingEnabled
     property alias openProfileButton: openProfileButton
     property alias saveProfileButton: saveProfileButton
     property alias saveProfileAsButton: saveProfileAsButton

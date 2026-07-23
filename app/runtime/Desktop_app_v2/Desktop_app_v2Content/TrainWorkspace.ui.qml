@@ -64,8 +64,9 @@ Rectangle {
             height: parent.height
 
             Rectangle {
-                visible: !root.showRunning && !root.showCompleted && !root.showError
-                anchors.fill: parent
+                id: datasetSummary
+                width: parent.width
+                height: parent.height * 0.3
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
                 Column {
@@ -81,17 +82,25 @@ Rectangle {
             }
 
             Rectangle {
-                visible: root.showRunning
-                anchors.fill: parent
+                anchors.top: datasetSummary.bottom
+                anchors.topMargin: Constants.spacing
+                width: parent.width
+                height: parent.height - datasetSummary.height - Constants.spacing
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
                 Column {
                     anchors.fill: parent
                     anchors.margins: Constants.spacing * 2
                     spacing: Constants.spacing
-                    Text { text: qsTr("Training Metrics"); font: Constants.headingFont }
-                    Rectangle { width: parent.width; height: 150; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Training Loss / Validation Loss") } }
-                    Rectangle { width: parent.width; height: 150; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Validation Accuracy") } }
+                    Text { text: qsTr("Results"); font: Constants.headingFont }
+                    Rectangle { width: parent.width; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Training Loss / Validation Loss") } }
+                    Rectangle { width: parent.width; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Validation Accuracy") } }
+                    Row {
+                        width: parent.width
+                        spacing: Constants.spacing
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 72; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall results") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 72; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class results") } }
+                    }
                 }
             }
         }

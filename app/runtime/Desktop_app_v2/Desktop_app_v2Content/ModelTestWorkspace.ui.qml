@@ -55,12 +55,41 @@ Rectangle {
         anchors.bottomMargin: Constants.workspaceMargin
         spacing: Constants.spacing
 
-        Rectangle {
+        Item {
             width: parent.width - operationPanel.width - parent.spacing
             height: parent.height
-            color: Constants.surfaceColor
-            border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 4; Text { text: qsTr("Active Model (read-only)"); font: Constants.headingFont } Text { text: root.activeModelText } Text { text: qsTr("Dataset: ") + root.datasetText } }
+
+            Rectangle {
+                id: datasetSummary
+                width: parent.width
+                height: parent.height * 0.3
+                color: Constants.surfaceColor
+                border.color: Constants.borderColor
+                Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Dataset Summary"); font: Constants.headingFont } Text { text: qsTr("Active Model (read-only): ") + root.activeModelText } Text { text: qsTr("Dataset: ") + root.datasetText } }
+            }
+
+            Rectangle {
+                anchors.top: datasetSummary.bottom
+                anchors.topMargin: Constants.spacing
+                width: parent.width
+                height: parent.height - datasetSummary.height - Constants.spacing
+                color: Constants.surfaceColor
+                border.color: Constants.borderColor
+                Column {
+                    anchors.fill: parent
+                    anchors.margins: Constants.spacing * 2
+                    spacing: Constants.spacing
+                    Text { text: qsTr("Results"); font: Constants.headingFont }
+                    Row {
+                        width: parent.width
+                        spacing: Constants.spacing
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall Accuracy") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-Class Accuracy") } }
+                    }
+                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Confusion Matrix") } }
+                    Rectangle { width: parent.width; height: 72; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Prediction summary") } }
+                }
+            }
         }
 
         Rectangle {

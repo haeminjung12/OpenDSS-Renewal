@@ -7,7 +7,7 @@
 
 The visual navigation scaffold and Mock Single Image slice is closed as accepted. Its accepted forms, exported aliases, and frozen visual/runtime seam are the functional contract by default. A design-thread change requires exact named form ownership and an alias/interface handoff before functional integration; no functional work order may silently adapt an unannounced form change.
 
-**Prerequisite gate — not yet passed:** restore durable `qds.cmake` build integration and then run the focused Qt Quick test successfully. Until both steps have evidence, no production implementation work order in this slice may launch or be accepted. `qmllint` evidence alone does not satisfy this gate.
+**Prerequisite gate — passed:** integrated main commit `5dfcf0f` restored durable `qds.cmake` integration, and `176b84e` corrected the test-module import. A clean Qt 6.11.1 MinGW/Ninja configure passed; `Desktop_app_v2App` and `tst_ShellSingleImage` built; the direct offscreen JUnit run passed 21 cases with zero failures, errors, or skips; and `ShellSingleImage` CTest passed 1/1. Bounded production work orders for this slice may now launch.
 
 Preserve the sole dirty Qt Design Studio-generated reorder in `Desktop_app_v2Content/CMakeLists.txt` and the protected locally excluded `Desktop_app_v2.qmlproject.qtds`; do not absorb, overwrite, or hand-edit either as part of this slice.
 
@@ -47,7 +47,7 @@ The selected schema is displayed only. Numeric Class IDs and class metadata are 
 
 Each implementation work order must name exact writable controller/backend, wrapper QML, test, and durable CMake files; keep all other forms and generated files read-only. It must preserve one authoritative Dataset state owner and must not add a speculative framework, duplicate state, or a compatibility path.
 
-After the prerequisite gate has passed, validation is proportional: focused loader/summary tests, the focused Qt Quick test, and one directly relevant configure/build when required. Do not run full legacy, Python, or hardware suites.
+Validation remains proportional: focused loader/summary tests, the focused Qt Quick test, and one directly relevant configure/build when required. Do not run full legacy, Python, or hardware suites.
 
 ## Simplest complete approach
 

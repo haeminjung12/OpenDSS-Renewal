@@ -1,0 +1,15 @@
+<RCC>
+    <qresource>
+        <file>Desktop_app_v2.qmlproject</file>
+        <file>Desktop_app_v2/Constants.qml</file>
+        <file>Desktop_app_v2/EventListModel.qml</file>
+        <file>Desktop_app_v2/EventListSimulator.qml</file>
+        <file>Desktop_app_v2/MockAppState.qml</file>
+        <file>Desktop_app_v2/qmldir</file>
+        <file>Desktop_app_v2Content/App.qml</file>
+        <file>Desktop_app_v2Content/CollapsibleSection.ui.qml</file>
+        <file>Desktop_app_v2Content/Screen01.ui.qml</file>
+        <file>Desktop_app_v2Content/ShellSingleImage.qml</file>
+        <file>qtquickcontrols2.conf</file>
+    </qresource>
+</RCC>

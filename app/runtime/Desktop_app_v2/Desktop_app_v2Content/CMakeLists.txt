@@ -12,6 +12,7 @@ qt6_add_qml_module(Desktop_app_v2Content
         "App.qml"
         "Screen01.ui.qml"
         "ShellSingleImage.qml"
+        "CollapsibleSection.ui.qml"
 )
 
 

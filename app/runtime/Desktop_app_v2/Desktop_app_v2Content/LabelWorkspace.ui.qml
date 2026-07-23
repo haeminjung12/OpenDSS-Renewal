@@ -22,26 +22,7 @@ Rectangle {
     property alias openDatasetButton: openDatasetButton
     property alias twoClassChoice: twoClassChoice
     property alias threeClassChoice: threeClassChoice
-    property alias class0Button: class0Button
-    property alias class1Button: class1Button
-    property alias class2Button: class2Button
-    property alias skipButton: skipButton
-    property alias removeFromDatasetButton: removeFromDatasetButton
-    property alias restoreButton: restoreButton
-    property alias undoButton: undoButton
     property alias useInTrainButton: useInTrainButton
-    property alias allFilterButton: allFilterButton
-    property alias class0FilterButton: class0FilterButton
-    property alias class1FilterButton: class1FilterButton
-    property alias class2FilterButton: class2FilterButton
-    property alias unlabeledFilterButton: unlabeledFilterButton
-    property alias skippedFilterButton: skippedFilterButton
-    property alias removedFilterButton: removedFilterButton
-    property alias class0NameField: class0NameField
-    property alias class1NameField: class1NameField
-    property alias class2NameField: class2NameField
-    property alias cropGridFocus: cropGridFocus
-    property alias selectedCropFocus: selectedCropHeadingButton
     property alias selectedCropHeadingButton: selectedCropHeadingButton
     property alias classesFilterHeadingButton: classesFilterHeadingButton
 

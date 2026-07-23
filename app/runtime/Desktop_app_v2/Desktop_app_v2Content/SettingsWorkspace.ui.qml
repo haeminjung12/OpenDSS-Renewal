@@ -11,9 +11,6 @@ Rectangle {
 
     property string settingsPresentation: "ready"
     property string defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite")
-    property alias chooseDataRootButton: chooseDataRootButton
-    property alias openDataRootButton: openDataRootButton
-    property alias openDiagnosticFolderButton: openDiagnosticFolderButton
 
     Column {
         width: parent.width * 0.66

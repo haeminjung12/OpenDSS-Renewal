@@ -14,13 +14,8 @@ Rectangle {
     property bool modelLocked: false
     property bool showError: false
     property alias modelList: modelList
-    property alias importButton: importButton
     property alias setActiveButton: setActiveButton
     property alias openInModelTestButton: openInModelTestButton
-    property alias exportButton: exportButton
-    property alias duplicateButton: duplicateButton
-    property alias renameButton: renameButton
-    property alias deleteButton: deleteButton
 
     Row {
         anchors.fill: parent

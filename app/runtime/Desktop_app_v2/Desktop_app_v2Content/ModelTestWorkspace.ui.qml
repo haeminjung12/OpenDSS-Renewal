@@ -24,8 +24,6 @@ Rectangle {
     property alias browseButton: browseButton
     property alias startButton: startButton
     property alias stopButton: stopButton
-    property alias openPredictionsButton: openPredictionsButton
-    property alias openSummaryButton: openSummaryButton
     property alias startAnotherButton: startAnotherButton
 
     Column {

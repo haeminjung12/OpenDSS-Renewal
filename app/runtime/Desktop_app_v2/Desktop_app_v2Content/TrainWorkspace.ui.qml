@@ -20,8 +20,6 @@ Rectangle {
     property bool showCompleted: false
     property bool showError: false
     property alias selectDatasetButton: selectDatasetButton
-    property alias fasterButton: fasterButton
-    property alias moreAccurateButton: moreAccurateButton
     property alias modelNameField: modelNameField
     property alias saveLocationField: saveLocationField
     property alias browseButton: browseButton

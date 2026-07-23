@@ -17,11 +17,6 @@ Rectangle {
     property alias previousButton: previousButton
     property alias nextButton: nextButton
     property alias directSeekField: directSeekField
-    property alias zoomOutButton: zoomOutButton
-    property alias zoomInButton: zoomInButton
-    property alias fitButton: fitButton
-    property alias actualSizeButton: actualSizeButton
-    property alias viewerFocus: viewerFocus
 
     Column {
         anchors.fill: parent

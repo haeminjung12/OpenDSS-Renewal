@@ -20,6 +20,9 @@ Rectangle {
     property bool showCompleted: false
     property bool showError: false
     property bool showInterrupted: false
+    property bool trainingSetupExpanded: true
+    property bool trainingStatusExpanded: true
+    property bool trainingResultsExpanded: true
     property alias selectDatasetButton: selectDatasetButton
     property alias modelNameField: modelNameField
     property alias saveLocationField: saveLocationField
@@ -28,24 +31,41 @@ Rectangle {
     property alias stopButton: stopButton
     property alias retrySaveButton: retrySaveButton
     property alias openInModelTestButton: openInModelTestButton
+    property alias trainingSetupHeadingButton: trainingSetupSection.headingButton
+    property alias trainingStatusHeadingButton: trainingStatusSection.headingButton
+    property alias trainingResultsHeadingButton: trainingResultsSection.headingButton
 
     Column {
-        anchors.fill: parent
+        id: headingColumn
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.margins: Constants.workspaceMargin
-        spacing: Constants.spacing
+        spacing: 4
 
         Text { text: qsTr("Train"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter }
         Text { text: root.disabledReason; visible: root.presentation === "empty" || root.presentation === "unavailable"; color: Constants.warningColor; font: Constants.smallFont }
         Text { text: qsTr("Training stopped"); visible: root.showInterrupted; color: Constants.warningColor; font: Constants.headingFont }
+    }
 
-        Row {
-            visible: !root.showRunning && !root.showCompleted && !root.showError
-            width: parent.width
-            height: parent.height - 70
-            spacing: Constants.spacing
+    Row {
+        anchors.top: headingColumn.bottom
+        anchors.topMargin: Constants.spacing
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: Constants.workspaceMargin
+        anchors.rightMargin: Constants.workspaceMargin
+        anchors.bottomMargin: Constants.workspaceMargin
+        spacing: Constants.spacing
+
+        Item {
+            width: parent.width - operationPanel.width - parent.spacing
+            height: parent.height
+
             Rectangle {
-                width: (parent.width - Constants.spacing) / 2
-                height: parent.height
+                visible: !root.showRunning && !root.showCompleted && !root.showError
+                anchors.fill: parent
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
                 Column {
@@ -59,52 +79,136 @@ Rectangle {
                     Button { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.controlHeight }
                 }
             }
+
             Rectangle {
-                width: (parent.width - Constants.spacing) / 2
-                height: parent.height
+                visible: root.showRunning
+                anchors.fill: parent
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
                 Column {
                     anchors.fill: parent
                     anchors.margins: Constants.spacing * 2
                     spacing: Constants.spacing
-                    Text { text: qsTr("Training Setup"); font: Constants.headingFont }
-                    Text { text: qsTr("Model Type") }
-                    Row { spacing: Constants.spacing; Button { id: fasterButton; text: qsTr("Faster"); checkable: true; checked: true } Button { id: moreAccurateButton; text: qsTr("More Accurate"); checkable: true } }
-                    Text { text: qsTr("Compute Device: %1").arg(root.deviceText); color: Constants.mutedTextColor }
-                    Text { text: qsTr("Split: 70 / 15 / 15    Seed: 1729"); color: Constants.mutedTextColor }
-                    Text { text: qsTr("Model Name") }
-                    TextField { id: modelNameField; text: root.modelNameText; height: Constants.controlHeight; width: parent.width }
-                    Text { text: qsTr("Save Location") }
-                    Row { width: parent.width; spacing: Constants.spacing; TextField { id: saveLocationField; text: root.saveLocationText; height: Constants.controlHeight; width: parent.width - browseButton.width - Constants.spacing } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } }
-                    Button { id: startButton; text: qsTr("Start Training"); enabled: root.startEnabled; height: Constants.controlHeight; width: parent.width }
+                    Text { text: qsTr("Training Metrics"); font: Constants.headingFont }
+                    Rectangle { width: parent.width; height: 150; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Training Loss / Validation Loss") } }
+                    Rectangle { width: parent.width; height: 150; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Validation Accuracy") } }
                 }
             }
         }
 
-        Row {
-            visible: root.showRunning
-            width: parent.width
-            height: parent.height - 70
-            spacing: Constants.spacing
-            Rectangle {
-                width: (parent.width - Constants.spacing) / 2; height: parent.height; color: Constants.surfaceColor; border.color: Constants.borderColor
-                Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Training Metrics"); font: Constants.headingFont } Rectangle { width: parent.width; height: 150; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Training Loss / Validation Loss") } } Rectangle { width: parent.width; height: 150; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Validation Accuracy") } } }
-            }
-            Rectangle {
-                width: (parent.width - Constants.spacing) / 2; height: parent.height; color: Constants.surfaceColor; border.color: Constants.borderColor
-                Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Training Status"); font: Constants.headingFont } Text { text: qsTr("Device: %1").arg(root.deviceText) } Text { text: qsTr("Elapsed: 00:04:12") } Text { text: qsTr("Estimated Remaining: 00:08:36") } Text { text: qsTr("Epoch: 12 of 40") } ProgressBar { value: 0.3; width: parent.width } Text { text: qsTr("Overall progress") } Button { id: stopButton; text: qsTr("Stop Training"); height: Constants.controlHeight; width: parent.width } }
-            }
-        }
-
         Rectangle {
-            visible: root.showCompleted; width: parent.width; height: parent.height - 70; color: Constants.surfaceColor; border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Training completed"); font: Constants.headingFont } Text { text: qsTr("Overall results"); font: Constants.headingFont } Text { text: qsTr("Accuracy  0.94    Samples  1,200") } Text { text: qsTr("Per-class results"); font: Constants.headingFont } Text { text: qsTr("Class 0  0.95    Class 1  0.93") } Text { text: qsTr("Confusion matrix"); font: Constants.headingFont } Text { text: qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width } Text { text: qsTr("Active Model confirmed"); color: Constants.readyColor } Button { id: openInModelTestButton; text: qsTr("Open in Model Test"); height: Constants.controlHeight } }
-        }
+            id: operationPanel
+            width: Constants.operationPanelWidth
+            height: parent.height
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
 
-        Rectangle {
-            visible: root.showError; width: parent.width; height: 150; color: Constants.errorSurfaceColor; border.color: Constants.faultColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Button { id: retrySaveButton; text: qsTr("Retry Save"); height: Constants.controlHeight } }
+            Column {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Constants.spacing
+                spacing: 2
+
+                CollapsibleSection {
+                    id: trainingSetupSection
+                    visible: !root.showRunning && !root.showCompleted && !root.showError
+                    width: parent.width
+                    sectionTitle: qsTr("Training Setup")
+                    expanded: root.trainingSetupExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: trainingSetupContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: trainingSetupContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Text { text: qsTr("Model Type") }
+                            Row { spacing: Constants.spacing; Button { id: fasterButton; text: qsTr("Faster"); checkable: true; checked: true } Button { id: moreAccurateButton; text: qsTr("More Accurate"); checkable: true } }
+                            Text { text: qsTr("Compute Device: %1").arg(root.deviceText); color: Constants.mutedTextColor }
+                            Text { text: qsTr("Split: 70 / 15 / 15    Seed: 1729"); color: Constants.mutedTextColor }
+                            Text { text: qsTr("Model Name") }
+                            TextField { id: modelNameField; text: root.modelNameText; height: Constants.controlHeight; width: parent.width }
+                            Text { text: qsTr("Save Location") }
+                            Row { width: parent.width; spacing: Constants.spacing; TextField { id: saveLocationField; text: root.saveLocationText; height: Constants.controlHeight; width: parent.width - browseButton.width - Constants.spacing } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } }
+                            Button { id: startButton; text: qsTr("Start Training"); enabled: root.startEnabled; height: Constants.controlHeight; width: parent.width }
+                        }
+                    }
+                }
+
+                CollapsibleSection {
+                    id: trainingStatusSection
+                    visible: root.showRunning
+                    width: parent.width
+                    sectionTitle: qsTr("Training Status")
+                    expanded: root.trainingStatusExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: trainingStatusContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: trainingStatusContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Text { text: qsTr("Device: %1").arg(root.deviceText) }
+                            Text { text: qsTr("Elapsed: 00:04:12") }
+                            Text { text: qsTr("Estimated Remaining: 00:08:36") }
+                            Text { text: qsTr("Epoch: 12 of 40") }
+                            ProgressBar { value: 0.3; width: parent.width }
+                            Text { text: qsTr("Overall progress") }
+                            Button { id: stopButton; text: qsTr("Stop Training"); height: Constants.controlHeight; width: parent.width }
+                        }
+                    }
+                }
+
+                CollapsibleSection {
+                    id: trainingResultsSection
+                    visible: root.showCompleted
+                    width: parent.width
+                    sectionTitle: qsTr("Training completed")
+                    expanded: root.trainingResultsExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: trainingResultsContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: trainingResultsContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Text { text: qsTr("Overall results"); font: Constants.headingFont }
+                            Text { text: qsTr("Accuracy  0.94    Samples  1,200") }
+                            Text { text: qsTr("Per-class results"); font: Constants.headingFont }
+                            Text { text: qsTr("Class 0  0.95    Class 1  0.93") }
+                            Text { text: qsTr("Confusion matrix"); font: Constants.headingFont }
+                            Text { text: qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width }
+                            Text { text: qsTr("Active Model confirmed"); color: Constants.readyColor }
+                            Button { id: openInModelTestButton; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.showError
+                    width: parent.width
+                    height: 150
+                    color: Constants.errorSurfaceColor
+                    border.color: Constants.faultColor
+                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Button { id: retrySaveButton; text: qsTr("Retry Save"); height: Constants.controlHeight } }
+                }
+            }
         }
     }
 

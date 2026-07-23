@@ -14,7 +14,7 @@ Rectangle {
     property bool runsError: false
     property bool runsPanelExpanded: true
     property bool notesEditing: false
-    property alias runsPanelToggleButton: runsPanelToggleButton
+    property alias runsPanelToggleButton: runsSection.headingButton
     property alias loadSelectedRunButton: loadSelectedRunButton
     property alias notesEditor: notesEditor
     property alias editNotesButton: editNotesButton
@@ -250,30 +250,30 @@ Rectangle {
             }
         }
 
-        Rectangle {
+        Item {
             id: runsPanel
             width: Constants.operationPanelWidth
             height: parent.height
-            color: Constants.surfaceColor
-            border.color: Constants.borderColor
 
-            Button {
-                id: runsPanelToggleButton
+            CollapsibleSection {
+                id: runsSection
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                anchors.margins: Constants.spacing
-                height: Constants.controlHeight
-                text: root.runsPanelExpanded ? qsTr("Runs  ⌄") : qsTr("Runs  ›")
-            }
+                sectionTitle: qsTr("Runs")
+                expanded: root.runsPanelExpanded
+                useIntrinsicBodyHeight: true
 
-            Column {
-                visible: root.runsPanelExpanded
-                anchors.top: runsPanelToggleButton.bottom
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.margins: Constants.spacing
-                spacing: 6
+                Item {
+                    width: parent.width
+                    height: runsPanelContent.implicitHeight + Constants.spacing * 2
+                    Column {
+                        id: runsPanelContent
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: Constants.spacing
+                        spacing: 6
 
                     Rectangle { visible: root.selectedRunId === "" && root.loadedRunId === "" && !root.runsError; width: parent.width; height: 70; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("No Runs found"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent } }
                     Rectangle {
@@ -307,17 +307,16 @@ Rectangle {
                         }
                     }
                     Rectangle { visible: root.runsError; width: parent.width; height: 46; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent } }
-            }
 
-            Button {
-                id: loadSelectedRunButton
-                anchors.left: parent.left
-                anchors.right: parent.right
-                anchors.bottom: parent.bottom
-                anchors.margins: Constants.spacing
-                height: Constants.controlHeight
-                text: qsTr("Load selected Run")
-                enabled: root.selectedRunId !== "" && !root.runsError
+                        Button {
+                            id: loadSelectedRunButton
+                            width: parent.width
+                            height: Constants.controlHeight
+                            text: qsTr("Load selected Run")
+                            enabled: root.selectedRunId !== "" && !root.runsError
+                        }
+                    }
+                }
             }
         }
     }

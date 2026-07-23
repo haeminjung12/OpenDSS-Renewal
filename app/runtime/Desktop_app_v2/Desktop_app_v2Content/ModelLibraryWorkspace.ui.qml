@@ -13,10 +13,12 @@ Rectangle {
     property bool selectedActive: false
     property bool modelLocked: false
     property bool showError: false
+    property bool selectedModelExpanded: true
     property alias activeModelRowButton: activeModelRowButton
     property alias candidateModelRowButton: candidateModelRowButton
     property alias setActiveButton: setActiveButton
     property alias openInModelTestButton: openInModelTestButton
+    property alias selectedModelHeadingButton: selectedModelSection.headingButton
 
     Text {
         id: workspaceTitle
@@ -94,18 +96,41 @@ Rectangle {
             height: parent.height
             color: root.showError ? Constants.errorSurfaceColor : Constants.surfaceColor
             border.color: root.showError ? Constants.faultColor : Constants.borderColor
+
             Column {
-                anchors.fill: parent
-                anchors.margins: Constants.spacing * 2
-                spacing: Constants.spacing
-                Text { text: root.showError ? qsTr("Error") : qsTr("Selected Model"); font: Constants.largeFont; color: root.showError ? Constants.faultColor : Constants.textColor }
-                Text { visible: root.hasSelection && !root.showError; text: qsTr("DropletNet-03") ; font: Constants.headingFont }
-                Text { visible: root.hasSelection && !root.showError; text: qsTr("Active state: %1").arg(root.selectedActive ? qsTr("Active Model") : qsTr("Not Active")) }
-                Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: 2026-07-23\nDataset: Dataset-042\nModel Type: Faster\nClasses: 2\nTraining results: Accuracy 0.94\nPackage: C:/OpenDSS/Models/DropletNet-03.opendssmodel"); wrapMode: Text.WordWrap; width: parent.width }
-                Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor }
-                Button { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.controlHeight }
-                Button { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
-                Row { visible: root.hasSelection; spacing: Constants.spacing; Button { id: exportButton; text: qsTr("Export") } Button { id: duplicateButton; text: qsTr("Duplicate") } Button { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked } Button { id: deleteButton; text: qsTr("Delete"); enabled: !root.selectedActive && !root.modelLocked } }
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Constants.spacing
+
+                CollapsibleSection {
+                    id: selectedModelSection
+                    width: parent.width
+                    sectionTitle: qsTr("Selected Model")
+                    expanded: root.selectedModelExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: selectedModelContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: selectedModelContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Text { visible: root.showError; text: qsTr("Error"); font: Constants.largeFont; color: Constants.faultColor }
+                            Text { visible: root.hasSelection && !root.showError; text: qsTr("DropletNet-03") ; font: Constants.headingFont }
+                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Active state: %1").arg(root.selectedActive ? qsTr("Active Model") : qsTr("Not Active")) }
+                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: 2026-07-23\nDataset: Dataset-042\nModel Type: Faster\nClasses: 2\nTraining results: Accuracy 0.94\nPackage: C:/OpenDSS/Models/DropletNet-03.opendssmodel"); wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor }
+                            Button { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.controlHeight }
+                            Button { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
+                            Row { visible: root.hasSelection; spacing: Constants.spacing; Button { id: exportButton; text: qsTr("Export") } Button { id: duplicateButton; text: qsTr("Duplicate") } Button { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked } Button { id: deleteButton; text: qsTr("Delete"); enabled: !root.selectedActive && !root.modelLocked } }
+                        }
+                    }
+                }
             }
         }
     }

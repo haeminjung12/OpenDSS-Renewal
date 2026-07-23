@@ -19,37 +19,154 @@ Rectangle {
     property bool showCompleted: false
     property bool showError: false
     property bool threeClassResult: false
+    property bool modelTestSetupExpanded: true
+    property bool modelTestStatusExpanded: true
+    property bool modelTestResultsExpanded: true
     property alias selectDatasetButton: selectDatasetButton
     property alias outputLocationField: outputLocationField
     property alias browseButton: browseButton
     property alias startButton: startButton
     property alias stopButton: stopButton
     property alias startAnotherButton: startAnotherButton
+    property alias modelTestSetupHeadingButton: modelTestSetupSection.headingButton
+    property alias modelTestStatusHeadingButton: modelTestStatusSection.headingButton
+    property alias modelTestResultsHeadingButton: modelTestResultsSection.headingButton
 
-    Column {
-        anchors.fill: parent
+    Text {
+        id: workspaceTitle
+        text: qsTr("Model Test")
+        font: Constants.largeFont
+        color: Constants.textColor
+        height: Constants.controlHeight
+        verticalAlignment: Text.AlignVCenter
+        anchors.top: parent.top
+        anchors.left: parent.left
         anchors.margins: Constants.workspaceMargin
+    }
+
+    Row {
+        anchors.top: workspaceTitle.bottom
+        anchors.topMargin: Constants.spacing
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: Constants.workspaceMargin
+        anchors.rightMargin: Constants.workspaceMargin
+        anchors.bottomMargin: Constants.workspaceMargin
         spacing: Constants.spacing
-        Text { text: qsTr("Model Test"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter }
+
         Rectangle {
-            width: parent.width; height: 100; color: Constants.surfaceColor; border.color: Constants.borderColor
+            width: parent.width - operationPanel.width - parent.spacing
+            height: parent.height
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 4; Text { text: qsTr("Active Model (read-only)"); font: Constants.headingFont } Text { text: root.activeModelText } Text { text: qsTr("Dataset: ") + root.datasetText } }
         }
+
         Rectangle {
-            visible: !root.showRunning && !root.showCompleted && !root.showError; width: parent.width; height: 210; color: Constants.surfaceColor; border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Test Setup"); font: Constants.headingFont } Button { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.controlHeight } Text { text: qsTr("Output Location") } Row { width: parent.width; spacing: Constants.spacing; TextField { id: outputLocationField; text: root.outputLocationText; width: parent.width - browseButton.width - Constants.spacing; height: Constants.controlHeight } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } } Text { visible: !root.startEnabled; text: root.blockerText; color: Constants.warningColor } Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; color: Constants.mutedTextColor } Button { id: startButton; text: qsTr("Start Model Test"); enabled: root.startEnabled; height: Constants.controlHeight } }
-        }
-        Rectangle {
-            visible: root.showRunning; width: parent.width; height: 230; color: Constants.surfaceColor; border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Model Test Running"); font: Constants.headingFont } Text { text: qsTr("Device: ") + root.deviceText } Text { text: qsTr("Processed: 360 of 1,200") } ProgressBar { value: 0.3; width: parent.width } Button { id: stopButton; text: qsTr("Stop Model Test"); height: Constants.controlHeight } }
-        }
-        Rectangle {
-            visible: root.showCompleted; width: parent.width; height: 300; color: Constants.surfaceColor; border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Model Test Completed"); font: Constants.headingFont } Text { text: qsTr("Overall Accuracy: 0.94") } Text { text: root.threeClassResult ? qsTr("Per-Class Accuracy: Class 0 0.95    Class 1 0.93    Class 2 0.92") : qsTr("Per-Class Accuracy: Class 0 0.95    Class 1 0.93") } Text { text: root.threeClassResult ? qsTr("Confusion Matrix: 3 classes") : qsTr("Confusion Matrix: 2 classes") } Text { text: qsTr("Output: C:/OpenDSS/ModelTests/Test-042") } Row { spacing: Constants.spacing; Button { id: openPredictionsButton; text: qsTr("Open Predictions CSV") } Button { id: openSummaryButton; text: qsTr("Open Summary") } Button { id: startAnotherButton; text: qsTr("Start Another") } } }
-        }
-        Rectangle {
-            visible: root.showError; width: parent.width; height: 130; color: Constants.errorSurfaceColor; border.color: Constants.faultColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Text { text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText } Button { text: qsTr("Start Model Test"); enabled: root.presentation === "interrupted" } }
+            id: operationPanel
+            width: Constants.operationPanelWidth
+            height: parent.height
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+
+            Column {
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Constants.spacing
+                spacing: 2
+
+                CollapsibleSection {
+                    id: modelTestSetupSection
+                    visible: !root.showRunning && !root.showCompleted && !root.showError
+                    width: parent.width
+                    sectionTitle: qsTr("Test Setup")
+                    expanded: root.modelTestSetupExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: modelTestSetupContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: modelTestSetupContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Button { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.controlHeight }
+                            Text { text: qsTr("Output Location") }
+                            Row { width: parent.width; spacing: Constants.spacing; TextField { id: outputLocationField; text: root.outputLocationText; width: parent.width - browseButton.width - Constants.spacing; height: Constants.controlHeight } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } }
+                            Text { visible: !root.startEnabled; text: root.blockerText; color: Constants.warningColor }
+                            Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; color: Constants.mutedTextColor }
+                            Button { id: startButton; text: qsTr("Start Model Test"); enabled: root.startEnabled; height: Constants.controlHeight }
+                        }
+                    }
+                }
+
+                CollapsibleSection {
+                    id: modelTestStatusSection
+                    visible: root.showRunning
+                    width: parent.width
+                    sectionTitle: qsTr("Model Test Running")
+                    expanded: root.modelTestStatusExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: modelTestStatusContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: modelTestStatusContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Text { text: qsTr("Device: ") + root.deviceText }
+                            Text { text: qsTr("Processed: 360 of 1,200") }
+                            ProgressBar { value: 0.3; width: parent.width }
+                            Button { id: stopButton; text: qsTr("Stop Model Test"); height: Constants.controlHeight }
+                        }
+                    }
+                }
+
+                CollapsibleSection {
+                    id: modelTestResultsSection
+                    visible: root.showCompleted
+                    width: parent.width
+                    sectionTitle: qsTr("Model Test Completed")
+                    expanded: root.modelTestResultsExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: modelTestResultsContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: modelTestResultsContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Text { text: qsTr("Overall Accuracy: 0.94") }
+                            Text { text: root.threeClassResult ? qsTr("Per-Class Accuracy: Class 0 0.95    Class 1 0.93    Class 2 0.92") : qsTr("Per-Class Accuracy: Class 0 0.95    Class 1 0.93"); wrapMode: Text.WordWrap; width: parent.width }
+                            Text { text: root.threeClassResult ? qsTr("Confusion Matrix: 3 classes") : qsTr("Confusion Matrix: 2 classes") }
+                            Text { text: qsTr("Output: C:/OpenDSS/ModelTests/Test-042"); wrapMode: Text.WordWrap; width: parent.width }
+                            Column { spacing: Constants.spacing; Button { id: openPredictionsButton; text: qsTr("Open Predictions CSV") } Button { id: openSummaryButton; text: qsTr("Open Summary") } Button { id: startAnotherButton; text: qsTr("Start Another") } }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.showError
+                    width: parent.width
+                    height: 130
+                    color: Constants.errorSurfaceColor
+                    border.color: Constants.faultColor
+                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Text { text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText } Button { text: qsTr("Start Model Test"); enabled: root.presentation === "interrupted" } }
+                }
+            }
         }
     }
 

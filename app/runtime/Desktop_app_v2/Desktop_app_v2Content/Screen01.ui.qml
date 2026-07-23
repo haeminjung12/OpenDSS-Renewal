@@ -36,14 +36,6 @@ Rectangle {
     property int datasetFrameCount: 0
     property int datasetCropCount: 0
     property bool cameraLocked: false
-    readonly property real captureBodyHeight: (captureSections.height
-                                                - singleImageSection.headingButton.height
-                                                - imageSequenceSection.headingButton.height
-                                                - datasetCaptureSection.headingButton.height
-                                                - captureSections.spacing * 2)
-                                               / Math.max(1, (singleImageOpen ? 1 : 0)
-                                                             + (imageSequenceOpen ? 1 : 0)
-                                                             + (datasetOpen ? 1 : 0))
     property string cameraResolution: ""
     property string cameraCustomWidth: ""
     property string cameraCustomHeight: ""
@@ -185,18 +177,25 @@ Rectangle {
                 anchors.topMargin: Constants.spacing
                 anchors.bottom: parent.bottom
                 anchors.right: parent.right
-                Column {
-                    id: captureSections
-                    spacing: 2
+                ScrollView {
                     anchors.fill: parent
                     anchors.margins: Constants.spacing
-                    CollapsibleSection {
+                    clip: true
+                    contentWidth: availableWidth
+                    contentHeight: captureSections.height
+
+                    Column {
+                        id: captureSections
+                        width: parent.width
+                        height: implicitHeight
+                        spacing: 2
+                        CollapsibleSection {
                         id: singleImageSection
                         sectionTitle: qsTr("Single Image")
                         expanded: root.singleImageOpen
                         headingEnabled: !root.otherCaptureHeadingsDisabled || root.singleImagePresentation === "capturing"
                         width: parent.width
-                        bodyHeight: root.captureBodyHeight
+                        useIntrinsicBodyHeight: true
                         Column {
                             spacing: 6
                             width: parent.width
@@ -216,8 +215,8 @@ Rectangle {
                             Rectangle { visible: root.singleImagePresentation === "error"; width: parent.width; height: 34; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font.bold: true; anchors.centerIn: parent } }
                         }
                     }
-                    CollapsibleSection {
-                        id: imageSequenceSection; sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.sequencePresentation === "running" || root.sequencePresentation === "paused"; width: parent.width; bodyHeight: root.captureBodyHeight
+                        CollapsibleSection {
+                        id: imageSequenceSection; sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.sequencePresentation === "running" || root.sequencePresentation === "paused"; width: parent.width; useIntrinsicBodyHeight: true
                         Column { spacing: 6; width: parent.width; height: implicitHeight
                             Text { text: qsTr("Name"); font: Constants.smallFont }
                             TextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Sequence name") }
@@ -242,8 +241,8 @@ Rectangle {
                             Button { id: sequenceNewButton; visible: root.sequencePresentation === "completed"; text: qsTr("Start New Recording"); width: parent.width; height: Constants.controlHeight }
                         }
                     }
-                    CollapsibleSection {
-                        id: datasetCaptureSection; sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.datasetPresentation === "running" || root.datasetPresentation === "paused"; width: parent.width; bodyHeight: root.captureBodyHeight
+                        CollapsibleSection {
+                        id: datasetCaptureSection; sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.datasetPresentation === "running" || root.datasetPresentation === "paused"; width: parent.width; useIntrinsicBodyHeight: true
                         Column { spacing: 6; width: parent.width; height: implicitHeight
                             Text { text: qsTr("Dataset Name"); font: Constants.smallFont }
                             TextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Dataset name") }
@@ -270,6 +269,7 @@ Rectangle {
                             Text { visible: root.datasetHandoffText !== ""; text: root.datasetHandoffText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                         }
                     }
+                }
                 }
             }
         }

@@ -7,10 +7,12 @@ Item {
     id: root
     property string presentation: "empty"
     property string activeModelText: qsTr("No Active Model")
+    property bool sequenceTestExpanded: true
     property alias loadSequenceButton: loadSequenceButton
     property alias loadToMemoryButton: loadToMemoryButton
     property alias startStopButton: startStopButton
     property alias physicalDaqOutputControl: physicalDaqOutputControl
+    property alias sequenceTestHeadingButton: sequenceTestSection.headingButton
     readonly property bool loaded: presentation === "ready" || presentation === "running" || presentation === "completed"
     readonly property bool running: presentation === "running"
     readonly property bool unavailable: presentation === "unavailable"
@@ -88,14 +90,18 @@ Item {
                     spacing: Constants.spacing
 
                     CollapsibleSection {
+                        id: sequenceTestSection
                         sectionTitle: qsTr("Sequence Test")
-                        expanded: true
-                        bodyHeight: 250
+                        expanded: root.sequenceTestExpanded
+                        useIntrinsicBodyHeight: true
                         Item {
                             width: parent.width
-                            height: 240
+                            height: sequenceTestContent.implicitHeight + Constants.spacing * 2
                             Column {
-                                anchors.fill: parent
+                                id: sequenceTestContent
+                                anchors.top: parent.top
+                                anchors.left: parent.left
+                                anchors.right: parent.right
                                 anchors.margins: Constants.spacing
                                 spacing: Constants.spacing
                                 Text { text: qsTr("Active Model: %1").arg(root.activeModelText); color: Constants.textColor; font: Constants.smallFont }

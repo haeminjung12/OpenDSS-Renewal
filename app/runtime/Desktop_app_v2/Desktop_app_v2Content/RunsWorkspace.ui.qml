@@ -20,6 +20,8 @@ Rectangle {
     property alias editNotesButton: editNotesButton
     property alias saveNotesButton: saveNotesButton
     property alias cancelNotesButton: cancelNotesButton
+    property alias loadedRunStatusText: loadedRunStatusText.text
+    property alias loadedRunStopReasonText: loadedRunStopReasonText.text
 
     Text {
         id: workspaceHeading
@@ -91,7 +93,7 @@ Rectangle {
                             spacing: 4
 
                             Text { text: qsTr("Run-042"); font: Constants.headingFont; color: Constants.textColor }
-                            Text { text: qsTr("Live Sorting  •  Completed  •  2026-07-23 10:41"); color: Constants.textColor; font: Constants.smallFont }
+                            Text { id: loadedRunStatusText; text: qsTr("Live Sorting  •  Completed  •  2026-07-23 10:41"); color: Constants.textColor; font: Constants.smallFont }
                             Text { text: qsTr("Total Droplets: 1,248  •  Model: DropletNet-04"); color: Constants.mutedTextColor; font: Constants.smallFont }
                             Text { text: qsTr("Duration: 00:03:12"); color: Constants.mutedTextColor; font: Constants.smallFont }
                         }
@@ -121,7 +123,7 @@ Rectangle {
                                 Text { text: qsTr("Experimental Information"); font: Constants.headingFont; color: Constants.textColor }
                                 Text { text: qsTr("Experiment Type: Sorting Run"); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Started: 2026-07-23 10:41"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Stop Reason: Completed duration"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { id: loadedRunStopReasonText; text: qsTr("Stop Reason: Completed duration"); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Save Location: C:/OpenDSS/Runs/Run-042"); elide: Text.ElideMiddle; color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width }
                             }
                         }

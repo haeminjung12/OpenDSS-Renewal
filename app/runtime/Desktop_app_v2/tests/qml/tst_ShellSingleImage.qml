@@ -2,14 +2,18 @@ import QtQuick
 import QtTest
 import Desktop_app_v2Content
 
-TestCase {
-    name: "ShellSingleImage"
+Item {
+    width: 1600
+    height: 900
 
     ShellSingleImage {
         id: shell
-        width: 1600
-        height: 900
+        anchors.fill: parent
     }
+
+    TestCase {
+        name: "ShellSingleImage"
+        when: windowShown
 
     SignalSpy {
         id: closeSpy
@@ -418,5 +422,6 @@ TestCase {
         compare(shell.form.bannerText, "")
         compare(shell.form.savedPath, "")
         compare(shell.form.disabledReason, "")
+    }
     }
 }

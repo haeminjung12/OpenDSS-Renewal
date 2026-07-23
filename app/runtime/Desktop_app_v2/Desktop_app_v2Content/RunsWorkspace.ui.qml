@@ -22,6 +22,7 @@ Rectangle {
     property alias cancelNotesButton: cancelNotesButton
     property alias loadedRunStatusText: loadedRunStatusText.text
     property alias loadedRunStopReasonText: loadedRunStopReasonText.text
+    property alias run042RowStatusText: run042RowStatusText.text
 
     Text {
         id: workspaceHeading
@@ -283,7 +284,7 @@ Rectangle {
                             anchors.fill: parent
                             anchors.margins: 7
                             Text { text: qsTr("Run Name: Run-042"); color: Constants.textColor; font: Constants.smallFont }
-                            Text { text: qsTr("Live Sorting  |  Completed"); color: Constants.textColor; font: Constants.smallFont }
+                            Text { id: run042RowStatusText; text: qsTr("Live Sorting  |  Completed"); color: Constants.textColor; font: Constants.smallFont }
                             Text { text: qsTr("Started: 2026-07-23 10:41  |  Duration: 00:03:12"); color: Constants.mutedTextColor; font: Constants.smallFont }
                             Text { text: qsTr("Total Droplets: 1,248  |  Model: DropletNet-04"); color: Constants.mutedTextColor; font: Constants.smallFont }
                         }

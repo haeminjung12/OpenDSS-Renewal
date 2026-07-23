@@ -1,5 +1,6 @@
 import QtQuick
 import QtTest
+import Desktop_app_v2
 import Desktop_app_v2Content
 
 Item {

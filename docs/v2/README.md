@@ -1,27 +1,43 @@
-# OpenDSS v2 design baseline
+# OpenDSS v2 documentation
 
-The commit containing this directory is the version-controlled OpenDSS v2 design baseline. The six documents below are frozen without editorial changes; only their repository filenames and paths were normalized.
+This directory contains the current OpenDSS v2 product baseline, design review material, implementation guidance, and retained historical evidence. Start with [CONTEXT.md](CONTEXT.md) for the authority order and [current-slice.md](implementation/current-slice.md) for the work currently authorized.
 
-## Baseline documents
+## Directory map
+
+| Directory | Purpose |
+|---|---|
+| [`canonical/`](canonical/) | Controlling product, information-architecture, interaction-state, and detailed-workflow specifications. |
+| [`design/`](design/) | Current consolidated visual/component design draft. It remains under review. |
+| [`reviews/`](reviews/) | Active user-review artifacts. |
+| [`implementation/`](implementation/) | Current slice, implementation sequence, and adopted engineering workflow records. |
+| [`audits/`](audits/) | Repository evidence and reusable-core findings. |
+| [`archive/`](archive/) | Superseded, non-normative historical documents retained for traceability. |
+
+## Current documents
 
 | Document | Role | Status |
 |---|---|---|
-| [Approved Product Model](source/OpenDSS_v2_Approved_Product_Model.md) | Controls approved product decisions D-001 through D-019, product structure, scope, terminology, configuration boundaries, and product-state ownership constraints. | Approved product model |
-| [Information Architecture and Screen Inventory](source/OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md) | Controls the current shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery together with the low-fidelity specification. | Consolidated OpenDSS v2 design baseline |
-| [Low-Fidelity Interaction and Application-State Specification](source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md) | Controls the current shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery together with the information-architecture inventory. | Interaction and state-definition baseline |
-| [Detailed Workflow Specification](source/OpenDSS_Detailed_Workflow_Specification.md) | Supplies detailed scientific, artifact, persistence, recovery, and acceptance requirements that do not conflict with higher-authority documents. | Product workflow baseline |
-| [Consolidated Product Design Specification](OpenDSS_v2_Consolidated_Product_Design_Specification.md) | Current consolidated visual and component design baseline under review; it cannot override the approved product model or interaction baselines. | **Consolidated Draft for Review** |
-| [Product Design Specification Draft v0.1](source/OpenDSS_Product_Design_Specification_Draft_v0.1.md) | Historical, non-normative design evidence only. It is not a source of truth for product behavior, navigation, application state, terminology, editable controls, or scope. | Draft v0.1; historical and non-normative |
+| [Approved Product Model](canonical/product-model.md) | Controls D-001 through D-019, product scope, terminology, configuration boundaries, and product-state ownership. | Approved product model |
+| [Approved UI/UX Design Amendment](OpenDSS_v2_UIUX_Design_Amendment.md) | Controls every UI, layout, naming, interaction, and workflow matter it explicitly changes. | Approved amendment |
+| [Information Architecture and Screen Inventory](canonical/information-architecture.md) | Controls navigation, workspaces, shell composition, and screen inventory with the interaction-state specification. | Current canonical baseline |
+| [Interaction and Application-State Specification](canonical/interaction-and-state.md) | Controls interactions, application states, locks, resource ownership, and contextual recovery with the information architecture. | Current canonical baseline |
+| [Detailed Workflow Specification](canonical/detailed-workflows.md) | Supplies nonconflicting scientific, artifact, persistence, recovery, and acceptance requirements. | Current canonical baseline |
+| [Consolidated Product Design Specification](design/consolidated-design-draft.md) | Visual, component, accessibility, and design-handoff guidance subordinate to the canonical baseline. | **Consolidated Draft for Review** |
+| [Page Composition Interpretation](reviews/page-composition-review.md) | Current page-by-page interpretation for user validation, including the amended Capture composition. | Active review artifact; not implementation authorization |
+| [Current Slice](implementation/current-slice.md) | Defines the only currently authorized v2 work boundary. | Held for user design review |
+| [Reuse-First Implementation Plan](implementation/reuse-first-plan.md) | Orders future engineering work packages and evidence gates. | Engineering guidance |
+| [Qt Design Studio Adoption](implementation/qt-design-studio-adoption.md) | Records the adopted designer/form-wrapper-controller workflow. | Adopted implementation constraint |
+| [Visual Scaffold Two-Round Plan](implementation/visual-scaffold-two-round-plan.md) | Authorizes the all-workspace visual scaffold, Round 1 single visual writer, and Round 2 design/backbone split. | User-authorized implementation workflow |
+| [Reusable-Core Audit](audits/reusable-core-audit.md) | Records repository reuse evidence, risks, and recommendations. | Completed audit evidence |
+| [Product Design Draft v0.1](archive/product-design-draft-v0.1.md) | Superseded design evidence. | Archived; non-normative |
 
-## Source authority
+## Authority order
 
-Apply this authority order:
+1. The Approved Product Model controls D-001 through D-019 and the product model.
+2. The Approved UI/UX Design Amendment controls every UI, layout, naming, interaction, and workflow matter it explicitly changes.
+3. The Information Architecture and the Interaction and Application-State Specification jointly control the shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery.
+4. The Detailed Workflow Specification applies only where it does not conflict with the documents above.
+5. The Consolidated Product Design Specification is visual guidance under review and cannot override the canonical baseline.
+6. Archived documents and repository code are evidence only, not v2 product authority.
 
-1. The Approved Product Model controls D-001 through D-019, product structure, scope, terminology, configuration boundaries, and product-state ownership constraints.
-2. The Information Architecture and Screen Inventory and the Low-Fidelity Interaction and Application-State Specification control the current shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery.
-3. The Detailed Workflow Specification supplies detailed scientific, artifact, persistence, recovery, and acceptance requirements that do not conflict with the documents above.
-4. The Consolidated Product Design Specification is the current consolidated visual/component design baseline under review. It does not override the approved product model or interaction baselines, and its status remains **Consolidated Draft for Review**.
-5. Product Design Specification Draft v0.1 is historical, non-normative design evidence only and is not a source of truth for product behavior, navigation, application state, terminology, editable controls, or scope.
-6. Repository code is implementation evidence and a source of reusable technical components. It is not the authority for OpenDSS v2 product behavior, UX, product structure, terminology, product policy, or exposed configuration. Existing behavior is not retained merely because it is present in code.
-
-See [BASELINE_MANIFEST.md](BASELINE_MANIFEST.md) for frozen paths, roles, statuses, checksums, and change control.
+See [baseline-manifest.md](baseline-manifest.md) for the current controlled-document paths, statuses, checksums, and change-control rule.

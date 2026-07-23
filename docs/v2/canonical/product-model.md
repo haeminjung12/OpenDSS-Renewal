@@ -2,9 +2,9 @@
 ## Approved v2 Product Model
 
 **Document ID:** ODSS-PM-002  
-**Version:** 1.0  
+**Version:** 1.1  
 **Status:** Approved product model  
-**Date:** July 21, 2026  
+**Date:** July 23, 2026  
 **Primary platform:** Windows 11  
 
 ---
@@ -18,12 +18,33 @@ It is the controlling product model for the next design phase: information archi
 Use the documents in this order:
 
 1. **This approved product model** governs all decisions recorded here.
-2. **OpenDSS Detailed User Workflow Specification, Version 1.0** remains authoritative for detailed requirements that do not conflict with this document.
-3. **The existing OpenDSS repository** is implementation evidence and a source of reusable components; it does not define the new product structure.
+2. **OpenDSS v2 UI/UX Design Amendment, July 23, 2026** controls every UI, layout, naming, interaction, or workflow matter that it explicitly changes.
+3. **OpenDSS Detailed User Workflow Specification, Version 1.1** remains authoritative for detailed requirements that do not conflict with the first two sources.
+4. **The existing OpenDSS repository** is implementation evidence and a source of reusable components; it does not define the new product structure.
 
 Where this document conflicts with the original workflow specification, this document supersedes it.
 
-This document is a product model, not a complete replacement requirements specification. The detailed workflow specification should be revised later to incorporate the approved amendments.
+This document is a product model, not a complete replacement requirements specification. The downstream canonical specifications were revised with Version 1.1 to incorporate the approved UI/UX amendment.
+
+### 1.1 Approved UI/UX amendment integration
+
+The July 23, 2026 UI/UX amendment is incorporated into this product model without reopening D-001 through D-019. Where an older statement in this document conflicts with the following integrated decisions, this subsection controls:
+
+- OpenDSS launches maximized. A restored window has a hard minimum logical size of **1600 × 900**, preserves **16:9** during manual resizing, and retains Minimize, Maximize/Restore, and Close.
+- The compact one-line status header presents Camera, DAQ, Active Model, and Current Activity with an icon, label, value, readiness color, and a non-color readiness cue.
+- The former right-side shell panel is replaced by a bottom-left overlay **Hardware panel** opened and closed by an arrow. It does not push the workspace, span the window, or appear in Settings.
+- Startup remains `Data > Capture`. OpenDSS attempts Camera connection automatically. If unavailable, one session-only prompt asks `Camera unavailable. Continue?`; Yes continues without Camera and No closes OpenDSS. `Start Camera` controls streaming.
+- Normal visible failures use the message `Error`; technical details go to the program log under `Settings > Diagnostics`. Paths appear only after confirmed writes, and failure never projects success.
+- Capture retains one shared Camera preview and three independently collapsible bodies under permanently visible headings: Single Image, Image Sequence, and **Droplet Dataset Capture**. Multiple bodies may be open while idle; an active section remains open while the other headings remain visible but disabled.
+- Label is dominated by the Droplet Crop grid. Its right panel contains **Selected Crop** and **Classes & Filter** collapsible sections. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
+- **Sequence Viewer** is frame-navigation only. It has no Play, Pause, automatic playback, speed control, or playback lifecycle state.
+- Train collects Dataset, Faster or More Accurate, Model Name, and Save Location before Start. Successful Training automatically saves the Model Package and makes it Active. Save failure retains temporary artifacts, exposes Retry Save, and does not activate the Model. Training shows two minimal live plots and the specified completion tables.
+- Model Test and Sequence Test always use the Active Model and have no local Model selector. The Active Model cannot be replaced or mutated while Model Test, Live, or Sequence Test uses it.
+- Library selection is distinct from activation. An Active Model row has a green check plus textual or accessible meaning; Set Active remains explicit; selected Model details live in one collapsible panel.
+- Live stays in one workspace from setup through completion. Trigger Every Droplet and DAQ Output are independent toggles. DAQ Output OFF still permits nonphysical processing, logging, and Run persistence without DAQ readiness.
+- Hit boundary calibration uses one clicked image point, a horizontal line extending right, and `Top is Hit` or `Bottom is Hit`. It affects Observed Route only and is saved in the Setup Profile and Run Summary.
+- Sequence Test accepts OpenDSS Image Sequence folders containing `sequence.json`, uses editable Processing FPS defaulted from recorded FPS, loads through a bounded memory buffer, and keeps Physical DAQ Output off by default.
+- Results keeps the loaded Run in the center while a right-side Runs panel requires explicit selection plus Load. Settings contains only Storage, Application Information, and Diagnostics.
 
 ---
 
@@ -38,7 +59,7 @@ OpenDSS supports two primary scientific goals:
 ```text
 MODEL DEVELOPMENT
 
-Dataset Capture
+Droplet Dataset Capture
     → Label Dataset
     → Train Model
     → optional Model Test
@@ -64,7 +85,7 @@ OpenDSS executes the scientist's choices and records factual measurements and pr
 
 ### 3.1 User-directed operation
 
-The scientist chooses the operation, Dataset, model, Hit Class, Hit Outlet Direction, Trigger Mode, hardware configuration, and output location.
+The scientist chooses the operation, Dataset, model, Hit Class, Hit boundary calibration, Trigger Every Droplet, hardware configuration, and output location.
 
 The system blocks only technically impossible or incompatible operations.
 
@@ -117,7 +138,7 @@ It does not require projects, tickets, approval states, or user-facing Dataset v
 Data
 ├── Capture
 ├── Label
-└── Sequence Player
+└── Sequence Viewer
 
 Models
 ├── Train
@@ -139,7 +160,7 @@ There is no Home screen and no separate Reports workspace.
 On every application launch, OpenDSS opens:
 
 ```text
-Data > Capture > Single Image
+Data > Capture
 ```
 
 The application does not remember or restore the previously opened workspace.
@@ -155,7 +176,7 @@ The application shell contains:
 1. primary navigation;
 2. a compact global status header;
 3. the current workspace;
-4. a shared slide-out Camera/DAQ hardware drawer.
+4. a shared slide-out Camera/DAQ hardware panel.
 
 ### 5.1 Global status header
 
@@ -172,14 +193,14 @@ Camera: Unavailable | Connected | Streaming
 DAQ: Unavailable | Ready | Active
 Active Model: No Active Model | <Model Name>
 Current Activity: Idle | Capturing Image | Recording Sequence |
-                  Capturing Dataset | Labeling | Training |
-                  Testing Model | Playing Sequence | Testing Sequence |
+                  Droplet Dataset Capture | Labeling | Training |
+                  Testing Model | Testing Sequence |
                   Sorting | Paused
 ```
 
-### 5.2 Shared hardware drawer
+### 5.2 Shared hardware panel
 
-The slide-out drawer is owned by the application shell and persists across workspaces.
+The slide-out panel is owned by the application shell and persists across workspaces.
 
 ```text
 Hardware
@@ -187,7 +208,7 @@ Hardware
 └── DAQ
 ```
 
-The drawer provides the only user-editable technical settings in the first release.
+The panel provides the only user-editable technical settings in the first release.
 
 - Camera and DAQ values are shared across workspaces.
 - A workspace does not keep its own duplicate copy of hardware settings.
@@ -195,10 +216,10 @@ The drawer provides the only user-editable technical settings in the first relea
 - Invalid changes are rejected and the last successfully applied value remains active.
 - Camera controls lock while a camera-owning operation is running.
 - DAQ controls lock while a DAQ-owning operation is running.
-- During Live Sorting, the drawer closes and remains unavailable until the Run ends.
-- The global status header remains visible while the drawer is closed.
+- During Live Sorting, the panel closes and remains unavailable until the Run ends.
+- The global status header remains visible while the panel is closed.
 
-The drawer's open/closed presentation may remain stable during ordinary navigation, but it is not a saved scientific artifact and is not restored as a startup requirement.
+The panel's open/closed presentation may remain stable during ordinary navigation, but it is not a saved scientific artifact and is not restored as a startup requirement.
 
 ---
 
@@ -209,7 +230,7 @@ The drawer's open/closed presentation may remain stable during ordinary navigati
 ```text
 USER GOAL
 Develop a droplet-classification model
-    → Data > Capture > Dataset Capture
+    → Data > Capture > Droplet Dataset Capture
         → Capture Dataset
             → Dataset
                 → Data > Label
@@ -229,8 +250,8 @@ USER GOAL
 Physically sort droplets
     → Sort > Live
         → view live camera and configure run
-            → choose Trigger Mode, model when required,
-              Hit Class, Hit Outlet Direction, and output options
+            → choose Trigger Every Droplet, model when required,
+              Hit Class, Hit boundary calibration, and output options
                 → Start Sorting
                     → Run
                         → events.csv Droplet Log
@@ -252,7 +273,7 @@ USER GOAL
 Record full-frame source data
     → Data > Capture > Image Sequence
         → Image Sequence
-            → Data > Sequence Player
+            → Data > Sequence Viewer
             → Sort > Sequence Test
 ```
 
@@ -283,33 +304,35 @@ Apply sorting logic to recorded frames
 
 ## 7.1 Data > Capture
 
-Capture is one shared live-camera workspace with three equally prominent modes:
+Capture is one shared live-camera workspace with one Camera preview and three collapsible operation sections in the right-side panel:
 
 ```text
-[ Single Image ] [ Image Sequence ] [ Dataset Capture ]
+┌──────────────────────────────┬──────────────────────────────┐
+│ LIVE CAMERA PREVIEW          │ ▸ Single Image               │
+│                              │ ▸ Image Sequence             │
+│                              │ ▸ Droplet Dataset Capture            │
+└──────────────────────────────┴──────────────────────────────┘
 ```
 
-The live camera view remains the primary visual area in every mode.
+The live camera view remains the primary visual area for all three capture types. All three section headings remain fixed and visible. Sections expand and collapse independently, multiple sections may be open, and all three are collapsed when the workspace first opens. Expanded bodies divide the remaining panel height equally and scroll independently. An active section is forced open while the other headings are disabled; after Completed, Interrupted, or Failed, that section remains expanded until the user collapses it.
 
-The operation panel changes with the selected mode.
-
-| Mode | Primary output | Primary action |
+| Section | Primary output | Primary action |
 |---|---|---|
 | Single Image | One TIFF | Capture Image |
 | Image Sequence | `sequence.json` and numbered TIFF frames | Start Recording |
-| Dataset Capture | `dataset.json`, full-frame sequence, and one Droplet Crop per detection | Start Dataset Capture |
+| Droplet Dataset Capture | `dataset.json`, full-frame sequence, and one Droplet Crop per detection | Start Droplet Dataset Capture |
 
-Camera settings are accessed through the shared hardware drawer, not duplicated inside each capture mode.
+Camera settings are accessed through the shared hardware panel, not duplicated inside any capture section.
 
-During Image Sequence or Dataset Capture:
+During Image Sequence or Droplet Dataset Capture:
 
 - the live preview remains visible;
-- applicable fields and mode switching lock;
+- the active section remains expanded and the other two section headings remain visible but disabled;
 - the workspace shows elapsed time and operation counters;
 - Pause, Resume, and Stop operate on the same capture;
 - camera controls remain unavailable until the operation ends.
 
-Dataset Capture is model-independent. It does not assign labels, predictions, Hit/Waste meaning, or scientific acceptance.
+Droplet Dataset Capture is model-independent. It does not assign labels, predictions, Hit/Waste meaning, or scientific acceptance.
 
 Droplet detection, crop generation, and associated internal timing use fixed qualified application configuration. These parameters are not user-editable.
 
@@ -339,11 +362,11 @@ Required actions include:
 
 Only Labeled crops are eligible for Training and Model Test.
 
-## 7.3 Data > Sequence Player
+## 7.3 Data > Sequence Viewer
 
-Sequence Player opens a standalone v2 `sequence.json`, a Dataset sequence, or a Run sequence.
+Sequence Viewer opens a standalone v2 `sequence.json`, a Dataset sequence, or a Run sequence.
 
-It provides Play, Pause, frame stepping, timeline scrubbing, speed, and zoom.
+It provides Previous and Next frame actions, direct frame seek, zoom, pan, Fit, and 1:1. It has no automatic playback or frame-navigation lifecycle.
 
 It requires no camera, DAQ, model, or training environment and never produces DAQ output.
 
@@ -378,7 +401,7 @@ Otherwise
     → CPU
 ```
 
-When a technically completed model package is named and saved, it automatically becomes the global Active Model.
+Model Name and Save Location are required before Training starts. When Training completes, the application saves the Model Package automatically and then makes it the global Active Model.
 
 Low performance does not prevent saving or activation when the required artifacts were produced.
 
@@ -386,10 +409,7 @@ Low performance does not prevent saving or activation when the required artifact
 
 Model Test remains a first-class workspace.
 
-It accepts:
-
-- one readable two-class or three-class Model Package;
-- one compatible labeled Dataset with the same class count.
+It uses the authoritative Active Model and accepts one compatible labeled Dataset with the same class count. It has no local Model selector; another Model must first be made Active in Library.
 
 It displays progress, overall accuracy, per-class accuracy, and a confusion matrix, and writes a summary plus per-image predictions CSV.
 
@@ -435,7 +455,7 @@ The workspace shows:
 
 - live camera view on the left;
 - run configuration on the right;
-- access to the shared Camera/DAQ drawer.
+- access to the bottom Hardware panel.
 
 Run configuration includes:
 
@@ -445,15 +465,15 @@ Run configuration includes:
 - optional Duration;
 - Save Location;
 - Active Model when applicable;
-- Trigger Mode;
+- Trigger Every Droplet;
 - Hit Class for Class-Based Sorting;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - Record Full Image Sequence;
 - Setup Profile actions;
 - Send Test Pulse;
 - Start Sorting.
 
-The two first-class Trigger Modes are:
+The two first-class Trigger Every Droplets are:
 
 ```text
 Class-Based Sorting
@@ -464,7 +484,7 @@ Class-Based Sorting requires an Active Model. Trigger Every Droplet does not.
 
 The underlying detection, crop, routing algorithm, and internal synchronization/timing values are fixed qualified application configuration. They are not exposed for editing.
 
-DAQ Output Channel and supported pulse/waveform controls are DAQ hardware settings and therefore belong in the shared DAQ drawer.
+DAQ Output Channel and supported pulse/waveform controls are DAQ hardware settings and therefore belong in the shared DAQ panel.
 
 ### Start transition
 
@@ -473,7 +493,7 @@ When Start Sorting is selected:
 - OpenDSS creates the Run folder and initial structured files;
 - the complete effective Run configuration is snapshotted;
 - camera and DAQ controls lock;
-- the hardware drawer closes;
+- the hardware panel closes;
 - pre-run configuration controls disappear;
 - the right panel changes to the Live Sorting monitor.
 
@@ -484,10 +504,10 @@ The left-side live stream remains visible.
 The right-side monitor shows:
 
 - Run status and elapsed time;
-- Trigger Mode;
+- Trigger Every Droplet;
 - Active Model when present;
 - Hit Class when applicable;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - Total Droplets;
 - Predicted Class counts when a model is present;
 - Decision Hit and Decision Waste;
@@ -525,7 +545,7 @@ Sequence Test is located under Sort, not Models.
 It processes a recorded v2 Image Sequence through:
 
 - fixed droplet detection and crop processing;
-- optional or required model inference depending on Trigger Mode;
+- optional or required model inference depending on Trigger Every Droplet;
 - routing logic;
 - visual trajectory tracking;
 - optional physical DAQ output;
@@ -533,7 +553,7 @@ It processes a recorded v2 Image Sequence through:
 
 A camera is never required.
 
-Physical DAQ Output is a visible first-class option and starts enabled, retaining the approved baseline behavior. When enabled, DAQ Ready is required. When disabled, Sequence Test can run without DAQ hardware.
+Physical DAQ Output is a visible checkbox and is off by default. When enabled, DAQ Ready is required. When disabled, Sequence Test can process and create a Run without DAQ hardware.
 
 Class-Based Sorting requires a model. Trigger Every Droplet may run without one.
 
@@ -617,7 +637,7 @@ Run
 ### 8.1 Relationships
 
 ```text
-Dataset Capture
+Droplet Dataset Capture
     → Dataset
         → Label
         → Train
@@ -627,7 +647,7 @@ Dataset Capture
 
 ```text
 Image Sequence
-    → Sequence Player
+    → Sequence Viewer
     → Sequence Test
         → Run
 ```
@@ -677,9 +697,9 @@ A profile may contain:
 - Camera settings;
 - DAQ settings;
 - Active Model reference;
-- Trigger Mode;
+- Trigger Every Droplet;
 - Hit Class;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - Record Full Image Sequence preference;
 - Run Name;
 - default Save Location.
@@ -762,9 +782,9 @@ The following remain normal user selections rather than technical tuning paramet
 - Class Names and labels;
 - Model Type: Faster or More Accurate;
 - Model and Active Model;
-- Trigger Mode;
+- Trigger Every Droplet;
 - Hit Class;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - Physical DAQ Output for Sequence Test;
 - Record Full Image Sequence;
 - names, notes, Duration, and Save Location.
@@ -792,12 +812,12 @@ The effective values or a versioned configuration identifier must still be recor
 |---|---:|---:|---:|---:|
 | Single Image | Required | No | No | No |
 | Image Sequence | Required | No | No | No |
-| Dataset Capture | Required | No | No | No |
+| Droplet Dataset Capture | Required | No | No | No |
 | Label | No | No | No | No |
 | Train | No | No | No | Optional automatic acceleration |
 | Model Test | No | No | Required | Optional automatic acceleration; CPU fallback |
 | Model Library | No | No | No | No |
-| Sequence Player | No | No | No | No |
+| Sequence Viewer | No | No | No | No |
 | Live — Class-Based | Required | Required | Required | No; qualified CPU inference |
 | Live — Trigger Every Droplet | Required | Required | Optional | No; qualified CPU inference when present |
 | Sequence Test with DAQ output | No | Required | Mode-dependent | Not required |
@@ -809,7 +829,7 @@ The effective values or a versioned configuration identifier must still be recor
 No separate software arming state is added.
 
 - Send Test Pulse requires DAQ Ready.
-- Live Sorting requires the factual technical prerequisites for its selected Trigger Mode.
+- Live Sorting requires the factual technical prerequisites for its selected Trigger Every Droplet.
 - Sequence Test starts with Physical DAQ Output enabled and requires DAQ Ready unless the user disables output.
 - OpenDSS Stop and fault handling are not safety-rated Emergency Stop functions and do not replace required physical safety controls.
 
@@ -821,7 +841,7 @@ Only one long-running operation may own mutable resources at a time:
 
 ```text
 Image Sequence recording
-Dataset Capture
+Droplet Dataset Capture
 Training
 Model Test
 Sequence Test
@@ -880,7 +900,7 @@ Show one persistent workspace banner that states:
 Example:
 
 ```text
-Dataset Capture interrupted
+Droplet Dataset Capture interrupted
 The camera disconnected. Existing frames and crops were preserved.
 
 [Open Dataset] [Open Folder]
@@ -940,7 +960,7 @@ When a user selects an unsupported artifact, OpenDSS reports that it is not a su
 
 The first release includes:
 
-- Single Image, Image Sequence, and Dataset Capture as first-class capture modes;
+- Single Image, Image Sequence, and Droplet Dataset Capture as first-class collapsible sections in one Capture workspace;
 - two-class and three-class Datasets and Models;
 - Faster and More Accurate training configurations;
 - optional GPU acceleration for Training and Model Test;
@@ -1010,17 +1030,17 @@ This ownership table is an architecture constraint for the next phase, not a req
 | D-005 | Observed Route | Add Unresolved | Prevents forced unsupported Hit/Waste observations |
 | D-006 | Sequence Test location | `Sort > Sequence Test` | Groups it with routing and optional physical output |
 | D-007 | Setup and Live | One Live workspace with pre-run and running states | Removes separate Sort Setup workspace |
-| D-008 | Trigger Every Droplet | First-class Trigger Mode | Retained in Live and Sequence Test |
+| D-008 | Trigger Every Droplet | First-class Trigger Every Droplet | Retained in Live and Sequence Test |
 | D-009 | Setup Profiles | Ordinary files: Open, Save, Save As | No managed profile library |
 | D-010 | Legacy artifacts | Unsupported by product; convert during engineering work | V2-only public loaders |
 | D-011 | Model Test placement | First-class `Models > Model Test` workspace | Retains dedicated test operation |
 | D-012 | Supported classes | Two and three classes | Retains both scientific workflows |
 | D-013 | Results scope | Runs only | Live Sorting and Sequence Test only |
-| D-014 | Capture prominence | Three equal first-class modes in one live-view workspace | Shared Capture layout |
+| D-014 | Capture composition | One shared live Camera preview with three fixed, independently collapsible right-panel sections; all headings always visible, none expanded by default, expanded bodies sharing space and scrolling independently, and active/result visibility preserved | Shared Capture layout |
 | D-015 | Advanced Training Parameters | Not editable | Qualified fixed configurations only |
-| D-016 | Settings application | Camera and DAQ only; immediate while available and idle | Shared shell-level hardware drawer |
+| D-016 | Settings application | Camera and DAQ only; immediate while available and idle | Shared shell-level hardware panel |
 | D-017 | Settings workspace | Retain reduced Settings | Storage, application information, diagnostics |
-| D-018 | Startup | Open first workspace every launch; no last-workspace memory | Starts at Single Image |
+| D-018 | Startup | Open Data > Capture every launch with all three Capture sections collapsed; no last-workspace memory | Fixed Capture workspace startup |
 | D-019 | Fault communication | Simple contextual communication | Disabled reason, one banner, direct recovery actions |
 
 ---
@@ -1033,8 +1053,8 @@ The later specification revision must, at minimum:
 2. Remove the separate Sort Setup workspace and merge its user-facing behavior into Live's pre-run state.
 3. Add Observed Route = Unresolved to terminology, events, counters, matrices, CSV, Run Summary, and acceptance criteria.
 4. Add optional automatic GPU acceleration with CPU fallback to Model Test.
-5. Retain all three capture modes as equal modes in one shared live-view Capture workspace.
-6. Add the shell-level slide-out Camera/DAQ drawer and remove duplicated hardware settings from individual workspaces.
+5. Present Single Image, Image Sequence, and Droplet Dataset Capture as three independently collapsible right-panel sections beside one shared live Camera preview; keep every heading visible and start with all sections collapsed.
+6. Add the shell-level slide-out Camera/DAQ panel and remove duplicated hardware settings from individual workspaces.
 7. Remove user-editable detection, crop, routing-algorithm, timing, and Advanced Training controls.
 8. Retain fixed effective configuration in Dataset, Model, and Run provenance.
 9. Replace managed Setup Profile actions with Open, Save, and Save As for ordinary v2 files.
@@ -1042,7 +1062,7 @@ The later specification revision must, at minimum:
 11. Remove product-level legacy compatibility and migration requirements.
 12. Retain Results for Runs only.
 13. Retain a reduced Settings workspace for Storage, Application Information, and Diagnostics.
-14. Define startup as `Data > Capture > Single Image` on every launch.
+14. Define startup as `Data > Capture` on every launch, with all three Capture sections collapsed.
 15. Use simple contextual fault and recovery communication.
 16. Update all navigation paths, acceptance scenarios, and service responsibilities affected by these decisions.
 
@@ -1058,7 +1078,7 @@ That phase should define:
 - primary and secondary navigation;
 - every workspace and mode;
 - the right-panel transitions in Capture and Live;
-- the shared hardware drawer behavior;
+- the shared hardware panel behavior;
 - contextual links between artifacts and workflows;
 - required screen states;
 - operation ownership and lock behavior;

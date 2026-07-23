@@ -4,12 +4,13 @@
 
 Use this order when requirements differ:
 
-1. [Approved Product Model](source/OpenDSS_v2_Approved_Product_Model.md).
-2. [Information Architecture and Screen Inventory](source/OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md) and [Low-Fidelity Interaction and Application-State Specification](source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md).
-3. Nonconflicting requirements in the [Detailed Workflow Specification](source/OpenDSS_Detailed_Workflow_Specification.md).
-4. [Consolidated Product Design Specification](OpenDSS_v2_Consolidated_Product_Design_Specification.md), which remains **Consolidated Draft for Review**.
-5. Historical design evidence.
-6. Repository code as implementation evidence only.
+1. [Approved Product Model](canonical/product-model.md).
+2. [Approved UI/UX Design Amendment](OpenDSS_v2_UIUX_Design_Amendment.md) for every UI, layout, naming, interaction, and workflow matter it explicitly changes.
+3. [Information Architecture and Screen Inventory](canonical/information-architecture.md) and [Interaction and Application-State Specification](canonical/interaction-and-state.md).
+4. Nonconflicting requirements in the [Detailed Workflow Specification](canonical/detailed-workflows.md).
+5. [Consolidated Product Design Specification](design/consolidated-design-draft.md), which remains **Consolidated Draft for Review**.
+6. [Archived historical design evidence](archive/product-design-draft-v0.1.md).
+7. Repository code as implementation evidence only.
 
 Derived engineering documents, including this file, cannot override canonical specifications. Report a conflict rather than choosing a convenient interpretation.
 
@@ -17,22 +18,18 @@ Derived engineering documents, including this file, cannot override canonical sp
 
 | Topic | Authoritative document | Relevant heading or section | Derived engineering document, when useful |
 |---|---|---|---|
-| Product scope and exclusions | [Approved Product Model](source/OpenDSS_v2_Approved_Product_Model.md) | §2 Product definition; §17 First-release boundaries | — |
-| Navigation and workspace behavior | [Information Architecture and Screen Inventory](source/OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md) | §1 Application shell; §2 Navigation hierarchy; §3 Complete workspace inventory; §4 Workspace state inventory | — |
-| Application state and resource locks | [Low-Fidelity Interaction and Application-State Specification](source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md) | §3 Conceptual application-state model; §17 Shared resource ownership and navigation effects | — |
-| Fixed versus editable configuration | [Approved Product Model](source/OpenDSS_v2_Approved_Product_Model.md) | §11 Editable and fixed configuration; also IA §1.6 Shared Camera/DAQ drawer | — |
-| Detector behavior | [Approved Product Model](source/OpenDSS_v2_Approved_Product_Model.md) plus nonconflicting [Detailed Workflow Specification](source/OpenDSS_Detailed_Workflow_Specification.md) | Product Model §7.1, §7.8, and §11.3; Workflow §13.6 Detection and crop rule | [Reusable-core audit](audits/OpenDSS_v2_Reusable_Core_Audit.md), findings F-A01 and F-A02 |
-| Protected reusable assets | [Repository agent policy](../../AGENTS.md) | Protected reusable technical assets; Change-control rule for protected assets | [Reusable-core audit](audits/OpenDSS_v2_Reusable_Core_Audit.md) |
-| Persistence/threading requirements | [Approved Product Model](source/OpenDSS_v2_Approved_Product_Model.md) plus nonconflicting [Detailed Workflow Specification](source/OpenDSS_Detailed_Workflow_Specification.md) | Product Model §15 Persistence and provenance; Workflow §31 Event persistence | [Reusable-core audit](audits/OpenDSS_v2_Reusable_Core_Audit.md), especially F-E02; [implementation plan](OpenDSS_v2_Reuse_First_Implementation_Plan.md), P0-2 |
-| Qt Design Studio handoff | [Consolidated Product Design Specification](OpenDSS_v2_Consolidated_Product_Design_Specification.md), subordinate and under review | §24 Qt Design Studio and design-handoff contract | — |
-| Current implementation work package | [Reuse-First Implementation Plan](OpenDSS_v2_Reuse_First_Implementation_Plan.md) | Current implementation sequence | [Current slice](implementation/current-slice.md) |
-
-## Existing derived engineering documents
-
-- [OpenDSS v2 Reusable-Core Architecture and Redundancy Audit](audits/OpenDSS_v2_Reusable_Core_Audit.md) contains repository evidence, reuse findings, risks, and recommendations.
-- [OpenDSS v2 Reuse-First Implementation Plan](OpenDSS_v2_Reuse_First_Implementation_Plan.md) orders the engineering work packages and their evidence gates.
-
-These documents provide engineering evidence and recommendations. They do not have product authority.
+| Product scope and exclusions | [Approved Product Model](canonical/product-model.md) | §2 Product definition; §17 First-release boundaries | — |
+| Approved UI/UX amendment | [Approved UI/UX Design Amendment](OpenDSS_v2_UIUX_Design_Amendment.md) | §§2–19 | All downstream documents listed below |
+| Navigation and workspace behavior | [Information Architecture and Screen Inventory](canonical/information-architecture.md) | §1 Application shell; §2 Navigation hierarchy; §3 Complete workspace inventory; §4 Workspace state inventory | — |
+| Application state and resource locks | [Interaction and Application-State Specification](canonical/interaction-and-state.md) | §3 Conceptual application-state model; §17 Shared resource ownership and navigation effects | — |
+| Fixed versus editable configuration | [Approved Product Model](canonical/product-model.md) | §11 Editable and fixed configuration; also IA §1.6 Bottom Hardware panel | — |
+| Detector behavior | [Approved Product Model](canonical/product-model.md) plus nonconflicting [Detailed Workflow Specification](canonical/detailed-workflows.md) | Product Model §7.1, §7.8, and §11.3; Workflow §13.6 Detection and crop rule | [Reusable-core audit](audits/reusable-core-audit.md), findings F-A01 and F-A02 |
+| Protected reusable assets | [Repository agent policy](../../AGENTS.md) | Protected reusable technical assets; Change-control rule for protected assets | [Reusable-core audit](audits/reusable-core-audit.md) |
+| Persistence/threading requirements | [Approved Product Model](canonical/product-model.md) plus nonconflicting [Detailed Workflow Specification](canonical/detailed-workflows.md) | Product Model §15 Persistence and provenance; Workflow §31 Event persistence | [Reusable-core audit](audits/reusable-core-audit.md), especially F-E02; [implementation plan](implementation/reuse-first-plan.md), P0-2 |
+| Qt Design Studio handoff | [Consolidated Product Design Specification](design/consolidated-design-draft.md), subordinate and under review | §24 Qt Design Studio and design-handoff contract | [Qt Design Studio adoption record](implementation/qt-design-studio-adoption.md) |
+| Current design-review gate | Canonical sources above | Page-by-page visual interpretation | [Page Composition Interpretation](reviews/page-composition-review.md) and [Current Slice](implementation/current-slice.md) |
+| Future implementation sequence | — | Engineering guidance only | [Reuse-First Implementation Plan](implementation/reuse-first-plan.md) |
+| First two visual rounds | Current slice and canonical sources above | Visual scaffold and frozen form/runtime seam | [Visual Scaffold Two-Round Plan](implementation/visual-scaffold-two-round-plan.md) |
 
 ## Reading workflow
 
@@ -44,11 +41,14 @@ These documents provide engineering evidence and recommendations. They do not ha
 
 ## Current status
 
-- Design baseline frozen.
-- Reusable-core audit completed.
-- Reuse-first implementation plan completed.
-- P0-1 detector characterization and neutral-contract work is completed and remains accepted groundwork.
-- The Qt Design Studio designer/developer workflow and form-wrapper-controller boundary are adopted as implementation constraints.
-- The untouched Qt Design Studio-generated application baseline exists at `app/runtime/Desktop_app_v2/` and builds with the Desktop Qt 6.11.1 MinGW 64-bit kit.
-- The Qt Quick/QML v2 Shell and Mock Single Image slice is next and remains planned pending the approved shell/Single Image visual baseline and implementation authorization.
-- Real DCAM preview and TIFF capture are a separate later slice.
+- The canonical product, information-architecture, interaction-state, and detailed-workflow baselines incorporate the approved July 23, 2026 UI/UX amendment.
+- The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md).
+- The user explicitly authorized a visual-only scaffold for every approved workspace with no speculative controls or behavior.
+- The adopted first-two-round workflow is recorded in the [Visual Scaffold Two-Round Plan](implementation/visual-scaffold-two-round-plan.md): Round 1 uses one visual-scaffold writer; Round 2 splits design and minimal backbone into nonoverlapping worktrees after the interface is frozen.
+- The active [page-composition review](reviews/page-composition-review.md) has been reconciled to the amendment; it remains a review artifact rather than independent authority.
+- The earlier Single Image-only Qt Design Studio baseline at commit `188a649` is preserved as evidence, but its Capture composition, former smaller minimum, and former Hardware placement are superseded.
+- A bounded work order naming exact files is still required before any form, wrapper, mock, test, or CMake input is edited.
+- Validation for these visual rounds is intentionally proportional and user-led: avoid the full legacy/hardware test matrix and prefer manual Qt Design Studio review where practical.
+- The Qt Design Studio designer/developer workflow and form-wrapper-controller boundary remain adopted implementation constraints.
+- P0-1 detector characterization and neutral-contract work remains accepted groundwork.
+- Real Camera preview, TIFF capture, DAQ, Training, Live, Sequence Test, Results, persistence, and other production integrations remain later slices requiring explicit authorization.

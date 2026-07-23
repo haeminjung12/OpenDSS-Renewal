@@ -3,7 +3,7 @@
 **Status:** Implementation Plan for Review  
 **Created:** 2026-07-21  
 **Source baseline:** `docs/v2/`  
-**Audit evidence:** `docs/v2/audits/OpenDSS_v2_Reusable_Core_Audit.md`
+**Audit evidence:** `docs/v2/audits/reusable-core-audit.md`
 
 ## Purpose and authority
 
@@ -49,10 +49,49 @@ Package-specific commands below add targeted tests. A missing vendor SDK, hardwa
 ### Current implementation sequence
 
 - **Completed groundwork:** P0-1 detector characterization and neutral-contract work is accepted and must not be revisited or expanded by the next slice.
-- **Next:** Qt Quick/QML v2 Shell and Mock Single Image, as defined by [`implementation/current-slice.md`](implementation/current-slice.md). This is a deterministic hardware-independent shell and presentation slice.
+- **Current slice:** visual-only navigation scaffold and Mock Single Image as bounded by [`current-slice.md`](current-slice.md).
+- **First two rounds:** follow [`visual-scaffold-two-round-plan.md`](visual-scaffold-two-round-plan.md): one visual scaffold writer in Round 1, then isolated design/backbone workers after interface freeze in Round 2.
+- **Next action:** prepare the bounded Round 1 Qt Design Studio work order with exact forms, mocks, tokens, worktree, and manual-review states.
 - **Later:** connect the existing DCAM implementation to the v2 Camera boundary, display a real preview, capture one frame, save one real TIFF, and perform physical-camera qualification.
 
-The existing package identifiers below remain as the longer-range reuse inventory; this sequencing note controls the immediate implementation order without renumbering every package.
+The approved UI delivery order is:
+
+1. Shell and Mock Single Image
+2. Full Capture and Hardware panel
+3. Label
+4. Sequence Viewer
+5. Train
+6. Library
+7. Model Test
+8. Live
+9. Sequence Test
+10. Results
+11. Settings
+
+The existing package identifiers below remain the longer-range reuse inventory. They do not authorize work out of this order or expand the current slice.
+
+### Shared visual-component plan
+
+Create a shared component only in the first slice that has an immediate visual consumer. The planned set is:
+
+```text
+StatusHeaderItem
+CollapsibleSection
+BottomHardwarePanel
+DarkImageViewer
+CameraActionBar
+ErrorMessage
+CropThumbnail
+SelectedCropSection
+ClassesFilterSection
+ModelListRow
+SelectedModelSection
+HitBoundaryOverlay
+RunListSection
+TrainingPlot
+```
+
+The current slice may consume only `StatusHeaderItem`, `CollapsibleSection`, `BottomHardwarePanel`, `DarkImageViewer`, `CameraActionBar`, and `ErrorMessage`. It must not create unused later-slice components.
 
 ## P0-1 — Detector contract and consolidation
 
@@ -60,7 +99,7 @@ The existing package identifiers below remain as the longer-range reuse inventor
 
 ### Objective
 
-Create one internal v2 droplet-detector contract, place both current implementations behind adapters, and add the evidence needed to select one qualified production implementation. `FastEventDetector` is provisional production because it currently serves desktop Live, Sequence Test, and Dataset Capture workflows. `EventDetector` remains temporarily for characterization/comparison only.
+Create one internal v2 droplet-detector contract, place both current implementations behind adapters, and add the evidence needed to select one qualified production implementation. `FastEventDetector` is provisional production because it currently serves desktop Live, Sequence Test, and Droplet Dataset Capture workflows. `EventDetector` remains temporarily for characterization/comparison only.
 
 ### Exact files and symbols involved
 
@@ -119,7 +158,7 @@ Create a representative replay corpus containing:
 - single droplets, multiple droplets, both travel directions, edge/border events, re-entry, closely spaced events, and reset gaps;
 - illumination drift, bubbles, debris, noise, focus variation, and representative false-positive cases;
 - supported 8-bit and 16-bit inputs with source bit-depth metadata;
-- frames from Live, Sequence Test, and Dataset Capture operating conditions; and
+- frames from Live, Sequence Test, and Droplet Dataset Capture operating conditions; and
 - hardware-captured sequences at minimum, nominal, and maximum qualified frame/event rates.
 
 For every sequence compare:
@@ -441,7 +480,7 @@ Keep `OnnxClassifier` intact behind the adapter. Revert orchestration to the P0-
 
 Depends on P0-3 authoritative Active Model and operation state. Uses P0-1 detector observations and P0-2 processing dispatch.
 
-## P1-2 — Dataset Capture mechanics separated from legacy labeling policy
+## P1-2 — Droplet Dataset Capture mechanics separated from legacy labeling policy
 
 ### Objective
 
@@ -473,7 +512,7 @@ Proposed files and symbols:
 ### Obsolete product policy or structural coupling to remove
 
 - Replace HitOnly, WasteOnly, and Mixed modes.
-- Remove model inference and automatic model-linked labeling from Dataset Capture.
+- Remove model inference and automatic model-linked labeling from Droplet Dataset Capture.
 - Replace fixed Hit/Waste/Exclude and Target/Non-target schemas with a versioned neutral v2 dataset schema.
 - Remove workspace-owned counters/state after P0-3 migration.
 
@@ -506,11 +545,11 @@ ctest --test-dir <build-dir> -C Release --output-on-failure -R "crop|dataset_man
 
 ### Hardware qualification requirements
 
-Recorded frames are sufficient for crop/schema tests. Camera qualification is required for sustained Dataset Capture, correct frame/event/crop association, queue bounds, pause/stop/fault flush, and real bit-depth fidelity.
+Recorded frames are sufficient for crop/schema tests. Camera qualification is required for sustained Droplet Dataset Capture, correct frame/event/crop association, queue bounds, pause/stop/fault flush, and real bit-depth fidelity.
 
 ### Acceptance criteria
 
-- V2 Dataset Capture does not invoke inference or assign automatic model labels.
+- V2 Droplet Dataset Capture does not invoke inference or assign automatic model labels.
 - No HitOnly/WasteOnly/Mixed product mode exists in the v2 path.
 - Crop bytes/geometry and persistence mechanics pass golden/recovery fixtures.
 - V2 manifests are neutral, versioned, and carry provenance.
@@ -725,7 +764,7 @@ Proposed files and symbols:
 
 - Replace software-arming concepts.
 - Remove target class, sort-nontarget, Hit/Waste, workspace, and widget state from DAQ APIs.
-- Separate Hit Class, Hit Outlet Direction, and DAQ Output Channel mapping in the application layer before constructing `DaqCommand`.
+- Separate Hit Class, Hit boundary calibration, and DAQ Output Channel mapping in the application layer before constructing `DaqCommand`.
 - Remove UI text as a DAQ readiness/fault authority.
 
 ### Proposed target boundary
@@ -863,7 +902,7 @@ Depends on P0-3 Active Model ownership, P1-1 neutral inference/package metadata,
 
 ### Objective
 
-Create the v2 QML shell from the approved information architecture and interaction/state specification, then deliver one vertical slice through typed application services. Do not port old widget navigation or product policy. The first vertical slice is the v2 Camera workspace: shell navigation, camera status/settings allowed by the baseline, connect/start/stop/preview, operation locks, fault state, and contextual recovery.
+Create the v2 QML shell and shared Data > Capture workspace from the approved information architecture and interaction/state specification, then deliver one vertical slice through typed application services. Do not port old widget navigation or product policy. Capture has one shared live Camera preview and three fixed, independently collapsible right-panel sections. The first production vertical slice establishes the shared Camera boundary and preview; individual capture operations remain separately bounded.
 
 ### Exact files and symbols involved
 
@@ -877,7 +916,7 @@ Proposed files and symbols:
 
 - `app/runtime/v2_qml/CMakeLists.txt` and v2 application target.
 - `app/runtime/v2_qml/main.cpp`: service composition only.
-- `app/runtime/v2_qml/qml/Main.qml`, `ApplicationShell.qml`, approved navigation component(s), `CameraWorkspace.qml`, shared operation/fault/recovery components.
+- `app/runtime/v2_qml/qml/Main.qml`, `ApplicationShell.qml`, approved navigation component(s), `CaptureWorkspace.qml`, shared operation/fault/recovery components.
 - `app/runtime/v2/presentation/application_shell_controller.h`, `.cpp`: `ApplicationShellController`.
 - `app/runtime/v2/presentation/camera_presentation_model.h`, `.cpp`: `CameraPresentationModel`, typed commands/properties projected from `ICameraService` and `OperationCoordinator`.
 - `app/runtime/tests/qml_shell_smoke_test.cpp`, `camera_presentation_model_test.cpp`, `qml_no_vendor_dependency_test.cpp`.
@@ -911,7 +950,7 @@ QML binds only to presentation models that expose immutable service snapshots an
 
 1. Add a separate v2 QML executable/target so the current desktop app remains the rollback path.
 2. Build the approved shell/navigation and shared state/recovery surfaces.
-3. Bind Camera workspace exclusively through `CameraPresentationModel`.
+3. Bind the shared Capture preview exclusively through `CameraPresentationModel`; do not give individual Capture sections separate Camera owners.
 4. Integrate P0-3 operation locks and P1-4 Camera service.
 5. Add UI acceptance and no-vendor-dependency tests.
 6. Do not retire the old desktop target in this package; future workspace slices replace it incrementally under separate review.
@@ -953,7 +992,7 @@ P0-1 Detector contract/adapters/evidence
   └─ P0-2 Bounded processing, persistence, and DAQ handoff
       └─ P0-3 Authoritative state and operation ownership
           ├─ P1-1 Inference vs Decision/routing separation
-          │   ├─ P1-2 Dataset Capture v2 boundary
+          │   ├─ P1-2 Droplet Dataset Capture v2 boundary
           │   ├─ P1-5 DAQ ownership
           │   └─ P1-6 Model package/activation policy
           ├─ P1-3 TrainingService ────────────────┘
@@ -965,13 +1004,14 @@ P1 packages may overlap only where their contracts are already accepted and they
 
 ## Next implementation slice
 
-P0-1 is completed. The next implementation slice is **Qt Quick/QML v2 Shell and Mock Single Image**, pending separate implementation authorization. It should:
+P0-1 is completed. The previous **Qt Quick/QML v2 Shell and Mock Single Image** baseline established the generated shell but its Single Image-only Capture composition is superseded by the amended D-014 Capture decision. No production Camera continuation is authorized until the shared Capture workspace visual baseline is reviewed. The corrected baseline should:
 
 - add a separate Qt Quick/QML v2 executable beside the legacy application;
-- implement the approved shell, navigation, status header, workspace host, operation-side panel, and shared Hardware drawer presentation;
-- start at Data > Capture > Single Image;
-- use one minimal mock authoritative state owner and a narrow fake Camera service;
-- exercise deterministic Single Image presentation states without hardware or production persistence; and
-- keep real DCAM preview, real TIFF capture, and physical-camera qualification for a separate later slice.
+- implement the approved shell, navigation, status header, workspace host, operation-side panel, and shared Hardware panel presentation;
+- start at Data > Capture with Single Image, Image Sequence, and Droplet Dataset Capture headings fixed and all three sections collapsed;
+- allow multiple idle sections to expand, divide remaining body height evenly, and scroll each expanded body independently;
+- keep an active section expanded while the other headings remain visible but disabled, and keep Completed, Interrupted, or Failed results expanded until manually collapsed;
+- use one minimal mock authoritative state owner and a narrow fake Camera projection for deterministic visual review without hardware or production persistence; and
+- keep real DCAM preview, real TIFF capture, long-running capture mechanics, and physical-camera qualification for separately authorized later slices.
 
-The exact scope, constraints, verification, and acceptance criteria are defined in [`implementation/current-slice.md`](implementation/current-slice.md). This planning update does not authorize implementation.
+The exact scope, constraints, verification, and acceptance criteria are defined in [`current-slice.md`](current-slice.md). This planning update does not authorize implementation.

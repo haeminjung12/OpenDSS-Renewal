@@ -1,17 +1,87 @@
 # Open Droplet Sorting Suite (OpenDSS)
 ## OpenDSS v2 Consolidated Product Design Specification
 
-**File:** `OpenDSS_v2_Consolidated_Product_Design_Specification.md`  
+**File:** `consolidated-design-draft.md`
 **Document ID:** ODSS-DES-002  
-**Version:** 0.1  
+**Version:** 0.2  
 **Status:** Consolidated Draft for Review  
-**Date:** July 21, 2026  
+**Date:** July 23, 2026  
 **Primary platform:** Windows 11  
 **Product:** Open Droplet Sorting Suite (OpenDSS)
 
 > **Review status:** This document is a consolidated design draft. It is not approved. After design review and approval, it is intended to become the visual, component, accessibility, and design-handoff baseline for OpenDSS v2.
 
+> **Amendment integration:** Version 0.2 incorporates the approved July 23, 2026 UI/UX amendment. The amendment controls every explicitly changed UI, layout, naming, interaction, and workflow matter. Earlier detail in this draft applies only where it agrees with the integrated rules below.
+
 ---
+
+## Approved amendment design integration
+
+### Shell and shared presentation
+
+- Start maximized. Restored layouts have a hard minimum of 1600 × 900 and retain 16:9 while resizing.
+- Keep the status header to one horizontal line. Each of Camera, DAQ, Active Model, and Current Activity uses icon, label, value, readiness color, and a non-color cue.
+- Use a bottom-left overlay `BottomHardwarePanel` opened and closed by an arrow. It neither pushes the workspace nor spans the window.
+- Present ordinary failures through `ErrorMessage` with primary text `Error`. Technical detail belongs only in the log under Settings > Diagnostics.
+
+The startup Camera-unavailable prompt is a focused modal mock with the exact text `Camera unavailable. Continue?` and Yes/No actions. It appears at most once in a session.
+
+### Capture and Label
+
+Capture has one shared `DarkImageViewer` Camera preview and one visible right panel. `CollapsibleSection` headings for Single Image, Image Sequence, and Droplet Dataset Capture never disappear. Only their bodies collapse; multiple idle bodies may be open; the active body is forced open while other headings remain visible and disabled.
+
+Label gives the center Droplet Crop grid visual dominance. The right panel uses `SelectedCropSection` and `ClassesFilterSection`. Selected Crop contains an enlarged crop, Class actions, Skip, Remove from Dataset, and Restore when applicable. Classes & Filter contains Class Names, counts, All, each applicable Class, Unlabeled, Skipped, and Removed. `CropThumbnail` keeps selection, focus, class, and crop state independent. Class 0 is blue, Class 1 orange, Class 2 purple; Unlabeled has no class border; Skipped and Removed have distinct gray treatments.
+
+### Sequence Viewer
+
+Sequence Viewer is a still-frame inspection surface. It shows current and total frame, Previous, Next, direct seek, zoom, pan, Fit, and 1:1. It has no Play, Pause, automatic progression, speed control, or frame-navigation lifecycle. Keyboard commands are Left/Right, Shift+Left/Right for 10 frames, Ctrl+Left/Right for 50, Home/End, plus/minus, F, and 1. Missing frames are skipped silently.
+
+### Train, Library, and Active Model
+
+Train collects Dataset, Faster or More Accurate, Model Name, and Save Location before Start. While Training it shows progress, timing, automatic device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. After automatic save it shows overall results, per-class results, optional confusion matrix, saved path, and Active Model confirmation. Save failure shows `Error` and Retry Save without an Active success state.
+
+`ModelListRow` shows only a green Active check when applicable, bold Model Name, and smaller lighter Model Type. The Active check has textual or accessible meaning. A selected row has a darker background and selection never activates it. `SelectedModelSection` is collapsible and contains name, Active state, trained date, source Dataset, Model Type, classes, Training results, package location, and actions.
+
+Model Test and Sequence Test display the Active Model as read-only context and contain no local Model selector.
+
+### Live and hit boundary
+
+Live keeps one workspace. Its right panel contains Setup Profile, Run Information, Trigger & Timing, Output & Recording, and Running disclosures. Running is collapsed before Start. Start collapses setup, expands Running, makes setup read-only, and retains the Camera preview. `CameraActionBar` below the preview contains Start Camera and Start Sorting.
+
+Trigger & Timing contains Active Model, Hit Class, independent Trigger Every Droplet and DAQ Output toggles, Send Test Pulse, and `HitBoundaryOverlay`. The overlay begins at one clicked Camera point, extends horizontally to the bottom-left, and pairs with Top is Hit or Bottom is Hit. It is a route-observation overlay, not a Decision or physical-output control.
+
+Running contains status, elapsed time, Total Droplets, Predicted Class counts, Decision Hit/Waste, Observed Hit/Waste/Unresolved, Camera FPS, Inference Time, Pause/Resume, and Stop.
+
+### Sequence Test, Results, Settings, and Hardware
+
+Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, Start, and Stop. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default.
+
+Results keeps the loaded Run in the center. `RunListSection` on the right contains the selectable Run list and a bottom Load button. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
+
+Settings uses a centered column with Storage, Application Information, and Diagnostics only.
+
+`BottomHardwarePanel` Camera content is Status, Device, Resolution preset, conditional Custom Width/Height, Bit Depth default 8-bit, Exposure, Readout mode default Fastest, and LUT controls. LUT is visibly preview-only. DAQ content is Status, auto-detected Device, conditional Device selector, Output Channel, and reported maximum voltage range/frequency. Only adapter-supported settings appear.
+
+### Shared component plan
+
+```text
+StatusHeaderItem
+CollapsibleSection
+BottomHardwarePanel
+DarkImageViewer
+CameraActionBar
+ErrorMessage
+CropThumbnail
+SelectedCropSection
+ClassesFilterSection
+ModelListRow
+SelectedModelSection
+HitBoundaryOverlay
+RunListSection
+TrainingPlot
+```
+
+Create each component only in the first authorized slice with an immediate consumer. All remain token-driven and Qt Design Studio-editable; runtime behavior stays outside `.ui.qml`.
 
 ## Document conventions
 
@@ -54,7 +124,7 @@ The required Decision values are **Hit** and **Waste**. The required Observed Ro
 8. [Workspace design framework](#8-workspace-design-framework)
 9. [Data > Capture design](#9-data--capture-design)
 10. [Data > Label design](#10-data--label-design)
-11. [Data > Sequence Player design](#11-data--sequence-player-design)
+11. [Data > Sequence Viewer design](#11-data--sequence-viewer-design)
 12. [Models > Train design](#12-models--train-design)
 13. [Models > Model Test design](#13-models--model-test-design)
 14. [Models > Library design](#14-models--library-design)
@@ -62,7 +132,7 @@ The required Decision values are **Hit** and **Waste**. The required Observed Ro
 16. [Sort > Sequence Test design](#16-sort--sequence-test-design)
 17. [Results > Runs design](#17-results--runs-design)
 18. [Settings design](#18-settings-design)
-19. [Shared Camera/DAQ drawer](#19-shared-cameradaq-drawer)
+19. [Bottom Hardware panel](#19-bottom-hardware-panel)
 20. [Setup Profile design](#20-setup-profile-design)
 21. [Contextual workflow links](#21-contextual-workflow-links)
 22. [Keyboard, focus, and repeated-work behavior](#22-keyboard-focus-and-repeated-work-behavior)
@@ -198,7 +268,7 @@ Brand colors SHOULD guide identity and primary attention. Semantic state, select
 
 ### EP-11 — One authoritative state projection
 
-The header, drawer, workspace, enabled actions, counters, locks, and banners MUST agree. The design must not imply that widgets carry independent copies of authoritative domain state.
+The header, panel, workspace, enabled actions, counters, locks, and banners MUST agree. The design must not imply that widgets carry independent copies of authoritative domain state.
 
 ### EP-12 — Preserve work without creating workflow bureaucracy
 
@@ -218,7 +288,7 @@ The application MUST preserve this structure exactly:
 Data
 ├── Capture
 ├── Label
-└── Sequence Player
+└── Sequence Viewer
 
 Models
 ├── Train
@@ -237,13 +307,15 @@ Settings
 
 There is no Home screen and no separate Reports or Sort Setup workspace.
 
-The Capture workspace contains three equally prominent internal modes:
+The Capture workspace contains one shared live Camera preview and three collapsible operation sections in the right-side panel:
 
 ```text
-[ Single Image ]  [ Image Sequence ]  [ Dataset Capture ]
+▸ Single Image
+▸ Image Sequence
+▸ Droplet Dataset Capture
 ```
 
-These are mode selectors inside one shared live-camera workspace. They are not a third navigation tier in the persistent rail.
+These are section headings, not selectors and not a third navigation tier. Every heading remains visible. Sections expand independently, multiple sections may be open while idle, and none is expanded by default.
 
 Live pre-run, Starting, Running, Paused, Stopping, Completed, Interrupted, and Failed presentations are states of one `Sort > Live` workspace. They are not separate screens or navigation destinations.
 
@@ -254,7 +326,7 @@ Live pre-run, Starting, Running, Paused, Stopping, Completed, Interrupted, and F
 | **Data** | Acquire source images, label Datasets, and visually inspect recorded Image Sequences. |
 | **Data > Capture** | Use one shared live-camera workspace to save a Single Image, record an Image Sequence, or capture a Dataset. |
 | **Data > Label** | Define two or three classes and assign Labels to Droplet Crops in one Dataset. |
-| **Data > Sequence Player** | Play, pause, step, scrub, zoom, and pan a recorded Image Sequence without hardware output. |
+| **Data > Sequence Viewer** | Step, seek, zoom, pan, Fit, and inspect a recorded Image Sequence at 1:1 without hardware output. |
 | **Models** | Create, test, and manage local two-class or three-class Model Packages. |
 | **Models > Train** | Train a Faster or More Accurate model from eligible Labeled Droplet Crops. |
 | **Models > Model Test** | Measure classification behavior of one model on one compatible labeled Dataset without changing Active Model. |
@@ -282,7 +354,7 @@ Live pre-run, Starting, Running, Paused, Stopping, Completed, Interrupted, and F
 Every application launch MUST open:
 
 ```text
-Data > Capture > Single Image
+Data > Capture
 ```
 
 The previously open workspace MUST NOT be restored. Persisted domain state, including the Active Model and valid storage preferences, may remain available because it is not workspace restoration.
@@ -301,7 +373,7 @@ The application shell MUST contain:
 2. persistent primary navigation;
 3. the current workspace region;
 4. a workspace-owned operation-side panel where applicable;
-5. a shell-owned slide-out Camera/DAQ drawer;
+5. a shell-owned slide-out Camera/DAQ panel;
 6. one contextual fault-banner location inside the affected workspace.
 
 ```text
@@ -320,7 +392,7 @@ The application shell MUST contain:
 │ Contextual fault banner occupies the affected workspace, not a notification hub.│
 └──────────────────────────────────────────────────────────────────────────────────┘
                                                           ┌────────────────────────┐
-                                                          │ HARDWARE DRAWER        │
+                                                          │ BOTTOM HARDWARE PANEL        │
                                                           │ Camera                 │
                                                           │ DAQ                    │
                                                           └────────────────────────┘
@@ -330,11 +402,11 @@ The application shell MUST contain:
 
 | Region | Required design treatment | Interaction behavior |
 |---|---|---|
-| **Global status header** | Compact, always visible, visually quieter than the active workspace but readable at a glance. Four status items use labels plus values, not color-only chips. | Projects authoritative Camera, DAQ, Active Model, and Current Activity state. The Hardware action opens the drawer when permitted. |
+| **Global status header** | Compact, always visible, visually quieter than the active workspace but readable at a glance. Four status items use labels plus values, not color-only chips. | Projects authoritative Camera, DAQ, Active Model, and Current Activity state. The Hardware action opens the panel when permitted. |
 | **Primary navigation** | Stable vertical rail with clear domain grouping. Selected state is structural and text-supported. | Opens approved workspaces directly. It remains usable during an operation when navigation does not violate resource locks. |
 | **Workspace region** | Receives the largest flexible area and contains the dominant scientific content. | Retains the owning workspace state within the session. Does not use fixed desktop-coordinate positioning. |
 | **Operation-side panel** | Stable right-side region for setup, selected-item detail, progress, counters, and actions. Its heading names the current task or state. | Content changes by mode or lifecycle state. Camera and DAQ technical controls never appear here. |
-| **Hardware drawer** | Overlays from the right edge above the workspace; keeps header context visible. | Provides the only user-editable Camera and DAQ technical settings. It is independently lockable by device except during Live, when the whole drawer closes and locks. |
+| **Hardware panel** | Overlays from the bottom-left above the workspace; keeps header context visible. | Provides the only user-editable Camera and DAQ technical settings. It is independently lockable by device except during Live, when the whole panel closes and locks. |
 | **Fault banner** | Full-width within the affected workspace's content boundary, above the affected content or immediately below its local header. | Persists until the user starts a new operation, opens a replacement artifact, or performs a provided recovery action. |
 
 ## 4.3 Recommended geometry
@@ -347,7 +419,7 @@ The following values are consolidated design recommendations, not changes to pro
 | Navigation rail, compact | 56–64 logical px | Icons with tooltips and accessible labels. |
 | Navigation rail, expanded | 200–224 logical px | Icon plus full label; user-selectable or responsive. |
 | Operation-side panel | 360–440 logical px | Resizable; may collapse where the workspace remains operable. |
-| Hardware drawer | 420–520 logical px | Overlay; at the minimum window it may use up to 44% of the content width. |
+| Hardware panel | 420–520 logical px | Overlay; at the minimum window it may use up to 44% of the content width. |
 | Major splitter hit area | At least 8 logical px, with a 1 px visible divider | Keyboard resizing and reset/collapse alternatives required. |
 | Workspace content padding | 16–24 logical px | 12 px may be used in dense data regions, not around destructive controls. |
 
@@ -368,7 +440,7 @@ Representative values are:
 | Camera | `Unavailable`, `Connected`, `Streaming` |
 | DAQ | `Unavailable`, `Ready`, `Active` |
 | Active Model | `No Active Model` or `<Model Name>` |
-| Current Activity | `Idle`, `Capturing Image`, `Recording Sequence`, `Capturing Dataset`, `Labeling`, `Training`, `Testing Model`, `Playing Sequence`, `Testing Sequence`, `Sorting`, `Paused` |
+| Current Activity | `Idle`, `Capturing Image`, `Recording Sequence`, `Droplet Dataset Capture`, `Labeling`, `Training`, `Testing Model`, `Testing Sequence`, `Sorting`, `Paused` |
 
 `Starting` and `Stopping` do not add header vocabulary. The approved operation activity remains visible until resources release.
 
@@ -385,11 +457,11 @@ The header MUST NOT become an editable settings surface or a notification center
 
 The current primary action MUST appear in a consistent final-action region at the bottom of the operation-side panel or equivalent selected-item panel. The action must remain visible without covering content. When disabled, one short reason appears immediately beneath or adjacent to it.
 
-Only one action is visually primary in a local state. Pause, Resume, Stop, Save Model, Set Active, or a completion action may become primary when the state changes.
+Only one action is visually primary in a local state. Pause, Resume, Stop, Automatic Save, Set Active, or a completion action may become primary when the state changes.
 
 ## 4.6 Startup workspace treatment
 
-On launch, the selected navigation state, Capture mode selector, preview region, and Single Image operation panel MUST already describe `Data > Capture > Single Image`. When the Camera is unavailable, the preview remains in place and displays **Camera unavailable**; the product does not replace the workspace with a Home or hardware-setup screen.
+On launch, the selected navigation state and preview region MUST describe `Data > Capture`, with Single Image, Image Sequence, and Droplet Dataset Capture headings visible and all three sections collapsed. When the Camera is unavailable, the preview remains in place and displays **Camera unavailable**; the product does not replace the workspace with a Home or hardware-setup screen.
 
 ## 4.7 Focus order
 
@@ -402,7 +474,7 @@ The default shell-level focus order SHOULD be:
 5. operation-side panel fields and actions;
 6. contextual banner actions when present.
 
-`F6` SHOULD cycle among the major shell regions without changing the selected workspace. When the Hardware drawer closes, focus MUST return to the action that opened it.
+`F6` SHOULD cycle among the major shell regions without changing the selected workspace. When the Hardware panel closes, focus MUST return to the action that opened it.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §§5 and 14; *OpenDSS v2 Information Architecture and Screen Inventory* §1; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §2, §§4–5, and §16; *OpenDSS Detailed User Workflow Specification* §§8–9 and §34; *OpenDSS Product Design Specification*, Draft v0.1 §§4–5 as adapted visual and geometry evidence.
 
@@ -540,12 +612,12 @@ Density MUST not reduce target sizes below the accessibility minimum or cause te
 |---|---|
 | Buttons and fields | 6 px radius |
 | Panels and metric tiles | 8 px radius |
-| Drawers and dialogs | 10–12 px radius |
+| Panels and dialogs | 10–12 px radius |
 | Standard border | 1 logical px |
 | Focus indicator | 2 logical px minimum with sufficient offset/contrast |
 | Viewer overlay | 6–8 px radius with dark translucent surface |
 
-Spacing and surface contrast SHOULD define hierarchy before borders. Dividers SHOULD be used for lists, tables, and split regions, not to outline every group. Elevation and shadow are reserved for floating drawers, menus, tooltips, and dialogs; ordinary panels should remain flat or minimally elevated.
+Spacing and surface contrast SHOULD define hierarchy before borders. Dividers SHOULD be used for lists, tables, and split regions, not to outline every group. Elevation and shadow are reserved for floating panels, menus, tooltips, and dialogs; ordinary panels should remain flat or minimally elevated.
 
 ## 5.7 Iconography
 
@@ -571,7 +643,7 @@ Missing or unreadable frames retain the viewer and identify the frame/path probl
 
 Motion MUST be functional and restrained:
 
-- drawer opening and panel collapse MAY animate over a short duration;
+- panel opening and panel collapse MAY animate over a short duration;
 - progress indicators MAY animate while work is indeterminate;
 - operation-state changes SHOULD not use celebratory or attention-grabbing motion;
 - reduced-motion preference MUST remove nonessential movement and replace animated transitions with immediate state changes or short fades;
@@ -602,8 +674,8 @@ Every interactive component MUST define:
 |---|---|---|
 | **Navigation item** | Icon, label, optional disclosure, selected indicator, compact/expanded variants | Selected and keyboard-focus treatments remain distinct. Tooltip and accessible name are required in compact mode. Disabled navigation is avoided; inaccessible operations are explained inside the workspace. |
 | **Global status item** | Label, value, optional state symbol, optional detail tooltip | Read-only projection of authoritative state. Color is supplemental. Long model names use end or middle elision with full text available. |
-| **Hardware action** | Hardware icon plus label at standard widths; icon plus tooltip at minimum width | Opens the shell-owned drawer when permitted. When Live owns hardware, it is disabled with a direct reason. |
-| **Hardware-drawer section** | Device heading, status, supported field groups, applied/validation feedback, lock-owner explanation, optional collapse | Camera and DAQ sections remain independently editable or locked according to ownership. Unsupported properties are absent rather than shown as placeholders. |
+| **Hardware action** | Hardware icon plus label at standard widths; icon plus tooltip at minimum width | Opens the shell-owned panel when permitted. When Live owns hardware, it is disabled with a direct reason. |
+| **Hardware-panel section** | Device heading, status, supported field groups, applied/validation feedback, lock-owner explanation, optional collapse | Camera and DAQ sections remain independently editable or locked according to ownership. Unsupported properties are absent rather than shown as placeholders. |
 | **Operation-side panel** | Heading, optional artifact summary, field groups, status/metrics, final action region | Content changes by workspace/mode/state. Primary action remains in a consistent lower region. It never duplicates Camera or DAQ settings. |
 
 ## 6.3 Input and action components
@@ -612,7 +684,8 @@ Every interactive component MUST define:
 |---|---|---|
 | **Button** | Primary, secondary, ghost, destructive; default, hover, pressed, focus, disabled, busy | One primary per local state. Disabled operation button exposes one adjacent reason. Busy state preserves label context, prevents double activation, and exposes status to assistive technology. |
 | **Icon button** | Neutral, selected, destructive | Minimum 32 px preferred target; tooltip and accessible name required. Icon-only destructive action is not permitted without a text confirmation context. |
-| **Segmented control** | Equal options, selected, focus, disabled | Used for the three equal Capture modes and comparable peer choices. All peer labels remain visible at supported widths. Arrow keys move among options; activation follows platform-consistent single-selection behavior. |
+| **Capture disclosure section** | Fixed heading; collapsed, expanded, focus, disabled, active-owner states; independently scrolling body | Used for Single Image, Image Sequence, and Droplet Dataset Capture. All three headings remain visible; multiple idle sections may be expanded; none is expanded by default; an active section is forced open while the other headings are disabled. |
+| **Segmented control** | Equal options, selected, focus, disabled | Used only for comparable peer choices that require single selection. All peer labels remain visible at supported widths. Arrow keys move among options; activation follows platform-consistent single-selection behavior. |
 | **Text field** | Empty, populated, hover, focus, invalid, disabled, read-only | Persistent label; placeholder is not the label. Commit behavior is explicit. Error text appears below the field and remains until corrected or reverted. |
 | **Number field** | Text entry plus optional step controls, unit label | Enforces supported range/format without silently changing a valid prior value. Units remain visible. Arrow/step behavior must not apply while disabled. |
 | **Path field** | Read-only or editable path, Browse, Reveal/Open action | Middle-elides long paths; full path available by tooltip, selection, or accessible description. File/folder picker is standard Windows behavior. |
@@ -629,7 +702,7 @@ Every interactive component MUST define:
 | **List row** | Primary label, metadata, optional status/active marker, selection | Selected, Active Model, locked, and error conditions use separate cues. Double activation may invoke the row's primary open action when documented. |
 | **Data table** | Header, sortable columns only where specified, rows, selection, empty/error states | Headers remain visible; numeric content aligns consistently; keyboard row navigation and accessible column names required. No first-class charts are substituted for required tables. |
 | **Dataset thumbnail** | Image, Class ID/Name badge, label-state symbol, selection layer, focus ring, optional missing-image state | Selection, focus, class identity, Labeled, Skipped, and Removed cues are orthogonal. Images are virtualized. Removed retains an X/removed badge and subdued image; Skipped uses its own label/symbol. |
-| **Sequence timeline** | Track, current-position thumb, buffered/available range where applicable, current/total labels | Keyboard step and seek alternatives required. Visual playback speed is separate from Sequence Test processing. |
+| **Sequence timeline** | Track, current-position thumb, buffered/available range where applicable, current/total labels | Keyboard step and seek alternatives required. Visual frame navigation is separate from Sequence Test processing. |
 | **Metric tile** | Label, large value, optional unit, optional secondary factual context | Uses tabular figures. Does not apply pass/fail styling to scientific metrics. |
 | **Progress display** | Determinate bar, current/total, stage label, elapsed/estimated time where available | Must distinguish progress from success. Indeterminate state names the current initialization/finalization stage. |
 | **Log or diagnostic stream** | Timestamp/source/message rows, copy/open-folder actions where supported | Used only in Diagnostics or technical detail surfaces, not as a required normal-workflow console. Monospace is appropriate. |
@@ -644,7 +717,7 @@ Every interactive component MUST define:
 | **Inline validation** | Field outline/icon, concise reason, optional correction hint | Invalid hardware edits revert to the last successfully applied value. Required selections are not silently guessed. Scientific measurements never become field errors. |
 | **Contextual fault banner** | Outcome heading, direct reason, preservation statement, one or two recovery/inspection actions | One persistent banner per affected workspace. No repeated modal cascade and no notification center. |
 | **Dialog** | Title, scoped explanation, content, primary/safe action, secondary/cancel | Used only when necessary: destructive model deletion, file overwrite supplied by normal file behavior, or comparable explicit confirmation. Safe action receives initial focus. |
-| **Slide-out drawer** | Title, close action, Camera and DAQ sections, status, supported controls | Focus is contained while open. Escape closes when permitted. Closing restores focus. Live forces closure and disables reopening. |
+| **Slide-out panel** | Title, close action, Camera and DAQ sections, status, supported controls | Focus is contained while open. Escape closes when permitted. Closing restores focus. Live forces closure and disables reopening. |
 | **Splitter** | Visible divider plus larger invisible hit area, collapse/reset affordance where useful | Pointer drag, keyboard increment, and explicit collapse/reset alternatives required. |
 | **Tooltip** | Short text, no interactive content | Required for ambiguous icons, compact navigation, elided values, and disabled-reason duplication. It cannot be the only way to obtain a critical blocker. |
 
@@ -667,7 +740,7 @@ All components MUST:
 - remain usable at 200% Windows scaling without clipping essential text or targets;
 - avoid color-only distinction;
 - support a minimum 24 × 24 logical-pixel target, with 32–40 px preferred for normal controls;
-- preserve predictable focus after actions, selection changes, drawer closure, and dialog dismissal.
+- preserve predictable focus after actions, selection changes, panel closure, and dialog dismissal.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §§5, 7, 9, 13, and 14; *OpenDSS v2 Information Architecture and Screen Inventory* §§1, 3–6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §§2–5 and detailed workspace sections 6–15; *OpenDSS Detailed User Workflow Specification* §§8–9, 11–23, 34, and 38–43; *OpenDSS Product Design Specification*, Draft v0.1 §6 and §§9–12 as adapted component and accessibility evidence.
 
@@ -685,8 +758,8 @@ All components MUST:
 | **Active** | Operation accepted and Running | Active status badge, progress/counters, locked inputs, Stop available | `Running` or approved activity name |
 | **Paused** | Same operation retained; defined processing/output is stopped | Amber/paused semantic treatment, stable counters, Resume dominant | `Paused`, pause icon, and explanatory text |
 | **Completed** | Expected canonical output finalized | Completed treatment and direct next actions | `Completed` or factual stopped/completed status |
-| **Interrupted** | Operation ended early; recoverable output may exist | Persistent warning-level banner | `Interrupted`, reason, preservation result |
-| **Failed** | Processing, runtime, hardware, or persistence contract failed | Persistent error-level banner | `Failed`, direct reason, preservation result |
+| **Interrupted** | `Error`; technical details are logged. | Persistent warning-level banner | `Interrupted`, reason, preservation result |
+| **Failed** | `Error`; technical details are logged. | Persistent error-level banner | `Failed`, direct reason, preservation result |
 
 `Empty` is a workspace condition indicating that no artifact has been selected. It is not an error and should use an Empty State component rather than Failed styling.
 
@@ -733,7 +806,7 @@ Workspace-specific reason order in LF §16 takes precedence. Field-level validat
 
 ## 7.4 Contextual fault banner
 
-The banner appears at the top of the affected workspace content, below the workspace title/mode selector and above the main regions. It contains:
+The banner appears at the top of the affected workspace content, below the workspace title or persistent Capture section headings and above the main regions. It contains:
 
 1. the operation or action that stopped;
 2. the direct technical reason when known;
@@ -744,7 +817,7 @@ Example:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Dataset Capture interrupted                                          │
+│ Droplet Dataset Capture interrupted                                          │
 │ The camera disconnected. Existing frames and crops were preserved.  │
 │                                                                      │
 │ [ Open Dataset ]  [ Open Folder ]                                    │
@@ -763,7 +836,7 @@ The heading, reason, and actions must be keyboard reachable and exposed as an as
 ## 7.6 Busy actions and progress
 
 - Start actions must become busy immediately after acceptance to prevent double activation.
-- Inputs and mode selectors lock at Start acceptance, not after the operation reaches Running.
+- Inputs and conflicting operation controls lock at Start acceptance, not after the operation reaches Running.
 - Starting progress names concrete stages such as `Creating Run folder`, `Loading model`, or `Initializing writer` when available.
 - Stopping progress communicates that new processing/output has stopped and files are being flushed or finalized.
 - Determinate progress uses current and total values where known. Indeterminate progress must still name the stage.
@@ -802,7 +875,7 @@ Every workspace or distinct mode in Sections 9–18 is specified using this cont
 | **Required artifact or hardware** | Technical prerequisites only. |
 | **Output artifact** | Canonical artifact or factual absence of one. |
 | **Direct disabled reasons** | One operation-level blocker at a time. |
-| **Fault-banner placement** | Where the one contextual fault banner appears. |
+| **Fault-banner placement** | Where the one minimal `Error` presentation appears. |
 | **Applicable states** | Only states that genuinely apply. |
 | **Keyboard and focus behavior** | Logical order, repeated-work keys, and focus restoration. |
 | **Resizing and collapse** | Splitter, panel, inspector, and minimum-width behavior. |
@@ -835,9 +908,9 @@ A workspace MAY use master-detail, three-region, or full-width layouts when requ
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
 | Single Image | — | ✓ | ✓ | transient busy | — | — | — | ✓ | — | ✓ |
 | Image Sequence | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
-| Dataset Capture | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| Droplet Dataset Capture | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Label | ✓ | ✓ | ✓ | — | — | — | — | — | — | ✓ |
-| Sequence Player | ✓ | — | ✓ | — | ✓ | ✓ | — | ✓ | — | ✓ |
+| Sequence Viewer | ✓ | — | ✓ | — | ✓ | ✓ | — | ✓ | — | ✓ |
 | Train | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ |
 | Model Test | ✓ | ✓ | ✓ | ✓ | ✓ | — | ✓ | ✓ | ✓ | ✓ |
 | Library | ✓ | ✓ where locked/unreadable | ✓ | — | — | — | — | — | — | ✓ |
@@ -857,7 +930,7 @@ At the minimum supported window:
 - operation-side panels remain visible for active operations and primary setup;
 - optional inspectors may collapse behind an explicit, labeled action;
 - tables may horizontally scroll only after prioritizing essential columns and permitting column resizing;
-- mode selectors, primary actions, critical counters, and direct disabled reasons must remain visible;
+- required selectors or persistent section headings, primary actions, critical counters, and direct disabled reasons must remain visible;
 - workspace structure must not be replaced with a different mobile navigation model.
 
 ## 8.5 Workspace source citation practice
@@ -873,18 +946,15 @@ Each following workspace section cites PM, IA, LF, and applicable WF sections. P
 
 ### Design purpose and user goal
 
-Capture is one live-camera workspace with three equally prominent modes. Its design purpose is to keep the Camera preview stable while changing only the operation-side panel and mode-specific state. The main user goal is to save source image data without exposing detector, Droplet Crop, model, routing, or internal timing controls.
+Capture is one live-camera workspace with one stable Camera preview and three collapsible operation sections in the right-side panel. Its design purpose is to keep acquisition visually continuous while exposing Single Image, Image Sequence, and Droplet Dataset Capture without a mode switch. The main user goal is to save source image data without exposing detector, Droplet Crop, model, routing, or internal timing controls.
 
 ```text
 Data > Capture
 
-[ Single Image ]   [ Image Sequence ]   [ Dataset Capture ]
-
 ┌────────────────────────────────────────────┬──────────────────────────────┐
-│ LIVE CAMERA PREVIEW                        │ MODE OPERATION PANEL         │
-│                                            │                              │
-│ Shared across all three modes              │ Fields, state, counters,     │
-│                                            │ and actions for selected mode│
+│ LIVE CAMERA PREVIEW                        │ ▸ Single Image               │
+│                                            │ ▸ Image Sequence             │
+│ Shared across all capture sections         │ ▸ Droplet Dataset Capture            │
 └────────────────────────────────────────────┴──────────────────────────────┘
 ```
 
@@ -892,18 +962,21 @@ Data > Capture
 
 | Contract field | Capture requirement |
 |---|---|
-| **Major regions** | Equal mode selector; shared dark live-camera preview; mode operation panel; optional contextual fault banner above the split region. |
-| **Dominant hierarchy** | Camera preview first, selected mode second, state-dependent primary action third. Mode choices have equal visual weight. |
+| **Major regions** | Shared dark live-camera preview; fixed three-heading Capture panel; independently expandable and scrollable section bodies; optional contextual fault banner above the split region. |
+| **Dominant hierarchy** | Camera preview first, three persistent section headings second, expanded section content and primary actions third. |
 | **Hardware** | Camera Streaming is required for all capture actions. DAQ and Active Model are never required. |
-| **Hardware access** | Camera settings are available only through the shared hardware drawer. The operation panel may show a factual Camera summary but no editable Camera fields. |
-| **Mode switching** | Available while idle. It locks from accepted Start through finalization for Image Sequence and Dataset Capture, and briefly during Single Image capture/write. |
-| **Camera unavailable** | Preview remains in place with **Camera unavailable** centered on the dark viewer surface. Mode and nonhardware file fields remain visible. |
-| **Fault banner** | Below the mode selector and above preview/panel. It does not replace the preview geometry. |
-| **Responsive behavior** | Preview receives remaining width. Operation panel SHOULD remain at least 320 logical px. At minimum width, metadata fields may use a denser single column; the three mode labels remain fully visible. |
-| **Focus behavior** | Mode selector → preview utilities, if any → mode fields → primary action → secondary completion actions. Switching mode moves focus to the incoming panel heading, not directly to a destructive or Start action. |
-| **Mock states** | Camera unavailable; Camera connected but not Streaming; Camera Streaming; conflicting operation; unwritable location; each mode Ready; active, paused, completed, interrupted, and failed states where applicable. |
+| **Hardware access** | Camera settings are available only through the shared hardware panel. The operation panel may show a factual Camera summary but no editable Camera fields. |
+| **Section behavior** | All headings remain fixed and visible. Sections expand independently; opening one does not close another. With one open body it receives the remaining panel height; with two or three open bodies the remaining height is divided evenly and each body scrolls independently. All sections are collapsed when Capture first opens. |
+| **Operation locking** | During Single Image capture/write or from accepted Start through finalization for Image Sequence or Droplet Dataset Capture, the active section is forced open and the other two headings remain visible but disabled. After completion, interruption, or failure, the other headings re-enable and the result section remains expanded until the user collapses it. |
+| **Camera unavailable** | Preview remains in place with **Camera unavailable** centered on the dark viewer surface. All section headings and any expanded nonhardware file fields remain visible. |
+| **Fault banner** | Above the preview/panel split and below the workspace title. It does not replace the preview geometry or any Capture heading. |
+| **Responsive behavior** | Preview receives remaining width. Operation panel SHOULD remain at least 320 logical px. At minimum width, metadata fields may use a denser single column; all three fixed headings remain visible and expanded bodies scroll independently. |
+| **Focus behavior** | Preview utilities, if any → Single Image heading and expanded body → Image Sequence heading and expanded body → Droplet Dataset Capture heading and expanded body. Expanding moves focus into the section heading/body sequence; collapsing a section whose body contains focus returns focus to that heading. Disabled headings are skipped. |
+| **Mock states** | Camera unavailable; Camera connected but not Streaming; Camera Streaming; conflicting operation; unwritable location; each section Ready; none, one, two, and three sections expanded; active, paused, completed, interrupted, and failed states where applicable. |
 
 The preview MAY show nonpersistent exposure or frame-rate facts supplied by the Camera integration, provided they do not become duplicate settings or imply detector controls.
+
+The per-section specifications below describe each expanded body. They do not replace the shared preview or hide either of the other fixed Capture headings.
 
 ## 9.2 Single Image
 
@@ -915,12 +988,12 @@ The preview MAY show nonpersistent exposure or frame-rate facts supplied by the 
 | **Main user goal** | Save exactly one full-frame TIFF. |
 | **Operation panel** | Heading `Single Image`; optional File Name; Save Location path field with Browse; saved-path confirmation; Capture Image. |
 | **Primary action** | **Capture Image** in Ready and again after successful completion. |
-| **Secondary actions** | Browse Save Location; Reveal/Open saved location after success; switch mode while idle. |
+| **Secondary actions** | Browse Save Location; Reveal/Open saved location after success; expand or collapse Capture sections while idle. |
 | **Required hardware/artifact** | Camera Streaming; writable image location; no conflicting Camera or image-write ownership. |
 | **Output** | One TIFF. No Dataset, Image Sequence metadata, Model Test output, Run, classification, or DAQ output. |
 | **Direct disabled reasons** | **Another operation is active** → **Camera unavailable** → **Output folder is not writable**. |
 | **Applicable presentations** | Unavailable, Ready, transient busy, Completed, Failed. |
-| **Next likely action** | Capture another image or select another Capture mode. No mandatory handoff. |
+| **Next likely action** | Capture another image or expand another Capture section. No mandatory handoff. |
 
 ### Ready and completion presentation
 
@@ -947,7 +1020,7 @@ The saved confirmation uses a completed/check cue but does not transform the who
 
 ### Interaction and state details
 
-- Selecting Capture Image MUST immediately place the button in a busy state and briefly lock mode switching.
+- Selecting Capture Image MUST immediately place the button in a busy state, keep Single Image expanded, and disable the other two section headings until the write completes or fails.
 - Current Activity MUST show `Capturing Image` until the write succeeds or fails.
 - Repeated activation must not create duplicate captures.
 - On write failure, the banner must name the file or folder reason where useful and must not display a saved path.
@@ -974,12 +1047,12 @@ The saved confirmation uses a completed/check cue but does not transform the who
 | **Ready panel** | Name; Experiment Type; Notes; optional Duration; Save Location; Start Recording. |
 | **Running panel** | Status; active elapsed time; Frames; optional writer/preservation status; Pause; Stop. |
 | **Paused panel** | `Paused`; frozen active time and frame count; Resume; Stop; explanation that preview continues while writing is stopped. |
-| **Completed panel** | Final frame count; stop reason; location; Open in Sequence Player; Open in Sequence Test; Start New Recording. |
+| **Completed panel** | Final frame count; stop reason; location; Open in Sequence Viewer; Open in Sequence Test; Start New Recording. |
 | **Required hardware/artifact** | Camera Streaming; writable sequence location; global long-running-operation slot. |
 | **Output** | `sequence.json` and numbered full-frame TIFF frames. It is not a Run and does not appear in Results. |
 | **Direct disabled reasons** | **Another operation is active** → **Camera unavailable** → **Output folder is not writable**. |
 | **Applicable presentations** | Unavailable, Ready, Starting, Running, Paused, Stopping, Completed, Interrupted, Failed. |
-| **Next likely action** | Open in Sequence Player or Open in Sequence Test. |
+| **Next likely action** | Open in Sequence Viewer or Open in Sequence Test. |
 
 ### Ready presentation
 
@@ -1031,10 +1104,10 @@ Writing sequence.json and flushing queued frames.
 
 ### Interaction and visual behavior
 
-- On Start acceptance, fields and mode selector become read-only and the panel transitions to Starting.
+- On Start acceptance, the Image Sequence section remains expanded, applicable fields become read-only, the other two section headings become disabled, and the section transitions to Starting.
 - The configuration snapshot is not shown as editable. A concise `Captured with current Camera settings` summary MAY be inspectable.
 - Pause must visually preserve the same sequence identity and location. Resume must not look like a new Start.
-- The preview remains live during Running and Paused. The Camera section of the hardware drawer remains locked; an available DAQ section remains editable.
+- The preview remains live during Running and Paused. The Camera section of the hardware panel remains locked; an available DAQ section remains editable.
 - Stop is a secondary but persistent action beside Pause/Resume. Once accepted, Pause/Resume disable and the panel displays Stopping.
 - Completion actions use normal contextual links. Neither action automatically starts playback or testing until the destination workspace loads the sequence.
 - Interrupted and Failed banners must distinguish recoverable `sequence.json`, preserved frames without finalized metadata, and no usable output.
@@ -1044,13 +1117,13 @@ Writing sequence.json and flushing queued frames.
 - `Alt+P` MAY be used as a displayed accelerator for Pause/Resume only while the owning operation panel has focus and no field is being edited.
 - Stop must remain available by normal Tab navigation and explicit activation. An unmodified global key must not stop recording.
 - When the operation transitions from Ready to Starting, focus moves to the status heading and then follows to Pause/Stop when Running.
-- Completion places focus on the result heading; Tab proceeds to Open in Sequence Player, Open in Sequence Test, and Start New Recording.
+- Completion places focus on the result heading; Tab proceeds to Open in Sequence Viewer, Open in Sequence Test, and Start New Recording.
 
 ### Minimum design-review states
 
 Camera unavailable; Ready with blank Duration; Ready with Duration; Starting; Running with low and large frame counts; Paused; Stopping; Completed by Duration; Completed by user Stop; Interrupted with recoverable sequence; Failed finalization; DAQ editable while Camera section is locked.
 
-## 9.4 Dataset Capture
+## 9.4 Droplet Dataset Capture
 
 ### Design contract
 
@@ -1058,10 +1131,10 @@ Camera unavailable; Ready with blank Duration; Ready with Duration; Starting; Ru
 |---|---|
 | **Design purpose** | Create one model-independent Dataset while visibly separating fixed processing from editable user choices. |
 | **Main user goal** | Record full frames and save one initially Unlabeled Droplet Crop per detected droplet. |
-| **Ready panel** | Dataset Name; Experiment Type; Notes; optional Duration; Save Location; concise fixed-processing explanation; Start Dataset Capture. |
+| **Ready panel** | Dataset Name; Experiment Type; Notes; optional Duration; Save Location; concise fixed-processing explanation; Start Droplet Dataset Capture. |
 | **Running panel** | Status; active elapsed time; Full Frames; Detected Droplets; Droplet Crops; Pause; Stop. |
 | **Paused panel** | Paused status; frozen active counters; explanation that preview continues while frame writing, detection, and Droplet Crop creation stop; Resume; Stop. |
-| **Completed panel** | Final counts; Dataset location; Open in Label; Open Folder; Start New Dataset Capture. |
+| **Completed panel** | Final counts; Dataset location; Open in Label; Open Folder; Start New Droplet Dataset Capture. |
 | **Required hardware/artifact** | Camera Streaming; loadable fixed qualified processing configuration; writable Dataset location; global operation slot. No model or DAQ. |
 | **Output** | `dataset.json`, full-frame Image Sequence, and one 64 × 64 grayscale PNG Droplet Crop per completed detection, initially Unlabeled. |
 | **Direct disabled reasons** | **Another operation is active** → **Camera unavailable** → **Processing configuration unavailable** → **Output folder is not writable**. |
@@ -1071,7 +1144,7 @@ Camera unavailable; Ready with blank Duration; Ready with Duration; Starting; Ru
 ### Ready presentation
 
 ```text
-DATASET CAPTURE
+DROPLET DATASET CAPTURE
 
 Dataset Name          [________________________]
 Experiment Type       [________________________]
@@ -1083,7 +1156,7 @@ Processing
 Fixed qualified detection and Droplet Crop processing.
 The effective configuration is recorded with the Dataset.
 
-[ Start Dataset Capture ]
+[ Start Droplet Dataset Capture ]
 ```
 
 The fixed-processing explanation MUST be read-only text or an information disclosure. It MUST NOT be styled as an expandable settings section and must not contain detector or crop controls.
@@ -1105,10 +1178,10 @@ If detection and persisted crop counts differ transiently because of queued writ
 
 ### Interaction and visual behavior
 
-- Dataset Capture MUST never show Active Model, Predicted Class, Class Score, Decision, Hit Class, Hit Outlet Direction, Observed Route, or DAQ controls.
+- Droplet Dataset Capture MUST never show Active Model, Predicted Class, Class Score, Decision, Hit Class, Hit boundary calibration, Observed Route, or DAQ controls.
 - Every newly persisted crop begins as Unlabeled. No automatic label, scientific acceptance, or candidate rejection appears.
 - Pause stops full-frame writes, detection, and Droplet Crop creation while the live preview continues.
-- The Camera drawer section locks from Starting through Stopping. The DAQ section remains independently editable when available and idle.
+- The Camera panel section locks from Starting through Stopping. The DAQ section remains independently editable when available and idle.
 - Completion provides Open in Label as the primary contextual action. It may preselect the Dataset but must not define classes or begin labeling automatically.
 - Interrupted messaging must report whether a readable `dataset.json` was finalized, whether full frames/crops remain, and whether Open Dataset or only Open Folder is valid.
 
@@ -1254,7 +1327,7 @@ On failure:
 
 - the prior canonical JSON remains authoritative;
 - the UI must not show the attempted state as committed without a clear unsaved/error treatment;
-- one banner identifies the operation and direct write/permission reason;
+- the workspace shows `Error`, logs the write/permission detail, and retains only directly useful recovery actions;
 - Retry may be offered when the same command can be safely reattempted.
 
 This save-state line is not a notification center and should not produce repeated transient popups.
@@ -1317,16 +1390,16 @@ Shortcut hints SHOULD appear in tooltips, an in-workspace shortcut help panel, a
 
 ---
 
-# 11. Data > Sequence Player design
+# 11. Data > Sequence Viewer design
 
 ## 11.1 Design purpose and user goal
 
-Sequence Player is a hardware-independent visual inspection workspace. Its purpose is to present recorded full frames in order and make frame navigation, playback state, timeline position, speed, zoom, and pan clear without implying processing, classification, or DAQ output.
+Sequence Viewer is a hardware-independent still-frame inspection workspace. Its purpose is to present recorded full frames in order and make frame navigation, direct seek, zoom, and pan clear without implying processing, classification, or DAQ output.
 
 ## 11.2 Layout
 
 ```text
-Data > Sequence Player                                      [ Open Sequence ]
+Data > Sequence Viewer                                      [ Open Sequence ]
 OPTIONAL CONTEXTUAL FAULT BANNER
 
 ┌────────────────────────────────────────────────────────────────────────────┐
@@ -1336,9 +1409,8 @@ OPTIONAL CONTEXTUAL FAULT BANNER
 │                                                                            │
 ├────────────────────────────────────────────────────────────────────────────┤
 │ Frame <current> of <total>                                                 │
-│ [ Previous ] [ Play / Pause ] [ Next ]                                    │
-│ |------------------------------●-----------------------------------------| │
-│ Speed [ value ▼ ]   Zoom [ value ▼ ]   [ Fit ] [ 1:1 ]                    │
+│ [ Previous ] [ Next ]  Frame [________]                                   │
+│ [ Zoom - ] [ Zoom + ] [ Fit ] [ 1:1 ]                                    │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1349,16 +1421,16 @@ A compact metadata or source strip MAY show the sequence name and location. Acqu
 | Contract field | Specification |
 |---|---|
 | **Main user goal** | Inspect a recorded Image Sequence visually. |
-| **Major regions** | Sequence header/open action; dark image viewer; frame/total status; playback controls; timeline; speed; zoom/pan controls; optional fault banner. |
-| **Dominant hierarchy** | Current frame, then playback position and controls. |
+| **Major regions** | Sequence header/open action; dark image viewer; frame/total status; previous/next and direct seek; zoom/pan/Fit/1:1 controls; optional fault banner. |
+| **Dominant hierarchy** | Current frame, then frame position and navigation controls. |
 | **Operation-side panel** | Not required as a permanent right panel. At wide layouts, optional sequence details may occupy a collapsible inspector. |
-| **Primary action** | Open Sequence when Empty; Play when Ready/Paused; Pause while Running. |
-| **Secondary actions** | Previous Frame; Next Frame; scrub; speed; Fit; 1:1; zoom; pan; Open Sequence; direct Open in Sequence Test when explicitly provided for the loaded sequence. |
+| **Primary action** | Open Sequence when Empty; Next Frame when a sequence is loaded. |
+| **Secondary actions** | Previous Frame; direct seek; Fit; 1:1; zoom; pan; Open Sequence; direct Open in Sequence Test when explicitly provided for the loaded sequence. |
 | **Required artifact/hardware** | Standalone v2 `sequence.json`, Dataset-referenced sequence, or Run-referenced sequence. No Camera, DAQ, model, or training environment. |
 | **Output** | No scientific artifact and no DAQ output. |
 | **Direct disabled reasons** | **No sequence selected**; direct unreadable sequence or missing-frame reason. |
 | **Fault banner** | Below sequence header and above viewer; missing frame may also use an in-view factual overlay. |
-| **Applicable presentations** | Empty, Ready, Running, Paused, Completed, Failed. Playback does not occupy the global long-running-operation slot. |
+| **Applicable presentations** | Empty, Ready, Failed. Frame navigation does not occupy the global long-running-operation slot. |
 | **Next likely action** | Continue review or open the same sequence in Sort > Sequence Test. |
 
 ## 11.4 Empty, unavailable file, and missing-frame treatment
@@ -1370,24 +1442,18 @@ No Image Sequence selected
 [ Open Sequence ]
 ```
 
-On a `sequence.json` open failure, the previous valid sequence remains selected when possible and one banner states the direct reason.
+On a `sequence.json` open failure, the previous valid sequence remains selected when possible; the workspace shows `Error` and logs the technical detail.
 
-When an individual frame is missing or unreadable:
-
-- the timeline and sequence identity remain visible;
-- the viewer shows `Frame <n> unavailable` and the direct file reason;
-- Previous and Next remain available when neighboring frames are readable;
-- Play pauses at the missing frame rather than silently skipping it unless the authoritative sequence loader explicitly defines a skip behavior;
-- no placeholder image is presented as source data.
+When an individual frame is missing or unreadable, the viewer skips it silently and continues to the next readable frame. It never presents a decorative substitute as source data.
 
 ## 11.5 Playback behavior
 
-- Play advances frames in recorded order at the selected visual playback speed.
+- Previous/Next and direct seek navigate readable frames without automatic progression.
 - Pause freezes the current frame.
 - Previous and Next move exactly one frame when visual playback is not advancing.
 - Timeline scrubbing seeks to the selected frame and updates current/total text.
 - Reaching the final frame produces Completed presentation while retaining stepping, scrubbing, and replay.
-- Playback speed affects only visual playback. It must be labeled so it cannot be mistaken for Sequence Test processing rate.
+- Frame navigation affects only visual playback. It must be labeled so it cannot be mistaken for Sequence Test processing rate.
 - Zoom and pan affect presentation only and never modify source files.
 
 ## 11.6 Viewer controls and overlays
@@ -1398,7 +1464,7 @@ Viewer overlays SHOULD use dark translucent surfaces and automatically avoid cov
 
 | Key | Action |
 |---|---|
-| `Space` | Play/Pause when focus is in the viewer and not in a field or menu. |
+| `Left` / `Right` | Previous/next readable frame when viewer focus is active. |
 | `Left` / `Right` | Previous/Next Frame. |
 | `Home` / `End` | First/last frame. |
 | `Page Up` / `Page Down` | Larger backward/forward seek by an implementation-defined visible increment. |
@@ -1410,10 +1476,10 @@ The timeline thumb must be keyboard operable and expose current frame, total fra
 
 ## 11.8 Responsive behavior and mock states
 
-- The viewer must not collapse below the minimum usable image area. Optional details collapse before playback controls.
+- The viewer must not collapse below the minimum usable image area. Optional details collapse before frame-navigation controls.
 - Controls may wrap into two rows at minimum width, preserving order and labels.
 - Timeline retains the largest horizontal share.
-- Mock states: no sequence; valid standalone sequence; Dataset sequence; Run sequence; Playing; Paused; final frame; one-frame sequence; very large frame count; missing middle frame; unreadable sequence; 200% scaling; direct Open in Sequence Test handoff.
+- Mock states: no sequence; valid standalone sequence; Dataset sequence; Run sequence; first/middle/final frame; one-frame sequence; very large frame count; silently skipped missing middle frame; unreadable sequence; 200% scaling; direct Open in Sequence Test handoff.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.3, §8, and §12; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1, 4.6, and §5; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §8 and §18; *OpenDSS Detailed User Workflow Specification* §18 and applicable file/recovery requirements; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §§9–10 as adapted viewer and accessibility evidence.
 
@@ -1423,7 +1489,7 @@ The timeline thumb must be keyboard operable and expose current frame, total fra
 
 ## 12.1 Design purpose and user goal
 
-Train presents one qualified, fixed-configuration model-training workflow. Its purpose is to make Dataset eligibility, two-class or three-class structure, Faster versus More Accurate choice, automatic compute selection, progress, factual metrics, technical completion, and explicit model saving clear without exposing training hyperparameters or scientific quality gates.
+Train presents one qualified, fixed-configuration model-training workflow. Its purpose is to make Dataset eligibility, two-class or three-class structure, Faster versus More Accurate choice, pre-start Model Name/Save Location, automatic compute selection, progress, factual metrics, automatic saving, and activation clear without exposing training hyperparameters or scientific quality gates.
 
 ## 12.2 Layout by phase
 
@@ -1443,6 +1509,8 @@ Models > Train
 │                                              │                           │
 │                                              │ Split 70 / 15 / 15        │
 │                                              │ Seed 1729                 │
+│                                              │ Model Name [________]     │
+│                                              │ Save Location [____] [...]│
 │                                              │                           │
 │                                              │ [ Start Training ]        │
 └──────────────────────────────────────────────┴────────────────────────────┘
@@ -1453,32 +1521,25 @@ Running:
 ```text
 ┌──────────────────────────────────────────────┬────────────────────────────┐
 │ TRAINING METRICS                             │ TRAINING STATUS            │
-│ Training Loss               <value>          │ Status        Running     │
-│ Validation Loss             <value>          │ Device        <GPU/CPU>   │
-│ Validation Accuracy         <value>          │ Elapsed       <time>      │
-│ Per-Class Validation Accuracy               │ Epoch         <n> of <n> │
-│ Macro F1                    <value>          │ Overall       <progress>  │
+│ Training/Validation Loss plot                │ Status        Running     │
+│ Validation Accuracy plot                     │ Device        <GPU/CPU>   │
+│                                              │ Elapsed       <time>      │
+│                                              │ Epoch         <n> of <n> │
+│                                              │ Overall       <progress>  │
 │                                              │ Estimated     <time>      │
 │                                              │ [ Stop Training ]         │
 └──────────────────────────────────────────────┴────────────────────────────┘
 ```
 
-Completed before save:
+Completed after automatic save:
 
 ```text
 Training completed
-<final factual metrics>
-
-Model Name       [____________________________]
-Save Location    [ path_____________________ ] [ Browse ]
-
-[ Save Model ]
-```
-
-After successful save:
-
-```text
-Model saved and set as Active Model.
+Overall results table
+Per-class results table
+Confusion matrix when generated
+Saved path: <confirmed path>
+Active Model: <name>
 [ Open in Model Test ]  [ Open in Library ]
 ```
 
@@ -1487,14 +1548,14 @@ Model saved and set as Active Model.
 | Contract field | Specification |
 |---|---|
 | **Main user goal** | Train and save one technically completed two-class or three-class Model Package. |
-| **Major regions** | Dataset summary; Training setup/status panel; metrics; progress; completion/save region; contextual fault banner. |
-| **Dominant hierarchy** | Before Start: Dataset compatibility and Model Type. During Training: progress and factual metrics. After completion: Save Model. |
-| **Operation-side panel** | Dataset selector/summary, Model Type, automatic device, fixed split/seed explanation, Start/Stop, status, completion naming and Save Location. |
-| **Primary action** | Start Training in Ready; Stop Training in Running; Save Model after technical completion. |
+| **Major regions** | Dataset summary; pre-start Model Type/Name/Save Location; Training status; plots/progress; completion results; minimal Error/Retry Save. |
+| **Dominant hierarchy** | Before Start: Dataset, Model Type, Model Name, and Save Location. During Training: progress and two live plots. After completion: saved results and Active Model confirmation. |
+| **Operation-side panel** | Dataset selector/summary, Model Type, automatic device, fixed split/seed facts, Model Name, Save Location, Start/Stop, and status. |
+| **Primary action** | Start Training in Ready; Stop Training in Running; Retry Save only after automatic-save failure. |
 | **Secondary actions** | Select Dataset; choose Faster/More Accurate; browse Save Location; Open in Model Test; Open in Library; Diagnostics after technical failure. |
 | **Required artifact/hardware** | Compatible labeled Dataset with readable Labeled crops; training runtime; writable temporary/final locations; global operation slot. No Camera or DAQ. GPU optional; CPU fallback. |
 | **Output** | Model Package containing `metadata.json`, `checkpoint.pth`, and `model.onnx`. Successful save registers it and makes it Active Model. |
-| **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Model Type selected** → **Training environment unavailable** → **Output folder is not writable**. Save Model: **Training has not completed** → **No Model Name entered** → **Save location is not writable**. |
+| **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Model Type selected** → **No Model Name entered** → **Save location is not writable** → **Training environment unavailable**. |
 | **Fault banner** | Below workspace heading, above setup/metrics. It identifies input, runtime, process, or write failure and available Diagnostics/output. |
 | **Applicable presentations** | Empty, Unavailable, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. |
 | **Next likely action** | Open in Model Test after successful save. |
@@ -1537,16 +1598,17 @@ During and after Training, the actual execution device is shown and recorded. Th
 - Metrics use neutral scientific data treatment, not red/green pass-fail encoding.
 - Training Loss, Validation Loss, Validation Accuracy, Per-Class Validation Accuracy, Macro F1, elapsed time, epoch progress, overall progress, estimated remaining time, and device are displayed as available.
 - Metric tiles must label units and data scope.
-- A plot MAY be considered only if already approved separately; this specification requires factual metric values and progress, not a new first-class chart feature.
+- Two minimal live plots are required: Training/Validation Loss and Validation Accuracy. They do not turn Train into a general analytics dashboard.
 - Technical console output remains in Diagnostics, not the normal workspace.
 
 ## 12.8 Stop, completion, and saving
 
 - Stop Training becomes available after Start is accepted and remains until processing stops.
 - Stopping states that processing is ending and temporary output is being finalized.
-- User-stopped or failed training does not show a normal Model Package completion unless all required artifacts are technically complete and the user explicitly saves them.
-- Low accuracy, model collapse, or one dominant Predicted Class does not block Save Model when the technical artifact contract is satisfied.
-- Save Model is a separate package/file action after training execution releases the global long-running-operation slot.
+- User-stopped or failed Training does not show normal Model Package completion.
+- Low accuracy, model collapse, or one dominant Predicted Class does not block automatic save when the technical artifact contract is satisfied.
+- Automatic save begins after Training completes and uses the pre-start Model Name and Save Location.
+- Save failure shows `Error`, retains completed temporary artifacts, exposes Retry Save, and does not activate the Model.
 - Successful save immediately updates the global Active Model header and Library. The selected Dataset remains unchanged.
 
 ## 12.9 Keyboard, resizing, and mock states
@@ -1554,7 +1616,7 @@ During and after Training, the actual execution device is shown and recorded. Th
 - Tab order follows Dataset → Model Type → Start; while Running it begins at status/progress and reaches Stop.
 - Radio options use arrow-key navigation.
 - Metrics must remain readable by screen readers in a stable label/value order and should not announce every high-frequency update; summarized progress announcements are sufficient.
-- At minimum width, metrics may form one scrollable column while the status panel remains visible. The Save Model region must not appear below an unbounded metric canvas.
+- At minimum width, metrics may form one scrollable column while the status panel remains visible. The Automatic Save region must not appear below an unbounded metric canvas.
 - Required mocks: no Dataset; no Labeled crops; two-class Ready/CPU; three-class Ready/GPU; runtime unavailable; Starting; Running early/mid/late; Stopping; Completed with low metrics; Completed awaiting name; save write failure; saved Active Model; Interrupted; Failed with Diagnostics action.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.4, §§8, 11–13 and D-003, D-012, D-015; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1 and 4.7; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §9, §16, and §17; *OpenDSS Detailed User Workflow Specification* §15 and §§31–34 as amended to remove all Advanced Training Parameters; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §§9–12 as adapted metrics, QDS, and accessibility evidence.
@@ -1565,7 +1627,7 @@ During and after Training, the actual execution device is shown and recorded. Th
 
 ## 13.1 Design purpose and user goal
 
-Model Test is an optional observational workspace. Its purpose is to let the scientist select one local Model Package and one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without changing Active Model state or assigning approval.
+Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval.
 
 ## 13.2 Layout
 
@@ -1576,7 +1638,7 @@ Models > Model Test
 
 ┌──────────────────────────────────────────────┬────────────────────────────┐
 │ SELECTED ARTIFACTS                           │ TEST SETUP                 │
-│ Model:   <name> [ Select Model ]             │ Compatibility  <fact>     │
+│ Active Model: <name>                         │ Compatibility  <fact>     │
 │ Classes: <2 or 3>                            │ Device         <GPU/CPU>  │
 │ Dataset: <name> [ Select Dataset ]           │ Output Location [___][…] │
 │ Eligible Labeled Crops: <count>              │                           │
@@ -1621,10 +1683,10 @@ Confusion Matrix
 | **Dominant hierarchy** | Before Start: artifact compatibility. During Running: progress. After completion: Overall Accuracy, Per-Class Accuracy, and confusion matrix. |
 | **Operation-side panel** | Artifact selection, compatibility, planned/actual device, output path, Start/Stop, progress. |
 | **Primary action** | Start Model Test in Ready; Stop Model Test in Running; Open Predictions CSV or Open Model Test Summary in Completed, with one selected as the local primary according to the approved implementation. |
-| **Secondary actions** | Select Model; Select Dataset; Open Model Test Summary; Open Predictions CSV; Open Output Folder; Start Another Model Test. |
+| **Secondary actions** | Select Dataset; Set Active in Library; Open Model Test Summary; Open Predictions CSV; Open Output Folder; Start Another Model Test. |
 | **Required artifact/hardware** | Readable 2- or 3-class Model Package; readable labeled Dataset with same class count; readable Labeled crops; runtime; writable output; global operation slot. No hardware. GPU optional; CPU fallback. |
 | **Output** | `model_test_summary.json` and `predictions.csv`. It is not a Run and is not listed under Results. |
-| **Direct disabled reasons** | **Another operation is active** → **No model selected** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Model Test runtime unavailable** → **Output folder is not writable**. GPU absence is never a blocker. |
+| **Direct disabled reasons** | **Another operation is active** → **No Active Model** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Model Test runtime unavailable** → **Output folder is not writable**. GPU absence is never a blocker. |
 | **Fault banner** | Below workspace heading and above selection/results. |
 | **Applicable presentations** | Empty, Unavailable, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. |
 | **Next likely action** | Review/open output or run another test. Active Model remains unchanged. |
@@ -1722,7 +1784,7 @@ Models > Library
 | **Secondary actions** | Import Model; Export Model; Duplicate Model; Rename Model; Delete Model; Open in Model Test. |
 | **Required artifact/hardware** | Valid v2 Model Package for package actions. No hardware. Package and registry locks apply. |
 | **Output** | Model Registry changes and file copies/renames/deletions as requested. |
-| **Direct disabled reasons** | **No model selected** → **Selected model is already Active** → **Model is in use by <operation>**. File-action failures use direct package/path reasons. |
+| **Direct disabled reasons** | **No Active Model** → **Selected model is already Active** → **Model is in use by <operation>**. File-action failures use direct package/path reasons. |
 | **Fault banner** | Below workspace heading; spans master-detail region for parse, copy, rename, delete, registry, or permission failures. |
 | **Applicable presentations** | Empty, Ready, Unavailable for a locked action, Failed. |
 | **Next likely action** | Open selected model in Model Test or navigate to Live after explicitly setting Active. |
@@ -1827,9 +1889,9 @@ Live MUST use the same navigation destination for every presentation. The live C
 | **Main user goal** | Configure, start, monitor, pause/resume, stop, and inspect the immediate result of one physical sorting Run. |
 | **Major regions** | Live Camera preview; operation-side panel; Setup Profile controls in pre-run; state/counter monitor during operation; completion/fault content after finalization; contextual fault banner. |
 | **Dominant hierarchy** | Pre-run: Camera preview and Start readiness. Running: Camera preview, Run status, Decision/Observed Route counters, Pause/Stop. Post-run: outcome and preserved Run actions. |
-| **Required hardware/artifact** | Camera Streaming; DAQ Ready; Hit Outlet Direction; writable Run location; global operation slot. Class-Based Sorting also requires a loadable Active Model and Hit Class. Trigger Every Droplet does not require a model. |
+| **Required hardware/artifact** | Camera Streaming; hit boundary; writable Run location; global operation slot. Class-Based Sorting also requires a loadable Active Model and Hit Class. DAQ Ready is required only while DAQ Output is ON. |
 | **Output** | Run folder with `run_summary.json`, `events.csv`, Droplet Crops, and optional full Image Sequence. |
-| **Hardware behavior** | Drawer available in idle pre-run. On Start acceptance it closes and locks completely until the Run ends. Live owns Camera and DAQ. |
+| **Hardware behavior** | Panel available in idle pre-run. On Start acceptance it closes and locks completely until the Run ends. Live owns Camera and DAQ. |
 | **Fault banner** | Below workspace heading and above preview/panel. In post-run Interrupted/Failed presentation it may become the dominant outcome block. |
 | **Applicable presentations** | Unavailable, Ready, Starting, Running, Paused, Stopping, Completed, Interrupted, Failed. |
 | **Next likely action** | Open Run Summary in Results, Open Run Folder, or Start New Run. |
@@ -1851,13 +1913,13 @@ Sort > Live
 │                                              │ Duration                     │
 │                                              │ Save Location                │
 │                                              │                              │
-│                                              │ Trigger Mode                 │
+│                                              │ Trigger Every Droplet                 │
 │                                              │ ( ) Class-Based Sorting      │
 │                                              │ ( ) Trigger Every Droplet    │
 │                                              │                              │
 │                                              │ Active Model: <name/none>   │
 │                                              │ Hit Class [ class ▼ ]       │
-│                                              │ Hit Outlet Direction         │
+│                                              │ Hit boundary calibration         │
 │                                              │ ( ) +Y — Downward            │
 │                                              │ ( ) −Y — Upward              │
 │                                              │ Hit: <direction>             │
@@ -1871,7 +1933,7 @@ Sort > Live
 └──────────────────────────────────────────────┴──────────────────────────────┘
 ```
 
-Camera and DAQ technical settings are never duplicated in this panel. A concise read-only hardware summary may link to the shared drawer while idle.
+Camera and DAQ technical settings are never duplicated in this panel. A concise read-only hardware summary may link to the bottom Hardware panel while idle.
 
 ## 15.5 Pre-run fields and visual grouping
 
@@ -1879,14 +1941,14 @@ Fields are grouped in this order:
 
 1. **Setup Profile** — loaded filename/status and Open, Save, Save As.
 2. **Run information** — Run Name, Experiment Type, Notes, optional Duration, Save Location.
-3. **Trigger and routing** — Trigger Mode, Active Model where relevant, Hit Class where relevant, Hit Outlet Direction and explicit Hit/Waste mapping.
+3. **Trigger and routing** — Trigger Every Droplet, Active Model where relevant, Hit Class where relevant, Hit boundary calibration and explicit Hit/Waste mapping.
 4. **Output retention** — Record Full Image Sequence.
 5. **Hardware action** — Send Test Pulse.
 6. **Primary action** — Start Sorting and one direct disabled reason.
 
 Run Name, Experiment Type, Notes, Duration, and Save Location are user selections, not technical tuning settings. Blank Run Name resolves to a timestamp. Blank Duration means continue until Stop and must be represented as empty/optional rather than zero.
 
-## 15.6 Trigger Mode behavior
+## 15.6 Trigger Every Droplet behavior
 
 ### Class-Based Sorting
 
@@ -1904,9 +1966,9 @@ Run Name, Experiment Type, Notes, Duration, and Save Location are user selection
 - If a model is present, Predicted Class and Class Scores may still be logged and displayed; they do not control Decision.
 - If no model is present, model-dependent fields remain absent or explicitly empty rather than displaying fabricated values.
 
-Trigger Mode choices are first-class peers and remain visible in pre-run. No default should silently imply a scientific choice unless the authoritative application state already defines one.
+Trigger Every Droplet choices are first-class peers and remain visible in pre-run. No default should silently imply a scientific choice unless the authoritative application state already defines one.
 
-## 15.7 Hit Outlet Direction
+## 15.7 Hit boundary calibration
 
 The user must explicitly choose:
 
@@ -1922,7 +1984,7 @@ The panel immediately displays the resulting mapping:
 −Y selected: Hit = −Y ↑   Waste = +Y ↓
 ```
 
-This mapping should use a small coordinate diagram plus text. It must not use the ambiguous term `Hit Channel`. Hit Outlet Direction remains separate from DAQ Output Channel.
+This mapping should use a small coordinate diagram plus text. It must not use the ambiguous term `Hit Channel`. Hit boundary calibration remains separate from DAQ Output Channel.
 
 ## 15.8 Active Model presentation
 
@@ -1950,8 +2012,8 @@ Start Sorting is enabled only when:
 - no conflicting long-running operation is active;
 - Camera is Streaming;
 - DAQ is Ready;
-- Trigger Mode is selected;
-- Hit Outlet Direction is selected;
+- Trigger Every Droplet is selected;
+- Hit boundary calibration is selected;
 - Run location is writable;
 - for Class-Based Sorting, a loadable Active Model and Hit Class are selected.
 
@@ -1960,10 +2022,10 @@ The first applicable direct disabled reason is:
 1. **Another operation is active**;
 2. **Camera unavailable**;
 3. **DAQ unavailable**;
-4. **No Trigger Mode selected**;
+4. **No Trigger Every Droplet selected**;
 5. **No active model** for Class-Based Sorting;
 6. **No Hit Class selected** for Class-Based Sorting;
-7. **No Hit Outlet Direction selected**;
+7. **No Hit boundary calibration selected**;
 8. **Output folder is not writable**.
 
 A Camera preview that is merely Connected but not Streaming is treated as the applicable Camera prerequisite failure and must not show Start as Ready.
@@ -1982,7 +2044,7 @@ STARTING
     ├── open recoverable Droplet Log
     ├── snapshot effective user selections and fixed configuration
     ├── lock Camera, DAQ, selected model, Run output, and global slot
-    ├── close Hardware drawer
+    ├── close Hardware panel
     └── replace configuration panel with Live monitor
     ▼
 RUNNING
@@ -1992,7 +2054,7 @@ Visual requirements:
 
 - Start Sorting becomes a busy `Starting…` action immediately.
 - Pre-run inputs become read-only before the panel transitions; they are not briefly left editable.
-- The Hardware drawer closes and focus returns to the Live status heading.
+- The Hardware panel closes and focus returns to the Live status heading.
 - The operation panel may show named initialization stages and an indeterminate progress indicator.
 - Stop becomes available as soon as cancellation can be handled safely.
 - A Start failure before acceptance leaves Live in Ready/Unavailable with the direct reason and must not create a duplicate or misleading Run.
@@ -2004,10 +2066,10 @@ Visual requirements:
 │ LIVE CAMERA PREVIEW                          │ LIVE SORTING                 │
 │                                              │ Status: Running              │
 │                                              │ Elapsed: <time>              │
-│                                              │ Trigger Mode: <value>        │
+│                                              │ Trigger Every Droplet: <value>        │
 │                                              │ Active Model: <value>        │
 │                                              │ Hit Class: <value>           │
-│                                              │ Hit Outlet Direction: <value>│
+│                                              │ Hit boundary calibration: <value>│
 │                                              │                              │
 │                                              │ Total Droplets               │
 │                                              │ <large metric>               │
@@ -2044,7 +2106,7 @@ When no model is used, Predicted Class and Inference Time groups are absent or d
 - Every finalized event saves one Droplet Crop and one Droplet Log row.
 - Record Full Image Sequence controls only full-frame retention. Droplet Crops and event data are always saved.
 - Optional nonpersistent detection/trajectory overlays MAY appear on the live preview when they add no controls, do not alter source images, and do not obscure the factual feed.
-- The complete Hardware drawer remains closed and the Hardware action remains disabled with **Hardware settings are locked while sorting is active**.
+- The complete Hardware panel remains closed and the Hardware action remains disabled with **Hardware settings are locked while sorting is active**.
 - Navigation away is permitted when nonconflicting, but Pause/Resume/Stop remain available only in the owning Live workspace. The header continues to show Sorting.
 - Start actions for all other long-running operations show **Another operation is active**.
 
@@ -2101,7 +2163,7 @@ Interrupted/Failed:
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │ Live Sorting interrupted                                                │
-│ <direct technical reason>                                               │
+│ Error                                               │
 │ <whether recoverable Run data, Droplet Log, crops, or sequence remain> │
 │                                                                         │
 │ [ Open Run Summary ] or [ Open Run Folder ]    [ Start New Run ]       │
@@ -2114,8 +2176,8 @@ Start New Run returns to pre-run with previous values available for review. It d
 
 ## 15.17 Keyboard and focus behavior
 
-- Tab order in pre-run follows profile → Run information → Trigger Mode → conditional model/Hit Class → Hit Outlet Direction → full-sequence option → Send Test Pulse → Start Sorting.
-- Selecting Trigger Mode must preserve logical focus as conditional fields appear/disappear.
+- Tab order in pre-run follows profile → Run information → Trigger Every Droplet → conditional model/Hit Class → Hit boundary calibration → full-sequence option → Send Test Pulse → Start Sorting.
+- Selecting Trigger Every Droplet must preserve logical focus as conditional fields appear/disappear.
 - During Running, focus order starts at status, then metrics, Pause/Resume, and Stop.
 - No unmodified global key may start or stop physical sorting.
 - An optional displayed two-key accelerator for Pause/Resume MAY be provided, but it must not fire while typing and must be disabled outside the owning Live state.
@@ -2137,7 +2199,7 @@ Start New Run returns to pre-run with previous values available for review. It d
 3. Trigger Every Droplet with no model.
 4. Two-class Active Model and Hit Class selection.
 5. Three-class Active Model and Hit Class selection.
-6. Both Hit Outlet Direction mappings.
+6. Both Hit boundary calibration mappings.
 7. Loaded Setup Profile, unsaved changes, missing model reference, unapplied hardware values.
 8. Send Test Pulse success and failure.
 9. Ready with full-sequence option off/on.
@@ -2152,7 +2214,7 @@ Start New Run returns to pre-run with previous values available for review. It d
 18. Interrupted by Camera fault with preserved data.
 19. Interrupted/Failed by DAQ or write fault.
 20. Run with and without full Image Sequence.
-21. Hardware action locked and drawer closed.
+21. Hardware action locked and panel closed.
 22. Another-operation-active blocker.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.7, §§8–14 and D-002, D-005, D-007, D-008, D-009, D-016, D-019; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1, 3.2, 4.10–4.13, §§5–6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §12, §16, §§17–19; *OpenDSS Detailed User Workflow Specification* §§20–21 and §§28–34 as amended to one Live workspace, fixed processing, ordinary-file Profiles, and Observed Route = Unresolved; *OpenDSS Product Design Specification*, Draft v0.1 §§5–7 and §§9–10 as adapted visual, component, and accessibility evidence.
@@ -2163,7 +2225,7 @@ Start New Run returns to pre-run with previous values available for review. It d
 
 ## 16.1 Design purpose and user goal
 
-Sequence Test reprocesses a recorded Image Sequence through fixed droplet detection and crop processing, optional or required model inference according to Trigger Mode, routing logic, visual trajectory tracking, optional physical DAQ output, and Run persistence. It belongs under Sort and never requires a Camera.
+Sequence Test reprocesses a recorded Image Sequence through fixed droplet detection and crop processing, optional or required model inference according to Trigger Every Droplet, routing logic, visual trajectory tracking, optional physical DAQ output, and Run persistence. It belongs under Sort and never requires a Camera.
 
 The main user goal is to select a sequence and routing configuration, explicitly confirm whether physical DAQ output is enabled, run the test, monitor progress and event counters, stop if needed, and open the resulting Run.
 
@@ -2174,23 +2236,23 @@ Sort > Sequence Test
 
 ┌──────────────────────────────────────────────┬──────────────────────────────┐
 │ SOURCE AND PROCESSING SUMMARY                │ SEQUENCE TEST SETUP          │
-│ Sequence: <name> [ Select Sequence ]         │ Trigger Mode                 │
+│ Sequence: <name> [ Select Sequence ]         │ Trigger Every Droplet                 │
 │ Frames: <count>                              │ ( ) Class-Based Sorting      │
 │                                              │ ( ) Trigger Every Droplet    │
-│ Model: <name/none> [ Select Model ]          │                              │
+│ Active Model: <name/none>                  │                              │
 │                                              │ Hit Class [ class ▼ ]        │
-│ Fixed qualified processing                   │ Hit Outlet Direction         │
+│ Fixed qualified processing                   │ Hit boundary calibration         │
 │                                              │ ( ) +Y — Downward            │
 │                                              │ ( ) −Y — Upward              │
 │                                              │                              │
-│                                              │ [x] Physical DAQ Output      │
+│                                              │ [ ] Physical DAQ Output      │
 │                                              │ Save Location [_______] […]  │
 │                                              │                              │
 │                                              │ [ Start Sequence Test ]      │
 └──────────────────────────────────────────────┴──────────────────────────────┘
 ```
 
-A new Sequence Test setup initializes Physical DAQ Output as checked. This default must be visibly explicit and must not be hidden in a drawer.
+A new Sequence Test setup initializes Physical DAQ Output as unchecked. This default must be visibly explicit and must not be hidden in a panel.
 
 ## 16.3 Design contract
 
@@ -2199,22 +2261,22 @@ A new Sequence Test setup initializes Physical DAQ Output as checked. This defau
 | **Main user goal** | Process a recorded Image Sequence through sorting logic and optionally issue physical DAQ output. |
 | **Major regions** | Source/processing summary; setup/operation panel; progress and counters; completion/fault banner. |
 | **Dominant hierarchy** | Selected sequence, explicit Physical DAQ Output state, routing selections, Start readiness. During Running: progress, physical-output state, event counters, Stop. |
-| **Operation-side panel** | Trigger Mode; local Model selection; Hit Class when applicable; Hit Outlet Direction; Physical DAQ Output; Save Location; Start/Stop; status. |
+| **Operation-side panel** | Trigger Every Droplet; read-only Active Model; Hit Class when applicable; hit boundary calibration; Physical DAQ Output; Save Location; Start/Stop; status. |
 | **Primary action** | Start Sequence Test in Ready; Stop Sequence Test in Running; Open Run Summary in Completed. |
-| **Secondary actions** | Select Sequence; select Model; toggle Physical DAQ Output; Open Run Folder; Start Another Sequence Test. |
+| **Secondary actions** | Select Sequence; Set Active in Library; toggle Physical DAQ Output; Open Run Folder; Start Another Sequence Test. |
 | **Required artifact/hardware** | Readable v2 Image Sequence; writable Run location; global operation slot. Class-Based requires compatible Model and Hit Class. DAQ Ready required only when Physical DAQ Output is enabled. No Camera. |
 | **Output** | Run folder with `run_summary.json`, `events.csv`, Droplet Crops, and source-sequence reference. |
-| **Direct disabled reasons** | **Another operation is active** → **No sequence selected** → **Unsupported OpenDSS v2 sequence** → **No Trigger Mode selected** → **No model selected** for Class-Based → **No Hit Class selected** for Class-Based → **No Hit Outlet Direction selected** → **DAQ unavailable** when physical output enabled → **Output folder is not writable**. |
+| **Direct disabled reasons** | **Another operation is active** → **No sequence selected** → **Unsupported OpenDSS v2 sequence** → **No Trigger Every Droplet selected** → **No Active Model** for Class-Based → **No Hit Class selected** for Class-Based → **No Hit boundary calibration selected** → **DAQ unavailable** when physical output enabled → **Output folder is not writable**. |
 | **Fault banner** | Below workspace heading and above source/setup region; post-operation banner may lead directly to Results/folder. |
 | **Applicable presentations** | Empty, Unavailable, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. |
 | **Next likely action** | Open Run Summary in Results. |
 
-## 16.4 Trigger Mode and model selection
+## 16.4 Trigger Every Droplet and model selection
 
 - Class-Based Sorting requires a selected readable two-class or three-class Model Package and Hit Class.
 - Trigger Every Droplet may run with no model. When a model is selected, classification is still logged without controlling Decision.
 - Model selection is local to Sequence Test and MUST NOT change Active Model.
-- The model selector displays Class IDs/Class Names and compatibility facts as needed.
+- The read-only Active Model context displays Class IDs/Class Names and compatibility facts as needed.
 - No Class Score threshold or manual compute-device control is shown.
 
 ## 16.5 Physical DAQ Output
@@ -2226,7 +2288,7 @@ The checked state means physical output is requested for the test. The control m
 - a direct disabled reason at Start when checked and DAQ is unavailable;
 - factual explanation that disabling output permits processing without DAQ hardware.
 
-When checked, Sequence Test owns DAQ from Start acceptance through finalization. The DAQ section of the shared drawer locks; Camera settings remain independently available. When unchecked, Sequence Test owns no hardware and the drawer remains available, although the global long-running-operation slot is still occupied.
+When checked, Sequence Test owns DAQ from Start acceptance through finalization. The DAQ section of the bottom Hardware panel locks; Camera settings remain independently available. When unchecked, Sequence Test owns no hardware and the panel remains available, although the global long-running-operation slot is still occupied.
 
 The checkbox is not a software arming state and does not create an Emergency Stop claim.
 
@@ -2235,7 +2297,7 @@ The checkbox is not a software arming state and does not create an Emergency Sto
 - No Camera preview region appears and Camera status is never a prerequisite.
 - The source area may show the first frame or a representative static preview as a read-only sequence fact, but must not imply live acquisition.
 - Fixed detector, Droplet Crop, routing-algorithm, and internal timing configuration is described factually and not editable.
-- Playback Speed from Sequence Player is not shown and has no effect. Sequence Test processes as quickly as the pipeline permits.
+- Processing controls from Sequence Viewer is not shown and has no effect. Sequence Test processes at the configured Processing FPS.
 
 ## 16.7 Running presentation
 
@@ -2243,11 +2305,11 @@ The checkbox is not a software arming state and does not create an Emergency Sto
 ┌──────────────────────────────────────────────┬──────────────────────────────┐
 │ SEQUENCE PROCESSING                          │ SEQUENCE TEST STATUS         │
 │ Frames processed: <n> of <total>             │ Status: Running              │
-│ Progress: <determinate bar>                  │ Trigger Mode: <value>        │
+│ Progress: <determinate bar>                  │ Trigger Every Droplet: <value>        │
 │ Events finalized: <count>                    │ Physical DAQ: On / Off       │
 │                                              │ Model: <name/none>           │
 │ Predicted Class counts when model exists     │ Hit Class: <value>           │
-│ Decision Hit / Waste                         │ Hit Outlet Direction: <value>│
+│ Decision Hit / Waste                         │ Hit boundary calibration: <value>│
 │ Observed Hit / Waste / Unresolved            │                              │
 │                                              │ [ Stop Sequence Test ]       │
 └──────────────────────────────────────────────┴──────────────────────────────┘
@@ -2266,8 +2328,8 @@ Progress is based on sequence frames processed and may additionally show events 
 
 ## 16.9 Keyboard, resizing, and mock states
 
-- Tab order: Sequence → Model → Trigger Mode → conditional Hit Class → Hit Outlet Direction → Physical DAQ Output → Save Location → Start.
-- Toggling Physical DAQ Output updates Start reason and drawer lock projection without moving focus unexpectedly.
+- Tab order: Sequence → Model → Trigger Every Droplet → conditional Hit Class → Hit boundary calibration → Physical DAQ Output → Save Location → Start.
+- Toggling Physical DAQ Output updates Start reason and panel lock projection without moving focus unexpectedly.
 - During Running, focus proceeds through status/progress to Stop.
 - At minimum width, source summary stacks above setup; progress remains visible and Stop remains pinned in the operation region.
 - Required mocks: no sequence; unsupported sequence; Class-Based/no model; Trigger Every Droplet/no model; two- and three-class models; DAQ enabled/Ready; DAQ enabled/unavailable; DAQ disabled/no hardware; both Hit directions; Starting; Running; Stopping; Completed; Interrupted; Failed; model package locked; no Camera connected while Ready.
@@ -2280,7 +2342,7 @@ Progress is based on sequence frames processed and may additionally show events 
 
 ## 17.1 Scope and design purpose
 
-Results contains only Live Sorting and Sequence Test Runs. It does not contain Training history, Model Test history, Image Sequence capture history, Dataset Capture history, or separate Reports.
+Results contains only Live Sorting and Sequence Test Runs. It does not contain Training history, Model Test history, Image Sequence capture history, Droplet Dataset Capture history, or separate Reports.
 
 The workspace has two presentations:
 
@@ -2302,7 +2364,7 @@ Results > Runs
 │ <row>                                                                      │
 └────────────────────────────────────────────────────────────────────────────┘
 
-[ Open selected Run ]
+[ Load selected Run ]
 ```
 
 ### List design contract
@@ -2312,7 +2374,7 @@ Results > Runs
 | **Main user goal** | Find and open one persisted Live Sorting or Sequence Test Run. |
 | **Major regions** | Workspace heading; Runs table; optional simple filter/search if implemented; action region; fault banner. |
 | **Dominant hierarchy** | Factual list columns and current selection. |
-| **Primary action** | Open selected Run. |
+| **Primary action** | Load selected Run. |
 | **Secondary actions** | Select another Run; open storage location only where a row remains identifiable but summary is unreadable. |
 | **Required artifact/hardware** | Discoverable Run folders. No hardware. |
 | **Output** | None. |
@@ -2343,9 +2405,9 @@ Rows must remain identifiable when optional metadata is missing. An unreadable e
 │ Stop reason / Save Location                  │ [ Open Droplet Crop ]        │
 │                                              │ [ Open Saved Sequence ]      │
 │ Model identity/checksum when present         │   when present               │
-│ Trigger Mode                                 │                              │
+│ Trigger Every Droplet                                 │                              │
 │ Hit Class when applicable                    │ Notes                        │
-│ Hit Outlet Direction                         │ <read or edit area>          │
+│ Hit boundary calibration                         │ <read or edit area>          │
 │ Physical DAQ state for Sequence Test         │ [ Edit Notes ]               │
 │                                              │ [ Save Notes ] [ Cancel ]    │
 │ Hardware/fixed processing provenance         │                              │
@@ -2377,7 +2439,7 @@ Rows must remain identifiable when optional metadata is missing. An unreadable e
 | **Direct disabled reasons** | **Droplet Log unavailable**; **Run Summary cannot be read**; **No saved Image Sequence for this Run**; **Run is still active**; **Run Summary is not writable**. |
 | **Fault banner** | Below selected Run heading; file-specific actions may also show inline reasons. |
 | **Applicable presentations** | Ready, Unavailable for missing individual files, Failed for open/save errors. |
-| **Next likely action** | Open Saved Sequence in Sequence Player when present. |
+| **Next likely action** | Open Saved Sequence in Sequence Viewer when present. |
 
 ## 17.4 Run information and provenance
 
@@ -2386,7 +2448,7 @@ The selected Run MUST display, as available:
 - status, start/end timestamps, requested Duration, elapsed duration, stop reason, and save location;
 - operation type and Experiment Type;
 - model name/ID/checksum, class count, and stored Class Name snapshot when a model was present;
-- Trigger Mode, Hit Class when applicable, and Hit Outlet Direction;
+- Trigger Every Droplet, Hit Class when applicable, and Hit boundary calibration;
 - Physical DAQ Output state for Sequence Test;
 - Camera, DAQ, and fixed qualified processing configuration/version needed for provenance;
 - OpenDSS and schema versions where recorded.
@@ -2419,16 +2481,16 @@ The interface MUST NOT label this matrix Actual Destination, Ground Truth Route,
 - Open Droplet Log opens `events.csv` through the operating system or approved direct file action.
 - Open Run Folder opens the ordinary Windows folder.
 - Open Droplet Crop opens a standard file picker rooted in the Run's Droplet Crop folder, then opens the selected file. This is not an integrated event browser.
-- Open Saved Sequence appears only when a full Image Sequence exists and opens Sequence Player with it preselected.
+- Open Saved Sequence appears only when a full Image Sequence exists and opens Sequence Viewer with it preselected.
 - When no sequence exists, the action is absent or disabled with **No saved Image Sequence for this Run**; the Run remains Ready.
 - Notes enter an explicit edit state. Save Notes atomically updates only Notes in `run_summary.json`; Cancel discards the buffer.
 - Historical event rows, counts, model/routing snapshot, and saved images remain immutable.
 
 ## 17.7 Keyboard, responsive behavior, and mock states
 
-- Table headers and cells expose accessible names. Up/Down changes focused row; Enter or double activation may open the selected Run.
-- The selected Run view provides a clear Back to Runs action or persistent master-list context without creating browser-style history.
-- At wide widths, list and selected Run MAY use master-detail presentation. At standard/minimum width, opening a Run may replace the list within the same workspace. The navigation item remains Results > Runs.
+- Table headers and cells expose accessible names. Up/Down changes focused row; selection does not load or replace the center Run.
+- The right-side Runs panel remains present and its bottom Load button explicitly replaces the center detail.
+- The selected and loaded Run use separate visual states at every supported width.
 - The matrix may horizontally scroll only if enlarged text makes it necessary; row/column headers remain visible or repeated for accessibility.
 - Required mocks: no Runs; mixed Live/Sequence Test list; Completed, Stopped, Interrupted, Failed; Run with model; Trigger Every Droplet/no model; Run with Unresolved values; full sequence present/absent; missing Droplet Log; unreadable Run Summary; Notes edit/save success; Notes save failure; long paths/names; 200% scaling.
 
@@ -2533,11 +2595,11 @@ Diagnostics provides the diagnostic folder path and Open Diagnostic Folder. A lo
 
 ---
 
-# 19. Shared Camera/DAQ drawer
+# 19. Bottom Hardware panel
 
 ## 19.1 Purpose and ownership
 
-The shared slide-out Hardware drawer is owned by the application shell and is the only location for user-editable Camera and DAQ technical settings. Values are shared across all workspaces. Individual workspaces and Settings must not maintain duplicate settings.
+The shared slide-out Hardware panel is owned by the application shell and is the only location for user-editable Camera and DAQ technical settings. Values are shared across all workspaces. Individual workspaces and Settings must not maintain duplicate settings.
 
 ```text
 Header: Camera: Streaming | DAQ: Ready | Active Model: … | Activity: … [Hardware]
@@ -2562,15 +2624,15 @@ Header: Camera: Streaming | DAQ: Ready | Active Model: … | Activity: … [Hard
 
 ## 19.2 Open and closed treatment
 
-- The header Hardware action opens or closes the drawer.
-- The drawer overlays from the right while the global status header remains visible.
+- The header Hardware action opens or closes the panel.
+- The panel overlays from the bottom-left while the global status header remains visible.
 - The ordinary open/closed presentation may remain stable during in-session navigation.
 - It is not a workspace or navigation item.
-- A scrim MAY be used over the workspace when needed for focus clarity, but it should be light enough to preserve operation context and must not imply that the application is blocked when the drawer is editable.
-- Escape closes the drawer when permitted. A visible Close action is always available.
-- During Live Starting, Running, Paused, and Stopping, the drawer closes and cannot be opened.
+- A scrim MAY be used over the workspace when needed for focus clarity, but it should be light enough to preserve operation context and must not imply that the application is blocked when the panel is editable.
+- Escape closes the panel when permitted. A visible Close action is always available.
+- During Live Starting, Running, Paused, and Stopping, the panel closes and cannot be opened.
 
-## 19.3 Drawer section anatomy
+## 19.3 Panel section anatomy
 
 Each Camera or DAQ section contains:
 
@@ -2581,7 +2643,7 @@ Each Camera or DAQ section contains:
 5. inline validation/persistence feedback;
 6. lock-owner explanation when read-only.
 
-Camera and DAQ sections remain independently usable except during Live, which locks both and the entire drawer.
+Camera and DAQ sections remain independently usable except during Live, which locks both and the entire panel.
 
 ## 19.4 Immediate-apply behavior
 
@@ -2609,14 +2671,14 @@ On rejection:
 
 A transient draft that has not been committed must be visually distinct from the applied value if the control permits such a state.
 
-## 19.5 Drawer conditions
+## 19.5 Panel conditions
 
-| Condition | Drawer presentation | Editable behavior | Direct explanation |
+| Condition | Panel presentation | Editable behavior | Direct explanation |
 |---|---|---|---|
 | **Idle and available** | Section visible and enabled. | Valid edits apply immediately. | None required. |
-| **Unavailable** | Drawer opens; unavailable section remains visible with factual status. | All controls in that section disabled. Other available/idle section remains editable. | **Camera unavailable** or **DAQ unavailable**. |
-| **Owned by non-Live operation** | Drawer may open. Owned section is read-only; unowned section remains independently editable. | No changes to owned device. | **Camera settings are locked while Dataset Capture is active**, or equivalent owner. |
-| **Live Starting/Running/Paused/Stopping** | Drawer closed; Hardware action disabled. | No Camera or DAQ edit. | **Hardware settings are locked while sorting is active** or **The current Run is paused**. |
+| **Unavailable** | Panel opens; unavailable section remains visible with factual status. | All controls in that section disabled. Other available/idle section remains editable. | **Camera unavailable** or **DAQ unavailable**. |
+| **Owned by non-Live operation** | Panel may open. Owned section is read-only; unowned section remains independently editable. | No changes to owned device. | **Camera settings are locked while Droplet Dataset Capture is active**, or equivalent owner. |
+| **Live Starting/Running/Paused/Stopping** | Panel closed; Hardware action disabled. | No Camera or DAQ edit. | **Hardware settings are locked while sorting is active** or **The current Run is paused**. |
 | **Starting or Stopping non-Live operation** | Same ownership as accepted operation. | Owned section read-only. | Operation-specific starting/stopping message. |
 
 ## 19.6 Resource ownership effects
@@ -2625,19 +2687,19 @@ A transient draft that has not been committed must be visually distinct from the
 |---|---|---|
 | Single Image | Briefly locked | Available if idle |
 | Image Sequence | Locked | Available if idle |
-| Dataset Capture | Locked | Available if idle |
+| Droplet Dataset Capture | Locked | Available if idle |
 | Training | Available if idle | Available if idle |
 | Model Test | Available if idle | Available if idle |
-| Sequence Player | Available if idle | Available if idle |
+| Sequence Viewer | Available if idle | Available if idle |
 | Label / Library / Results / Settings | Available if idle | Available if idle |
-| Live | Entire drawer closed/locked | Entire drawer closed/locked |
+| Live | Entire panel closed/locked | Entire panel closed/locked |
 | Sequence Test, Physical DAQ Output on | Available if idle | Locked |
 | Sequence Test, Physical DAQ Output off | Available if idle | Available if idle |
 | Send Test Pulse | Unaffected | Brief momentary use; control feedback only |
 
-## 19.7 Prohibited drawer content
+## 19.7 Prohibited panel content
 
-The drawer MUST NOT expose:
+The panel MUST NOT expose:
 
 - droplet-detection parameters;
 - Droplet Crop parameters beyond the fixed artifact contract;
@@ -2646,41 +2708,41 @@ The drawer MUST NOT expose:
 - training parameters;
 - a software arming state;
 - Hit Class;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - Setup Profile management as a list/library.
 
-DAQ Output Channel is a DAQ technical setting in the drawer and remains distinct from Hit Outlet Direction in Live/Sequence Test.
+DAQ Output Channel is a DAQ technical setting in the panel and remains distinct from Hit boundary calibration in Live/Sequence Test.
 
 ## 19.8 Relationship to the global header
 
-- Header values update from the same authoritative hardware state as the drawer.
-- Selecting the Camera or DAQ header status MAY focus the corresponding drawer section when opening is permitted, but it must not create a second settings surface.
+- Header values update from the same authoritative hardware state as the panel.
+- Selecting the Camera or DAQ header status MAY focus the corresponding panel section when opening is permitted, but it must not create a second settings surface.
 - When locked, the header remains factual and the Hardware action communicates ownership.
 - Status symbols and section badges use the same semantic vocabulary: Unavailable, Connected/Streaming for Camera; Unavailable, Ready/Active for DAQ.
 
 ## 19.9 Focus containment and keyboard operation
 
-- On open, focus moves to the drawer heading or first enabled control in the requested section.
-- Tab and Shift+Tab remain within the drawer until it closes.
+- On open, focus moves to the panel heading or first enabled control in the requested section.
+- Tab and Shift+Tab remain within the panel until it closes.
 - Escape closes when not forced closed/locked by Live.
 - Arrow keys operate selectors and numeric steppers according to control conventions.
 - Enter commits validated text/number fields.
-- When the drawer closes, focus returns to the Hardware action or the header item that opened it.
+- When the panel closes, focus returns to the Hardware action or the header item that opened it.
 - If Live Start forces closure, focus moves to the Live Starting status rather than a now-disabled Hardware action.
 - Locked fields remain discoverable in the accessibility tree with read-only/disabled state and owner explanation.
 
 ## 19.10 Collapse and responsive behavior
 
 - Camera and DAQ sections MAY independently collapse, but headings, status, and lock explanation remain visible.
-- At minimum height, the drawer scrolls internally while Close and current section heading remain accessible.
+- At minimum height, the panel scrolls internally while Close and current section heading remain accessible.
 - At minimum width, it may occupy up to 44% of content width. It must not become a full-screen replacement that hides the global header.
 - Field labels must not truncate at 200% scaling; values may elide with full text available.
 
 ## 19.11 Minimum mock states
 
-Idle Camera/DAQ available; Camera unavailable/DAQ Ready; Camera Streaming; DAQ Active; invalid Camera number; rejected DAQ channel; Camera locked by Image Sequence; Camera locked by Dataset Capture; DAQ locked by Sequence Test; Sequence Test with DAQ off; full Live lock; Live paused; Starting/Stopping lock; long device names; unsupported property absent rather than disabled placeholder; 200% scaling; focus return after close.
+Idle Camera/DAQ available; Camera unavailable/DAQ Ready; Camera Streaming; DAQ Active; invalid Camera number; rejected DAQ channel; Camera locked by Image Sequence; Camera locked by Droplet Dataset Capture; DAQ locked by Sequence Test; Sequence Test with DAQ off; full Live lock; Live paused; Starting/Stopping lock; long device names; unsupported property absent rather than disabled placeholder; 200% scaling; focus return after close.
 
-**Source basis:** *OpenDSS Approved v2 Product Model* §5.2, §§11–13 and D-002, D-016; *OpenDSS v2 Information Architecture and Screen Inventory* §§1.6–1.7 and §6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §5, §17, and applicable workspace ownership rules; *OpenDSS Detailed User Workflow Specification* hardware, concurrency, and error requirements as amended by *OpenDSS Approved v2 Product Model*; *OpenDSS Product Design Specification*, Draft v0.1 §§4–6, §8 contextual-drawer evidence, and §§9–10 as adapted.
+**Source basis:** *OpenDSS Approved v2 Product Model* §5.2, §§11–13 and D-002, D-016; *OpenDSS v2 Information Architecture and Screen Inventory* §§1.6–1.7 and §6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §5, §17, and applicable workspace ownership rules; *OpenDSS Detailed User Workflow Specification* hardware, concurrency, and error requirements as amended by *OpenDSS Approved v2 Product Model*; *OpenDSS Product Design Specification*, Draft v0.1 §§4–6, §8 contextual-panel evidence, and §§9–10 as adapted.
 
 ---
 
@@ -2726,16 +2788,16 @@ A Profile may contain:
 - Camera settings;
 - DAQ settings;
 - Active Model reference;
-- Trigger Mode;
+- Trigger Every Droplet;
 - Hit Class;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - Record Full Image Sequence preference;
 - Run Name;
 - default Save Location.
 
 It may not contain user-editable detector, Droplet Crop, routing-algorithm, internal timing, or training values. Notes and Experiment Type remain current Run fields unless a later approved file contract says otherwise.
 
-The profile group does not duplicate editable Camera/DAQ controls. It reports which values were applied; authoritative current values remain visible in the shared drawer.
+The profile group does not duplicate editable Camera/DAQ controls. It reports which values were applied; authoritative current values remain visible in the bottom Hardware panel.
 
 ## 20.4 Open Profile
 
@@ -2772,7 +2834,7 @@ A profile may be opened and inspected when hardware is unavailable or locked by 
   - `Camera profile values not applied — Camera unavailable`;
   - `DAQ profile values not applied — DAQ is in use by Sequence Test`;
 - the profile's hardware values are not exposed as a second editable settings surface;
-- the user may reopen the profile or apply equivalent values through the hardware drawer after the device becomes available and idle.
+- the user may reopen the profile or apply equivalent values through the hardware panel after the device becomes available and idle.
 
 ## 20.7 Invalid or unsupported file
 
@@ -2821,15 +2883,15 @@ They MUST NOT start the destination operation, create a project, lock the user i
 
 | Source | Link label | Destination | Preselection and presentation |
 |---|---|---|---|
-| Dataset Capture Completed or recoverable Interrupted | **Open in Label** | Data > Label | Selects the completed/recoverable `dataset.json`; Label derives Empty/Unavailable/Ready from the authoritative Dataset loader. |
+| Droplet Dataset Capture Completed or recoverable Interrupted | **Open in Label** | Data > Label | Selects the completed/recoverable `dataset.json`; Label derives Empty/Unavailable/Ready from the authoritative Dataset loader. |
 | Label | **Use in Train** | Models > Train | Selects the current Dataset. Faster/More Accurate remains an explicit user choice. |
 | Train after successful Model Package save | **Open in Model Test** | Models > Model Test | Selects the new Model Package; the source Dataset may remain selected when still available. Does not make Model Test mandatory. |
 | Model Library | **Open in Model Test** | Models > Model Test | Selects the current Model Package without changing Active Model. |
-| Image Sequence Completed | **Open in Sequence Player** | Data > Sequence Player | Selects `sequence.json` and displays the first readable frame. |
-| Image Sequence Completed | **Open in Sequence Test** | Sort > Sequence Test | Selects `sequence.json`; Trigger Mode, Model, Hit Class, Hit Outlet Direction, and physical-output choice remain explicit. |
+| Image Sequence Completed | **Open in Sequence Viewer** | Data > Sequence Viewer | Selects `sequence.json` and displays the first readable frame. |
+| Image Sequence Completed | **Open in Sequence Test** | Sort > Sequence Test | Selects `sequence.json`; Trigger Every Droplet, Model, Hit Class, Hit boundary calibration, and physical-output choice remain explicit. |
 | Live post-operation | **Open Run Summary** | Results > Runs | Selects the newly finalized or recoverable Live Run. |
 | Sequence Test post-operation | **Open Run Summary** | Results > Runs | Selects the newly finalized or recoverable Sequence Test Run. |
-| Selected Run with full Image Sequence | **Open Saved Sequence** | Data > Sequence Player | Selects the Run's sequence. The action is absent or directly unavailable when no full sequence exists. |
+| Selected Run with full Image Sequence | **Open Saved Sequence** | Data > Sequence Viewer | Selects the Run's sequence. The action is absent or directly unavailable when no full sequence exists. |
 
 ## 21.3 Visual treatment
 
@@ -2860,7 +2922,7 @@ Keyboard behavior must preserve these rules:
 - logical Tab order matching visual/task order;
 - no global single-letter or number shortcut while typing in a field;
 - no unmodified global key that starts or stops physical output;
-- Escape closes menus, tooltips, dialogs, and the Hardware drawer when permitted; it does not silently cancel or Stop an operation;
+- Escape closes menus, tooltips, dialogs, and the Hardware panel when permitted; it does not silently cancel or Stop an operation;
 - focus does not jump on routine data refreshes, counter updates, frame playback, or hardware polling;
 - selection and keyboard focus remain visually distinct.
 
@@ -2897,7 +2959,7 @@ Only navigation and shell-management shortcuts should be global. Recommended exa
 | Shortcut | Scope and behavior |
 |---|---|
 | `F6` / `Shift+F6` | Cycle major shell regions. |
-| `Ctrl+Shift+H` | Open/close the Hardware drawer when permitted. It is inactive while Live locks the drawer. |
+| `Ctrl+Shift+H` | Open/close the Hardware panel when permitted. It is inactive while Live locks the panel. |
 | `Esc` | Close current nonoperation overlay or cancel a local edit according to component behavior. |
 
 Direct domain-navigation accelerators MAY be added if they are fully documented and do not conflict with field entry or assistive technology. They must open the approved workspaces only.
@@ -2937,11 +2999,11 @@ The class action's accessible name includes current Class Name, for example `Ass
 
 ## 22.7 Viewer shortcuts
 
-The default Sequence Player and image-inspection mapping SHOULD be:
+The default Sequence Viewer and image-inspection mapping SHOULD be:
 
 | Shortcut | Action |
 |---|---|
-| `Space` | Play/Pause in Sequence Player; no effect on Live/Capture operations. |
+| `Left` / `Right` | Previous/next frame in Sequence Viewer; no effect on Live/Capture operations. |
 | `Left` / `Right` | Previous/Next Frame. |
 | `Home` / `End` | First/last frame. |
 | `Page Up` / `Page Down` | Larger seek. |
@@ -2957,7 +3019,7 @@ A viewer must expose a nonshortcut control for every action.
 - Pause, Resume, and Stop remain explicit text-labeled controls in the owning operation panel.
 - Pause and Resume occupy the same visual/Tab position when state changes.
 - Stop remains adjacent but visually secondary to Pause/Resume while Running/Paused.
-- A two-key accelerator for Pause/Resume MAY be provided and displayed; no unmodified Space behavior is used for Capture or Live operations because Space belongs to field entry and Sequence Player.
+- A two-key accelerator for Pause/Resume MAY be provided and displayed; no unmodified Space behavior is used for Capture or Live operations because Space belongs to field entry and Sequence Viewer.
 - Stop MUST NOT be bound to Escape.
 - If a Stop accelerator is provided, it must be a deliberate chord, shown in the UI/documentation, scoped to the owning workspace, suppressed during field entry, and followed by the same idempotent Stop behavior as the button. It must not be described as Emergency Stop.
 - On Stop acceptance, focus moves to the Stopping status rather than another enabled action.
@@ -2994,7 +3056,7 @@ Collapsing a pane moves focus to the control that can restore it. Content select
 | Pause accepted | Paused status; Resume occupies prior Pause location |
 | Completion | Outcome heading, then primary contextual action |
 | Fault | Banner heading once; subsequent updates do not steal focus |
-| Drawer closed | Hardware action or opener; forced Live closure moves to Live status |
+| Panel closed | Hardware action or opener; forced Live closure moves to Live status |
 | Item deleted | Nearest remaining list row or Empty state |
 | Filter changes | Filter control unless user explicitly moved to results |
 
@@ -3010,7 +3072,7 @@ OpenDSS v2 targets desktop use on Windows 11.
 
 | Reference | Logical window size | Design use |
 |---|---:|---|
-| **Minimum supported** | 1280 × 720 | All core workflows and required states remain operable. Compact navigation and collapsed optional inspectors are permitted. |
+| **Minimum supported** | 1600 × 900 | All core workflows and required states remain operable. Compact navigation and collapsed optional inspectors are permitted. |
 | **Standard** | 1600 × 900 | Primary design and review reference. Balanced navigation, viewer, and operation-panel proportions. |
 | **Wide** | 1920 × 1080 | Persistent master-detail/three-region layouts where useful; additional whitespace or metadata, not new features. |
 
@@ -3045,7 +3107,7 @@ The application structure must remain the same across supported sizes. Smaller w
 - Field groups stack rather than shrink below usable widths.
 - Metric tiles stack or use two columns with stable semantic grouping.
 - Tables may scroll horizontally only after essential columns are protected and headers remain interpretable.
-- Mode selectors and primary actions remain visible.
+- Required selectors, fixed Capture headings, and primary actions remain visible.
 - Workspace regions do not reorder in a way that changes task sequence or state ownership.
 
 ## 23.3 Inspector and panel collapse order
@@ -3132,11 +3194,11 @@ At 200% scaling:
 
 When reduced motion is active:
 
-- drawer and panel animations become immediate or short fades;
+- panel and panel animations become immediate or short fades;
 - progress remains perceivable through text/value changes;
 - no pulsing semantic badge is required;
 - auto-scrolling and animated reordering are avoided;
-- sequence playback remains user-controlled and is not disabled because it is core content.
+- sequence frame navigation remains user-controlled and is not disabled because it is core content.
 
 ## 23.11 Screen magnification and focus visibility
 
@@ -3173,7 +3235,7 @@ Tokens MUST be centralized for:
 - typography roles and tabular-number settings;
 - spacing, control heights, radii, divider widths, elevation, and motion duration;
 - icon sizes and target sizes;
-- navigation, header, operation-panel, drawer, and inspector geometry recommendations;
+- navigation, header, operation-panel, panel, and inspector geometry recommendations;
 - focus-ring treatment;
 - breakpoints or responsive presentation rules.
 
@@ -3352,7 +3414,7 @@ At minimum, the design system MUST provide these global fixtures:
 
 The following combined states MUST be previewable because isolated component states are insufficient:
 
-1. no hardware, no Active Model, application opened at Data > Capture > Single Image;
+1. no hardware, no Active Model, application opened at Data > Capture with all three Capture sections collapsed;
 2. Camera Streaming and DAQ Ready with no Active Model;
 3. Camera Streaming, DAQ Ready, two-class Active Model;
 4. Camera Streaming, DAQ Ready, three-class Active Model;
@@ -3360,7 +3422,7 @@ The following combined states MUST be previewable because isolated component sta
 6. Training active while the selected Dataset is read-locked but hardware remains editable;
 7. Sequence Test active with physical DAQ output enabled, locking DAQ only;
 8. Sequence Test active with physical output disabled, locking no hardware but occupying the global slot;
-9. Live Running with the entire drawer closed/locked;
+9. Live Running with the entire panel closed/locked;
 10. Live Paused with Camera Streaming, DAQ Active, and Current Activity Paused;
 11. faulted operation with preserved artifact and contextual recovery actions;
 12. faulted operation with no usable output;
@@ -3376,7 +3438,7 @@ The following combined states MUST be previewable because isolated component sta
 | Global status item | Each approved value, long Active Model name, unavailable, active, paused, elided detail. |
 | Button | Primary/secondary/ghost/destructive; hover, pressed, focus, disabled with adjacent reason, busy, long label. |
 | Icon button | Default, focus, selected, disabled, destructive; tooltip and accessible name annotations. |
-| Segmented control | Three equal Capture modes; selected/focus combinations; mode locked by active capture; 200% text. |
+| Capture disclosure sections | Three fixed headings; none, one, two, and three bodies expanded; independent scrolling; focused/collapsed behavior; active section forced open; other headings disabled; 200% text. |
 | Text/number/path fields | Empty, populated, focus, invalid, read-only, disabled, busy commit, long path, unit, rejected immediate apply. |
 | Combo box | Closed/open, long value, invalid, disabled, keyboard focus. |
 | Checkbox/toggle | On/off/focus/disabled; Physical DAQ default on; Record Full Image Sequence off/on. |
@@ -3392,7 +3454,7 @@ The following combined states MUST be previewable because isolated component sta
 | Inline validation | Required field, range error, rejected hardware value, permission error, corrected state. |
 | Fault banner | Interrupted/preserved; Failed/partial; Failed/no output; one and two actions; long direct reason. |
 | Dialog | Safe confirmation, destructive model deletion, long package name, focus order, 200% scaling. |
-| Drawer | Open idle, unavailable section, partial lock, full Live lock, invalid field, internal scroll, focus return. |
+| Panel | Open idle, unavailable section, partial lock, full Live lock, invalid field, internal scroll, focus return. |
 | Splitter | Default, resized, minimum pane, collapsed, keyboard focus, reset. |
 | Tooltip | Icon meaning, elided path, compact navigation, disabled-reason duplication. |
 
@@ -3402,18 +3464,18 @@ The following combined states MUST be previewable because isolated component sta
 |---|---|
 | **Capture — Single Image** | No Camera; Camera Streaming Ready; busy capture; saved TIFF; write failure; another operation owns Camera. |
 | **Capture — Image Sequence** | Ready blank Duration; Starting; Running; Paused; Stopping; Completed by Stop; Completed by Duration; Interrupted recoverable; Failed; Camera section locked/DAQ editable. |
-| **Capture — Dataset Capture** | No Active Model but Ready; fixed processing unavailable; Running counters; Paused; Completed; recoverable interruption; write failure; no detector/crop controls. |
+| **Capture — Droplet Dataset Capture** | No Active Model but Ready; fixed processing unavailable; Running counters; Paused; Completed; recoverable interruption; write failure; no detector/crop controls. |
 | **Label** | No Dataset; no classes; two-class; three-class; partially labeled; mixed Skipped/Removed; bulk selection; locked Dataset; missing crop; autosave failure; virtualized large collection. |
-| **Sequence Player** | No sequence; Ready; Playing; Paused; final frame; missing frame; unreadable sequence; Dataset/Run sequence source. |
-| **Train** | No Dataset; no Labeled crops; CPU fallback; GPU; Starting; Running; Stopping; Completed low metrics; Save Model; save failure; Active Model update; Interrupted/Failed. |
+| **Sequence Viewer** | No sequence; Ready at first/middle/final frame; unreadable sequence; silently skipped missing frame; Dataset/Run sequence source. |
+| **Train** | No Dataset; no Labeled crops; CPU fallback; GPU; Starting; Running; Stopping; Completed low metrics; Automatic Save; save failure; Active Model update; Interrupted/Failed. |
 | **Model Test** | Missing selections; class mismatch; GPU; CPU fallback; Running; Completed 2-class; Completed 3-class; Interrupted; failed output; Active Model unchanged. |
 | **Library** | Empty; one Active model; selected nonactive; selected Active; locked package; long list; import/rename/delete failure; delete confirmation. |
-| **Live** | Every state and condition listed in §15.19, including no model Trigger Every Droplet, two/three-class Class-Based, both Hit directions, drawer lock, counters, Unresolved, and preservation outcomes. |
+| **Live** | Every state and condition listed in §15.19, including no model Trigger Every Droplet, two/three-class Class-Based, both Hit directions, panel lock, counters, Unresolved, and preservation outcomes. |
 | **Sequence Test** | DAQ enabled/disabled; DAQ unavailable; no Camera; with/without model; two/three classes; Running; Completed/Interrupted/Failed. |
 | **Runs list** | Empty; mixed statuses and operation types; unreadable entry; no model; long names. |
 | **Selected Run** | Completed; Stopped; Interrupted; Failed; full sequence/no sequence; missing log; Unresolved matrix; Notes edit/save failure. |
 | **Settings** | Default/custom root; invalid root; version/runtime facts; drivers unavailable; diagnostic folder failure. |
-| **Hardware drawer** | Every state listed in §19.11. |
+| **Hardware panel** | Every state listed in §19.11. |
 | **Setup Profile** | Every state listed in §20.9. |
 
 ## 25.6 Mock-data naming and provenance
@@ -3452,12 +3514,12 @@ A screen shown only in Ready/ideal state is incomplete.
 
 | Evidence area | Required evidence | Pass condition |
 |---|---|---|
-| **Window sizes** | Reference screenshots or deterministic renders at 1280×720, 1600×900, and 1920×1080 for every major workspace family. | No structural change, clipping, hidden primary action, or unusable content. |
+| **Window sizes** | Reference screenshots or deterministic renders at 1600×900, 1600×900, and 1920×1080 for every major workspace family. | No structural change, clipping, hidden primary action, or unusable content. |
 | **Scaling** | 100%, 125%, 150%, and 200% evidence for shell, components, and representative dense screens. | Text/controls remain legible and operable; no essential clipping; icons/focus remain crisp. |
 | **Workspace states** | Every applicable state in §8 and §25. | State, action, disabled reason, lock, banner, and next action match the authoritative interaction baseline. |
 | **Keyboard operation** | Recorded keyboard walkthrough or test checklist for every core workflow. | All required actions reachable; shortcuts scoped; typing suppresses workspace keys. |
 | **Visible focus** | Screenshots/video or automated visual checks for selected components/screens. | Focus is always visible and distinct from selection/class/state. |
-| **Tab order** | Documented focus sequence for shell, each workspace, drawer, and dialogs. | Order follows task/visual sequence; dynamic fields do not create traps. |
+| **Tab order** | Documented focus sequence for shell, each workspace, panel, and dialogs. | Order follows task/visual sequence; dynamic fields do not create traps. |
 | **Contrast** | Token-level and rendered-state contrast report. | Meets text and non-text requirements in all relevant combinations. |
 | **Target size** | Component measurements and exception review. | At least 24×24 logical px; balanced controls meet preferred sizes. |
 | **Non-color cues** | State inventory screenshots in color and grayscale or simulated color-vision conditions. | Every required state remains identifiable without hue alone. |
@@ -3465,7 +3527,7 @@ A screen shown only in Ready/ideal state is incomplete.
 | **Enlarged text** | 200% scaling plus long text/path fixtures. | No loss of function or essential text. |
 | **Virtualized collections** | Label fixture with at least 100,000 mock entries; scroll/selection evidence. | Responsive navigation and bounded item creation; state badges remain correct. |
 | **Splitter/collapse** | Pointer and keyboard resizing, collapse, restore, and reset evidence. | No state/selection loss; focus returns correctly. |
-| **Hardware locking** | Drawer and affected workspace evidence for every owner in §19.6. | Editable/read-only state agrees with operation ownership; Live closes the drawer. |
+| **Hardware locking** | Panel and affected workspace evidence for every owner in §19.6. | Editable/read-only state agrees with operation ownership; Live closes the panel. |
 | **Disabled reasons** | Primary-action blocker permutations from LF §16. | Exactly one direct operation-level reason shown in correct priority. |
 | **Fault/recovery** | Interrupted/Failed banners with preserved, partial, and no-output variants. | What stopped, reason, preservation, and direct actions are factual and singular. |
 | **Qt Design Studio validity** | All `.ui.qml` forms opened and previewed in the supported Qt Design Studio version. | No parse errors, missing tokens, broken bindings, or design-only production controls. |
@@ -3511,13 +3573,13 @@ Every shared component MUST be reviewed for:
 
 Design QA must include state sequences, not isolated screenshots:
 
-- idle drawer edit → successful immediate apply;
+- idle panel edit → successful immediate apply;
 - invalid edit → direct reason → reversion to last applied value;
 - Image Sequence Start → Camera lock while DAQ remains editable;
-- Dataset Capture Pause → Camera remains locked;
+- Droplet Dataset Capture Pause → Camera remains locked;
 - Sequence Test DAQ on → DAQ lock; Camera available;
 - Sequence Test DAQ off → no hardware lock;
-- Live Start → drawer forced closed → Running → Paused → Resume → Stop → drawer availability restored;
+- Live Start → panel forced closed → Running → Paused → Resume → Stop → panel availability restored;
 - another operation active → conflicting Start disabled everywhere;
 - Active Model in use → Set Active replacement and package mutation disabled.
 
@@ -3526,7 +3588,7 @@ Design QA must include state sequences, not isolated screenshots:
 At minimum, verify:
 
 - Camera unavailable before Start;
-- Camera disconnect during Image Sequence, Dataset Capture, and Live;
+- Camera disconnect during Image Sequence, Droplet Dataset Capture, and Live;
 - DAQ unavailable before Live/physical-output Sequence Test;
 - DAQ fault during Live/Sequence Test;
 - Model/Dataset class-count mismatch;
@@ -3552,7 +3614,7 @@ Examples:
 ```text
 live__running-three-class__1600x900__150.png
 label__mixed-states-large__1920x1080__100.png
-hardware-drawer__camera-locked-sequence__1280x720__200.png
+hardware-panel__camera-locked-sequence__1600x900__200.png
 ```
 
 Baselines must use deterministic mock fixtures and record token/version identifiers. A visual change cannot be accepted solely because pixel difference is small; reviewers must confirm that product state and accessibility remain correct.
@@ -3601,7 +3663,7 @@ Decision identifiers D-001 through D-019 belong exclusively to the *OpenDSS Appr
 | **8. Workspace framework** | PM §§4–14 | IA §§1–6 | LF §§1–20 | WF §§7–23, 31–43 | Layout/component/accessibility evidence only |
 | **9. Capture** | PM §7.1, §§8, 11–14; D-014, D-016 | IA §§3.1, 4.2–4.4, §5 | LF §6, §§16–18 | WF §§11–13 amended to fixed detector/crop configuration | Viewer/component evidence adapted |
 | **10. Label** | PM §7.2, §§8, 11, 13–15; D-012, D-019 | IA §§3.1, 4.5, §§5–6 | LF §7, §§16–18 | WF §14, §§31–34 | Thumbnail distinctions, keyboard, responsive evidence adapted |
-| **11. Sequence Player** | PM §7.3, §8, §12 | IA §§3.1, 4.6, §5 | LF §8, §18 | WF §18 | Dark viewer, controls, keyboard evidence adapted |
+| **11. Sequence Viewer** | PM §7.3, §8, §12 | IA §§3.1, 4.6, §5 | LF §8, §18 | WF §18 | Dark viewer, controls, keyboard evidence adapted |
 | **12. Train** | PM §7.4, §§8, 11–13; D-003, D-012, D-015 | IA §§3.1, 4.7 | LF §9, §§16–17 | WF §15 amended to remove Advanced parameters | Metrics, progress, handoff evidence adapted |
 | **13. Model Test** | PM §7.5, §§11–13; D-004, D-011, D-012, D-013 | IA §§3.1, 4.8 | LF §10, §§16–17 | WF §16 amended for automatic GPU/CPU policy | Metrics/table/accessibility evidence adapted; `Validate` terminology rejected |
 | **14. Library** | PM §7.6, §8, §13, §16; D-010 | IA §§3.1, 4.9, §6 | LF §11, §§16–18 | WF §17 amended to v2-only package support | Master-detail structure adopted; scientific package states rejected |
@@ -3609,7 +3671,7 @@ Decision identifiers D-001 through D-019 belong exclusively to the *OpenDSS Appr
 | **16. Sequence Test** | PM §7.8, §§8, 10–14; D-004, D-005, D-006, D-008 | IA §§3.1, 4.14, §§5–6 | LF §13, §§16–19 | WF §19 amended for Sort placement and Unresolved | Component/accessibility evidence only |
 | **17. Results > Runs** | PM §7.9, §§8, 10, 14–17; D-005, D-013 | IA §§3.1, 4.15–4.16, §§5–6 | LF §14, §§16–19 | WF §22 and Run contracts amended for Unresolved | Table/master-detail evidence adapted; charts and broad history rejected |
 | **18. Settings** | PM §7.10, §§11–12; D-017 | IA §§1.4, 3.1, 4.17, §8 | LF §15–16 | WF §23 narrowed to Storage, Application Information, Diagnostics | Form treatment adapted; old System groups rejected |
-| **19. Hardware drawer** | PM §5.2, §§11–13; D-002, D-016 | IA §§1.6–1.7, §6 | LF §5 and ownership rules | WF hardware/concurrency/error requirements as amended | Contextual drawer pattern adapted; content replaced by approved Camera/DAQ-only scope |
+| **19. Hardware panel** | PM §5.2, §§11–13; D-002, D-016 | IA §§1.6–1.7, §6 | LF §5 and ownership rules | WF hardware/concurrency/error requirements as amended | Contextual panel pattern adapted; content replaced by approved Camera/DAQ-only scope |
 | **20. Setup Profile** | PM §9, §11; D-009 | IA §3.2, §5, §8 | LF §12.3, §16 and ownership rules | WF §20 and §30 only where compatible with ordinary-file/narrowed content model | File-control visuals only; managed library discarded |
 | **21. Contextual links** | PM §§4, 6, 8 | IA §5 | LF §4.8, §18 | WF handoffs in §§12–22 as amended | No authority; compatible link styling only |
 | **22. Keyboard/focus** | PM shell/operation/fault boundaries | IA shell and workspace behavior | LF §§2, 4–18 and acceptance | WF §§9, 14, 18, 21, 38–43 | §9 adopted/adapted |
@@ -3638,11 +3700,11 @@ Decision identifiers D-001 through D-019 belong exclusively to the *OpenDSS Appr
 | **D-011 — Model Test first-class** | Sections 3 and 13. |
 | **D-012 — Two and three classes** | Label, Train, Model Test, Library, Live, Sequence Test, Results, and class-token system. |
 | **D-013 — Results contains Runs only** | Section 17. |
-| **D-014 — Three equal Capture modes** | Section 9 shared preview and equal segmented selector. |
+| **D-014 — Shared Capture composition** | Section 9 shared preview and three fixed, independently collapsible section headings with no default expansion. |
 | **D-015 — No Advanced Training Parameters** | Section 12 fixed-config presentation and Section 29 exclusion. |
-| **D-016 — Camera/DAQ settings only, immediate while idle** | Sections 4 and 19 shared drawer behavior. |
+| **D-016 — Camera/DAQ settings only, immediate while idle** | Sections 4 and 19 bottom Hardware panel behavior. |
 | **D-017 — Reduced Settings** | Section 18. |
-| **D-018 — Fixed startup** | Sections 3–4: Data > Capture > Single Image, no last-workspace restore. |
+| **D-018 — Fixed startup** | Sections 3–4: Data > Capture with all three Capture sections collapsed, no last-workspace restore. |
 | **D-019 — Simple contextual faults** | Sections 6–7 and every workspace's direct reason/banner contract. |
 
 ## 27.4 Conflict disposition rules applied
@@ -3657,7 +3719,7 @@ The following higher-authority corrections are embedded in the consolidated desi
 | User-editable detector, crop, routing, timing, or training parameters | PM D-015/D-016 and §11 make them fixed qualified configuration. |
 | Managed Setup Profile list with Import/Export/Delete | PM D-009 limits product actions to Open, Save, Save As on ordinary files. |
 | Results containing Training/Model Test history | PM D-013 limits Results to Live and Sequence Test Runs. |
-| Camera/DAQ under Settings/System | PM §5 and D-016 move technical settings to the shell-owned drawer; Settings is reduced. |
+| Camera/DAQ under Settings/System | PM §5 and D-016 move technical settings to the shell-owned panel; Settings is reduced. |
 | Manual CPU/GPU selection | PM §§7.4–7.5 and §11 require automatic device policy. |
 | Legacy compatibility and migration UI | PM D-010 and §16 exclude it from the product. |
 | Old PDS navigation and decision register | PM and current IA/LF supersede them; old IDs are not reused. |
@@ -3694,27 +3756,27 @@ The appendix is not an alternative-design menu. Rejected ideas do not remain ava
 | **Typography direction** | **Adapted** | Legible sans-serif, 13–14 px balanced control/body baseline, tabular metrics, and limited monospace retained. Typeface choice remains subject to bundling/rendering validation. |
 | **Spacing and geometry scale** | **Adapted** | 4-based spacing, balanced 36 px controls, restrained radii, and flat surfaces retained as recommendations; dimensions are adjusted to the approved shell and accessibility needs. |
 | **Compact and expanded navigation presentation** | **Adapted** | Permitted for the approved Data/Models/Sort/Results/Settings rail. The old navigation labels and hierarchy are not retained. |
-| **One summarized system-status control** | **Adapted** | The intent to avoid redundant status clutter is retained, but PM requires four explicit header areas: Camera, DAQ, Active Model, Current Activity. Hardware detail uses the shared drawer rather than one opaque summary control. |
+| **One summarized system-status control** | **Adapted** | The intent to avoid redundant status clutter is retained, but PM requires four explicit header areas: Camera, DAQ, Active Model, Current Activity. Hardware detail uses the bottom Hardware panel rather than one opaque summary control. |
 | **Shared component system** | **Adopted** | Expanded in Section 6 and constrained to approved features/states. One-off screen styles remain defects. |
 | **Dataset thumbnail state distinctions** | **Adopted** | Selection, focus, class identity, Labeled, Skipped, and Removed are explicitly separated and made non-color dependent. Old review/exclusion semantics are translated to approved crop states. |
 | **Master-detail Model Library** | **Adopted** | Fits the approved Library actions and selected-vs-Active distinction. Old valid/approved/candidate-style states are omitted. |
-| **Contextual drawers** | **Adapted** | Retained specifically as the shell-owned Camera/DAQ drawer. Detector, crop, model, or generic System drawers are not added. |
+| **Contextual panels** | **Adapted** | Retained specifically as the shell-owned Camera/DAQ panel. Detector, crop, model, or generic System panels are not added. |
 | **Keyboard workflows** | **Adopted** | High-throughput Label and viewer shortcuts, focus visibility, and typing suppression are incorporated and expanded. Hardware operation shortcuts remain deliberately constrained. |
 | **Accessibility requirements** | **Adopted** | Contrast, non-text contrast, targets, non-color cues, accessible names, keyboard operation, and enlarged text are required. |
-| **Responsive and high-DPI requirements** | **Adopted** | 1280×720 minimum, 1600×900 standard, 1920×1080 wide, and 100/125/150/200% scaling are consolidated. Workspace structure remains fixed. |
+| **Responsive and high-DPI requirements** | **Adopted** | 1600×900 minimum, 1600×900 standard, 1920×1080 wide, and 100/125/150/200% scaling are consolidated. Workspace structure remains fixed. |
 | **Qt Design Studio authoring** | **Adopted** | Editable `.ui.qml` forms, wrappers, view-model projections, tokens, components, mocks, and galleries are retained within a design-handoff boundary. |
 | **Mock data** | **Adopted** | Required for every component and workspace state, including fault and locking combinations. |
 | **Visual-regression evidence** | **Adopted** | Deterministic component/screen baselines are part of design QA. |
 | **Old primary navigation: Live / Data / Models / Runs / System** | **Not carried forward** | Conflicts with PM D-001 and the approved IA. The required hierarchy is Data / Models / Sort / Results / Settings. |
 | **Capture inside Live** | **Not carried forward** | Conflicts with PM D-014. Capture is one Data workspace with three equal modes; Live is physical sorting. |
 | **`Validate` terminology for Model Test** | **Not carried forward** | The approved workspace and scientific term is Model Test. `Validate` can imply approval and conflicts with current terminology. |
-| **Camera and DAQ under System** | **Not carried forward** | PM D-016 requires a shared shell-level Camera/DAQ drawer. Settings contains Storage, Application Information, and Diagnostics only. |
+| **Camera and DAQ under System** | **Not carried forward** | PM D-016 requires a shared shell-level Camera/DAQ panel. Settings contains Storage, Application Information, and Diagnostics only. |
 | **Editable detector controls** | **Not carried forward** | Conflicts with PM §11 and approved constraints. Detection is fixed qualified application configuration and recorded in provenance. |
 | **Advanced Training Parameters** | **Not carried forward** | Explicitly removed by PM D-015. Training exposes Faster/More Accurate and fixed configuration facts only. |
 | **Old decision-register identifiers D-001, D-002, etc.** | **Not carried forward** | Those identifiers now belong exclusively to the Approved Product Model. This specification does not reuse them or create a new product decision register. |
-| **One generic System-status drawer containing all settings** | **Not carried forward** | The approved drawer contains Camera and DAQ only; Storage/Application Information/Diagnostics remain in Settings. |
+| **One generic System-status panel containing all settings** | **Not carried forward** | The approved panel contains Camera and DAQ only; Storage/Application Information/Diagnostics remain in Settings. |
 | **`Armed` as a product-level operational state** | **Not carried forward** | PM D-002 adds no separate software arming state. DAQ readiness and explicit Physical DAQ Output provide factual technical status. |
-| **Camera settings opened contextually from Live** | **Adapted** | Retained through the global Hardware drawer, available from all workspaces while idle rather than owned by Live. |
+| **Camera settings opened contextually from Live** | **Adapted** | Retained through the global Hardware panel, available from all workspaces while idle rather than owned by Live. |
 | **Resizable/collapsible side panes** | **Adopted** | Retained with keyboard alternatives, stable selection/focus, and minimum-width rules. Active operation panels cannot disappear automatically. |
 | **Five persistent equal-weight status chips replaced by concise status** | **Adapted** | Redundant chip styling is rejected, but the four approved labeled status areas remain continuously visible and are not collapsed into one ambiguous sentence. |
 | **Misclassified-image review in Model Test** | **Not carried forward** | The first release requires metrics, confusion matrix, summary, and predictions CSV; no integrated misclassified-image browser is added. |
@@ -3762,7 +3824,7 @@ The normal product MUST NOT expose:
 - raw JSON editing for normal workflows;
 - a software DAQ arming state.
 
-Camera and DAQ technical settings remain the only user-editable technical settings and exist only in the shared Hardware drawer.
+Camera and DAQ technical settings remain the only user-editable technical settings and exist only in the shared Hardware panel.
 
 ## 29.3 Excluded scientific policy and status
 
@@ -3863,7 +3925,7 @@ Principal coverage used in this specification:
 - §1 — purpose and authority;
 - §§2–3 — local single-user product definition, scientific authority, factual terminology, ordinary files, reproducibility;
 - §4 — approved navigation, no Home, fixed startup, contextual links;
-- §5 — global header and shared Camera/DAQ drawer;
+- §5 — global header and bottom Hardware panel;
 - §6 — goal-to-workspace map;
 - §7 — complete approved workspace model;
 - §§8–10 — artifact, Setup Profile, and scientific event models;
@@ -3882,7 +3944,7 @@ This source controls every conflict.
 
 Principal coverage used:
 
-- §1 — shell, header, navigation, workspace region, operation-side panel, drawer, startup, shell diagram;
+- §1 — shell, header, navigation, workspace region, operation-side panel, panel, startup, shell diagram;
 - §2 — exact navigation hierarchy and item purposes;
 - §3 — complete workspace inventory, sorting semantics, and Profile behavior;
 - §4 — complete state inventory by workspace;
@@ -3902,7 +3964,7 @@ Principal coverage used:
 - §2 — shell interaction, startup, in-session retention, header projection, fault placement;
 - §3 — conceptual state model, authoritative owners, lifecycle, snapshots;
 - §4 — shared interaction patterns, disabled reasons, Start/Stop/Pause, banners, validation;
-- §5 — hardware drawer behavior;
+- §5 — hardware panel behavior;
 - §§6–15 — detailed workspace layouts and interactions;
 - §16 — primary-action enablement and reason priority;
 - §17 — shared resource ownership and navigation effects;
@@ -3923,9 +3985,9 @@ Principal nonconflicting coverage used:
 
 - §§1–6 — purpose, product objective, principles, user/platform, terminology;
 - §§8–10 — global status, operation/concurrency behavior, and default storage;
-- §§11–14 — Single Image, Image Sequence, Dataset Capture, Label;
+- §§11–14 — Single Image, Image Sequence, Droplet Dataset Capture, Label;
 - §§15–17 — Train, Model Test, Model Library, subject to PM amendments;
-- §§18–19 — Sequence Player and Sequence Test, subject to Sort placement and Unresolved;
+- §§18–19 — Sequence Viewer and Sequence Test, subject to Sort placement and Unresolved;
 - §§20–22 — run setup, Live Sorting, Results, consolidated and amended by PM/IA/LF;
 - §§24–30 — canonical artifact/file contracts, subject to v2 amendments;
 - §§31–34 — persistence, atomic writes, crash recovery, and errors;

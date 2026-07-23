@@ -1,106 +1,112 @@
-# Qt Quick/QML v2 Shell and Mock Single Image
+# OpenDSS v2 visual navigation scaffold and Mock Single Image slice
 
 ## Status
 
-Planned — Qt Design Studio application bootstrap generated and build-verified; awaiting the approved shell/Single Image visual baseline and implementation authorization.
+User-authorized for Round 1 visual-only scaffold planning and implementation through bounded work orders. Production behavior remains unauthorized.
 
-## Qt Design Studio bootstrap gate
+The earlier baseline committed as `188a649` remains evidence. Its Single Image-only Capture composition, former smaller minimum, and former Hardware placement are superseded and must not be extended.
 
-Bootstrap infrastructure completed on 2026-07-22:
+## Current objective
 
-1. Qt Design Studio generated the application at `app/runtime/Desktop_app_v2/` in this working tree.
-2. The CMake Generator is enabled and the generated project configures successfully.
-3. Qt Creator builds the generated project with the Desktop Qt 6.11.1 MinGW 64-bit kit using the external build directory `C:\Users\goals\qtbuild\odss-v2-dbg`.
-4. Qt Creator 20.0.0 exposes its local MCP server through Streamable HTTP at `http://127.0.0.1:45678/`; repository-scoped Codex configuration records that exact root endpoint.
-
-The generated starter form remains untouched and is not the approved OpenDSS shell/Single Image visual design. Before production integration begins, create and approve that visual baseline as `*.ui.qml` forms with deterministic `MockDatas/` projections, verify 2D view and Live Preview, and commit it separately. Do not connect DCAM, DAQ, persistence, or other production services during that visual step.
-
-Codex must not synthesize a replacement for the Qt Design Studio-generated shell. After the baseline exists, every work order must list authorized visual forms, read-only visual forms, runtime wrappers, C++/mock/test files, durable CMake integration files, and generated files that must not be edited.
-
-## Objective
-
-Add a new Qt Quick/QML OpenDSS v2 executable beside the legacy application and implement the first deterministic UI slice:
-
-- application shell and approved navigation;
-- global status header, workspace host, and operation-side panel;
-- shared Camera/DAQ drawer presentation;
-- one mock authoritative application-state owner;
-- a narrow fake Camera service; and
-- the Data > Capture > Single Image visual workflow.
-
-## Intended result
-
-The new executable launches independently of laboratory hardware and opens at **Data > Capture > Single Image**. It demonstrates the approved v2 shell and Single Image states with deterministic mock data.
+Establish the amended shell, Mock Single Image presentation, and a visual-only navigation scaffold for every approved workspace without connecting production Camera, TIFF, DAQ, Training, Live, Sequence Test, Results, or persistence behavior.
 
 ## Required reading
 
-- [Repository agent policy](../../../AGENTS.md).
-- [OpenDSS v2 implementation context](../CONTEXT.md).
-- [Reuse-first implementation plan](../OpenDSS_v2_Reuse_First_Implementation_Plan.md).
-- Approved Product Model: [§5 Global application shell](../source/OpenDSS_v2_Approved_Product_Model.md#5-global-application-shell), [§7.1 Data > Capture](../source/OpenDSS_v2_Approved_Product_Model.md#71-data--capture), and [§18 Product-state ownership boundary](../source/OpenDSS_v2_Approved_Product_Model.md#18-product-state-ownership-boundary).
-- Information Architecture: [§1 Application shell](../source/OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md#1-application-shell), [§2 Navigation hierarchy](../source/OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md#2-navigation-hierarchy), and [§4.2 Data > Capture > Single Image](../source/OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md#42-data--capture--single-image).
-- Interaction/Application-State specification: [§2 Application shell interaction](../source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md#2-application-shell-interaction), [§3 Conceptual application-state model](../source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md#3-conceptual-application-state-model), [§4 Shared interaction patterns](../source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md#4-shared-interaction-patterns), [§5 Shared Camera/DAQ hardware drawer](../source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md#5-shared-cameradaq-hardware-drawer), and [§6.4 Single Image](../source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md#64-single-image).
-- Consolidated Design Specification, still **Consolidated Draft for Review**: [§4 Application shell](../OpenDSS_v2_Consolidated_Product_Design_Specification.md#4-application-shell), [§6.7 Component accessibility](../OpenDSS_v2_Consolidated_Product_Design_Specification.md#67-component-accessibility), [§9.2 Single Image](../OpenDSS_v2_Consolidated_Product_Design_Specification.md#92-single-image), [§23 Responsive, high-DPI, and accessibility requirements](../OpenDSS_v2_Consolidated_Product_Design_Specification.md#23-responsive-high-dpi-and-accessibility-requirements), and [§24 Qt Design Studio and design-handoff contract](../OpenDSS_v2_Consolidated_Product_Design_Specification.md#24-qt-design-studio-and-design-handoff-contract).
+1. [Repository agent policy](../../../AGENTS.md).
+2. [Implementation context](../CONTEXT.md).
+3. [Approved UI/UX amendment](../OpenDSS_v2_UIUX_Design_Amendment.md), §§2–5, 17, and 18.
+4. [Approved Product Model](../canonical/product-model.md), §§1, 4, 5, and 7.1.
+5. [Information Architecture](../canonical/information-architecture.md), §0 and §§1–4.
+6. [Interaction and Application-State Specification](../canonical/interaction-and-state.md), §0 and Capture/error sections.
+7. [Consolidated Design Draft](../design/consolidated-design-draft.md), amendment integration, shell, shared components, Capture, responsive/accessibility, and Qt Design Studio handoff sections. It remains **Consolidated Draft for Review**.
+8. [Qt Design Studio adoption record](qt-design-studio-adoption.md), continuing-slice constraints.
+9. [Visual scaffold first-two-round plan](visual-scaffold-two-round-plan.md).
 
-## In scope
+## Authorized visual-baseline consequences
 
-- A separate Qt Quick/QML executable target and Qt Design Studio-compatible `.ui.qml` forms.
-- Centralized minimal design tokens; shell layout; approved primary and secondary navigation; and startup at Data > Capture > Single Image.
-- Global Camera, DAQ, Active Model, and Current Activity projections.
-- Shared Camera/DAQ drawer visual states.
-- Minimal mock authoritative state exposed to QML and a fake Camera service used only by this slice.
-- Single Image Empty/Unavailable where applicable, Ready, transient Busy, Completed, and Failed presentations. Canonical Single Image defines no distinct Empty presentation, so the slice must not invent one unless an approved prerequisite makes Empty applicable.
-- File Name and Save Location UI, with deterministic fake Capture Image results.
-- A direct disabled reason and one contextual fault banner.
-- Basic keyboard focus and supported-window checks.
-- Tests appropriate to the shell and mock state.
+- maximized startup presentation;
+- restored minimum logical size of 1600 × 900;
+- enforced 16:9 manual resizing;
+- compact one-line status header with Camera, DAQ, Active Model, and Current Activity items using icon, label, value, readiness color, and a non-color cue;
+- bottom-left overlay Hardware panel frame with visible arrow, without real Camera or DAQ settings behavior;
+- one-session Camera-unavailable startup mock with `Camera unavailable. Continue?`, Yes, and No states;
+- Capture panel with permanently visible headings **Single Image**, **Image Sequence**, and **Droplet Dataset Capture**;
+- independently collapsible Capture bodies, including active-section-expanded and other-headings-disabled mock states;
+- deterministic Mock Single Image states;
+- shared `CollapsibleSection` visual component;
+- minimal `ErrorMessage` presentation showing `Error` and only directly useful contextual actions.
+- Qt Design Studio-editable skeletal hosts for Label, Sequence Viewer, Train, Model Test, Library, Live, Sequence Test, Results, and Settings using only approved regions and section names;
+- deterministic visual selection/mock states sufficient to review each approved workspace composition;
+- proposed exported aliases, signals, and state names only where an immediate Round 2 consumer is identified.
+
+## Authorized files
+
+No files are authorized by this planning record alone. The orchestrator must issue a bounded visual work order naming every writable `*.ui.qml`, wrapper QML, mock, asset, test, and durable CMake file before implementation starts. Accepted user-edited forms remain read-only unless named explicitly.
 
 ## Out of scope
 
-- Real DCAM integration, physical-camera testing, real TIFF capture, NI-DAQmx, detector integration, inference, training, and production persistence.
-- Dataset Capture, Image Sequence, Label, Live, Sequence Test, or Results implementation.
-- Replacing or deleting the legacy application or porting old Qt Widgets screens.
-- Broad architecture frameworks or later-workspace placeholder buttons.
+- production Camera connection or streaming;
+- real TIFF capture or writing;
+- Image Sequence and Droplet Dataset Capture implementation;
+- DAQ integration or physical output;
+- detector, inference, Training, Model Test, Live, Sequence Test, Results, Run, or persistence behavior;
+- speculative placeholder controls, fields, settings, or states inside the skeletal workspace hosts;
+- changes to protected reusable technical assets;
+- hand edits to Qt Design Studio-generated CMake files;
+- a Home screen, separate Sort Setup workspace, local Model selectors, detailed visible diagnostics, or any behavior copied from legacy UI policy.
 
-## Lean implementation constraints
+## Required mock and review states
 
-- Do not build a plugin system, service locator, dependency-injection framework, generic workflow engine, or complete services for future workspaces.
-- Create only state and interfaces consumed by this shell and mock Single Image slice; every production type and property must have an immediate consumer.
-- UI state derives from one mock authoritative owner, not widget text or duplicated control-local truth.
-- `.ui.qml` forms contain visual structure and state presentation; wrapper QML contains presentation behavior.
-- QML must not call hardware or file APIs directly.
-- Do not copy legacy Widgets navigation or application composition.
-- Navigation may display approved destinations, but only Single Image receives functional workspace content.
-
-## Required UI states
-
-- Camera unavailable, connected, and streaming.
-- Capture ready, fake capture in progress, fake capture completed with a displayed path, and fake capture failed.
-- Hardware drawer open and closed.
-- Direct disabled reason and contextual fault banner.
-- No Active Model.
-- Current Activity = `Idle` and `Capturing Image`.
-
-## Verification
-
-- Configure and build the new v2 executable, then launch it without Camera, DAQ, Python, or GPU.
-- Verify the startup workspace, approved navigation, drawer behavior, and deterministic fake capture transitions.
-- Verify no vendor SDK is called and no real file is presented as written.
-- Open or validate the `.ui.qml` forms and check keyboard focus, 1280×720 minimum layout, and relevant scaling states.
-- Run relevant automated tests and inspect changed files for unused or speculative code.
-- Confirm the legacy executable and shared low-level code were not modified. The legacy executable need not be rebuilt unless shared existing code changes; this slice should avoid such changes.
-- Confirm every modified `*.ui.qml` file still opens in Qt Design Studio's 2D view and that Live Preview renders each required mock state.
-- Run `qmllint` and relevant Qt Quick Tests with the Qt 6 kit selected for the generated project.
+- 1600 × 900 restored and maximized window presentations;
+- header ready, unavailable, active, and idle combinations with non-color readiness meaning;
+- Hardware panel closed and bottom-left overlay-open states;
+- Camera available and Camera unavailable startup states, including Yes/No prompt;
+- Capture with all bodies collapsed, each body expanded, multiple idle bodies expanded, and an active body expanded while other headings are disabled;
+- Mock Single Image unavailable, ready, capturing, completed, and `Error` states;
+- each approved workspace host selected in the shell with only its approved structural regions visible;
+- keyboard focus order and supported scaling at the minimum window.
 
 ## Acceptance criteria
 
-- A separate v2 executable exists, launches without hardware, and starts at Data > Capture > Single Image.
-- The approved shell and navigation are present without implementing unrelated workspaces.
-- The global header is a projection of one state owner, and the shared drawer presents mock Camera and DAQ state.
-- Single Image mock states work deterministically with no real hardware or production persistence.
-- No speculative or unused framework code is introduced.
-- The legacy application remains intact, and no later DCAM/TIFF work is included.
+- The shell opens visually at Data > Capture and reflects maximized startup.
+- Restored layout never presents below 1600 × 900 and preserves 16:9.
+- The status header remains one compact line and readiness is not color-only.
+- The Hardware panel overlays only the lower-left workspace and does not push content or span the window.
+- The Capture panel and all three headings remain visible in every required state.
+- Only Capture bodies collapse; multiple idle bodies can be expanded; the active body stays expanded; other headings remain visible but disabled.
+- The user-facing name is **Droplet Dataset Capture**.
+- The Camera-unavailable mock appears once per session and exposes the approved Yes/No outcomes.
+- Normal mock failure presentation is exactly `Error`; technical detail is absent from the workspace.
+- All approved workspaces have a recognizable, source-grounded visual host without speculative controls or runtime behavior.
+- Modified forms remain editable in Qt Design Studio 2D view and render in Live Preview.
+- No production, generated, protected, or later-slice source is changed.
 
-## Following slice
+## Validation for the later visual work order
 
-Record without authorization: connect the existing DCAM implementation to the v2 Camera boundary, display a real preview, capture one frame, save one real TIFF, and perform physical-camera qualification.
+1. User-led Qt Design Studio 2D view, Live Preview, and manual review for the changed forms and representative mock states.
+2. User-led review at 1600 × 900, maximized, and one representative larger 16:9 layout, including keyboard focus and non-color meaning.
+3. `qmllint` only for changed QML when useful.
+4. One configure/build or directly relevant targeted test only when the changed files require it.
+5. Narrow diff review proving no generated file, speculative behavior, or production integration was added.
+
+Do not run the full legacy, Python, or hardware test matrix for these visual rounds.
+
+## Round workflow and following slices
+
+Round 1 is the single-writer visual scaffold in [visual-scaffold-two-round-plan.md](visual-scaffold-two-round-plan.md). After user acceptance and interface freeze, Round 2 splits into nonoverlapping design and backbone work orders in separate worktrees.
+
+The approved implementation order is:
+
+1. Shell and Mock Single Image
+2. Full Capture and Hardware panel
+3. Label
+4. Sequence Viewer
+5. Train
+6. Library
+7. Model Test
+8. Live
+9. Sequence Test
+10. Results
+11. Settings
+
+The all-workspace scaffold does not start the later behaviors listed above. Do not begin Full Capture or any later production behavior without explicit authorization after Round 2 acceptance.

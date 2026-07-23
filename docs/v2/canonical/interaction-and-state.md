@@ -1,8 +1,10 @@
 # OpenDSS v2 Low-Fidelity Interaction and Application-State Specification
 
-**File:** `OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md`  
+**File:** `interaction-and-state.md`  
+**Version:** 1.1  
+**Date:** July 23, 2026  
 **Status:** Interaction and state-definition baseline  
-**Upstream baseline:** `OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md`  
+**Upstream baseline:** `information-architecture.md`  
 **Primary authority:** *OpenDSS Approved v2 Product Model*, decisions D-001 through D-019  
 **Secondary authority:** *OpenDSS Detailed User Workflow Specification*, for requirements that do not conflict with the approved product model
 
@@ -11,6 +13,46 @@ This document defines the next design layer after the approved information archi
 It does not reopen D-001 through D-019, alter the approved navigation, add product features, prescribe production code, or define polished visual styling. Text diagrams describe structure and interaction only.
 
 ---
+
+## 0. Amendment-controlled interaction and state rules
+
+The July 23, 2026 UI/UX amendment controls the following interaction and state behavior. Older detailed material in this document applies only where it agrees with these rules.
+
+### 0.1 Startup, shell, and errors
+
+OpenDSS starts maximized at `Data > Capture`, attempts Camera connection automatically, and shows `Camera unavailable. Continue?` once per session only when no Camera is available. Yes continues without Camera; No closes OpenDSS. Restored size is never below 1600 × 900 and manual resizing preserves 16:9.
+
+The header remains a single line. Each Camera, DAQ, Active Model, and Current Activity item has icon, text, value, readiness color, and a non-color readiness cue. The bottom-left Hardware panel overlays the workspace and is closed or locked when resource ownership prevents edits.
+
+Ordinary workspace failure presentation is `Error`. Logs own technical details and remain reachable through Settings > Diagnostics. Retry and Open Folder are allowed only when directly useful; paths and success states appear only after confirmed success.
+
+### 0.2 Operation and disclosure states
+
+- Capture section headings remain visible. Idle bodies collapse independently and may be open together. An active body is forced open; other headings remain visible and disabled until completion, interruption, or failure.
+- Sequence Viewer has only Empty, Ready, and frame-navigation state; it has no frame-navigation lifecycle. Missing frames are skipped silently.
+- Train has Ready, Training, Saving, Completed, and Save Failed states. There is no normal completed-but-unsaved state. Save Failed retains completed temporary artifacts and enables Retry Save; Active Model changes only after successful save.
+- Live retains one workspace. Before sorting, Running is collapsed. Start collapses setup sections, expands Running, makes setup read-only, and retains the Camera preview. Pause/Resume and Stop act on the same Run.
+- Results maintains separate `selectedRunId` and `loadedRunId`; selection alone never replaces the center Run.
+
+### 0.3 Active Model ownership and locks
+
+Model Test and Sequence Test consume the authoritative Active Model and expose no local Model selector. Library is the only path to Set Active. While Model Test, Live, or Sequence Test uses the Active Model, replacement, rename, deletion, package mutation, and Set Active are blocked with one direct reason.
+
+### 0.4 Live decision, DAQ, and observed-route state
+
+`triggerEveryDroplet` and `daqOutputEnabled` are independent booleans:
+
+- Trigger Every Droplet OFF means Class-Based Sorting; ON makes every detected droplet Decision Hit while classification may still be logged.
+- DAQ Output OFF permits Start when all non-DAQ prerequisites pass and retains processing, detection, classification when applicable, tracking, event logging, Run creation, and persistence without physical output.
+- DAQ Output ON additionally requires DAQ Ready and sends physical output according to Decision.
+
+Hit boundary calibration owns `boundary_y`, `hit_side`, `image_width`, and `image_height`. `Top is Hit` maps −Y to Hit and +Y to Waste; `Bottom is Hit` reverses that mapping. The boundary affects Observed Route only, never Predicted Class, Decision, or DAQ output, and is editable only before Start.
+
+### 0.5 Sequence Test loading and timing
+
+Sequence Test accepts only an OpenDSS Image Sequence folder containing `sequence.json`. Selection shows a first-frame preview, frame count, recorded FPS, and status. Processing FPS defaults to recorded FPS, remains editable before Start, drives pipeline read scheduling, is snapshotted in the Run Summary, and governs physical DAQ timing when enabled.
+
+Start stays disabled until bounded memory-buffer allocation succeeds. Allocation failure shows `Error`, logs details, cancels the load, and keeps Start disabled. A sequence larger than the buffer refills during processing. Physical DAQ Output is off by default and DAQ ownership is acquired only when it is enabled.
 
 ## 1. Design frame
 
@@ -111,7 +153,7 @@ The diagrams do not define color, typography, iconography, animation, exact dime
 Every launch selects:
 
 ```text
-Data > Capture > Single Image
+Data > Capture
 ```
 
 The application does not restore the previously open workspace. This startup rule does not clear separately persisted domain state such as the Active Model or storage preferences.
@@ -146,16 +188,16 @@ This retention is an interaction convenience within the current session, not a p
 
 The header uses the first applicable rule:
 
-1. A paused Image Sequence, Dataset Capture, Live Run, or Sequence Player displays `Paused`.
+1. A paused Image Sequence, Droplet Dataset Capture, or Live Run displays `Paused`.
 2. An active long-running operation displays its approved activity value:
    - Image Sequence → `Recording Sequence`;
-   - Dataset Capture → `Capturing Dataset`;
+   - Droplet Dataset Capture → `Droplet Dataset Capture`;
    - Training → `Training`;
    - Model Test → `Testing Model`;
    - Sequence Test → `Testing Sequence`;
    - Live Sorting → `Sorting`.
 3. A momentary Single Image action displays `Capturing Image` until the write succeeds or fails.
-4. Active Sequence Player playback displays `Playing Sequence`.
+4. Sequence Viewer frame navigation does not project a long-running Current Activity state.
 5. Data > Label with a Dataset open in the foreground displays `Labeling` when no higher-priority operation exists.
 6. Otherwise, the header displays `Idle`.
 
@@ -163,7 +205,7 @@ The header uses the first applicable rule:
 
 ### 2.7 Global fault presentation
 
-A fault associated with a long-running operation appears in the owning workspace, not in a global notification center. The header continues to show factual hardware and activity state; the workspace banner explains the operation outcome and recovery.
+A fault associated with a long-running operation appears as `Error` in the owning workspace, not in a global notification center. The header continues to show factual hardware and activity state. Technical detail is written to the program log; directly useful Retry or Open Folder actions may remain.
 
 ---
 
@@ -178,8 +220,8 @@ Application State
 ├── Shell
 │   ├── selected primary navigation item
 │   ├── selected workspace
-│   ├── selected Capture mode
-│   └── hardware drawer presentation
+│   ├── expanded Capture sections
+│   └── hardware panel presentation
 ├── Hardware
 │   ├── Camera availability, stream state, applied settings, lock owner
 │   └── DAQ availability, readiness, applied settings, lock owner
@@ -199,7 +241,7 @@ Application State
 │   ├── configuration snapshot
 │   └── progress and finalized counters
 ├── Workspace drafts
-│   ├── Capture mode fields
+│   ├── Capture section fields
 │   ├── Train and Model Test selections
 │   ├── Live pre-run configuration
 │   ├── Sequence Test configuration
@@ -218,11 +260,11 @@ Application State
 
 | State | Authoritative owner | Interaction consequence |
 |---|---|---|
-| Camera state and applied Camera settings | Hardware coordination domain | Header, drawer, previews, and Camera-dependent enablement agree. |
-| DAQ state and applied DAQ settings | Hardware coordination domain | Header, drawer, Send Test Pulse, Live, and Sequence Test agree. |
+| Camera state and applied Camera settings | Hardware coordination domain | Header, panel, previews, and Camera-dependent enablement agree. |
+| DAQ state and applied DAQ settings | Hardware coordination domain | Header, panel, Send Test Pulse, Live, and Sequence Test agree. |
 | Active Model and package metadata | Model registry domain | Header, Library, Live, Train completion, Model Test, and Sequence Test agree. |
 | Dataset content and label persistence | Dataset domain | Label, Train, and Model Test use the same class, crop-state, and readability result. |
-| Image Sequence loading | Sequence domain | Sequence Player and Sequence Test use the same v2 sequence interpretation. |
+| Image Sequence loading | Sequence domain | Sequence Viewer and Sequence Test use the same v2 sequence interpretation. |
 | Current long-running operation and locks | Operation coordination domain | All Start actions and resource mutations agree on ownership. |
 | Training execution and metrics | Training domain | Train progress and completion derive from one execution state. |
 | Run discovery and persisted Run data | Run repository domain | Live/Sequence Test completion and Results present the same Run status and files. |
@@ -239,7 +281,7 @@ The following are derived presentation values and shall not be stored as indepen
 - workspace `Empty`, `Unavailable`, or `Ready` presentation;
 - whether a primary action is enabled;
 - the direct disabled reason;
-- the hardware drawer lock presentation;
+- the hardware panel lock presentation;
 - Predicted Class count totals shown in Live and Results;
 - Decision counts;
 - Observed Route counts;
@@ -286,7 +328,7 @@ Empty or Unavailable
         └── processing/write failure ─► Failed
 ```
 
-Only Image Sequence, Dataset Capture, and Live use the long-operation Paused branch. Sequence Player has its own nonexclusive Play/Pause state. Training, Model Test, and Sequence Test do not add Pause.
+Only Image Sequence, Droplet Dataset Capture, and Live use the long-operation Paused branch. Sequence Viewer has no playback lifecycle. Training, Model Test, and Sequence Test do not add Pause.
 
 ### 3.6 Completed, Interrupted, and Failed distinctions
 
@@ -315,15 +357,15 @@ The current primary action appears at the bottom of the operation panel or the e
 
 - Capture Image;
 - Start Recording;
-- Start Dataset Capture;
+- Start Droplet Dataset Capture;
 - Start Training;
-- Save Model;
+- Automatic Save;
 - Start Model Test;
 - Set Active;
 - Start Sorting;
 - Pause or Resume during Live;
 - Start Sequence Test;
-- Open selected Run;
+- Load selected Run;
 - Save Notes.
 
 Only the action appropriate to the current state is visually primary.
@@ -383,7 +425,7 @@ Double activation of Start shall not create duplicate operations or folders.
 - Stop requests are idempotent: repeated activation does not create repeated finalization.
 - After Stop is accepted, the workspace enters Stopping and disables new Start/Pause/Resume actions.
 - Persistence queues flush at Stop.
-- Image Sequence and Dataset Capture cleanly finalize their canonical metadata when possible.
+- Image Sequence and Droplet Dataset Capture cleanly finalize their canonical metadata when possible.
 - Live and Sequence Test stop new DAQ output before finalization.
 - Training and Model Test stop new processing and preserve only output that their contracts can represent factually.
 
@@ -392,9 +434,9 @@ Double activation of Start shall not create duplicate operations or folders.
 | Workspace | Continues while paused | Stops while paused | Resume behavior |
 |---|---|---|---|
 | **Image Sequence** | Live camera preview | TIFF writing and active-recording time | Continues the same sequence folder and numbering. |
-| **Dataset Capture** | Live camera preview | TIFF writing, droplet detection, and Droplet Crop creation | Continues the same Dataset and counters. |
+| **Droplet Dataset Capture** | Live camera preview | TIFF writing, droplet detection, and Droplet Crop creation | Continues the same Dataset and counters. |
 | **Live** | Live camera preview | Inference, new DAQ output, and new event finalization | Continues the same Run and configuration snapshot. |
-| **Sequence Player** | Current frame display | Visual frame advancement | Continues playback from the current position. |
+| **Sequence Viewer** | Current frame display | Frame navigation | Retains the current frame position. |
 
 Camera and DAQ settings remain locked during an operation pause when that operation owns them.
 
@@ -402,8 +444,8 @@ Camera and DAQ settings remain locked during an operation pause when that operat
 
 Completion actions are contextual and do not create a wizard:
 
-- Image Sequence → Open in Sequence Player; Open in Sequence Test;
-- Dataset Capture → Open in Label;
+- Image Sequence → Open in Sequence Viewer; Open in Sequence Test;
+- Droplet Dataset Capture → Open in Label;
 - Train after save → Open in Model Test;
 - Live or Sequence Test → Open Run Summary; Open Run Folder;
 - Results with full sequence → Open Saved Sequence.
@@ -412,7 +454,7 @@ Completion actions are contextual and do not create a wizard:
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Dataset Capture interrupted                                          │
+│ Droplet Dataset Capture interrupted                                          │
 │ The camera disconnected. Existing frames and crops were preserved.  │
 │                                                                      │
 │ [ Open Dataset ]  [ Open Folder ]                                    │
@@ -422,7 +464,7 @@ Completion actions are contextual and do not create a wizard:
 A banner contains:
 
 - operation or action that failed;
-- direct technical reason when known;
+- `Error` as the normal visible message, with technical detail in the program log;
 - whether partial data was preserved;
 - one or two direct recovery/inspection actions.
 
@@ -442,7 +484,7 @@ The low-fidelity interaction model uses only these necessary external or modal i
 | Interaction | Presentation |
 |---|---|
 | Open Dataset, Sequence, Profile, Model Package, output file/folder | Standard Windows picker. |
-| Save Profile As, Export Model, Save Model location | Standard Windows save/folder picker. |
+| Save Profile As, Export Model, Automatic Save location | Standard Windows save/folder picker. |
 | Delete Model | One direct destructive confirmation naming the Model Package. |
 | Replace an existing ordinary file | Standard Windows overwrite confirmation supplied by the picker/file operation. |
 
@@ -450,9 +492,9 @@ Class definition, model naming, Run Notes editing, operation completion, and fau
 
 ---
 
-## 5. Shared Camera/DAQ hardware drawer
+## 5. Shared Camera/DAQ hardware panel
 
-### 5.1 Low-fidelity drawer
+### 5.1 Low-fidelity panel
 
 ```text
 Header:  Camera: Streaming | DAQ: Ready | ...             [ Hardware ]
@@ -477,11 +519,11 @@ Header:  Camera: Streaming | DAQ: Ready | ...             [ Hardware ]
 
 ### 5.2 Open and close behavior
 
-- The header's **Hardware** action opens or closes the shell-owned drawer.
+- The header's **Hardware** action opens or closes the shell-owned panel.
 - Ordinary open/closed presentation may remain stable while navigating during the current session.
-- The drawer does not define a separate workspace or navigation item.
-- The global status header remains visible while the drawer is open.
-- During Live Starting, Running, Paused, and Stopping, the drawer closes and the Hardware action is disabled.
+- The panel does not define a separate workspace or navigation item.
+- The global status header remains visible while the panel is open.
+- During Live Starting, Running, Paused, and Stopping, the panel closes and the Hardware action is disabled.
 
 ### 5.3 Immediate-apply behavior
 
@@ -505,28 +547,28 @@ If the device rejects the change:
 - a direct field-level reason is shown;
 - no operation snapshot is changed.
 
-### 5.4 Drawer conditions
+### 5.4 Panel conditions
 
-| Condition | Drawer presentation | Editable behavior | Direct explanation |
+| Condition | Panel presentation | Editable behavior | Direct explanation |
 |---|---|---|---|
 | **Idle and available** | Section visible and enabled. | Valid edits apply immediately. | None. |
 | **Unavailable** | Section visible with status. | All controls in that device section disabled. | **Camera unavailable** or **DAQ unavailable**. |
-| **Owned by non-Live operation** | Drawer may open. Owned section is read-only; unowned available section remains editable. | No change to the owned device. | **Camera settings are locked while Image Sequence recording is active**, or equivalent. |
-| **Live active or paused** | Drawer closed; Hardware action disabled. | No Camera or DAQ edit. | **Hardware settings are locked while sorting is active** or **The current Run is paused**. |
+| **Owned by non-Live operation** | Panel may open. Owned section is read-only; unowned available section remains editable. | No change to the owned device. | **Camera settings are locked while Image Sequence recording is active**, or equivalent. |
+| **Live active or paused** | Panel closed; Hardware action disabled. | No Camera or DAQ edit. | **Hardware settings are locked while sorting is active** or **The current Run is paused**. |
 | **Starting or Stopping** | Same lock as the owning operation. | No owned-device edit. | Operation-specific starting/stopping reason. |
 
 ### 5.5 Ownership effects
 
-- Image Sequence and Dataset Capture own Camera only.
+- Image Sequence and Droplet Dataset Capture own Camera only.
 - Live owns Camera and DAQ.
 - Sequence Test owns DAQ only when Physical DAQ Output is enabled.
-- Training and Model Test own neither hardware device; the drawer remains available.
-- Sequence Player, Label, Library, Results, and Settings own neither device.
+- Training and Model Test own neither hardware device; the panel remains available.
+- Sequence Viewer, Label, Library, Results, and Settings own neither device.
 - Send Test Pulse briefly uses the DAQ but does not create a Run or occupy the long-running-operation slot.
 
-### 5.6 Prohibited drawer content
+### 5.6 Prohibited panel content
 
-The drawer shall not expose:
+The panel shall not expose:
 
 - droplet-detection parameters;
 - Droplet Crop parameters;
@@ -534,9 +576,9 @@ The drawer shall not expose:
 - internal tracking or synchronization timing;
 - training parameters;
 - a software arming state;
-- Hit Class or Hit Outlet Direction.
+- Hit Class or Hit boundary calibration.
 
-Hit Class and Hit Outlet Direction are run selections. DAQ Output Channel is a DAQ technical setting.
+Hit Class and Hit boundary calibration are run selections. DAQ Output Channel is a DAQ technical setting.
 
 ---
 
@@ -547,26 +589,23 @@ Hit Class and Hit Outlet Direction are run selections. DAQ Output Channel is a D
 ```text
 Data > Capture
 
-[ Single Image ]   [ Image Sequence ]   [ Dataset Capture ]
-
 ┌────────────────────────────────────────────┬───────────────────────────┐
-│ LIVE CAMERA PREVIEW                        │ MODE OPERATION PANEL      │
-│                                            │                           │
-│                                            │ fields/status/actions     │
-│                                            │ for selected mode         │
-│                                            │                           │
+│ LIVE CAMERA PREVIEW                        │ ▸ Single Image            │
+│                                            │ ▸ Image Sequence          │
+│                                            │ ▸ Droplet Dataset Capture         │
 └────────────────────────────────────────────┴───────────────────────────┘
 ```
 
-The three mode selectors have equal prominence. The preview remains the primary content area in all three modes.
+The preview remains the primary content area. The right-side panel always shows all three fixed section headings. Each section expands and collapses independently, multiple sections may be open while idle, and all three start collapsed when Data > Capture opens. One expanded body receives all remaining body height; two divide it equally; three divide it into equal thirds. Each expanded body scrolls independently without moving any heading.
 
-### 6.2 Mode switching
+### 6.2 Section expansion and operation locking
 
-- Mode switching is available only while no Image Sequence or Dataset Capture operation is Starting, Running, Paused, or Stopping.
-- Switching mode replaces only the operation panel; the same Camera preview remains.
-- Each mode retains its own draft fields during the current session.
-- Camera settings remain in the shared drawer.
-- Single Image is momentary and briefly disables mode switching while the frame and TIFF are being captured/written.
+- While idle, each heading independently toggles its section and does not close another open section.
+- Each section retains its own draft fields during the current session when collapsed.
+- Camera settings remain in the bottom Hardware panel.
+- While the Single Image frame and TIFF are being captured/written, Single Image remains expanded and cannot be collapsed; the other two headings remain visible but disabled.
+- From accepted Start through finalization, Image Sequence or Droplet Dataset Capture remains expanded and cannot be collapsed; the other two headings remain visible but disabled.
+- After Completed, Interrupted, or Failed, the other headings re-enable and the result section remains expanded until the user collapses it.
 
 ### 6.3 Camera-unavailable presentation
 
@@ -578,7 +617,9 @@ The three mode selectors have equal prominence. The preview remains the primary 
 └────────────────────────────────────────────┘
 ```
 
-The mode selector and nonhardware file fields remain visible. Camera-dependent primary actions are disabled with **Camera unavailable**.
+All three headings remain visible. Any expanded nonhardware file fields remain visible, and Camera-dependent primary actions are disabled with **Camera unavailable**.
+
+The per-section layouts below illustrate the expanded body for that section. In the complete workspace, all three fixed headings remain visible and any other expanded bodies retain their allocated, independently scrollable regions.
 
 ---
 
@@ -670,7 +711,7 @@ Frames: <final count>
 Stop reason: <duration | user>
 Location: <path>
 
-[ Open in Sequence Player ]  [ Open in Sequence Test ]
+[ Open in Sequence Viewer ]  [ Open in Sequence Test ]
 [ Start New Recording ]
 ```
 
@@ -682,9 +723,9 @@ Location: <path>
 - Pause stops frame writing and active-recording time while preview continues.
 - Resume continues the same folder and frame numbering.
 - Stop or Duration expiry enters Stopping and finalizes `sequence.json`.
-- Mode fields and selectors are read-only from Starting through Stopping.
+- The active section remains expanded and read-only where applicable from Starting through Stopping; the other two headings remain visible but disabled.
 - Completion does not add the sequence to Results.
-- Open in Sequence Player and Open in Sequence Test are contextual links, not mandatory next steps.
+- Open in Sequence Viewer and Open in Sequence Test are contextual links, not mandatory next steps.
 
 #### 6.5.6 Transition model
 
@@ -700,13 +741,13 @@ Unavailable ⇄ Ready → Starting → Running ⇄ Paused
 
 ---
 
-### 6.6 Dataset Capture
+### 6.6 Droplet Dataset Capture
 
 #### 6.6.1 Ready layout
 
 ```text
 ┌────────────────────────────────────────────┬───────────────────────────┐
-│ LIVE CAMERA PREVIEW                        │ DATASET CAPTURE           │
+│ LIVE CAMERA PREVIEW                        │ DROPLET DATASET CAPTURE           │
 │                                            │ Dataset Name [_______]    │
 │                                            │ Experiment Type [____]    │
 │                                            │ Notes [______________]    │
@@ -716,7 +757,7 @@ Unavailable ⇄ Ready → Starting → Running ⇄ Paused
 │                                            │ Fixed qualified detection│
 │                                            │ and crop processing       │
 │                                            │                           │
-│                                            │ [ Start Dataset Capture ] │
+│                                            │ [ Start Droplet Dataset Capture ] │
 └────────────────────────────────────────────┴───────────────────────────┘
 ```
 
@@ -740,25 +781,25 @@ The fixed-processing text is factual, not an expandable settings control.
 #### 6.6.3 Completed layout
 
 ```text
-Dataset Capture completed
+Droplet Dataset Capture completed
 Frames: <count>
 Detected Droplets: <count>
 Saved Droplet Crops: <count>
 Location: <path>
 
 [ Open in Label ]  [ Open Folder ]
-[ Start New Dataset Capture ]
+[ Start New Droplet Dataset Capture ]
 ```
 
 #### 6.6.4 Interaction behavior
 
-- Dataset Capture never requires an Active Model or DAQ.
+- Droplet Dataset Capture never requires an Active Model or DAQ.
 - It does not show model, Predicted Class, Decision, or Observed Route controls.
 - It creates one Dataset per capture.
 - Every newly created Droplet Crop begins as `Unlabeled` with no Label.
 - Pause stops full-frame writing, detection, and Droplet Crop creation while preview continues.
 - Stop or Duration expiry finalizes `dataset.json` when technically possible.
-- On an interruption, the banner states whether existing frames and crops were preserved and whether a recoverable Dataset can be opened.
+- On an interruption, the workspace shows `Error`; preserved artifacts determine whether Open Dataset or Open Folder is available.
 - No external-image import or Dataset merge action appears.
 
 #### 6.6.5 Transition model
@@ -845,7 +886,7 @@ Selecting two or three classes creates the corresponding stable Class IDs. Class
 - There is no separate Dataset Save button.
 - Each completed labeling, class-name, Skip, Remove, Restore, or Undo command is persisted to the selected `dataset.json` through atomic replacement.
 - Class Name edits commit on Enter or focus commit after validation.
-- If persistence fails, the prior canonical JSON remains intact and one banner states that the change was not saved.
+- If persistence fails, the prior canonical JSON remains intact, the workspace shows `Error`, and details are logged.
 - The interface shall not represent an unsaved change as persisted.
 
 ### 7.7 Lock behavior
@@ -863,12 +904,12 @@ If Training or Model Test uses the same Dataset:
 
 ---
 
-## 8. Data > Sequence Player interaction specification
+## 8. Data > Sequence Viewer interaction specification
 
 ### 8.1 Empty layout
 
 ```text
-Data > Sequence Player
+Data > Sequence Viewer
 
 ┌──────────────────────────────────────────────────────────────────────┐
 │ No Image Sequence selected                                           │
@@ -877,7 +918,7 @@ Data > Sequence Player
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### 8.2 Ready and playback layout
+### 8.2 Ready frame-navigation layout
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
@@ -887,9 +928,8 @@ Data > Sequence Player
 │                                                                      │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Frame <current> of <total>                                           │
-│ [|< Previous] [ Play / Pause ] [Next >|]                             │
-│ Timeline: |--------------------●----------------------|              │
-│ Playback Speed [ value ▼ ]      Zoom [ value ▼ ]                    │
+│ [|< Previous] [Next >|]  Frame [________]                            │
+│ [ Zoom - ] [ Zoom + ] [ Fit ] [ 1:1 ]                               │
 │ [ Open Sequence ]                                                   │
 └──────────────────────────────────────────────────────────────────────┘
 ```
@@ -897,24 +937,20 @@ Data > Sequence Player
 ### 8.3 Interaction behavior
 
 - Open Sequence accepts a standalone v2 `sequence.json`, a Dataset-referenced sequence, or a Run-referenced sequence.
-- Play advances frames in recorded order at the selected visual playback speed.
-- Pause freezes the current frame.
-- Previous Frame and Next Frame move exactly one frame when not actively advancing.
-- Timeline scrubbing seeks to the selected frame.
+- Previous Frame and Next Frame move exactly one readable frame.
+- Direct seek moves to the requested readable frame.
+- Left/Right move one frame; Shift+Left/Right move 10; Ctrl+Left/Right move 50; Home/End move first/last.
+- Plus/minus changes zoom; F selects Fit; 1 selects 1:1.
 - Zoom changes the display only and never modifies source files.
-- Reaching the last frame produces the Completed presentation while retaining stepping and scrubbing.
-- Sequence Player requires no Camera, DAQ, model, or training environment.
-- Playback does not own the global long-running-operation slot and never emits DAQ output.
-- Playback speed has no effect on Sequence Test processing rate.
+- Missing frames are skipped silently.
+- Sequence Viewer requires no Camera, DAQ, model, or training environment.
+- Frame navigation does not own the global long-running-operation slot and never emits DAQ output.
 
 ### 8.4 State transitions
 
 ```text
 Empty ── Open valid Sequence ──► Ready
-Ready ── Play ──► Running ── Pause ──► Paused
-  ▲                  │                    │
-  └──── Play/seek ───┘                    └── Play ──► Running
-Running ── final frame ──► Completed
+Ready ── Previous / Next / seek / zoom ──► Ready
 Any open/read failure ──► Failed
 ```
 
@@ -938,6 +974,8 @@ Models > Train
 │                                            │                           │
 │                                            │ Split: 70 / 15 / 15       │
 │                                            │ Seed: 1729                │
+│                                            │ Model Name [________]     │
+│                                            │ Save Location [____] [...]│
 │                                            │                           │
 │                                            │ [ Start Training ]        │
 └────────────────────────────────────────────┴───────────────────────────┘
@@ -950,32 +988,26 @@ There is no Advanced Training Parameters section or expansion control.
 ```text
 ┌────────────────────────────────────────────┬───────────────────────────┐
 │ TRAINING METRICS                           │ TRAINING STATUS           │
-│ Training Loss: <value>                     │ Status: Running           │
-│ Validation Loss: <value>                   │ Device: <GPU or CPU>      │
-│ Validation Accuracy: <value>               │ Elapsed: <time>           │
-│ Per-Class Validation Accuracy              │ Estimated Remaining: <t> │
-│ Macro F1: <value>                          │ Epoch: <n> of <n>         │
+│ Training/Validation Loss plot              │ Status: Running           │
+│ Validation Accuracy plot                   │ Device: <GPU or CPU>      │
+│                                            │ Elapsed: <time>           │
+│                                            │ Estimated Remaining: <t> │
+│                                            │ Epoch: <n> of <n>         │
 │                                            │ Overall: <progress>       │
 │                                            │                           │
 │                                            │ [ Stop Training ]         │
 └────────────────────────────────────────────┴───────────────────────────┘
 ```
 
-### 9.3 Completed and Save Model layout
+### 9.3 Completed and automatic-save layout
 
 ```text
 Training completed
-<final factual metrics>
-
-Model Name
-[________________________]
-
-Save Location
-[ path________________ ] [...]
-
-[ Save Model ]
-
-After save:
+Overall results table
+Per-class results table
+Confusion matrix when generated
+Saved path: <confirmed path>
+Active Model: <name>
 [ Open in Model Test ]
 ```
 
@@ -987,25 +1019,24 @@ After save:
 - Model Type requires Faster or More Accurate.
 - Split 70/15/15 and seed 1729 are displayed as read-only facts or concise supporting information.
 - Device selection is automatic. GPU availability selects GPU; otherwise CPU is used.
-- Start locks Dataset and Model Type selection and occupies the global operation slot.
-- Stop Training ends processing; it does not create a normal completed Model Package unless the required artifacts were technically completed and the user explicitly saves them.
-- Low accuracy, model collapse, or one dominant Predicted Class does not prevent Save Model when required artifacts exist.
-- Save Model requires a Model Name and writable location.
+- Start locks Dataset, Model Type, Model Name, and Save Location and occupies the global operation slot.
+- Stop Training ends processing and does not create a normal completed Model Package.
+- Low accuracy, model collapse, or one dominant Predicted Class does not prevent automatic save when required artifacts exist.
+- Final save occurs automatically at the preselected name and location.
 - Successful save creates `metadata.json`, `checkpoint.pth`, and `model.onnx`, registers the package, and makes it the global Active Model.
+- Save failure shows `Error`, retains completed temporary artifacts, enables Retry Save, and does not change the Active Model.
 - Training history is not added to Results.
 
 ### 9.5 Transition model
 
 ```text
-Empty / Unavailable ⇄ Ready → Starting → Running → Completed
-                                      │       │
-                                      │       └── technical fault → Failed
+Empty / Unavailable ⇄ Ready → Starting → Running → Saving → Completed
+                                      │         │
+                                      │         └── save fault → Save Failed ── Retry Save ──► Saving
                                       └── Stop → Stopping → Interrupted
-
-Completed → Save Model → Model Package saved and Active
 ```
 
-The global long-running-operation slot releases after the training execution is finalized. The in-workspace Save Model step is a file/package action, not a second long-running operation.
+The Active Model changes only after Saving succeeds.
 
 ---
 
@@ -1018,7 +1049,7 @@ Models > Model Test
 
 ┌────────────────────────────────────────────┬───────────────────────────┐
 │ SELECTED ARTIFACTS                         │ TEST SETUP                │
-│ Model: <name> [ Select Model ]             │ Class Count: <2 or 3>     │
+│ Active Model: <name>                       │ Class Count: <2 or 3>     │
 │ Dataset: <name> [ Select Dataset ]         │ Device: <GPU or CPU>      │
 │ Eligible Labeled Crops: <count>            │ Output Location [___] [...]│
 │                                            │                           │
@@ -1056,7 +1087,7 @@ Confusion Matrix
 
 ### 10.4 Interaction behavior
 
-- The model and Dataset are local Model Test selections; neither changes the global Active Model.
+- Model Test uses the read-only Active Model; the Dataset is the only local artifact selection. Set Active in Library is required before testing another Model.
 - The same Dataset used for Training is permitted without warning.
 - A two-class/three-class mismatch blocks Start with the factual class-count message.
 - Only Labeled crops are processed; Unlabeled, Skipped, and Removed crops are excluded.
@@ -1162,13 +1193,13 @@ Sort > Live
 │                                            │ Duration [____________]   │
 │                                            │ Save Location [____] [...]│
 │                                            │                           │
-│                                            │ Trigger Mode              │
+│                                            │ Trigger Every Droplet              │
 │                                            │ ( ) Class-Based Sorting   │
 │                                            │ ( ) Trigger Every Droplet │
 │                                            │                           │
 │                                            │ Active Model: <name/none> │
 │                                            │ Hit Class [ class ▼ ]     │
-│                                            │ Hit Outlet Direction      │
+│                                            │ Hit boundary calibration      │
 │                                            │ ( ) +Y — Downward         │
 │                                            │ ( ) −Y — Upward           │
 │                                            │ Hit: <direction>          │
@@ -1182,7 +1213,7 @@ Sort > Live
 └────────────────────────────────────────────┴────────────────────────────┘
 ```
 
-Camera and DAQ technical controls remain in the shared drawer opened from the header.
+Camera and DAQ technical controls remain in the bottom Hardware panel opened from the header.
 
 ### 12.2 Conditional configuration behavior
 
@@ -1201,7 +1232,7 @@ Camera and DAQ technical controls remain in the shared drawer opened from the he
 - When a model is present, Predicted Class and Class Scores are still logged.
 - When no model is present, those fields remain empty.
 
-#### Hit Outlet Direction
+#### Hit boundary calibration
 
 Selecting a direction immediately shows the factual mapping:
 
@@ -1224,7 +1255,7 @@ The interface does not use the ambiguous term Hit Channel.
 - If the Profile's Active Model reference resolves to a valid, unlocked v2 Model Package, that package becomes the global Active Model as part of the Profile load and the header updates after registry persistence succeeds.
 - If the referenced package is valid but Active Model replacement is locked by an operation, the current Active Model remains unchanged, other readable Profile values load, and the direct operation-lock reason is shown.
 - When a device is unavailable or locked by another operation, the profile may still be opened and inspected. Readable nonhardware run selections load, the authoritative applied hardware values remain unchanged, and the pre-run panel shows a read-only summary such as `Camera profile values not applied — Camera unavailable` or `DAQ profile values not applied — DAQ is in use by Sequence Test`. The user may reopen the profile or set those values after the device becomes available and idle.
-- The read-only profile summary is not a second settings surface and cannot be edited; the hardware drawer continues to show the authoritative applied values.
+- The read-only profile summary is not a second settings surface and cannot be edited; the hardware panel continues to show the authoritative applied values.
 - A missing referenced model does not cause silent substitution. Other readable profile values load, the missing model is shown factually, and Class-Based Sorting remains unavailable.
 - An unsupported schema is not partially interpreted; current valid configuration remains unchanged.
 - No Import, Export, Delete, or managed profile list appears.
@@ -1244,8 +1275,8 @@ Start Sorting requires:
 - no conflicting long-running operation;
 - Camera Streaming;
 - DAQ Ready;
-- Trigger Mode selected;
-- Hit Outlet Direction selected;
+- Trigger Every Droplet selected;
+- Hit boundary calibration selected;
 - writable Run location;
 - for Class-Based Sorting: a loadable Active Model and Hit Class;
 - for Trigger Every Droplet: no model requirement.
@@ -1262,7 +1293,7 @@ STARTING
     ├── open recoverable Droplet Log
     ├── snapshot effective configuration
     ├── lock Camera, DAQ, selected model, Run output, and global slot
-    ├── close Hardware drawer
+    ├── close Hardware panel
     └── replace configuration panel with monitor
     ▼
 RUNNING
@@ -1277,10 +1308,10 @@ The transition occurs inside the same Live workspace without navigation.
 │ LIVE CAMERA PREVIEW                        │ LIVE SORTING               │
 │                                            │ Status: Running            │
 │                                            │ Elapsed: <time>            │
-│                                            │ Trigger Mode: <value>      │
+│                                            │ Trigger Every Droplet: <value>      │
 │                                            │ Active Model: <value>      │
 │                                            │ Hit Class: <value>         │
-│                                            │ Hit Outlet Direction: <value>│
+│                                            │ Hit boundary calibration: <value>│
 │                                            │                            │
 │                                            │ Total Droplets: <count>    │
 │                                            │ Predicted Class 0: <count> │
@@ -1311,7 +1342,7 @@ When no model is used, Predicted Class and Inference Time fields that depend on 
   - Decision Hit/Waste;
   - Observed Route Hit/Waste/Unresolved.
 - Optional nonpersistent preview overlays may appear only if implemented without adding controls or changing saved source files.
-- The Hardware action remains disabled and the drawer remains closed.
+- The Hardware action remains disabled and the panel remains closed.
 
 ### 12.9 Paused layout
 
@@ -1360,7 +1391,7 @@ Start New Run returns to Live pre-run with the previous values available for rev
 ```text
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Live Sorting interrupted                                             │
-│ <direct technical reason>                                            │
+│ Error                                            │
 │ <whether recoverable Run data was preserved>                         │
 │                                                                      │
 │ [ Open Run Summary ] or [ Open Run Folder ]   [ Start New Run ]      │
@@ -1392,34 +1423,29 @@ Sort > Sequence Test
 
 ┌────────────────────────────────────────────┬────────────────────────────┐
 │ SOURCE AND PROCESSING SUMMARY               │ SEQUENCE TEST SETUP        │
-│ Sequence: <name> [ Select Sequence ]        │ Trigger Mode               │
-│ Frames: <count>                             │ ( ) Class-Based Sorting    │
-│                                             │ ( ) Trigger Every Droplet  │
-│ Model: <name/none> [ Select Model ]         │                            │
-│                                             │ Hit Class [ class ▼ ]      │
-│                                             │ Hit Outlet Direction       │
-│                                             │ ( ) +Y — Downward          │
-│                                             │ ( ) −Y — Upward            │
-│                                             │                            │
-│                                             │ [x] Physical DAQ Output    │
-│                                             │ Save Location [____] [...] │
-│                                             │                            │
-│                                             │ [ Start Sequence Test ]    │
+│ Active Model: <name/none>                   │ Trigger Every Droplet [OFF]│
+│ [ Load Sequence ] <name>                    │ Hit Class [ class ▼ ]      │
+│ First-frame preview                         │ Processing FPS [____]      │
+│ Frames / recorded FPS                       │ [ ] Physical DAQ Output    │
+│ Available memory / buffer size              │ Save Location [____] [...] │
+│ [ Load to Memory ] <load status>            │ [ Start ] [ Stop ]         │
 └────────────────────────────────────────────┴────────────────────────────┘
 ```
 
-Physical DAQ Output is checked when a new Sequence Test setup is initialized.
+Physical DAQ Output is unchecked when a new Sequence Test setup is initialized.
 
 ### 13.2 Conditional behavior
 
-- Class-Based Sorting requires a selected compatible Model Package and Hit Class.
-- Trigger Every Droplet permits no model; when a model is selected, classification is still logged.
-- Hit Outlet Direction is always required because Observed Route mapping remains part of the event model.
+- Class-Based Sorting requires the compatible Active Model and Hit Class.
+- Trigger Every Droplet permits no Active Model; when one is present, classification is still logged.
+- Hit boundary calibration is always required because Observed Route mapping remains part of the event model.
 - Physical DAQ Output checked requires DAQ Ready.
 - Physical DAQ Output unchecked requires no DAQ and owns no DAQ resource.
 - A Camera is never required.
-- The selected Model Package is local to Sequence Test and does not change the global Active Model.
+- Sequence Test uses the Active Model and exposes no local Model selector.
 - The fixed detection, Droplet Crop, routing-algorithm, and internal timing configuration is not editable.
+- Start remains disabled until a valid OpenDSS Image Sequence containing `sequence.json` is loaded into a bounded buffer.
+- Memory allocation failure shows `Error`, logs detail, cancels the load, and leaves Start disabled.
 
 ### 13.3 Running layout
 
@@ -1427,7 +1453,7 @@ Physical DAQ Output is checked when a new Sequence Test setup is initialized.
 ┌────────────────────────────────────────────┬────────────────────────────┐
 │ SEQUENCE PROCESSING                         │ SEQUENCE TEST STATUS       │
 │ Frames processed: <n> of <total>            │ Status: Running            │
-│ Events finalized: <count>                   │ Trigger Mode: <value>      │
+│ Events finalized: <count>                   │ Trigger Every Droplet: <value>      │
 │                                             │ Physical DAQ: On / Off     │
 │ Predicted Class counts when a model exists  │ Model: <name/none>         │
 │ Decision Hit / Waste                        │                            │
@@ -1435,7 +1461,7 @@ Physical DAQ Output is checked when a new Sequence Test setup is initialized.
 └────────────────────────────────────────────┴────────────────────────────┘
 ```
 
-Sequence Test processes as quickly as the pipeline permits. Sequence Player playback speed is not shown and has no effect.
+Sequence Test processes at the configured Processing FPS, defaulted from recorded FPS. Requested and achieved rates are displayed/recorded; physical DAQ output follows that schedule when enabled.
 
 ### 13.4 Completion layout
 
@@ -1478,22 +1504,19 @@ Empty / Unavailable ⇄ Ready → Starting → Running → Stopping
 Results > Runs
 
 ┌──────────────────────────────────────────────────────────────────────┐
-│ Run Name | Operation | Started | Duration | Status | Model | Total  │
-│----------------------------------------------------------------------│
-│ <row>                                                                │
-│ <row>                                                                │
-│ <row>                                                                │
-└──────────────────────────────────────────────────────────────────────┘
-
-[ Open selected Run ]
+│ LOADED RUN DETAIL                         │ RUNS                       │
+│ <identity/status/count groups/matrix>      │ <selected row>             │
+│ <notes/file actions/collapsed provenance> │ <row>                      │
+│                                            │ [ Load ]                   │
+└────────────────────────────────────────────┴────────────────────────────┘
 ```
 
 The list contains Live Sorting and Sequence Test Runs only.
 
 ### 14.2 List interaction
 
-- Selecting a row enables Open selected Run.
-- Double activation of a row may perform the same Open action.
+- Selecting a row changes `selectedRunId` only.
+- Load copies the selection into `loadedRunId` and replaces the center detail.
 - Run status values are factual persisted values: Completed, Stopped, Interrupted, or Failed.
 - An unreadable entry remains identifiable when possible and exposes its direct file reason.
 - No Training or Model Test entries appear.
@@ -1508,9 +1531,9 @@ The list contains Live Sorting and Sequence Test Runs only.
 │ Stop reason / Save Location                │ [ Open Droplet Crop ]      │
 │                                            │ [ Open Saved Sequence ]    │
 │ Model identity and checksum when present   │   when present             │
-│ Trigger Mode                               │                            │
+│ Trigger Every Droplet                               │                            │
 │ Hit Class when applicable                  │ Notes                      │
-│ Hit Outlet Direction                       │ <read-only or edit area>   │
+│ Hit boundary calibration                       │ <read-only or edit area>   │
 │ Physical DAQ state for Sequence Test       │ [ Edit Notes ]             │
 │                                            │ [ Save Notes ] [ Cancel ]  │
 │ Camera / DAQ / fixed processing snapshot   │                            │
@@ -1533,7 +1556,7 @@ The list contains Live Sorting and Sequence Test Runs only.
 - Open Droplet Log opens `events.csv` through the operating system's associated application or direct file action.
 - Open Run Folder opens the ordinary Windows folder.
 - Open Droplet Crop opens a standard file picker rooted in the Run's Droplet Crop folder, then opens the selected referenced crop; there is no integrated per-event browser in the first release.
-- Open Saved Sequence appears only when a full Image Sequence exists and opens Sequence Player with it preselected.
+- Open Saved Sequence appears only when a full Image Sequence exists and opens Sequence Viewer with it preselected.
 - Notes enter an explicit edit state. Save Notes atomically updates only the Notes field in `run_summary.json`; Cancel discards the current edit buffer.
 - Historical event rows, counters, model/routing snapshot, and saved images remain immutable.
 - Missing optional sequence is stated as **No saved Image Sequence for this Run** and does not make the entire Run unavailable.
@@ -1574,7 +1597,7 @@ Settings
 - Failure leaves the prior valid root unchanged and shows one direct reason.
 - Open Data Root and Open Diagnostic Folder invoke Windows Explorer.
 - Application and runtime information is read-only.
-- Camera and DAQ settings do not appear in Settings; they remain in the hardware drawer.
+- Camera and DAQ settings do not appear in Settings; they remain in the hardware panel.
 - No detector, crop, routing, timing, training, cloud, account, telemetry, update, or legacy-migration controls appear.
 
 ---
@@ -1587,22 +1610,22 @@ The reason sequences below are evaluated from left to right; the first applicabl
 |---|---|---|
 | **Capture Image** | Camera Streaming; image location writable; Camera and image-write pipeline not owned by a conflicting operation. | `Another operation is active` when that operation conflicts with Camera or image writing → `Camera unavailable` → `Output folder is not writable`. |
 | **Start Recording** | Global slot free; Camera Streaming; sequence location writable. | `Another operation is active` → `Camera unavailable` → `Output folder is not writable`. |
-| **Start Dataset Capture** | Global slot free; Camera Streaming; fixed processing configuration loadable; Dataset location writable. | `Another operation is active` → `Camera unavailable` → `Processing configuration unavailable` → `Output folder is not writable`. |
+| **Start Droplet Dataset Capture** | Global slot free; Camera Streaming; fixed processing configuration loadable; Dataset location writable. | `Another operation is active` → `Camera unavailable` → `Processing configuration unavailable` → `Output folder is not writable`. |
 | **Assign Class** | Dataset loaded and writable; not R-locked; at least one applicable crop selected; class definition exists. | `Dataset is in use by Training/Model Test` → `No Dataset selected` → `No Droplet Crop selected` → `Number of Classes not selected`. |
-| **Start Training** | Global slot free; Dataset selected/readable; Labeled crops exist/readable; Model Type selected; training runtime available; temporary/final output writable. | `Another operation is active` → `No dataset selected` → `No Labeled Droplet Crops` → `Required Droplet Crop is missing` → `No Model Type selected` → `Training environment unavailable` → `Output folder is not writable`. |
-| **Save Model** | Training completed with required artifacts; Model Name present; destination writable; no package-name/path conflict that is not confirmed through normal file handling. | `Training has not completed` → `No Model Name entered` → `Save location is not writable`. |
-| **Start Model Test** | Global slot free; model and Dataset selected/readable; same class count; eligible Labeled crops readable; output writable; automatic GPU or CPU device available. | `Another operation is active` → `No model selected` → `No dataset selected` → factual class-count mismatch → `No Labeled Droplet Crops` → `Required Droplet Crop is missing` → `Model Test runtime unavailable` → `Output folder is not writable`. GPU absence alone is never a reason. |
-| **Set Active** | Valid nonactive model selected; package not locked; current Active Model not locked against replacement. | `No model selected` → `Selected model is already Active` → `Model is in use by <operation>`. |
+| **Start Training** | Global slot free; Dataset selected/readable; Labeled crops exist/readable; Model Type, Model Name, and Save Location valid; training runtime available; temporary/final output writable. | `Another operation is active` → `No dataset selected` → `No Labeled Droplet Crops` → `Required Droplet Crop is missing` → `No Model Type selected` → `No Model Name entered` → `Save location is not writable` → `Training environment unavailable`. |
+| **Retry Save** | Training completed; temporary artifacts retained; prior automatic save failed; destination now writable. | `No completed temporary artifacts` → `Save location is not writable`. |
+| **Start Model Test** | Global slot free; Active Model and Dataset available/readable; same class count; eligible Labeled crops readable; output writable; automatic GPU or CPU device available. | `Another operation is active` → `No Active Model` → `No dataset selected` → factual class-count mismatch → `No Labeled Droplet Crops` → `Required Droplet Crop is missing` → `Model Test runtime unavailable` → `Output folder is not writable`. GPU absence alone is never a reason. |
+| **Set Active** | Valid nonactive model selected; package not locked; current Active Model not locked against replacement. | `No Active Model` → `Selected model is already Active` → `Model is in use by <operation>`. |
 | **Send Test Pulse** | DAQ Ready; current DAQ settings valid; DAQ unowned. | `DAQ is in use by <operation>` → `DAQ unavailable` → `DAQ settings are invalid`. |
 | **Open Profile** | Live is in pre-run. A locked or unavailable device does not prevent inspection; its profile values simply remain unapplied and are identified directly. | `Sorting is active`. File-schema errors appear after selection. |
-| **Start Sorting** | Global slot free; Camera Streaming; DAQ Ready; Trigger Mode selected; Hit Outlet Direction selected; Run location writable; Class-Based also has loadable Active Model and Hit Class. | `Another operation is active` → `Camera unavailable` → `DAQ unavailable` → `No Trigger Mode selected` → `No active model` when Class-Based → `No Hit Class selected` when Class-Based → `No Hit Outlet Direction selected` → `Output folder is not writable`. |
-| **Start Sequence Test** | Global slot free; v2 sequence selected/readable; Trigger Mode and Hit Outlet Direction selected; Class-Based has compatible model and Hit Class; DAQ Ready when physical output checked; Run location writable. | `Another operation is active` → `No sequence selected` → `Unsupported OpenDSS v2 sequence` → `No Trigger Mode selected` → `No model selected` when Class-Based → `No Hit Class selected` when Class-Based → `No Hit Outlet Direction selected` → `DAQ unavailable` when physical output checked → `Output folder is not writable`. |
-| **Open selected Run** | A discoverable Run is selected and its summary can be opened. | `No Run selected` → direct unreadable Run reason. |
+| **Start Sorting** | Global slot free; Camera Streaming; hit boundary selected; Run location writable; Class-Based also has loadable Active Model and Hit Class; DAQ Ready only when DAQ Output is ON. | `Another operation is active` → `Camera unavailable` → `No active model` when Class-Based → `No Hit Class selected` when Class-Based → `No hit boundary selected` → `DAQ unavailable` only when DAQ Output is ON → `Output folder is not writable`. |
+| **Start Sequence Test** | Global slot free; v2 sequence selected/readable; Trigger Every Droplet and Hit boundary calibration selected; Class-Based has compatible model and Hit Class; DAQ Ready when physical output checked; Run location writable. | `Another operation is active` → `No sequence selected` → `Unsupported OpenDSS v2 sequence` → `No Trigger Every Droplet selected` → `No Active Model` when Class-Based → `No Hit Class selected` when Class-Based → `No Hit boundary calibration selected` → `DAQ unavailable` when physical output checked → `Output folder is not writable`. |
+| **Load selected Run** | A discoverable Run is selected and its summary can be opened. | `No Run selected` → direct unreadable Run reason. |
 | **Open Droplet Log** | Selected Run has readable `events.csv`. | `Droplet Log unavailable`. |
 | **Save Notes** | Selected inactive Run is readable; Notes edit mode active; Run Summary writable. | `Run is still active` → `Notes are not being edited` → `Run Summary is not writable`. |
 | **Choose Default Data Root** | Folder picker can open; selected folder validates as writable. | Validation failure is shown after selection; the prior root remains active. |
 
-Scientific measurements, class distribution, same-Dataset reuse in Model Test, user-selected Hit Class, and user-selected Hit Outlet Direction never appear in a disabled-reason sequence as judgments.
+Scientific measurements, class distribution, same-Dataset reuse in Model Test, user-selected Hit Class, and user-selected Hit boundary calibration never appear in a disabled-reason sequence as judgments.
 
 ---
 
@@ -1614,12 +1637,12 @@ Scientific measurements, class distribution, same-Dataset reuse in Model Test, u
 |---|---:|---:|---|---|---|---:|
 | Single Image | Momentary exclusive | — | — | — | — | No |
 | Image Sequence | Exclusive | — | — | — | — | Yes |
-| Dataset Capture | Exclusive | — | New Dataset write | — | — | Yes |
+| Droplet Dataset Capture | Exclusive | — | New Dataset write | — | — | Yes |
 | Label | — | — | Selected Dataset write | — | — | No |
 | Training | — | — | Selected Dataset read/use lock | New package write at save | — | Yes during execution |
 | Model Test | — | — | Selected Dataset read/use lock | Selected package read/use lock | Model Test output only | Yes |
 | Model Library mutation | — | — | — | Selected package/registry write | — | No |
-| Sequence Player | — | — | Read-only when applicable | — | Read-only when applicable | No |
+| Sequence Viewer | — | — | Read-only when applicable | — | Read-only when applicable | No |
 | Live | Exclusive | Exclusive | — | Selected/Active package read/use lock when present | Exclusive write | Yes |
 | Sequence Test, physical output on | — | Exclusive | — | Selected package read/use lock when present | Exclusive write | Yes |
 | Sequence Test, physical output off | — | — | — | Selected package read/use lock when present | Exclusive write | Yes |
@@ -1654,14 +1677,14 @@ Contextual links perform two actions only: navigate to the approved destination 
 
 | Source | Link | Destination | Preselection and resulting state |
 |---|---|---|---|
-| Dataset Capture Completed/Interrupted with recoverable Dataset | **Open in Label** | Data > Label | Selects the `dataset.json`; destination becomes Ready or Unavailable based on the same Dataset loader. |
+| Droplet Dataset Capture Completed/Interrupted with recoverable Dataset | **Open in Label** | Data > Label | Selects the `dataset.json`; destination becomes Ready or Unavailable based on the same Dataset loader. |
 | Label | **Use in Train** | Models > Train | Selects the current Dataset; Model Type remains a separate user selection. |
 | Train after successful Model save | **Open in Model Test** | Models > Model Test | Selects the new Model Package; the source Dataset may remain selected when still available. |
 | Model Library | **Open in Model Test** | Models > Model Test | Selects the current Model Package without changing Active Model. |
-| Image Sequence Completed | **Open in Sequence Player** | Data > Sequence Player | Selects the completed `sequence.json` and displays its first frame. |
+| Image Sequence Completed | **Open in Sequence Viewer** | Data > Sequence Viewer | Selects the completed `sequence.json` and displays its first frame. |
 | Image Sequence Completed | **Open in Sequence Test** | Sort > Sequence Test | Selects the completed `sequence.json`; other test selections remain explicit. |
 | Live or Sequence Test post-operation | **Open Run Summary** | Results > Runs | Selects the newly finalized or recoverable Run. |
-| Results selected Run with full sequence | **Open Saved Sequence** | Data > Sequence Player | Selects the Run's sequence. The link is absent when no full sequence exists. |
+| Results selected Run with full sequence | **Open Saved Sequence** | Data > Sequence Viewer | Selects the Run's sequence. The link is absent when no full sequence exists. |
 
 No handoff starts the destination operation, creates a project, prevents direct navigation, or changes an unrelated global selection.
 
@@ -1672,7 +1695,7 @@ No handoff starts the destination operation, creates a project, prevents direct 
 | Fault context | Immediate system behavior | Workspace message | Direct actions |
 |---|---|---|---|
 | Camera unavailable before capture or Live Start | Do not start; keep preview region. | **Camera unavailable** beside disabled action. | Restore Camera; no modal. |
-| Camera disconnect during Image Sequence or Dataset Capture | Stop acquisition; flush recoverable writes; finalize metadata if possible. | `<operation> interrupted. The camera disconnected. <preservation result>.` | Open Sequence/Dataset when recoverable; Open Folder. |
+| Camera disconnect during Image Sequence or Droplet Dataset Capture | Stop acquisition; flush recoverable writes; finalize metadata if possible. | `<operation> interrupted. The camera disconnected. <preservation result>.` | Open Sequence/Dataset when recoverable; Open Folder. |
 | Camera disconnect during Live | Stop inference and new DAQ commands; flush Run data. | **Live Sorting interrupted. The camera disconnected.** | Open Run Summary/Folder; Start New Run after recovery. |
 | DAQ unavailable before Live or physical-output Sequence Test | Do not start or pulse. | **DAQ unavailable**. | Restore DAQ; Sequence Test may explicitly disable physical output. |
 | DAQ fault during Live or physical-output Sequence Test | Stop new DAQ output and interrupt/fail operation; flush Run data. | Direct DAQ reason and preservation result. | Open Run Summary/Folder; retry after DAQ recovery. |
@@ -1691,19 +1714,19 @@ A hardware or persistence fault is communicated once in the relevant workspace. 
 
 ### 20.1 Shell and state
 
-- Every launch opens Data > Capture > Single Image.
-- The header, drawer, workspace, and disabled actions agree on Camera, DAQ, Active Model, and current operation state.
+- Every launch opens Data > Capture with all three Capture sections collapsed.
+- The header, panel, workspace, and disabled actions agree on Camera, DAQ, Active Model, and current operation state.
 - Navigation during a long-running operation does not stop it or create another owner.
 - Returning to the owning workspace restores its current state and controls.
 - A conflicting long-running Start action shows **Another operation is active**.
 
 ### 20.2 Capture
 
-- The three Capture modes have equal prominence and share one preview.
-- Mode switching locks only during an accepted active capture.
+- The three Capture section headings remain visible beside one shared preview; sections expand independently and none is open by default.
+- During an accepted capture, the active section remains expanded and the other two headings are disabled.
 - Single Image creates exactly one TIFF.
 - Image Sequence Pause preserves the same sequence and numbering.
-- Dataset Capture works without a model or DAQ and never assigns Labels, Decisions, or Predicted Classes.
+- Droplet Dataset Capture works without a model or DAQ and never assigns Labels, Decisions, or Predicted Classes.
 
 ### 20.3 Label and model workflows
 
@@ -1717,7 +1740,7 @@ A hardware or persistence fault is communicated once in the relevant workspace. 
 ### 20.4 Sorting
 
 - Live pre-run and active sorting are states of one workspace.
-- Starting Live closes and locks the hardware drawer and replaces configuration with the monitoring panel.
+- Starting Live closes and locks the hardware panel and replaces configuration with the monitoring panel.
 - Trigger Every Droplet remains a first-class choice in Live and Sequence Test.
 - Predicted Class, Decision, and Observed Route are displayed and recorded separately.
 - Observed Route supports Hit, Waste, and Unresolved.
@@ -1773,8 +1796,8 @@ The low-fidelity design shall not contain or imply:
 | **PM §1 — Purpose and authority** | Authority order and prohibition on repository-led navigation/UX decisions. |
 | **PM §§3.1–3.5 — Governing product principles** | Technical blocking, scientific authority, terminology separation, ordinary local files, and reproducibility. |
 | **PM §4 — Approved primary navigation** | Shell navigation, no Home, startup workspace, and contextual rather than mandatory handoffs. |
-| **PM §5 — Global application shell** | Status header, workspace regions, shell-owned Camera/DAQ drawer, immediate apply, and locking. |
-| **PM §§7.1–7.3 — Capture, Label, Sequence Player** | Sections 6–8 low-fidelity layouts and interaction behavior. |
+| **PM §5 — Global application shell** | Status header, workspace regions, shell-owned Camera/DAQ panel, immediate apply, and locking. |
+| **PM §§7.1–7.3 — Capture, Label, Sequence Viewer** | Sections 6–8 low-fidelity layouts and interaction behavior. |
 | **PM §§7.4–7.6 — Train, Model Test, Library** | Sections 9–11, including no Advanced Training Parameters and automatic GPU/CPU behavior. |
 | **PM §7.7 — Sort > Live** | Section 12 pre-run, start transition, running, paused, and post-operation presentations. |
 | **PM §7.8 — Sort > Sequence Test** | Section 13 placement, optional physical output, trigger modes, and Run creation. |
@@ -1792,14 +1815,14 @@ The low-fidelity design shall not contain or imply:
 | **WF §§4, 6 — Principles and controlled terminology** | User-directed operation, technical blocking only, ordinary files, and approved scientific terms. |
 | **WF §§8–9 — Shell and operation rules** | Header values, direct disabled reasons, camera-unavailable preview, passive navigation, lifecycle, and Stop. |
 | **WF §10 — Default storage** | Default folders, user-selected writable locations, timestamp fallback, and ordinary file ownership. |
-| **WF §§11–13 — Capture workflows** | Single Image fields/output, Image Sequence Duration/Pause/frames, Dataset Capture counts/artifacts/recovery. |
+| **WF §§11–13 — Capture workflows** | Single Image fields/output, Image Sequence Duration/Pause/frames, Droplet Dataset Capture counts/artifacts/recovery. |
 | **WF §14 — Label** | Dataset selection, two/three classes, stable IDs, Class Names, bulk actions, Skip, Remove, Restore, Undo, Image Counts, and atomic save. |
 | **WF §15 — Train** | Faster/More Accurate, fixed split/seed, automatic device, metrics, Stop, model package, and automatic activation, as amended to remove Advanced Parameters. |
 | **WF §16 — Model Test** | Model/Dataset selection, source-Dataset permission, class-count blocking, metrics, confusion matrix, and predictions CSV, as amended for GPU fallback. |
 | **WF §17 — Model Library** | Set Active, Import, Export, Duplicate, Rename, Delete, metadata, and package-use protection. |
-| **WF §18 — Sequence Player** | Supported inputs, playback controls, no hardware, no DAQ output. |
-| **WF §19 — Sequence Test** | Trigger Modes, explicit physical output, maximum-rate processing, no Camera, event logging, and Run creation, as relocated under Sort and amended for Unresolved. |
-| **WF §§20–21 — Sorting setup and Live** | Run fields, Hit Class, Hit Outlet Direction, test pulse, optional full sequence, event flow, Pause, Stop, counters, persistence, and fault stop, consolidated into Live. |
+| **WF §18 — Sequence Viewer** | Supported inputs, frame-navigation controls, no hardware, no DAQ output. |
+| **WF §19 — Sequence Test** | Trigger Every Droplets, explicit physical output, maximum-rate processing, no Camera, event logging, and Run creation, as relocated under Sort and amended for Unresolved. |
+| **WF §§20–21 — Sorting setup and Live** | Run fields, Hit Class, Hit boundary calibration, test pulse, optional full sequence, event flow, Pause, Stop, counters, persistence, and fault stop, consolidated into Live. |
 | **WF §22 — Results** | Run list, Run Summary, Notes, file actions, and Decision-versus-Observed Route presentation, amended for Unresolved. |
 | **WF §§24–30 — File contracts** | Canonical v2 files and artifact-selection interactions. |
 | **WF §§31–34 — Persistence, recovery, errors** | Background writes, flush points, partial files, atomic JSON, crash recovery, direct errors, and no false success. |
@@ -1828,9 +1851,9 @@ Those activities must preserve this specification, the approved information arch
 ### Approved v2 Product Model
 
 - **PM §1 — Purpose and authority:** the approved model controls D-001 through D-019, the detailed workflow supplies nonconflicting requirements, and the repository is implementation evidence only. fileciteturn0file1L12-L24
-- **PM §4 — Approved navigation and startup:** final hierarchy, no Home, startup at Data > Capture > Single Image, no last-workspace restore, and contextual rather than mandatory workflow links. fileciteturn0file1L114-L147
-- **PM §5 — Global shell and hardware drawer:** header, shell-owned Camera/DAQ drawer, immediate valid changes, locking, and Live drawer closure. fileciteturn0file1L151-L201
-- **PM §§7.1–7.6 — Data and Models workspaces:** equal Capture modes, Label, Sequence Player, fixed Training controls, automatic Model Test acceleration/fallback, and Model Library behavior. fileciteturn0file1L282-L426
+- **PM §4 — Approved navigation and startup:** final hierarchy, no Home, startup at Data > Capture with all three Capture sections collapsed, no last-workspace restore, and contextual rather than mandatory workflow links. fileciteturn0file1L114-L147
+- **PM §5 — Global shell and hardware panel:** header, shell-owned Camera/DAQ panel, immediate valid changes, locking, and Live panel closure. fileciteturn0file1L151-L201
+- **PM §§7.1–7.6 — Data and Models workspaces:** shared Capture preview and collapsible sections, Label, Sequence Viewer, fixed Training controls, automatic Model Test acceleration/fallback, and Model Library behavior. fileciteturn0file1L282-L426
 - **PM §§7.7–7.10 — Sort, Results, and Settings:** one stateful Live workspace, Sequence Test under Sort, Runs-only Results, and reduced Settings. fileciteturn0file1L428-L586
 - **PM §§8–11 — Artifacts, Setup Profiles, event semantics, and configuration boundary:** ordinary v2 files, Open/Save/Save As Profiles, Unresolved Observed Route, and Camera/DAQ-only technical editing. fileciteturn0file1L590-L785
 - **PM §§12–16 — Dependencies, operation lifecycle, faults, persistence, and v2-only strategy:** technical prerequisites, one long-running slot, direct recovery, and no migration UI. fileciteturn0file1L789-L946
@@ -1839,10 +1862,10 @@ Those activities must preserve this specification, the approved information arch
 ### Detailed User Workflow Specification
 
 - **WF §§7–9 — Navigation, shell, and operation rules:** persistent workspaces, global status, disabled reasons, hardware-unavailable behavior, concurrency, lifecycle, and Stop. fileciteturn0file0L288-L459
-- **WF §§11–14 — Data workflows:** Single Image, Image Sequence, Dataset Capture, and Label behavior and artifacts. fileciteturn0file0L510-L1028
+- **WF §§11–14 — Data workflows:** Single Image, Image Sequence, Droplet Dataset Capture, and Label behavior and artifacts. fileciteturn0file0L510-L1028
 - **WF §§15–17 — Model workflows:** Training, Model Test, and Model Library requirements retained where not superseded by the approved model. fileciteturn0file0L1034-L1469
-- **WF §§18–19 — Sequence review and testing:** Sequence Player, Trigger Modes, optional physical DAQ output, processing, and Run creation. fileciteturn0file0L1473-L1657
-- **WF §§20–22 — Sorting and Results:** run fields, Hit Class, Hit Outlet Direction, Send Test Pulse, Live actions/counters/faults, and Run review. fileciteturn0file0L1661-L2259
+- **WF §§18–19 — Sequence review and testing:** Sequence Viewer, Trigger Every Droplets, optional physical DAQ output, processing, and Run creation. fileciteturn0file0L1473-L1657
+- **WF §§20–22 — Sorting and Results:** run fields, Hit Class, Hit boundary calibration, Send Test Pulse, Live actions/counters/faults, and Run review. fileciteturn0file0L1661-L2259
 - **WF §§23–30 — Settings and file contracts:** Settings requirements and canonical Dataset, Sequence, Model, Run, Droplet Log, and Setup Profile contracts as amended by the approved model. fileciteturn0file0L2263-L2680
 - **WF §§31–34 — Persistence, recovery, and errors:** background writes, flush points, atomic JSON, crash recovery, and plain-language errors. fileciteturn0file0L2684-L2829
 - **WF §§35–43 — Launch, camera-free use, provenance, nonfunctional requirements, and exclusions:** offline startup, hardware-free workspaces, reproducibility, responsiveness, integrity, and first-release boundaries. fileciteturn0file0L2833-L3032

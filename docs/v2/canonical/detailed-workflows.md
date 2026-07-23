@@ -2,9 +2,9 @@
 ## Detailed User Workflow Specification
 
 **Document ID:** ODSS-WF-001  
-**Version:** 1.0  
+**Version:** 1.1  
 **Status:** Product workflow baseline  
-**Date:** July 21, 2026  
+**Date:** July 23, 2026  
 **Primary platform:** Windows 11  
 **Product name:** Open Droplet Sorting Suite  
 **Product abbreviation:** OpenDSS  
@@ -28,6 +28,76 @@ This document is normative for the first public release unless a later approved 
 
 ---
 
+## 1.1 July 23, 2026 workflow amendment
+
+The Approved v2 Product Model remains controlling. The July 23, 2026 UI/UX Design Amendment controls every workflow matter it explicitly changes. The following flows replace conflicting older flow fragments in this document.
+
+### Camera startup
+
+```text
+Launch maximized at Data > Capture
+→ attempt Camera connection
+→ Camera available: continue
+→ Camera unavailable: ask "Camera unavailable. Continue?" once
+   → Yes: continue without Camera
+   → No: close OpenDSS
+```
+
+`Start Camera` starts or stops streaming; connection and streaming remain distinct.
+
+### Train
+
+```text
+Dataset
+→ Faster or More Accurate
+→ Model Name
+→ Save Location
+→ Start Training
+→ Training completes
+→ Model Package saves automatically
+→ Model becomes Active
+```
+
+During Training, show progress, elapsed and remaining timing, automatic device, a Training/Validation Loss plot, and a Validation Accuracy plot. After success, show overall and per-class results, a confusion matrix when generated, the saved path, and Active Model confirmation. If final save fails, show `Error`, retain temporary artifacts, enable Retry Save, and do not activate the Model.
+
+### Active Model use
+
+Model Test and Sequence Test always use the Active Model. To use another Model, the user first selects it in Library and chooses Set Active. The Active Model is locked against replacement or mutation while Model Test, Live, or Sequence Test uses it.
+
+### Live
+
+```text
+Review Setup Profile, Run Information, Trigger & Timing, and Output & Recording
+→ Start Camera as needed
+→ Start Sorting
+→ collapse setup sections and expand Running
+→ process, log, and persist one Run
+→ Pause/Resume or Stop
+→ review completion in the same workspace or open Results
+```
+
+Trigger Every Droplet and DAQ Output are independent toggles. DAQ Output OFF still permits all nonphysical processing and Run persistence. DAQ Output ON requires DAQ Ready. Hit boundary calibration affects Observed Route only and persists `boundary_y`, `hit_side`, `image_width`, and `image_height` in the Setup Profile and Run Summary.
+
+### Sequence Test
+
+```text
+Load valid OpenDSS Image Sequence folder containing sequence.json
+→ inspect first-frame preview, frame count, recorded FPS, and status
+→ set Processing FPS (defaults to recorded FPS)
+→ inspect available memory and choose/calculated bounded buffer
+→ Load to Memory
+→ Start after successful allocation
+→ refill buffer while processing when necessary
+→ Stop or complete
+→ save Processing FPS and actual achieved FPS in Run Summary
+```
+
+Physical DAQ Output is a checkbox that is off by default. When off, Sequence Test processes and creates a Run without DAQ hardware. Allocation failure shows `Error`, logs details, cancels loading, and leaves Start disabled.
+
+### Results
+
+Selecting a Run in the right-side Runs panel changes selection only. Pressing Load replaces the loaded center detail. The detail contains identity, operation type, status, key counts, Predicted Class, Decision, Observed Route, their decision-versus-observation matrix, Notes, file actions, and collapsed provenance. It does not become a chart, event-browser, Training-history, or Model-Test-history workspace.
+
 ## 2. Product objective
 
 OpenDSS is a scientific desktop application for laboratories that perform image-based droplet analysis and physical droplet sorting.
@@ -37,7 +107,7 @@ The product supports two equally important workflows:
 ```text
 MODEL DEVELOPMENT
 
-Dataset Capture
+Droplet Dataset Capture
     → Label
     → Train
     → optional Model Test
@@ -121,7 +191,7 @@ The system SHALL NOT block an operation because of:
 - model collapse;
 - use of the same dataset for training and Model Test;
 - a user-selected Hit Class;
-- a user-selected Hit Outlet Direction;
+- a user-selected Hit boundary calibration;
 - an experimental choice the system considers unusual.
 
 ### PR-004 — Factual terminology
@@ -245,7 +315,7 @@ OpenDropletSortingSuite
 | **Frame** | One full camera image. |
 | **Image Sequence** | An ordered series of full-frame TIFF images. |
 | **Droplet Crop** | One saved 64 × 64 PNG representing the first complete appearance of one detected droplet. |
-| **Dataset** | The result of Dataset Capture, consisting of a full image sequence, Droplet Crops, class definitions, labels, and `dataset.json`. |
+| **Dataset** | The result of Droplet Dataset Capture, consisting of a full image sequence, Droplet Crops, class definitions, labels, and `dataset.json`. |
 | **Class ID** | Immutable numerical class identifier: `0`, `1`, or `2`. |
 | **Class Name** | User-editable text describing a Class ID. |
 | **Label** | A Class ID assigned by the user to one Droplet Crop. |
@@ -253,7 +323,7 @@ OpenDropletSortingSuite
 | **Class Score** | Raw numerical output emitted by the model for one class. |
 | **Hit Class** | The user-selected Predicted Class that produces a Hit Decision in Class-Based Sorting. |
 | **Decision** | The system’s Hit or Waste routing action. |
-| **Hit Outlet Direction** | The user-selected image y-axis direction corresponding to the physical Hit outlet. |
+| **Hit boundary calibration** | The user-selected image y-axis direction corresponding to the physical Hit outlet. |
 | **Observed Route** | Hit or Waste, derived from visually tracked y-axis trajectory. |
 | **DAQ Output Channel** | National Instruments output channel used to issue the sorting signal. |
 | **Inference Time** | Time used to execute model inference for one Droplet Crop. |
@@ -270,11 +340,11 @@ The normal interface SHALL NOT use the following terms as substitutes for the ap
 |---|---|
 | Target Class | Hit Class, when routing is meant |
 | Positive Class / Negative Class | Class 0, Class 1, Class 2 |
-| Hit Channel | Hit Outlet Direction or DAQ Output Channel |
+| Hit Channel | Hit boundary calibration or DAQ Output Channel |
 | Actual Destination | Observed Route |
 | Confidence | Class Score |
 | Logits | Class Score |
-| Promotion | Save Model / Set Active |
+| Promotion | Automatic Save / Set Active |
 | Approved Model | Active Model |
 | Manifest | Dataset File |
 | Diagnostic Mode | No named mode |
@@ -293,7 +363,7 @@ The application SHALL use the following primary navigation structure:
 Data
 ├── Capture
 ├── Label
-└── Sequence Player
+└── Sequence Viewer
 
 Models
 ├── Train
@@ -369,11 +439,10 @@ The application SHALL display one current activity, selected from the applicable
 Idle
 Capturing Image
 Recording Sequence
-Capturing Dataset
+Droplet Dataset Capture
 Labeling
 Training
 Testing Model
-Playing Sequence
 Testing Sequence
 Sorting
 Paused
@@ -416,7 +485,7 @@ The application SHALL NOT rename this condition as Diagnostic Mode or No-Camera 
 Only one of the following operations SHALL run at a time:
 
 - Image Sequence recording;
-- Dataset Capture;
+- Droplet Dataset Capture;
 - Training;
 - Model Test;
 - Sequence Test;
@@ -689,7 +758,7 @@ Image Sequence capture SHALL NOT:
 
 - TIFF files are individually readable.
 - Frame numbering preserves acquisition order.
-- Sequence Player can open the completed sequence.
+- Sequence Viewer can open the completed sequence.
 - Manual Stop and timed completion both finalize the sequence.
 - A blank Duration records until Stop.
 - Pausing does not terminate or split the sequence.
@@ -705,12 +774,12 @@ Record a full image sequence while detecting droplets and saving one Droplet Cro
 ### 13.2 Entry point
 
 ```text
-Data > Capture > Dataset Capture
+Data > Capture > Droplet Dataset Capture
 ```
 
 ### 13.3 Product contract
 
-Dataset Capture is classifier-independent.
+Droplet Dataset Capture is classifier-independent.
 
 It SHALL NOT require or use an Active Model to decide whether a crop is saved.
 
@@ -761,10 +830,10 @@ The system SHALL NOT save adjacent-frame crops for the same droplet.
 
 ### 13.7 Primary flow
 
-1. The user opens **Dataset Capture**.
+1. The user opens **Droplet Dataset Capture**.
 2. The live camera preview is displayed.
 3. The user optionally enters Dataset Name, Experiment Type, Notes, Duration, or Save Location.
-4. The user selects **Start Dataset Capture**.
+4. The user selects **Start Droplet Dataset Capture**.
 5. The system creates a dataset folder and begins:
    - writing full frames as numbered TIFF files;
    - running droplet detection;
@@ -789,7 +858,7 @@ While paused:
 - full-frame TIFF recording SHALL stop;
 - droplet detection SHALL stop;
 - Droplet Crop creation SHALL stop;
-- Resume SHALL continue the same Dataset Capture.
+- Resume SHALL continue the same Droplet Dataset Capture.
 
 ### 13.9 Output structure
 
@@ -851,9 +920,9 @@ label_id = null
 
 ### 13.12 One capture equals one dataset
 
-One Dataset Capture operation SHALL create one Dataset.
+One Droplet Dataset Capture operation SHALL create one Dataset.
 
-The first release SHALL NOT merge multiple Dataset Captures into one Dataset through the GUI.
+The first release SHALL NOT merge multiple Droplet Dataset Captures into one Dataset through the GUI.
 
 ### 13.13 No external-image import
 
@@ -863,13 +932,13 @@ The authoritative entry point for a Dataset is an OpenDSS-generated `dataset.jso
 
 ### 13.14 Interrupted capture
 
-If Dataset Capture is interrupted by a technical fault, the system SHOULD preserve frames and crops already written.
+If Droplet Dataset Capture is interrupted by a technical fault, the system SHOULD preserve frames and crops already written.
 
 When technically possible, it SHOULD finalize a recoverable `dataset.json` with an interrupted status rather than discard the data.
 
 ### 13.15 Acceptance criteria
 
-- Dataset Capture runs without a model.
+- Droplet Dataset Capture runs without a model.
 - Every completed detection produces one and only one Droplet Crop.
 - No crop is automatically labeled.
 - No crop is rejected by application policy.
@@ -907,7 +976,7 @@ The user SHALL select a Dataset through:
 
 - the standard Windows file picker;
 - a recent-Datasets list, if implemented;
-- a contextual **Open in Label** action after Dataset Capture.
+- a contextual **Open in Label** action after Droplet Dataset Capture.
 
 The same dataset-loading implementation SHALL be used by Label, Train, and Model Test.
 
@@ -1472,7 +1541,7 @@ Deleting the Active Model SHALL clear Active Model state unless the user first s
 
 # PART IV — SEQUENCE REVIEW AND TESTING
 
-## 18. Workflow DATA-05: Sequence Player
+## 18. Workflow DATA-05: Sequence Viewer
 
 ### 18.1 Purpose
 
@@ -1481,12 +1550,12 @@ Allow the user to visually inspect a recorded Image Sequence without requiring a
 ### 18.2 Entry point
 
 ```text
-Data > Sequence Player
+Data > Sequence Viewer
 ```
 
 ### 18.3 Supported inputs
 
-The Sequence Player SHALL open:
+The Sequence Viewer SHALL open:
 
 - a standalone `sequence.json`;
 - the sequence referenced by an OpenDSS `dataset.json`;
@@ -1494,33 +1563,34 @@ The Sequence Player SHALL open:
 
 ### 18.4 Required controls
 
-The Sequence Player SHALL provide:
+The Sequence Viewer SHALL provide:
 
 ```text
 Open Sequence
-Play
-Pause
 Previous Frame
 Next Frame
-Timeline Scrubbing
-Playback Speed
-Zoom
+Direct Frame Seek
+Zoom In / Zoom Out
+Pan
+Fit
+1:1
 ```
 
 ### 18.5 Display behavior
 
-The player SHALL display:
+The viewer SHALL display:
 
 - current frame;
 - current frame number;
-- total frame count;
-- playback position.
+- total frame count.
 
-Acquisition metadata does not need to be displayed in the normal player.
+Keyboard navigation SHALL use Left/Right for one frame, Shift+Left/Right for 10, Ctrl+Left/Right for 50, Home/End for first/last, plus/minus for zoom, F for Fit, and 1 for 1:1.
+
+Missing frames SHALL be skipped silently.
 
 ### 18.6 Hardware behavior
 
-The Sequence Player SHALL NOT require:
+The Sequence Viewer SHALL NOT require:
 
 - camera;
 - DAQ;
@@ -1531,11 +1601,11 @@ It SHALL NOT emit DAQ output.
 
 ### 18.7 Acceptance criteria
 
-- Numbered TIFF sequences play in correct order.
+- Numbered TIFF sequences navigate in correct order.
 - The user can step frame by frame.
-- Timeline scrubbing seeks to the selected frame.
-- Playback speed affects visual playback only.
+- Direct seek opens the selected readable frame.
 - Zoom does not alter the source files.
+- No automatic frame progression or frame-navigation lifecycle state is present.
 
 ---
 
@@ -1572,9 +1642,9 @@ A connected camera SHALL NOT be required.
 ```text
 Sequence
 Model
-Trigger Mode
+Trigger Every Droplet
 Hit Class
-Hit Outlet Direction
+Hit boundary calibration
 Physical DAQ Output Enabled
 Start Sequence Test
 Stop Sequence Test
@@ -1582,7 +1652,7 @@ Stop Sequence Test
 
 ### 19.5 Physical DAQ default
 
-The **Physical DAQ Output Enabled** checkbox SHALL start checked.
+The **Physical DAQ Output** checkbox SHALL start unchecked.
 
 The state SHALL be visually explicit.
 
@@ -1592,9 +1662,9 @@ If the checkbox is unchecked, Sequence Test MAY run without DAQ hardware.
 
 ### 19.6 Processing rate
 
-Sequence Test SHALL process the sequence as quickly as the processing pipeline permits.
+Sequence Test SHALL process frames at the user-selected Processing FPS, defaulted from the recorded FPS, and SHALL record the requested and achieved rates in the Run Summary.
 
-Sequence Player playback speed SHALL NOT control Sequence Test execution rate.
+Sequence Test Processing FPS SHALL NOT control Sequence Test execution rate.
 
 ### 19.7 Trigger modes
 
@@ -1618,7 +1688,7 @@ Sequence Player playback speed SHALL NOT control Sequence Test execution rate.
 
 ### 19.8 Observed Route
 
-The sequence-processing pipeline SHALL derive Observed Route from y-axis trajectory using the selected Hit Outlet Direction.
+The sequence-processing pipeline SHALL derive Observed Route from y-axis trajectory using the selected Hit boundary calibration.
 
 Each finalized event SHALL contain either:
 
@@ -1634,15 +1704,15 @@ The first-release event schema SHALL NOT expose an Unknown route.
 
 1. The user selects an Image Sequence.
 2. The user selects or confirms processing settings.
-3. The user confirms Trigger Mode.
+3. The user confirms Trigger Every Droplet.
 4. The user confirms Hit Class when Class-Based Sorting is selected.
-5. The user confirms Hit Outlet Direction.
-6. The user leaves Physical DAQ Output checked or unchecks it.
+5. The user confirms Hit boundary calibration.
+6. The user checks Physical DAQ Output only when physical output is required; otherwise it remains unchecked.
 7. The user selects **Start Sequence Test**.
 8. The system creates a Run folder with operation type `sequence_test`.
 9. The sequence is processed as quickly as possible.
 10. Per-droplet events and Droplet Crops are written.
-11. Optional physical DAQ output occurs according to Trigger Mode.
+11. Optional physical DAQ output occurs according to Trigger Every Droplet.
 12. The user may stop the test.
 13. On completion or stop, the system finalizes the Droplet Log and Run Summary.
 14. The Run appears in **Results > Runs**.
@@ -1692,9 +1762,9 @@ The setup SHALL expose:
 
 - Setup Profile;
 - Active Model;
-- Trigger Mode;
+- Trigger Every Droplet;
 - Hit Class;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - DAQ Output Channel;
 - camera settings;
 - droplet-detection settings;
@@ -1719,7 +1789,7 @@ All other classes produce a Waste Decision.
 
 The system SHALL NOT select a Hit Class based on class name or model metadata policy.
 
-### 20.6 Hit Outlet Direction
+### 20.6 Hit boundary calibration
 
 The user SHALL select the image y-axis direction corresponding to the physical Hit outlet:
 
@@ -1746,7 +1816,7 @@ Waste: +Y ↓
 
 ### 20.7 Coordinate system
 
-The Hit Outlet Direction SHALL use the coordinate system of the displayed camera image:
+The Hit boundary calibration SHALL use the coordinate system of the displayed camera image:
 
 ```text
 +Y = downward
@@ -1759,7 +1829,7 @@ The system SHALL separately label:
 
 ```text
 Hit Class
-Hit Outlet Direction
+Hit boundary calibration
 DAQ Output Channel
 ```
 
@@ -1829,12 +1899,12 @@ A Setup Profile SHALL include at least:
 - timing settings;
 - Active Model reference;
 - Hit Class;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - Run Name.
 
 A Setup Profile MAY also retain:
 
-- Trigger Mode;
+- Trigger Every Droplet;
 - Record Full Image Sequence selection;
 - default Save Location.
 
@@ -1858,7 +1928,7 @@ Required:
 - DAQ Ready;
 - Active Model loadable;
 - Hit Class selected;
-- Hit Outlet Direction selected;
+- Hit boundary calibration selected;
 - output folder writable.
 
 #### Trigger Every Droplet
@@ -1867,14 +1937,14 @@ Required:
 
 - Camera Streaming;
 - DAQ Ready;
-- Hit Outlet Direction selected;
+- Hit boundary calibration selected;
 - output folder writable.
 
 A model is optional.
 
 ### 20.15 Acceptance criteria
 
-- The user explicitly chooses both Hit Class and Hit Outlet Direction.
+- The user explicitly chooses both Hit Class and Hit boundary calibration.
 - Positive/negative y directions are shown relative to the displayed image.
 - Test Pulse is available to a normal user.
 - Duration can be blank.
@@ -1983,7 +2053,7 @@ GPU availability SHALL NOT be required for Live Sorting.
 
 Observed Route SHALL be based on visual y-axis trajectory.
 
-It SHALL be mapped using the user-selected Hit Outlet Direction.
+It SHALL be mapped using the user-selected Hit boundary calibration.
 
 The two allowed values are:
 
@@ -2010,7 +2080,7 @@ The Live workspace SHALL display:
 - Inference Time;
 - camera FPS;
 - elapsed Run time;
-- current Trigger Mode;
+- current Trigger Every Droplet;
 - Active Model when present.
 
 ### 21.11 Optional overlays
@@ -2120,11 +2190,11 @@ The following are not Runs:
 ```text
 Single Image capture
 Image Sequence capture
-Dataset Capture
+Droplet Dataset Capture
 Labeling
 Training
 Model Test
-Sequence Player
+Sequence Viewer
 ```
 
 ### 22.4 Run list
@@ -2173,8 +2243,8 @@ Selecting a Run SHALL display:
 - model checksum;
 - Class IDs and Class Name snapshot;
 - Hit Class;
-- Hit Outlet Direction;
-- Trigger Mode;
+- Hit boundary calibration;
+- Trigger Every Droplet;
 - Physical DAQ Output state for Sequence Test.
 
 #### Hardware and processing information
@@ -2309,15 +2379,15 @@ Other detector or preview crop parameters MAY be user-controlled where supported
 
 DAQ settings SHALL include the qualified device, output channel, waveform/pulse settings, and timing settings needed by the existing hardware integration.
 
-The DAQ Output Channel SHALL remain distinct from Hit Outlet Direction.
+The DAQ Output Channel SHALL remain distinct from Hit boundary calibration.
 
 ### 23.8 Sorting settings
 
 Sorting settings SHALL include:
 
-- Trigger Mode;
+- Trigger Every Droplet;
 - Hit Class;
-- Hit Outlet Direction;
+- Hit boundary calibration;
 - timing values;
 - optional full-sequence recording.
 
@@ -2441,7 +2511,7 @@ This supports moving or copying the complete Dataset folder.
 
 ### 25.3 No external arbitrary image contract
 
-A valid first-release Dataset SHALL originate from OpenDSS Dataset Capture and SHALL be opened through `dataset.json`.
+A valid first-release Dataset SHALL originate from OpenDSS Droplet Dataset Capture and SHALL be opened through `dataset.json`.
 
 ---
 
@@ -2677,7 +2747,7 @@ Minimum content:
 }
 ```
 
-The profile MAY additionally include Trigger Mode, full-sequence recording preference, and a default Save Location.
+The profile MAY additionally include Trigger Every Droplet, full-sequence recording preference, and a default Save Location.
 
 ---
 
@@ -2884,7 +2954,7 @@ Without a connected camera, the user SHALL be able to:
 - Train Models;
 - run Model Test;
 - manage the Model Library;
-- use Sequence Player;
+- use Sequence Viewer;
 - use Sequence Test when physical DAQ output requirements are satisfied or disabled;
 - review Runs;
 - inspect saved Droplet Crops;
@@ -2943,8 +3013,8 @@ Run Summary SHALL preserve:
 - model identity and checksum;
 - Class Name snapshot;
 - Hit Class;
-- Hit Outlet Direction;
-- Trigger Mode;
+- Hit boundary calibration;
+- Trigger Every Droplet;
 - user-entered experiment metadata;
 - timing and status.
 
@@ -2983,7 +3053,7 @@ The system SHALL NOT require user-facing Dataset versions, branches, revisions, 
 
 - Raw Class Scores MAY be logged.
 - Routing rules SHALL be explicit.
-- Hit Class and Hit Outlet Direction SHALL be visible before sorting.
+- Hit Class and Hit boundary calibration SHALL be visible before sorting.
 - The system SHALL not hide the selected model or setup in a Run Summary.
 
 ## 42. Privacy and network behavior
@@ -3020,7 +3090,7 @@ Unless separately approved, the first public release SHALL NOT include:
 - class-balance warnings;
 - confidence-threshold routing;
 - external arbitrary image import;
-- merging multiple Dataset Captures;
+- merging multiple Droplet Dataset Captures;
 - integrated per-event Run browser;
 - first-class Run charts;
 - telemetry;
@@ -3050,7 +3120,7 @@ No placeholder buttons SHALL be added for excluded features.
 **Then** the application opens normally  
 **And** camera-dependent controls are disabled  
 **And** the preview says **Camera unavailable**  
-**And** Label, Train, Model Test, Library, Sequence Player, and Results remain available as their file prerequisites permit.
+**And** Label, Train, Model Test, Library, Sequence Viewer, and Results remain available as their file prerequisites permit.
 
 ## 46. AC-03 — Single Image
 
@@ -3073,11 +3143,11 @@ No placeholder buttons SHALL be added for excluded features.
 **Then** recording stops automatically  
 **And** the user could have stopped earlier.
 
-## 49. AC-06 — Dataset Capture without model
+## 49. AC-06 — Droplet Dataset Capture without model
 
 **Given** no Active Model exists  
 **And** the camera is streaming  
-**When** Dataset Capture runs  
+**When** Droplet Dataset Capture runs  
 **Then** full TIFF frames are recorded  
 **And** one 64 × 64 PNG is saved for each detected droplet  
 **And** no labels, Hit/Waste values, or model outputs are assigned  
@@ -3154,7 +3224,7 @@ No placeholder buttons SHALL be added for excluded features.
 
 ## 59. AC-16 — Class-Based Sorting
 
-**Given** Camera Streaming, DAQ Ready, an Active Model, a Hit Class, and Hit Outlet Direction  
+**Given** Camera Streaming, DAQ Ready, an Active Model, a Hit Class, and Hit boundary calibration  
 **When** Live Sorting starts  
 **Then** each detected droplet is classified on CPU  
 **And** a matching Predicted Class produces Decision Hit and DAQ output  
@@ -3173,10 +3243,10 @@ No placeholder buttons SHALL be added for excluded features.
 
 ## 61. AC-18 — Hit direction reversal
 
-**Given** Hit Outlet Direction is +Y  
+**Given** Hit boundary calibration is +Y  
 **Then** positive-y movement is Observed Hit.
 
-**When** the user changes Hit Outlet Direction to −Y  
+**When** the user changes Hit boundary calibration to −Y  
 **Then** negative-y movement is Observed Hit  
 **And** positive-y movement is Observed Waste.
 
@@ -3225,11 +3295,11 @@ No placeholder buttons SHALL be added for excluded features.
 **Then** the user sees class counts, Decision counts, Observed Route counts, and the Decision vs. Observed Route matrix  
 **And** can open the Droplet Log and Run folder.
 
-## 67. AC-24 — Sequence Player
+## 67. AC-24 — Sequence Viewer
 
 **Given** a valid sequence  
-**When** the user opens Sequence Player  
-**Then** the user can play, pause, step, scrub, change playback speed, and zoom without hardware.
+**When** the user opens Sequence Viewer  
+**Then** the user can step, seek directly, zoom, pan, Fit, and select 1:1 without hardware.
 
 ## 68. AC-25 — Sequence Test without physical DAQ
 
@@ -3243,7 +3313,7 @@ No placeholder buttons SHALL be added for excluded features.
 **Given** Physical DAQ Output Enabled is checked  
 **And** the DAQ is Ready  
 **When** Sequence Test runs  
-**Then** DAQ output follows the selected Trigger Mode.
+**Then** DAQ output follows the selected Trigger Every Droplet.
 
 ## 70. AC-27 — Fault persistence
 
@@ -3352,12 +3422,12 @@ The reconstruction SHALL include at least these fast tests:
 
 1. The same valid `dataset.json` is accepted by Label, Train, and Model Test.
 2. The same invalid `dataset.json` produces the same technical error in all three.
-3. One Dataset Capture detection produces one Droplet Crop entry.
+3. One Droplet Dataset Capture detection produces one Droplet Crop entry.
 4. Skipped and Removed crops are excluded from Training and Model Test.
 5. Training uses fixed 70/15/15 and seed 1729.
 6. Saving a model makes it Active and persists the selection.
 7. Class-Based Sorting maps only the selected Hit Class to Hit.
-8. Reversing Hit Outlet Direction reverses Observed Route mapping.
+8. Reversing Hit boundary calibration reverses Observed Route mapping.
 9. Trigger Every Droplet runs without a model.
 10. RunRepository recognizes `run_summary.json`, `events.csv`, crops, and optional sequence.
 11. All status displays and enabled states reflect one AppStateStore snapshot.
@@ -3379,7 +3449,7 @@ The existing repository already separates many low-level functions that correspo
 The current repository includes behaviors that SHALL be treated as historical implementation rather than first-release product requirements, including:
 
 - capture modes tied to Hit/Waste/Mixed collection;
-- model-linked automatic labels and confidence during dataset capture;
+- model-linked automatic labels and confidence during Droplet Dataset Capture;
 - a fixed binary Hit/Waste/Exclude dataset schema;
 - a model metadata sorting policy that defaults Class 1 as the target;
 - user-managed external Python environments;

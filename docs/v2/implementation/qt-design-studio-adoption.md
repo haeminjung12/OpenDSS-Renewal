@@ -136,18 +136,99 @@ switch_build_config
 
 ## Continuing the current slice
 
-After this untouched generated application baseline is committed, resume `Qt Quick/QML v2 Shell and Mock Single Image` without changing slices:
+The user-authorized continuation follows [current-slice.md](current-slice.md) and the [Visual Scaffold Two-Round Plan](visual-scaffold-two-round-plan.md).
 
-1. Read `AGENTS.md`, `docs/v2/CONTEXT.md`, and `docs/v2/implementation/current-slice.md`.
-2. Create and approve the shell and Single Image visual baseline in Qt Design Studio before backend integration.
-3. Once that visual baseline is committed, authorize exact `*.ui.qml` forms in the work order and add ordinary QML wrappers, the narrow mock authoritative state owner, the fake Camera service, and tests required by the current slice.
-4. Keep DCAM, DAQ, real TIFF output, Python, GPU, production persistence, and legacy Widgets changes out of scope.
-5. Build the standalone v2 target, run `qmllint`, run relevant Qt Quick/C++ tests, and verify 2D view plus Live Preview before review.
-6. Stop after this slice is reviewed; the real DCAM/TIFF slice remains separately authorized work.
+Round 1 uses one visual writer. It may cover:
+
+- maximized startup and 1600 × 900 restored minimum with 16:9 resizing;
+- compact status header;
+- bottom-left overlay Hardware panel frame;
+- Camera-unavailable startup mock;
+- the three persistent Capture headings, including **Droplet Dataset Capture**;
+- Mock Single Image;
+- `CollapsibleSection`;
+- minimal `ErrorMessage`;
+- skeletal Qt Design Studio-editable hosts for every approved workspace, limited to approved regions and headings with no speculative controls or behavior.
+
+The Round 1 work order must preview the 1600 × 900 restored layout, maximized layout, representative larger 16:9 scaling, Hardware panel open/closed states, Camera available/unavailable states, Capture disclosure combinations, and each workspace host. It must not authorize real Camera, TIFF, DAQ, Training, Live, Sequence Test, Results, persistence, or operational behavior.
+
+After user acceptance, the Round 1 form diff becomes the visual contract and the orchestrator freezes exact exported aliases, signals, and state names. Round 2 then uses separate worktrees:
+
+1. Design owns authorized forms, tokens, assets, design-time states, and design mocks.
+2. Backbone owns wrappers, the smallest authoritative shell state, narrow adapters, directly relevant tests, and explicit durable CMake files.
+3. File ownership does not overlap, and the backbone remains hardware-free.
+4. Validation is proportional: targeted worker checks, one integrated check when needed, and user-led Qt Design Studio/manual review.
+5. Stop after Round 2 user acceptance; Full Capture and real DCAM/TIFF remain separately authorized work.
 
 A suitable continuation request is:
 
 > Continue the current OpenDSS v2 Shell and Mock Single Image slice by creating and approving the Qt Design Studio visual baseline first. Preserve the form-wrapper-controller boundary, do not add production integration before that visual commit, and do not start the later DCAM/TIFF slice.
+
+## Codex workflow bootstrap
+
+The repository uses one orchestrator skill at `.agents/skills/opendss-orchestrator/SKILL.md`; no agent registry, orchestration database, state machine, second worklog, duplicate work-order template, or speculative automation was added. `AGENTS.md` owns enforceable simplicity and Qt Design Studio protection. The orchestrator skill owns the repeatable show-before-launch work-order procedure. `current-slice.md` owns the active boundary, and `CONTEXT.md` owns concise continuation state.
+
+Inspection of the prior local worktree and the historical `OpenDSS_clean` repository found no separate agent skills, work-order format, or orchestrator workflow to import. Their targeted-navigation and validation discipline is already present in this repository. The historical GUI redesign handoff was not adopted as workflow or product authority because it contains obsolete PyQt/QML architecture, navigation, density, screen, and product assumptions that conflict with approved v2 sources. No legacy workflow system was copied.
+
+The default visual-editing loop is user-led: the user changes an accepted form in Qt Design Studio; the orchestrator treats that visual diff as authoritative; a narrow work order connects only the required wrapper/controller/test behavior; Qt Creator performs production build/run validation; and the user performs visual acceptance. An accepted form is read-only unless an explicit UI-form work order names it.
+
+### Dry-run work order (demonstration only)
+
+# Work Order DRY-RESET-VIEW — Connect the user-authored Reset View action
+
+## Objective
+
+Connect the Reset View signal already added by the user to the existing zoom and pan state so the view returns deterministically to its existing default.
+
+## Current slice
+
+OpenDSS v2 application shell and deterministic mock Single Image workspace. This dry run demonstrates orchestration only and does not authorize implementation.
+
+## Required reading
+
+- `AGENTS.md`: Qt Design Studio compatibility, user-led visual editing, and simplicity sections.
+- `docs/v2/implementation/current-slice.md`: in-scope, out-of-scope, lean constraints, and verification.
+- The exact user-edited `*.ui.qml` form diff, read-only.
+- The one ordinary QML wrapper and existing zoom/pan state owner identified by targeted search.
+
+## Authorized writes
+
+- The exact ordinary QML wrapper that receives the form signal.
+- One existing targeted test file, only if behavior is already covered there.
+
+Everything else is read-only. Staging and committing are not authorized.
+
+## Forbidden changes
+
+- The user-edited `*.ui.qml` form, generated CMake, production backend, hardware, camera, DAQ, TIFF, legacy application, and unrelated dirty files.
+
+## Explicitly not requested
+
+- New zoom controls, animation, persistence, keyboard shortcuts, controller classes, services, reusable reset frameworks, or later-workspace behavior.
+
+## Simplest acceptable implementation
+
+Connect the existing form signal in the existing wrapper to the existing zoom/pan reset operation or direct existing state assignments. No new file, controller, abstraction, or backend service is needed. This is the simplest implementation that fully satisfies the requirement.
+
+## Acceptance criteria
+
+- Activating Reset View restores the existing default zoom and pan values.
+- The accepted visual form is unchanged.
+- No adjacent behavior or new state owner is introduced.
+
+## Validation
+
+- Review the authorized-path diff.
+- Run the narrow existing QML test when available; otherwise perform the existing deterministic mock interaction check.
+- Build the v2 target only if the wrapper change requires compile/resource validation.
+
+## Stop conditions
+
+Stop if another file must change, the reset default is not defined by existing state, requirements conflict, the form cannot expose the signal in Qt Design Studio, a speculative abstraction appears necessary, a later slice would begin, or unrelated repository failure blocks the relevant check.
+
+## Return format
+
+Return a concise summary, files changed, behavior, validation and evidence, blockers, the simplicity answer, necessity of any new file/abstraction, and confirmation that no unrequested feature was added.
 
 ## Primary references
 

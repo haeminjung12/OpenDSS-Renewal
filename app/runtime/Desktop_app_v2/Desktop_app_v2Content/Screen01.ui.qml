@@ -146,19 +146,19 @@ Rectangle {
             anchors.fill: parent
             anchors.margins: Constants.spacing
             Text { text: qsTr("Data"); font: Constants.headingFont }
-            Button { id: singleImageNavigationButton; text: qsTr("Capture"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "capture" }
-            Button { id: labelNavigationButton; text: qsTr("Label"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "label" }
-            Button { id: sequenceViewerNavigationButton; text: qsTr("Sequence Viewer"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "sequenceViewer" }
+            Button { id: singleImageNavigationButton; text: qsTr("Capture"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "capture" }
+            Button { id: labelNavigationButton; text: qsTr("Label"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "label" }
+            Button { id: sequenceViewerNavigationButton; text: qsTr("Sequence Viewer"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "sequenceViewer" }
             Text { text: qsTr("Models"); font: Constants.headingFont }
-            Button { id: trainNavigationButton; text: qsTr("Train"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "train" }
-            Button { id: modelTestNavigationButton; text: qsTr("Model Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "modelTest" }
-            Button { id: libraryNavigationButton; text: qsTr("Library"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "library" }
+            Button { id: trainNavigationButton; text: qsTr("Train"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "train" }
+            Button { id: modelTestNavigationButton; text: qsTr("Model Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "modelTest" }
+            Button { id: libraryNavigationButton; text: qsTr("Library"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "library" }
             Text { text: qsTr("Sort"); font: Constants.headingFont }
-            Button { id: liveNavigationButton; text: qsTr("Live"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "live" }
-            Button { id: sequenceTestNavigationButton; text: qsTr("Sequence Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "sequenceTest" }
+            Button { id: liveNavigationButton; text: qsTr("Live"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "live" }
+            Button { id: sequenceTestNavigationButton; text: qsTr("Sequence Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "sequenceTest" }
             Text { text: qsTr("Results"); font: Constants.headingFont }
-            Button { id: runsNavigationButton; text: qsTr("Runs"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "runs" }
-            Button { id: settingsNavigationButton; text: qsTr("Settings"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "settings" }
+            Button { id: runsNavigationButton; text: qsTr("Runs"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "runs" }
+            Button { id: settingsNavigationButton; text: qsTr("Settings"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "settings" }
         }
     }
 
@@ -318,11 +318,41 @@ Rectangle {
             visible: root.selectedWorkspace === "settings"
         }
 
-        Button { id: hardwareButton; text: root.drawerOpen ? "⌄" : "⌃"; enabled: root.hardwareActionEnabled; width: 46; height: 34; anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin; Accessible.name: qsTr("Open or close Hardware panel") }
-        Rectangle {
-            visible: root.drawerOpen; width: Constants.hardwarePanelWidth; height: Constants.hardwarePanelHeight; color: Constants.surfaceColor; border.color: Constants.borderColor
-            anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin + 36
-            ScrollView { anchors.fill: parent; anchors.margins: Constants.spacing; clip: true; contentWidth: availableWidth
+        Item {
+            id: hardwareOverlay
+            width: Constants.hardwarePanelWidth
+            height: hardwareButton.height + (root.drawerOpen ? hardwareBody.height : 0)
+            anchors.left: parent.left
+            anchors.leftMargin: Constants.workspaceMargin
+            anchors.bottom: parent.bottom
+            anchors.bottomMargin: Constants.workspaceMargin
+            Button {
+                id: hardwareButton
+                text: qsTr("Hardware")
+                enabled: root.hardwareActionEnabled
+                width: parent.width
+                height: 42
+                focusPolicy: Qt.StrongFocus
+                Accessible.name: qsTr("Open or close Hardware panel")
+                background: Rectangle {
+                    color: root.hardwareActionEnabled ? Constants.backgroundColor : "#e6e8eb"
+                    border.color: hardwareButton.activeFocus ? Constants.accentColor : Constants.borderColor
+                    border.width: hardwareButton.activeFocus ? 2 : 1
+                }
+                contentItem: Item {
+                    Text { text: (root.drawerOpen ? "⌄  " : "›  ") + hardwareButton.text; color: root.hardwareActionEnabled ? Constants.textColor : Constants.mutedTextColor; font: Constants.headingFont; anchors.left: parent.left; anchors.leftMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: root.drawerOpen ? qsTr("Expanded") : qsTr("Collapsed"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+                }
+            }
+            Rectangle {
+                id: hardwareBody
+                visible: root.drawerOpen
+                width: parent.width
+                height: Constants.hardwarePanelHeight
+                color: Constants.surfaceColor
+                border.color: Constants.borderColor
+                anchors.top: hardwareButton.bottom
+                ScrollView { anchors.fill: parent; anchors.margins: Constants.spacing; clip: true; contentWidth: availableWidth
                 Column { width: parent.width; spacing: Constants.spacing
                     Row { width: parent.width; Text { text: qsTr("Hardware — illustrative mock"); font: Constants.headingFont; width: parent.width - drawerCloseButton.width } Button { id: drawerCloseButton; text: qsTr("Close"); width: 58; height: 30 } }
                     Rectangle { width: parent.width; height: 1; color: Constants.borderColor }
@@ -354,6 +384,7 @@ Rectangle {
                     Text { text: qsTr("Capabilities: analog output; maximum supported voltage range 0–5 V; maximum supported output frequency 10 kHz (illustrative read-only facts)"); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                 }
             }
+        }
         }
         Rectangle { visible: root.cameraPromptVisible && root.selectedWorkspace === "capture"; width: 430; height: 180; color: Constants.surfaceColor; border.color: Constants.warningColor; anchors.centerIn: parent; z: 2; Column { spacing: Constants.spacing; anchors.fill: parent; anchors.margins: Constants.spacing * 2; Text { text: qsTr("Camera unavailable. Continue?"); font: Constants.headingFont } Text { text: qsTr("Camera unavailable (not ready)"); color: Constants.warningColor; font: Constants.smallFont } Row { spacing: Constants.spacing; Button { id: cameraPromptYesButton; text: qsTr("Yes"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "yes" } Button { id: cameraPromptNoButton; text: qsTr("No"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "no" } } } }
     }

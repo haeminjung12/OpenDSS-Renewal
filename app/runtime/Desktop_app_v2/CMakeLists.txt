@@ -32,6 +32,11 @@ endif()
 
 include(qds)
 
+include(CTest)
+if (BUILD_TESTING)
+    add_subdirectory(tests)
+endif()
+
 if (BUILD_QDS_COMPONENTS)
     include(qmlcomponents OPTIONAL)
 endif()

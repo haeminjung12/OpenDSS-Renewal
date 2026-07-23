@@ -25,6 +25,12 @@ Rectangle {
     property bool showSavedPath: false
     property bool showBanner: false
     property bool drawerOpen: false
+    property alias hardwareButton: hardwareButton
+    property alias fileNameField: fileNameField
+    property alias saveLocationField: saveLocationField
+    property alias browseButton: browseButton
+    property alias captureButton: captureButton
+    property alias drawerCloseButton: drawerCloseButton
 
     Rectangle {
         id: header
@@ -202,6 +208,7 @@ Rectangle {
             Text { text: qsTr("Save Location"); color: Constants.textColor; font: Constants.font }
             Row {
                 spacing: 8
+                width: parent.width
                 TextField {
                     id: saveLocationField
                     text: root.saveLocationText
@@ -262,7 +269,7 @@ Rectangle {
             Text { visible: root.cameraStatus === qsTr("Unavailable"); text: qsTr("Camera unavailable"); color: Constants.warningColor; font: Constants.font }
             Text { text: qsTr("DAQ"); color: Constants.textColor; font.family: Constants.font.family; font.pixelSize: Constants.font.pixelSize; font.bold: true }
             Text { text: qsTr("Status: %1").arg(root.daqStatus); color: Constants.mutedTextColor; font: Constants.font }
-            Button { text: qsTr("Close"); height: Constants.controlHeight; Accessible.name: qsTr("Close hardware drawer") }
+            Button { id: drawerCloseButton; text: qsTr("Close"); height: Constants.controlHeight; Accessible.name: qsTr("Close hardware drawer") }
         }
     }
 

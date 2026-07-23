@@ -10,9 +10,7 @@ Window {
     visible: true
     title: qsTr("OpenDSS")
 
-    Screen01 {
-        id: mainScreen
-
+    ShellSingleImage {
         anchors.fill: parent
     }
 

@@ -17,6 +17,7 @@ qt6_add_qml_module(Desktop_app_v2
         "Constants.qml"
         "EventListModel.qml"
         "EventListSimulator.qml"
+        "MockAppState.qml"
 )
 
 

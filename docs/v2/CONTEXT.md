@@ -44,6 +44,7 @@ Except for the expressly scoped user-approved visual-review amendment, derived e
 ## Current status
 
 - The user-approved [July 23, 2026 visual-review amendment](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) is authoritative for its listed visual topics and supersedes conflicting lower visual sources; it does not authorize production behavior.
+- The final approved structure records Label's ordered outer panel and Dataset Save As semantics, the shared 390 px outer-panel width/collapse behavior, Train and Model Test Results placement, and Settings Visuals/Text Size policy. Product decisions D-012 and D-017 reflect the immutable initial class schema and sole application-wide Text Size preference.
 - The canonical product, information-architecture, interaction-state, and detailed-workflow baselines incorporate the approved July 23, 2026 UI/UX amendment.
 - The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md). The July 23 visual-review corrections and deterministic hardware-free disclosure backbone are integrated through `7d1c34a`.
 - The user explicitly authorized a visual-only scaffold for every approved workspace with no speculative controls or behavior.
@@ -51,6 +52,7 @@ Except for the expressly scoped user-approved visual-review amendment, derived e
 - The active [page-composition review](reviews/page-composition-review.md) has been reconciled to the amendment; it remains a review artifact rather than independent authority.
 - The earlier Single Image-only Qt Design Studio baseline at commit `188a649` is preserved as evidence, but its Capture composition, former smaller minimum, and former Hardware placement are superseded.
 - A bounded work order naming exact files is still required before any form, wrapper, mock, test, or CMake input is edited.
+- The current visual slice permits only deterministic visual/mock seams for the final structure. Real file copy, Dataset loading/persistence, labeling, filtering, Training/Model Test execution, Settings persistence, and application-wide scaling remain later explicitly bounded functional integration.
 - Validation for these visual rounds is intentionally proportional and user-led: avoid the full legacy/hardware test matrix and prefer manual Qt Design Studio review where practical.
 - The Qt Design Studio designer/developer workflow and form-wrapper-controller boundary remain adopted implementation constraints.
 - The refreshed `qt-qml`/`qt-qml-review` audit corrected the Live heading visual seam, Sequence Viewer row order, and four Basic imports. Production `qmllint` was clean for eight files with zero warnings; `Desktop_app_v2App` and `tst_ShellSingleImage` built; the direct Quick Test passed 18/18 in 0.722s; and `ShellSingleImage` CTest passed 1/1.

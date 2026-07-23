@@ -982,7 +982,7 @@ The same dataset-loading implementation SHALL be used by Label, Train, and Model
 
 ### 14.5 Class definition
 
-When labeling begins for a Dataset without classes, the user SHALL select:
+For a Dataset without configured classes, the user SHALL select exactly one initial schema:
 
 ```text
 2 Classes
@@ -1013,28 +1013,24 @@ Class IDs SHALL never be renamed, reordered, or reassigned.
 
 ### 14.6 Class-count stability
 
-After labels have been assigned, the Dataset’s Number of Classes SHALL remain fixed in the normal workflow.
+Once the initial class schema is configured, the Dataset’s Number of Classes SHALL remain fixed in the normal workflow.
 
-This prevents existing labels from becoming undefined.
+The product SHALL NOT expose class-count switching or migration for an already configured Dataset. This preserves Class IDs and label integrity.
 
 ### 14.7 Required labeling actions
 
-The Label workspace SHALL support:
+The Label panel SHALL present exactly:
 
 - assign Class 0, Class 1, or Class 2;
-- Skip;
-- Remove from Dataset;
+- Exclude;
 - Undo;
-- relabel an already labeled crop;
-- bulk-label selected crops;
+- Previous;
+- Next;
 - filter by class;
-- filter Unlabeled;
-- filter Skipped;
-- filter Removed;
-- review Skipped crops;
-- restore a Removed crop to the Dataset.
+- filter Unreviewed;
+- filter Excluded.
 
-The workspace SHALL NOT require per-crop notes.
+Class assignment SHALL support labeling and relabeling. Class 2 SHALL be unavailable for a two-class Dataset. Skip, Remove, Restore, and other former Label-side actions SHALL NOT appear in this composition. The workspace SHALL NOT require per-crop notes.
 
 ### 14.8 State definitions
 
@@ -1045,15 +1041,17 @@ The workspace SHALL NOT require per-crop notes.
 | **Skipped** | User deferred the crop for later review | No |
 | **Removed** | Excluded from the Dataset while the PNG remains on disk | No |
 
-### 14.9 Remove from Dataset behavior
+The Label presentation groups Unlabeled and existing Skipped crops under **Unreviewed** where applicable, and presents Removed crops as **Excluded**. These display terms do not change the existing Dataset persistence states.
 
-Selecting **Remove from Dataset** SHALL:
+### 14.9 Exclude behavior
+
+Selecting **Exclude** SHALL:
 
 - retain the PNG on disk;
 - retain the crop entry in `dataset.json`;
-- set the crop state to `removed`;
+- apply the existing persisted `removed` state presented to the user as **Excluded**;
 - exclude the crop from Training and Model Test;
-- allow restoration.
+- preserve immutable Class IDs and the configured class schema.
 
 ### 14.10 Image Counts
 
@@ -1063,9 +1061,8 @@ The workspace SHALL display factual counts, for example:
 Class 0 — Empty                 942
 Class 1 — Single cell           731
 Class 2 — Multiple cells        114
-Unlabeled                        83
-Skipped                          19
-Removed                           7
+Unreviewed (Unlabeled + Skipped) 102
+Excluded (stored Removed)           7
 ```
 
 The heading SHALL be **Image Counts**, not a quality warning.
@@ -1077,6 +1074,8 @@ The system SHALL NOT warn about class imbalance or prevent labeling/training bec
 Changes SHALL be saved to the selected `dataset.json`.
 
 The system SHOULD use atomic file replacement so that a failed write does not leave truncated JSON.
+
+**Save As** SHALL create an independent Dataset copy and make that copy the current loaded Dataset. It SHALL NOT create a version-history entry. Subsequent normal label changes SHALL save to the current loaded Dataset.
 
 ### 14.12 Editing after training
 
@@ -1091,8 +1090,8 @@ Existing model packages SHALL retain the Class Name snapshot stored when each mo
 - A user can complete a two-class or three-class Dataset.
 - Class IDs remain numerical and stable.
 - Class Names are user-editable.
-- Skip and Remove are distinct.
-- Removed files remain on disk.
+- Unreviewed and Excluded remain distinct.
+- Excluded files remain on disk.
 - Only Labeled crops enter Training and Model Test.
 - Image Counts are shown without judgment or blocking.
 
@@ -1244,6 +1243,8 @@ The fixed 70/15/15 split and seed 1729 SHALL remain read-only or hidden.
 
 ### 15.10 Live training display
 
+The Train workspace SHALL keep Dataset Summary in a main white region and place Results in a separate main white region below it.
+
 The Train workspace SHALL display:
 
 - elapsed time;
@@ -1390,19 +1391,18 @@ It SHALL exclude:
 
 ### 16.8 Primary flow
 
-1. The user opens Model Test.
-2. The user selects a model.
-3. The user selects a Dataset.
-4. The system loads both through their authoritative loaders.
-5. The system verifies technical readability and matching class counts.
-6. The user selects **Start Model Test**.
-7. Inference is run over all eligible Labeled crops.
-8. The interface displays progress.
-9. On completion, the interface displays:
+1. The user opens Model Test with the authoritative Active Model.
+2. The user selects a Dataset.
+3. The system loads both through their authoritative loaders.
+4. The system verifies technical readability and matching class counts.
+5. The user selects **Start Model Test**.
+6. Inference is run over all eligible Labeled crops.
+7. The interface displays progress.
+8. Dataset Summary remains in a main white region and a separate main white Results region below displays:
    - Overall Accuracy;
    - Per-Class Accuracy;
    - Confusion Matrix.
-10. The user may export or open the result CSV.
+9. The Results region also presents the approved prediction summaries, and the user may export or open the result CSV.
 
 ### 16.9 Test CSV
 
@@ -2336,7 +2336,7 @@ The first release SHALL prioritize:
 
 ### 23.1 Purpose
 
-Provide direct access to user-controlled application and hardware configuration.
+Provide direct access to the reduced application preferences and information surface.
 
 ### 23.2 Entry point
 
@@ -2344,54 +2344,18 @@ Provide direct access to user-controlled application and hardware configuration.
 Settings
 ```
 
-### 23.3 Recommended groups
+### 23.3 Settings groups
 
 ```text
-Camera
-Droplet Detection
-Droplet Crops
-DAQ
-Sorting
-Training
 Storage
-Advanced
+Application Information
+Diagnostics
+Visuals
 ```
 
-### 23.4 Camera settings
+Settings SHALL NOT add any other group. Camera and DAQ settings remain in the Hardware panel, and fixed qualified detector, crop, routing, timing, and training configuration remain outside Settings.
 
-Camera settings SHALL reflect controls supported by the qualified camera integration.
-
-The application SHALL NOT apply camera settings while a camera-owning operation is active.
-
-### 23.5 Droplet Detection settings
-
-The user SHALL control supported droplet-detection parameters.
-
-The system SHALL record the applied values in Dataset and Run metadata.
-
-### 23.6 Droplet Crop settings
-
-The first-release training Dataset contract SHALL save Droplet Crops as 64 × 64 PNG.
-
-Other detector or preview crop parameters MAY be user-controlled where supported, but the saved training-crop contract SHALL remain stable.
-
-### 23.7 DAQ settings
-
-DAQ settings SHALL include the qualified device, output channel, waveform/pulse settings, and timing settings needed by the existing hardware integration.
-
-The DAQ Output Channel SHALL remain distinct from Hit boundary calibration.
-
-### 23.8 Sorting settings
-
-Sorting settings SHALL include:
-
-- Trigger Every Droplet;
-- Hit Class;
-- Hit boundary calibration;
-- timing values;
-- optional full-sequence recording.
-
-### 23.9 Storage settings
+### 23.4 Storage
 
 The user SHALL be able to:
 
@@ -2399,20 +2363,21 @@ The user SHALL be able to:
 - select another root or per-operation Save Location;
 - open the data root in Windows Explorer.
 
-### 23.10 Training settings
+### 23.5 Application Information
 
-The system MAY expose information about the bundled training environment and selected device.
+Application Information SHALL display the OpenDSS application and schema versions plus factual runtime and driver availability.
 
-The user SHALL NOT be required to browse for a Python executable or manually register a virtual environment.
+### 23.6 Diagnostics
 
-### 23.11 Offline hardware behavior
+Diagnostics SHALL provide access to the diagnostic folder. Technical detail remains in program logs rather than normal workspace error text.
 
-Without hardware:
+### 23.7 Visuals
 
-- settings and Setup Profiles MAY be viewed;
-- profiles MAY be imported or exported;
-- hardware Apply/Test controls SHALL be disabled;
-- no named diagnostic mode SHALL be introduced.
+Visuals SHALL contain only **Text Size**.
+
+Text Size is an application-wide preference from **80%** through **200%**, inclusive, with a default of **100%**. No other setting SHALL be added.
+
+Storage and Text Size preference state SHALL have one authoritative owner consistent with **SettingsRepository**; workspaces SHALL NOT duplicate that authority.
 
 ---
 
@@ -3166,15 +3131,12 @@ No placeholder buttons SHALL be added for excluded features.
 **When** the user chooses three classes  
 **Then** Class IDs 0, 1, and 2 are available.
 
-## 52. AC-09 — Skip and Remove
+## 52. AC-09 — Exclude
 
 **Given** a displayed Droplet Crop  
-**When** the user selects Skip  
-**Then** it remains available for later review and is excluded from Training.
-
-**When** the user selects Remove from Dataset  
+**When** the user selects Exclude  
 **Then** its PNG remains on disk  
-**And** its state becomes Removed  
+**And** the existing persisted state becomes Removed, presented as Excluded  
 **And** it is excluded from Training and Model Test.
 
 ## 53. AC-10 — Automatic Training split
@@ -3423,7 +3385,7 @@ The reconstruction SHALL include at least these fast tests:
 1. The same valid `dataset.json` is accepted by Label, Train, and Model Test.
 2. The same invalid `dataset.json` produces the same technical error in all three.
 3. One Droplet Dataset Capture detection produces one Droplet Crop entry.
-4. Skipped and Removed crops are excluded from Training and Model Test.
+4. Unlabeled, Skipped, and Removed crops are excluded from Training and Model Test; the Label UI presents the applicable aggregate filters as Unreviewed and Excluded.
 5. Training uses fixed 70/15/15 and seed 1729.
 6. Saving a model makes it Active and persists the selection.
 7. Class-Based Sorting maps only the selected Hit Class to Hit.

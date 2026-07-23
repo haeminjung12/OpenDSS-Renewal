@@ -222,38 +222,39 @@ The name **Droplet Dataset Capture** replaces **Dataset Capture** throughout:
 
 The central Droplet Crop grid shall dominate the workspace.
 
-The right panel contains two collapsible sections:
+The right panel uses the shared 390 px expanded-width token and collapses as one outer panel. It contains, in order:
 
 ```text
-Selected Crop
-Classes & Filter
+Load Dataset
+Dataset Summary
+Label
+Filter
+Save As
 ```
 
-## 6.2 Selected Crop section
+**Load Dataset** is a static, always-expanded card/header. **Save As** is placed at the bottom-right.
 
-This section contains:
+## 6.2 Dataset Summary
 
-- enlarged selected Droplet Crop;
-- Class 0 action;
-- Class 1 action;
-- Class 2 action when applicable;
-- Skip;
-- Remove from Dataset;
-- Restore when applicable.
+Dataset Summary shows total and labeled counts. For an unconfigured Dataset it contains initial setup for exactly two or three classes. For a configured Dataset it displays the immutable class schema and does not expose class-count switching.
 
-## 6.3 Classes & Filter section
+## 6.3 Label and Filter
 
-This section contains:
+Label contains the selected-crop preview and exactly:
 
-- Class Names;
-- class counts;
-- All;
 - Class 0;
 - Class 1;
-- Class 2 when applicable;
-- Unlabeled;
-- Skipped;
-- Removed.
+- Class 2;
+- Exclude;
+- Undo;
+- Previous;
+- Next.
+
+Class 2 remains visible but disabled for a two-class Dataset. Skip, Remove, Restore, and other former Label-side actions are absent.
+
+Filter contains class list/count filters and Excluded and Unreviewed when applicable.
+
+Dataset Save As creates an independent copy and makes it the current loaded Dataset. It is not version history. Ordinary label changes continue saving to the current Dataset under the existing persistence contract.
 
 ## 6.4 Droplet Crop visual states
 
@@ -264,13 +265,12 @@ Approved direction:
 - **Class 0:** blue;
 - **Class 1:** orange;
 - **Class 2:** purple;
-- **Unlabeled:** no class border;
-- **Skipped:** gray border or gray treatment;
-- **Removed:** gray overlay with an X.
+- **Unreviewed:** no class border;
+- **Excluded:** gray overlay with an X.
 
 Red and green shall not be used for Class identity.
 
-Skipped and Removed shall remain visibly distinct.
+Unreviewed and Excluded shall remain visibly distinct.
 
 Selection, keyboard focus, Class identity, and crop state shall use separate visual treatments.
 
@@ -370,6 +370,8 @@ If final saving fails:
 
 ## 8.3 Live Training presentation
 
+Dataset Summary remains a main white region. A separate main white Results region sits below it.
+
 During Training, show:
 
 - elapsed time;
@@ -388,7 +390,7 @@ Two minimal plots update live:
 
 ## 8.4 Completion presentation
 
-After successful completion and saving, show:
+After successful completion and saving, the separate Results region shows:
 
 - final overall-results table;
 - final per-class-results table;
@@ -407,6 +409,8 @@ The workspace shall not become a general analytics dashboard.
 `Models > Model Test` always uses the current **Active Model**.
 
 There is no local Model selector.
+
+Dataset Summary remains a main white region. A separate main white Results region below contains the approved metrics, confusion matrix, and prediction summaries without adding new data semantics.
 
 To test another Model:
 
@@ -838,9 +842,12 @@ It retains only:
 Storage
 Application Information
 Diagnostics
+Visuals
 ```
 
 Camera and DAQ controls do not appear in Settings.
+
+Visuals contains only application-wide **Text Size**, selectable from **80%** through **200%**, default **100%**. No other setting is added.
 
 ---
 

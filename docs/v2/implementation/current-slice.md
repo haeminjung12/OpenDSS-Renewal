@@ -6,6 +6,8 @@ User-authorized for Round 1 visual-only scaffold planning and implementation thr
 
 All approved GUI forms and the deterministic hardware-free disclosure backbone, including the nine July 23 visual-review corrections, are integrated through `7d1c34a`. A refreshed `qt-qml`/`qt-qml-review` audit corrected the Live heading visual seam, Sequence Viewer row order, and four Basic imports. Production `qmllint` was clean for eight files with zero warnings; `Desktop_app_v2App` and `tst_ShellSingleImage` built; the direct Quick Test passed 18/18 in 0.722s; and `ShellSingleImage` CTest passed 1/1.
 
+The final approved structure now records Label's ordered 390 px outer-collapsible panel, Dataset Save As copy-and-load semantics, shared outer-panel behavior, Train and Model Test Results placement, and Settings Visuals/Text Size policy. These are documentation authority for the next visual/mock work; they are not implemented production behavior.
+
 This slice remains open only for user-led overall visual validation: Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a representative larger 16:9 size, including keyboard focus and non-color cues. No GUI automation was run for the refreshed audit/validation; the earlier attempt was interrupted by user Escape and its first launch lacked the MinGW runtime on `PATH`, so it is not accepted evidence. Main retains unrelated user-owned dirty `AGENTS.md` and orchestrator-skill edits, plus the protected untracked `Desktop_app_v2.qmlproject.qtds`; do not treat the tracked main worktree as clean.
 
 The earlier baseline committed as `188a649` remains evidence. Its Single Image-only Capture composition, former smaller minimum, and former Hardware placement are superseded and must not be extended.
@@ -44,6 +46,7 @@ Establish the amended shell, Mock Single Image presentation, and a visual-only n
 - deterministic visual selection/mock states sufficient to review each approved workspace composition;
 - proposed exported aliases, signals, and state names only where an immediate Round 2 consumer is identified.
 - the user-approved visual-review consequences: shared click-to-collapse right-panel and Hardware disclosures; active primary navigation that remains selected; intrinsic-height expanded bodies; centered Sequence Viewer controls; consistent titles; the reviewed Label composition; source-grounded Live disclosures; and Settings controls inside section borders.
+- deterministic visual/mock seams only for the final Label composition, shared 390 px outer-panel width and whole-panel collapse, Train and Model Test Dataset Summary/Results regions, and Settings Visuals/Text Size presentation.
 
 ## Authorized files
 
@@ -57,6 +60,7 @@ No files are authorized by this planning record alone. The orchestrator must iss
 - DAQ integration or physical output;
 - detector, inference, Training, Model Test, Live, Sequence Test, Results, Run, or persistence behavior;
 - speculative placeholder controls, fields, settings, or states inside the skeletal workspace hosts;
+- real Dataset file copy, Dataset loading or persistence, labeling or filtering behavior, Training or Model Test execution, Settings persistence, or application-wide Text Size scaling;
 - changes to protected reusable technical assets;
 - hand edits to Qt Design Studio-generated CMake files;
 - a Home screen, separate Sort Setup workspace, local Model selectors, detailed visible diagnostics, or any behavior copied from legacy UI policy.
@@ -85,6 +89,7 @@ No files are authorized by this planning record alone. The orchestrator must iss
 - Normal mock failure presentation is exactly `Error`; technical detail is absent from the workspace.
 - All approved workspaces have a recognizable, source-grounded visual host without speculative controls or runtime behavior.
 - Listed visual-review topics conform to the [user-approved visual-review amendment](../OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md), including intrinsic-height expanded right-panel bodies and the reviewed Label, Sequence Viewer, Live, and Settings composition.
+- Final-structure mocks use the shared 390 px expanded outer-panel width and whole-panel collapse; Label uses only Load Dataset, Dataset Summary, Label, Filter, and bottom-right Save As; Train and Model Test keep Dataset Summary above a separate Results region; Settings contains only Storage, Application Information, Diagnostics, and Visuals with Text Size at 80%–200%, default 100%.
 - Modified forms remain editable in Qt Design Studio 2D view and render in Live Preview.
 - No production, generated, protected, or later-slice source is changed.
 

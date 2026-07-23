@@ -36,15 +36,16 @@ The July 23, 2026 UI/UX amendment is incorporated into this product model withou
 - Startup remains `Data > Capture`. OpenDSS attempts Camera connection automatically. If unavailable, one session-only prompt asks `Camera unavailable. Continue?`; Yes continues without Camera and No closes OpenDSS. `Start Camera` controls streaming.
 - Normal visible failures use the message `Error`; technical details go to the program log under `Settings > Diagnostics`. Paths appear only after confirmed writes, and failure never projects success.
 - Capture retains one shared Camera preview and three independently collapsible bodies under permanently visible headings: Single Image, Image Sequence, and **Droplet Dataset Capture**. Multiple bodies may be open while idle; an active section remains open while the other headings remain visible but disabled.
-- Label is dominated by the Droplet Crop grid. Its right panel contains **Selected Crop** and **Classes & Filter** collapsible sections. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
+- Workspace outer right panels collapse as a whole and share one consistent expanded width, represented by the current 390 px implementation token. Inner disclosure sections retain intrinsic stacking where applicable.
+- Label is dominated by the Droplet Crop grid. Its fixed-width, outer-collapsible right panel contains, in order, **Load Dataset**, **Dataset Summary**, **Label**, **Filter**, and bottom-right **Save As**. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
 - **Sequence Viewer** is frame-navigation only. It has no Play, Pause, automatic playback, speed control, or playback lifecycle state.
-- Train collects Dataset, Faster or More Accurate, Model Name, and Save Location before Start. Successful Training automatically saves the Model Package and makes it Active. Save failure retains temporary artifacts, exposes Retry Save, and does not activate the Model. Training shows two minimal live plots and the specified completion tables.
-- Model Test and Sequence Test always use the Active Model and have no local Model selector. The Active Model cannot be replaced or mutated while Model Test, Live, or Sequence Test uses it.
+- Train collects Dataset, Faster or More Accurate, Model Name, and Save Location before Start. Successful Training automatically saves the Model Package and makes it Active. Save failure retains temporary artifacts, exposes Retry Save, and does not activate the Model. Dataset Summary remains a main white region, with a separate main white Results region below it for the two approved live plots and specified completion tables.
+- Model Test and Sequence Test always use the Active Model and have no local Model selector. The Active Model cannot be replaced or mutated while Model Test, Live, or Sequence Test uses it. Model Test keeps Dataset Summary as a main white region and places its approved metrics, confusion matrix, and prediction summaries in a separate main white Results region below.
 - Library selection is distinct from activation. An Active Model row has a green check plus textual or accessible meaning; Set Active remains explicit; selected Model details live in one collapsible panel.
 - Live stays in one workspace from setup through completion. Trigger Every Droplet and DAQ Output are independent toggles. DAQ Output OFF still permits nonphysical processing, logging, and Run persistence without DAQ readiness.
 - Hit boundary calibration uses one clicked image point, a horizontal line extending right, and `Top is Hit` or `Bottom is Hit`. It affects Observed Route only and is saved in the Setup Profile and Run Summary.
 - Sequence Test accepts OpenDSS Image Sequence folders containing `sequence.json`, uses editable Processing FPS defaulted from recorded FPS, loads through a bounded memory buffer, and keeps Physical DAQ Output off by default.
-- Results keeps the loaded Run in the center while a right-side Runs panel requires explicit selection plus Load. Settings contains only Storage, Application Information, and Diagnostics.
+- Results keeps the loaded Run in the center while a right-side Runs panel requires explicit selection plus Load. Settings contains only Storage, Application Information, Diagnostics, and Visuals; Visuals contains only the application-wide Text Size preference from 80% through 200%, default 100%.
 
 ---
 
@@ -340,25 +341,26 @@ Droplet detection, crop generation, and associated internal timing use fixed qua
 
 Label opens one OpenDSS v2 `dataset.json` through the authoritative Dataset contract.
 
-The scientist may define either:
+For a Dataset without configured classes, the scientist selects exactly one initial class schema:
 
 ```text
 2 Classes: Class IDs 0 and 1
 3 Classes: Class IDs 0, 1, and 2
 ```
 
-Class count and Class IDs become stable after labeling begins. Class Names remain editable.
+Once configured, the class count and Class IDs are immutable; the normal product does not switch or migrate a configured Dataset between two and three classes. Class Names remain editable.
 
-Required actions include:
+The Droplet Crop grid dominates the main area. One fixed-width, outer-collapsible right panel contains, in order:
 
-- assign a class;
-- relabel;
-- bulk label;
-- Skip;
-- Remove from Dataset;
-- restore Removed;
-- Undo;
-- filter by class and state.
+1. **Load Dataset**, a static, always-expanded card/header;
+2. **Dataset Summary**, showing total and labeled counts, the initial two-or-three-class setup for an unconfigured Dataset, or the immutable configured class schema without class-count switching;
+3. **Label**, showing the selected-crop preview and exactly **Class 0**, **Class 1**, **Class 2**, **Exclude**, **Undo**, **Previous**, and **Next**; Class 2 is unavailable for a two-class Dataset;
+4. **Filter**, showing class list/count filters and **Excluded** and **Unreviewed** when applicable;
+5. **Save As** at the bottom-right.
+
+Class assignment supports initial labeling and relabeling. **Exclude** retains the crop artifact and excludes it from Training and Model Test. The former **Skip**, **Remove**, and **Restore** actions are not part of this composition.
+
+Normal label changes continue saving to the current Dataset under the existing Dataset persistence contract. **Save As** creates an independent Dataset copy and makes that copy the current loaded Dataset. It is not Dataset version history.
 
 Only Labeled crops are eligible for Training and Model Test.
 
@@ -405,6 +407,8 @@ Model Name and Save Location are required before Training starts. When Training 
 
 Low performance does not prevent saving or activation when the required artifacts were produced.
 
+The workspace keeps Dataset Summary in a main white region. A separate main white **Results** region sits below it and contains the two approved live plots during Training and the approved completion tables after Training; this placement does not add new data semantics.
+
 ## 7.5 Models > Model Test
 
 Model Test remains a first-class workspace.
@@ -414,6 +418,8 @@ It uses the authoritative Active Model and accepts one compatible labeled Datase
 It displays progress, overall accuracy, per-class accuracy, and a confusion matrix, and writes a summary plus per-image predictions CSV.
 
 It does not change Active Model state.
+
+The workspace keeps Dataset Summary in a main white region. A separate main white **Results** region sits below it and contains the approved metrics, confusion matrix, and prediction summaries; this placement does not add new data semantics.
 
 Model Test uses the same automatic compute-device policy as Training:
 
@@ -593,6 +599,7 @@ Settings remains a reduced workspace containing only:
 Storage
 Application Information
 Diagnostics
+Visuals
 ```
 
 It does not duplicate Camera or DAQ controls.
@@ -603,7 +610,10 @@ Representative functions are:
 - open the data root in Windows Explorer;
 - display application and schema versions;
 - display runtime and driver availability;
-- open the diagnostic folder.
+- open the diagnostic folder;
+- set application-wide Text Size from **80%** through **200%**, default **100%**.
+
+**Visuals** contains only Text Size. Settings does not expose any other visual or application preference.
 
 ---
 
@@ -778,7 +788,7 @@ They apply immediately while valid, available, and idle.
 The following remain normal user selections rather than technical tuning parameters:
 
 - Dataset;
-- two or three classes;
+- an initial two-class or three-class schema only for a Dataset that has not yet been configured;
 - Class Names and labels;
 - Model Type: Faster or More Accurate;
 - Model and Active Model;
@@ -788,6 +798,7 @@ The following remain normal user selections rather than technical tuning paramet
 - Physical DAQ Output for Sequence Test;
 - Record Full Image Sequence;
 - names, notes, Duration, and Save Location.
+- application-wide Text Size from 80% through 200%.
 
 ### 11.3 Fixed qualified application configuration
 
@@ -1010,7 +1021,7 @@ A suitable ownership boundary is:
 | Current long-running operation and resource locks | OperationCoordinator |
 | Training execution | TrainingService |
 | Run discovery and persisted Run data | RunRepository |
-| Storage/application preferences | SettingsRepository |
+| Storage and application-wide Text Size preferences | SettingsRepository |
 | Global header snapshot | AppStateStore as a projection of domain owners, not a second authority |
 
 Individual workspaces must not duplicate authoritative state.
@@ -1034,12 +1045,12 @@ This ownership table is an architecture constraint for the next phase, not a req
 | D-009 | Setup Profiles | Ordinary files: Open, Save, Save As | No managed profile library |
 | D-010 | Legacy artifacts | Unsupported by product; convert during engineering work | V2-only public loaders |
 | D-011 | Model Test placement | First-class `Models > Model Test` workspace | Retains dedicated test operation |
-| D-012 | Supported classes | Two and three classes | Retains both scientific workflows |
+| D-012 | Supported classes | Two and three classes, selected only during initial Dataset class setup and immutable once configured | Retains both scientific workflows without class-count switching or migration |
 | D-013 | Results scope | Runs only | Live Sorting and Sequence Test only |
 | D-014 | Capture composition | One shared live Camera preview with three fixed, independently collapsible right-panel sections; all headings always visible, none expanded by default, expanded bodies sharing space and scrolling independently, and active/result visibility preserved | Shared Capture layout |
 | D-015 | Advanced Training Parameters | Not editable | Qualified fixed configurations only |
 | D-016 | Settings application | Camera and DAQ only; immediate while available and idle | Shared shell-level hardware panel |
-| D-017 | Settings workspace | Retain reduced Settings | Storage, application information, diagnostics |
+| D-017 | Settings workspace | Retain reduced Settings | Storage, Application Information, Diagnostics, and Visuals; Visuals contains only application-wide Text Size from 80% through 200%, default 100%, owned by SettingsRepository preference state |
 | D-018 | Startup | Open Data > Capture every launch with all three Capture sections collapsed; no last-workspace memory | Fixed Capture workspace startup |
 | D-019 | Fault communication | Simple contextual communication | Disabled reason, one banner, direct recovery actions |
 

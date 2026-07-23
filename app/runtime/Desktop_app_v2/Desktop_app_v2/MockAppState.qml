@@ -3,9 +3,17 @@ import QtQml
 QtObject {
     id: root
 
-    property string cameraStatus: qsTr("Streaming")
+    property string selectedWorkspace: "capture"
+    property string cameraStatus: qsTr("Unavailable")
+    property string daqStatus: qsTr("Ready")
+    property string activeModelText: qsTr("No Active Model")
     property bool conflictingOperation: false
     property bool hardwareDrawerOpen: false
+    property bool cameraPromptHandled: false
+    property string cameraPromptChoice: ""
+    property bool singleImageOpen: false
+    property bool imageSequenceOpen: false
+    property bool datasetOpen: false
     property bool nextCaptureFails: false
     property string fileNameDraft: ""
     property string saveLocationDraft: qsTr("C:/OpenDSS/Images")
@@ -14,17 +22,22 @@ QtObject {
     property bool captureWillFail: false
     property string savedPath: ""
 
-    readonly property string daqStatus: qsTr("Ready")
     readonly property string activityText: capturing ? qsTr("Capturing Image") : qsTr("Idle")
     readonly property bool captureEnabled: !capturing && !captureFailed && cameraStatus === qsTr("Streaming") && !conflictingOperation
     readonly property string disabledReason: capturing ? qsTr("Capture is already in progress")
                                                    : conflictingOperation ? qsTr("Another operation is active")
                                                    : cameraStatus !== qsTr("Streaming") ? qsTr("Camera unavailable")
-                                                   : captureFailed ? qsTr("Output folder is not writable") : ""
+                                                   : ""
     readonly property bool showBanner: captureFailed
-    readonly property string bannerHeading: qsTr("Capture Image failed")
-    readonly property string bannerText: qsTr("The selected output folder could not be written. No image was saved.")
+    readonly property string bannerHeading: qsTr("Error")
+    readonly property string bannerText: ""
     readonly property bool showSavedPath: savedPath !== ""
+    readonly property string singleImagePresentation: capturing ? "capturing"
+                                                             : captureFailed ? "error"
+                                                             : cameraStatus === qsTr("Streaming") ? (savedPath !== "" ? "completed" : "ready")
+                                                             : "unavailable"
+    readonly property bool otherCaptureHeadingsDisabled: capturing
+    readonly property bool cameraPromptVisible: cameraStatus === qsTr("Unavailable") && !cameraPromptHandled
 
     function browse() {
         saveLocationDraft = qsTr("C:/OpenDSS/MockImages")
@@ -38,8 +51,38 @@ QtObject {
         nextCaptureFails = false
         captureFailed = false
         savedPath = ""
+        singleImageOpen = true
         capturing = true
         captureTimer.restart()
+    }
+
+    function selectWorkspace(workspace) {
+        selectedWorkspace = workspace
+    }
+
+    function toggleSingleImage() {
+        if (!capturing)
+            singleImageOpen = !singleImageOpen
+    }
+
+    function toggleImageSequence() {
+        if (!capturing)
+            imageSequenceOpen = !imageSequenceOpen
+    }
+
+    function toggleDataset() {
+        if (!capturing)
+            datasetOpen = !datasetOpen
+    }
+
+    function continueWithoutCamera() {
+        cameraPromptHandled = true
+        cameraPromptChoice = "yes"
+    }
+
+    function declineCamera() {
+        cameraPromptHandled = true
+        cameraPromptChoice = "no"
     }
 
     property Timer captureTimer: Timer {

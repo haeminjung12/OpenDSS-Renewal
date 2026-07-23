@@ -6,6 +6,8 @@ import Desktop_app_v2
 Item {
     id: root
     property string presentation: "ready"
+    property bool cameraStreaming: false
+    property bool startSortingEnabled: false
     property alias primaryActionButton: primaryActionButton
     property alias secondaryActionButton: secondaryActionButton
     readonly property bool active: presentation === "running" || presentation === "paused"
@@ -43,13 +45,13 @@ Item {
 
                     Button {
                         id: primaryActionButton
-                        text: root.active ? (root.presentation === "paused" ? qsTr("Resume") : qsTr("Pause")) : (root.completed ? qsTr("Start New Run") : qsTr("Start Camera"))
+                        text: root.active ? (root.presentation === "paused" ? qsTr("Resume") : qsTr("Pause")) : (root.completed ? qsTr("Start New Run") : (root.presentation === "ready" && root.cameraStreaming ? qsTr("Stop Camera") : qsTr("Start Camera")))
                         enabled: !root.unavailable && !root.error
                     }
                     Button {
                         id: secondaryActionButton
                         text: root.active ? qsTr("Stop") : (root.completed ? qsTr("Open Run Summary") : qsTr("Start Sorting"))
-                        enabled: !root.unavailable && !root.error
+                        enabled: root.active || root.completed || (root.presentation === "ready" && root.startSortingEnabled)
                     }
                 }
 

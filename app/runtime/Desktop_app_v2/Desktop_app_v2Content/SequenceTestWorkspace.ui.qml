@@ -83,10 +83,10 @@ Item {
                                 anchors.margins: Constants.spacing
                                 spacing: Constants.spacing
                                 Text { text: qsTr("Active Model: %1").arg(root.activeModelText); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: root.loaded ? qsTr("Sequence loaded") : qsTr("No sequence selected"); color: Constants.mutedTextColor; font: Constants.smallFont }
+                                Text { text: root.loaded ? qsTr("Sequence loaded") : (root.presentation === "selected" ? qsTr("Sequence selected") : qsTr("No sequence selected")); color: Constants.mutedTextColor; font: Constants.smallFont }
                                 Text { text: root.running ? qsTr("Processing progress") : qsTr("Load status"); color: Constants.mutedTextColor; font: Constants.smallFont }
                                 Button { id: loadSequenceButton; text: qsTr("Load Sequence"); enabled: !root.running && !root.error }
-                                Button { id: loadToMemoryButton; text: qsTr("Load to Memory"); enabled: root.presentation === "ready" }
+                                Button { id: loadToMemoryButton; text: qsTr("Load to Memory"); enabled: root.presentation === "selected" }
                                 CheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output"); enabled: !root.running }
                                 Button { id: startStopButton; text: root.running ? qsTr("Stop") : qsTr("Start Sequence Test"); enabled: root.running || root.presentation === "ready" }
                             }

@@ -13,8 +13,10 @@ Rectangle {
     property string loadedRunId: ""
     property bool runsError: false
     property bool runsPanelExpanded: true
+    property bool rightPanelExpanded: true
     property bool notesEditing: false
     property alias runsPanelToggleButton: runsSection.headingButton
+    property alias rightPanelToggleButton: rightPanelToggleButton
     property alias loadSelectedRunButton: loadSelectedRunButton
     property alias notesEditor: notesEditor
     property alias editNotesButton: editNotesButton
@@ -252,12 +254,23 @@ Rectangle {
 
         Item {
             id: runsPanel
-            width: Constants.operationPanelWidth
+            width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
             height: parent.height
+
+            Button {
+                id: rightPanelToggleButton
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                height: Constants.controlHeight
+                text: root.rightPanelExpanded ? "›" : "‹"
+                Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Runs panel") : qsTr("Expand Runs panel")
+            }
 
             CollapsibleSection {
                 id: runsSection
-                anchors.top: parent.top
+                visible: root.rightPanelExpanded
+                anchors.top: rightPanelToggleButton.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
                 sectionTitle: qsTr("Runs")

@@ -14,11 +14,13 @@ Rectangle {
     property bool modelLocked: false
     property bool showError: false
     property bool selectedModelExpanded: true
+    property bool rightPanelExpanded: true
     property alias activeModelRowButton: activeModelRowButton
     property alias candidateModelRowButton: candidateModelRowButton
     property alias setActiveButton: setActiveButton
     property alias openInModelTestButton: openInModelTestButton
     property alias selectedModelHeadingButton: selectedModelSection.headingButton
+    property alias rightPanelToggleButton: rightPanelToggleButton
 
     Text {
         id: workspaceTitle
@@ -41,7 +43,7 @@ Rectangle {
         anchors.margins: Constants.workspaceMargin
         spacing: Constants.spacing
         Rectangle {
-            width: parent.width * 0.4
+            width: parent.width - rightPanel.width - Constants.spacing
             height: parent.height
             color: Constants.surfaceColor
             border.color: Constants.borderColor
@@ -92,13 +94,23 @@ Rectangle {
             }
         }
         Rectangle {
-            width: parent.width * 0.6 - Constants.spacing
+            id: rightPanel
+            width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
             height: parent.height
             color: root.showError ? Constants.errorSurfaceColor : Constants.surfaceColor
             border.color: root.showError ? Constants.faultColor : Constants.borderColor
 
+            Button {
+                id: rightPanelToggleButton
+                width: parent.width
+                height: Constants.controlHeight
+                text: root.rightPanelExpanded ? "›" : "‹"
+                Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Library panel") : qsTr("Expand Library panel")
+            }
+
             Column {
-                anchors.top: parent.top
+                visible: root.rightPanelExpanded
+                anchors.top: rightPanelToggleButton.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: Constants.spacing

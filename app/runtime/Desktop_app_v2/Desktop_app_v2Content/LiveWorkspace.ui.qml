@@ -8,8 +8,10 @@ Item {
     property string presentation: "ready"
     property bool cameraStreaming: false
     property bool startSortingEnabled: false
+    property bool rightPanelExpanded: true
     property alias primaryActionButton: primaryActionButton
     property alias secondaryActionButton: secondaryActionButton
+    property alias rightPanelToggleButton: rightPanelToggleButton
     property alias setupProfileHeadingButton: setupProfileSection.headingButton
     property alias runInformationHeadingButton: runInformationSection.headingButton
     property alias triggerTimingHeadingButton: triggerTimingSection.headingButton
@@ -68,7 +70,7 @@ Item {
             spacing: Constants.workspaceMargin
 
             Rectangle {
-                width: parent.width - Constants.operationPanelWidth - parent.spacing
+                width: parent.width - rightPanel.width - parent.spacing
                 height: parent.height
                 color: Constants.viewerColor
                 border.color: Constants.borderColor
@@ -109,17 +111,35 @@ Item {
                 }
             }
 
-            ScrollView {
-                width: Constants.operationPanelWidth
+            Rectangle {
+                id: rightPanel
+                width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
                 height: parent.height
-                clip: true
-                contentWidth: availableWidth
+                color: Constants.surfaceColor
+                border.color: Constants.borderColor
 
-                Column {
+                Button {
+                    id: rightPanelToggleButton
                     width: parent.width
-                    spacing: Constants.spacing
+                    height: Constants.controlHeight
+                    text: root.rightPanelExpanded ? "›" : "‹"
+                    Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Live panel") : qsTr("Expand Live panel")
+                }
 
-                    CollapsibleSection {
+                ScrollView {
+                    visible: root.rightPanelExpanded
+                    anchors.top: rightPanelToggleButton.bottom
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    clip: true
+                    contentWidth: availableWidth
+
+                    Column {
+                        width: parent.width
+                        spacing: Constants.spacing
+
+                        CollapsibleSection {
                         id: setupProfileSection
                         sectionTitle: qsTr("Setup Profile")
                         expanded: root.setupProfileExpanded
@@ -149,7 +169,7 @@ Item {
                         }
                     }
 
-                    CollapsibleSection {
+                        CollapsibleSection {
                         id: runInformationSection
                         sectionTitle: qsTr("Run Information")
                         expanded: root.runInformationExpanded
@@ -182,7 +202,7 @@ Item {
                         }
                     }
 
-                    CollapsibleSection {
+                        CollapsibleSection {
                         id: triggerTimingSection
                         sectionTitle: qsTr("Trigger & Timing")
                         expanded: root.triggerTimingExpanded
@@ -229,7 +249,7 @@ Item {
                         }
                     }
 
-                    CollapsibleSection {
+                        CollapsibleSection {
                         id: outputRecordingSection
                         sectionTitle: qsTr("Output & Recording")
                         expanded: root.outputRecordingExpanded
@@ -259,7 +279,7 @@ Item {
                         }
                     }
 
-                    CollapsibleSection {
+                        CollapsibleSection {
                         id: runningSection
                         sectionTitle: qsTr("Running")
                         expanded: root.runningExpanded
@@ -288,6 +308,7 @@ Item {
                                 Text { text: qsTr("Camera FPS: 61.3  •  Inference Time: 4.2 ms"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                                 Text { text: root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the camera action bar.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the camera action bar.") : qsTr("Pause or Stop this Run from the camera action bar.")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
+                        }
                         }
                     }
                 }

@@ -8,11 +8,13 @@ Item {
     property string presentation: "empty"
     property string activeModelText: qsTr("No Active Model")
     property bool sequenceTestExpanded: true
+    property bool rightPanelExpanded: true
     property alias loadSequenceButton: loadSequenceButton
     property alias loadToMemoryButton: loadToMemoryButton
     property alias startStopButton: startStopButton
     property alias physicalDaqOutputControl: physicalDaqOutputControl
     property alias sequenceTestHeadingButton: sequenceTestSection.headingButton
+    property alias rightPanelToggleButton: rightPanelToggleButton
     readonly property bool loaded: presentation === "ready" || presentation === "running" || presentation === "completed"
     readonly property bool running: presentation === "running"
     readonly property bool unavailable: presentation === "unavailable"
@@ -44,7 +46,7 @@ Item {
             spacing: Constants.workspaceMargin
 
             Column {
-                width: parent.width * 0.62
+                width: parent.width - rightPanel.width - parent.spacing
                 height: parent.height
                 spacing: Constants.spacing
 
@@ -79,17 +81,35 @@ Item {
                 }
             }
 
-            ScrollView {
-                width: parent.width * 0.38 - parent.spacing
+            Rectangle {
+                id: rightPanel
+                width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
                 height: parent.height
-                clip: true
-                contentWidth: availableWidth
+                color: Constants.surfaceColor
+                border.color: Constants.borderColor
 
-                Column {
+                Button {
+                    id: rightPanelToggleButton
                     width: parent.width
-                    spacing: Constants.spacing
+                    height: Constants.controlHeight
+                    text: root.rightPanelExpanded ? "›" : "‹"
+                    Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Sequence Test panel") : qsTr("Expand Sequence Test panel")
+                }
 
-                    CollapsibleSection {
+                ScrollView {
+                    visible: root.rightPanelExpanded
+                    anchors.top: rightPanelToggleButton.bottom
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    clip: true
+                    contentWidth: availableWidth
+
+                    Column {
+                        width: parent.width
+                        spacing: Constants.spacing
+
+                        CollapsibleSection {
                         id: sequenceTestSection
                         sectionTitle: qsTr("Sequence Test")
                         expanded: root.sequenceTestExpanded
@@ -112,6 +132,7 @@ Item {
                                 CheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output"); enabled: !root.running }
                                 Button { id: startStopButton; text: root.running ? qsTr("Stop") : qsTr("Start Sequence Test"); enabled: root.running || root.presentation === "ready" }
                             }
+                        }
                         }
                     }
                 }

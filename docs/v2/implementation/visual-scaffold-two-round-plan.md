@@ -2,13 +2,13 @@
 
 ## Status and authority
 
-**Status:** User-authorized implementation workflow  
+**Status:** Closed — visual/mock baseline accepted July 23, 2026  
 **Authorized:** July 23, 2026  
 **Scope:** Visual scaffold and its immediate visual/runtime seam only
 
-This plan authorizes a visual-only navigation scaffold for every approved OpenDSS v2 workspace. It does not authorize speculative controls, operational behavior, production hardware integration, persistence, scientific processing, or later-workspace implementation.
+This plan records the completed visual-only navigation scaffold for every approved OpenDSS v2 workspace. It did not authorize speculative controls, operational behavior, production hardware integration, persistence, scientific processing, or later-workspace implementation.
 
-**Current handoff:** Approved GUI forms and the deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`. Qt Design Studio generator registration was committed at `2019cb0`, followed by the visual test-host fix at `26edf96`. Configure in `odss-v2-dbg`, both targeted builds, `ShellSingleImage` CTest (1/1), and the offscreen event-loop smoke without QML runtime warnings passed, closing the generated registration/build gate. The slice remains open only for user-led overall visual validation in Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a larger 16:9 size, including focus and non-color cues. Automated GUI interaction is not accepted evidence because it was interrupted by user Escape and its first launch lacked the MinGW runtime on `PATH`. The tracked worktree was clean at handoff, and the protected untracked `.qtds` file was preserved.
+**Current handoff:** The repository's accepted visual/mock baseline is current as of July 23, 2026; the user accepted it on that date. The accepted forms, aliases, and visual/runtime seam are the functional contract by default; design refinements continue separately and require an exact named-form ownership and alias/interface handoff before integration. This closure does not claim that every appearance or graphics refinement is complete, or that manual review found no issues. Preserve the protected locally excluded `.qtds` file and the sole dirty Qt Design Studio-generated Content CMake reorder. The follow-on Dataset Load + read-only Dataset Summary slice may not launch or be accepted until durable `qds.cmake` integration is restored and the focused Qt Quick test passes.
 
 Canonical product and interaction documents remain authoritative. This plan controls delivery order, worker ownership, and proportional validation.
 
@@ -110,7 +110,7 @@ Round 2 uses two isolated worktrees/branches from the same accepted Round 1 base
 3. Integrate the design result first only when it preserves the frozen interface.
 4. Integrate the backbone result second.
 5. Resolve visual-contract changes by returning them to the owning worker; do not guess during integration.
-6. Obtain user-led Round 2 visual acceptance after the completed generated Content CMake registration and targeted configure/build gate. Do not begin Full Capture or production integration automatically.
+6. Obtain user-led Round 2 visual acceptance after the completed generated Content CMake registration and targeted configure/build gate. **Completed:** accepted July 23, 2026. Do not begin Full Capture or other production integration automatically.
 
 ## Minimal validation policy
 

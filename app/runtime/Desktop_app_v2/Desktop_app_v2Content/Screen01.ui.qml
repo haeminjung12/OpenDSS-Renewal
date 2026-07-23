@@ -36,6 +36,21 @@ Rectangle {
     property alias browseButton: browseButton
     property alias captureButton: captureButton
     property alias drawerCloseButton: drawerCloseButton
+    property alias navCaptureButton: singleImageNavigationButton
+    property alias navLabelButton: labelNavigationButton
+    property alias navSequenceViewerButton: sequenceViewerNavigationButton
+    property alias navTrainButton: trainNavigationButton
+    property alias navModelTestButton: modelTestNavigationButton
+    property alias navLibraryButton: libraryNavigationButton
+    property alias navLiveButton: liveNavigationButton
+    property alias navSequenceTestButton: sequenceTestNavigationButton
+    property alias navRunsButton: runsNavigationButton
+    property alias navSettingsButton: settingsNavigationButton
+    property alias singleImageSection: singleImageSection
+    property alias imageSequenceSection: imageSequenceSection
+    property alias datasetCaptureSection: datasetCaptureSection
+    property alias cameraPromptYesButton: cameraPromptYesButton
+    property alias cameraPromptNoButton: cameraPromptNoButton
 
     Rectangle {
         id: header
@@ -70,18 +85,18 @@ Rectangle {
             anchors.margins: Constants.spacing
             Text { text: qsTr("Data"); font: Constants.headingFont }
             Button { id: singleImageNavigationButton; text: qsTr("Capture"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "capture" }
-            Button { text: qsTr("Label"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "label" }
-            Button { text: qsTr("Sequence Viewer"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "sequenceViewer" }
+            Button { id: labelNavigationButton; text: qsTr("Label"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "label" }
+            Button { id: sequenceViewerNavigationButton; text: qsTr("Sequence Viewer"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "sequenceViewer" }
             Text { text: qsTr("Models"); font: Constants.headingFont }
-            Button { text: qsTr("Train"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "train" }
-            Button { text: qsTr("Model Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "modelTest" }
-            Button { text: qsTr("Library"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "library" }
+            Button { id: trainNavigationButton; text: qsTr("Train"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "train" }
+            Button { id: modelTestNavigationButton; text: qsTr("Model Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "modelTest" }
+            Button { id: libraryNavigationButton; text: qsTr("Library"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "library" }
             Text { text: qsTr("Sort"); font: Constants.headingFont }
-            Button { text: qsTr("Live"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "live" }
-            Button { text: qsTr("Sequence Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "sequenceTest" }
+            Button { id: liveNavigationButton; text: qsTr("Live"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "live" }
+            Button { id: sequenceTestNavigationButton; text: qsTr("Sequence Test"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "sequenceTest" }
             Text { text: qsTr("Results"); font: Constants.headingFont }
-            Button { text: qsTr("Runs"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "runs" }
-            Button { text: qsTr("Settings"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "settings" }
+            Button { id: runsNavigationButton; text: qsTr("Runs"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "runs" }
+            Button { id: settingsNavigationButton; text: qsTr("Settings"); width: parent.width; height: Constants.navigationItemHeight; checkable: true; checked: root.selectedWorkspace === "settings" }
         }
     }
 
@@ -111,6 +126,7 @@ Rectangle {
                     anchors.fill: parent
                     anchors.margins: Constants.spacing
                     CollapsibleSection {
+                        id: singleImageSection
                         sectionTitle: qsTr("Single Image")
                         expanded: root.singleImageOpen
                         width: parent.width
@@ -133,8 +149,8 @@ Rectangle {
                             Rectangle { visible: root.singleImagePresentation === "error"; width: parent.width; height: 34; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font.bold: true; anchors.centerIn: parent } }
                         }
                     }
-                    CollapsibleSection { sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled; width: parent.width; bodyText: qsTr("Image Sequence") }
-                    CollapsibleSection { sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled; width: parent.width; bodyText: qsTr("Droplet Dataset Capture") }
+                    CollapsibleSection { id: imageSequenceSection; sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled; width: parent.width; bodyText: qsTr("Image Sequence") }
+                    CollapsibleSection { id: datasetCaptureSection; sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled; width: parent.width; bodyText: qsTr("Droplet Dataset Capture") }
                 }
             }
         }
@@ -204,7 +220,7 @@ Rectangle {
 
         Button { id: hardwareButton; text: root.drawerOpen ? "⌄" : "⌃"; width: 46; height: 34; anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin; Accessible.name: qsTr("Open or close Hardware panel") }
         Rectangle { visible: root.drawerOpen; width: Constants.hardwarePanelWidth; height: Constants.hardwarePanelHeight; color: Constants.surfaceColor; border.color: Constants.borderColor; anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin + 36; Column { spacing: Constants.spacing; anchors.fill: parent; anchors.margins: Constants.spacing; Row { Text { text: qsTr("Hardware"); font: Constants.headingFont } Button { id: drawerCloseButton; text: "⌄"; width: 38; height: 30 } } Rectangle { width: parent.width; height: 75; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("Camera\nStatus: ") + root.cameraStatus; anchors.centerIn: parent; horizontalAlignment: Text.AlignHCenter } } Rectangle { width: parent.width; height: 75; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("DAQ\nStatus: ") + root.daqStatus; anchors.centerIn: parent; horizontalAlignment: Text.AlignHCenter } } } }
-        Rectangle { visible: root.cameraPromptVisible && root.selectedWorkspace === "capture"; width: 430; height: 180; color: Constants.surfaceColor; border.color: Constants.warningColor; anchors.centerIn: parent; z: 2; Column { spacing: Constants.spacing; anchors.fill: parent; anchors.margins: Constants.spacing * 2; Text { text: qsTr("Camera unavailable. Continue?"); font: Constants.headingFont } Text { text: qsTr("Camera unavailable (not ready)"); color: Constants.warningColor; font: Constants.smallFont } Row { spacing: Constants.spacing; Button { text: qsTr("Yes"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "yes" } Button { text: qsTr("No"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "no" } } } }
+        Rectangle { visible: root.cameraPromptVisible && root.selectedWorkspace === "capture"; width: 430; height: 180; color: Constants.surfaceColor; border.color: Constants.warningColor; anchors.centerIn: parent; z: 2; Column { spacing: Constants.spacing; anchors.fill: parent; anchors.margins: Constants.spacing * 2; Text { text: qsTr("Camera unavailable. Continue?"); font: Constants.headingFont } Text { text: qsTr("Camera unavailable (not ready)"); color: Constants.warningColor; font: Constants.smallFont } Row { spacing: Constants.spacing; Button { id: cameraPromptYesButton; text: qsTr("Yes"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "yes" } Button { id: cameraPromptNoButton; text: qsTr("No"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "no" } } } }
     }
 
     states: [

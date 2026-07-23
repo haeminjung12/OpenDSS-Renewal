@@ -2,6 +2,7 @@
 This is a UI file (.ui.qml) intended for Qt Design Studio editing.
 */
 import QtQuick
+import QtQuick.Controls
 import Desktop_app_v2
 
 Item {
@@ -12,17 +13,25 @@ Item {
     property bool expanded: false
     property bool headingEnabled: true
     property int bodyHeight: Constants.compactBodyHeight
+    property alias headingButton: headingButton
     width: 320
-    height: heading.height + (expanded ? body.height : 0)
+    height: headingButton.height + (expanded ? body.height : 0)
 
-    Rectangle {
-        id: heading
+    Button {
+        id: headingButton
         width: parent.width
         height: 42
-        color: root.headingEnabled ? Constants.backgroundColor : "#e6e8eb"
-        border.color: Constants.borderColor
-        Text { text: (root.expanded ? "⌄  " : "›  ") + root.sectionTitle; color: root.headingEnabled ? Constants.textColor : Constants.mutedTextColor; font: Constants.headingFont; anchors.left: parent.left; anchors.leftMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
-        Text { text: root.headingEnabled ? (root.expanded ? qsTr("Expanded") : qsTr("Collapsed")) : qsTr("Disabled"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+        enabled: root.headingEnabled
+        focusPolicy: Qt.StrongFocus
+        background: Rectangle {
+            color: root.headingEnabled ? Constants.backgroundColor : "#e6e8eb"
+            border.color: headingButton.activeFocus ? Constants.accentColor : Constants.borderColor
+            border.width: headingButton.activeFocus ? 2 : 1
+        }
+        contentItem: Item {
+            Text { text: (root.expanded ? "⌄  " : "›  ") + root.sectionTitle; color: root.headingEnabled ? Constants.textColor : Constants.mutedTextColor; font: Constants.headingFont; anchors.left: parent.left; anchors.leftMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+            Text { text: root.headingEnabled ? (root.expanded ? qsTr("Expanded") : qsTr("Collapsed")) : qsTr("Disabled"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+        }
     }
     Rectangle {
         id: body
@@ -31,7 +40,7 @@ Item {
         height: root.bodyHeight
         color: Constants.surfaceColor
         border.color: Constants.borderColor
-        anchors.top: heading.bottom
+        anchors.top: headingButton.bottom
         Text { visible: root.bodyText !== ""; text: root.bodyText; color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
     }
 }

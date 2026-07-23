@@ -33,6 +33,7 @@ QtObject {
     property bool trainOperationPanelExpanded: true
     property string modelLibraryPresentation: "readySelected"
     property bool selectedModelExpanded: true
+    property bool modelLibraryRightPanelExpanded: true
     property string modelTestPresentation: "empty"
     property bool modelTestDatasetSelected: false
     property string modelTestOutputLocationDraft: qsTr("C:/OpenDSS/ModelTests")
@@ -40,6 +41,7 @@ QtObject {
     property bool modelTestStatusExpanded: true
     property bool modelTestOperationPanelExpanded: true
     property string livePresentation: "unavailable"
+    property bool liveRightPanelExpanded: true
     property bool liveSetupProfileExpanded: true
     property bool liveRunInformationExpanded: true
     property bool liveTriggerTimingExpanded: true
@@ -47,9 +49,11 @@ QtObject {
     property bool liveRunningExpanded: true
     property string sequenceTestPresentation: "empty"
     property bool sequenceTestExpanded: true
+    property bool sequenceTestRightPanelExpanded: true
     property bool physicalDaqOutputChecked: false
     property string runsPresentation: "runsEmpty"
     property bool runsPanelExpanded: true
+    property bool runsRightPanelExpanded: true
     property string loadedRunOutcome: "completed"
     readonly property string loadedRunStatusText: loadedRunOutcome === "stopped"
                                                    ? qsTr("Live Sorting  •  Stopped  •  2026-07-23 10:41")
@@ -262,6 +266,7 @@ QtObject {
     }
     function selectCandidateLibraryModel() { modelLibraryPresentation = "readySelected" }
     function toggleSelectedModel() { selectedModelExpanded = !selectedModelExpanded }
+    function toggleModelLibraryRightPanel() { modelLibraryRightPanelExpanded = !modelLibraryRightPanelExpanded }
     function setCandidateModelActive() {
         modelLibraryPresentation = "readyActive"
         activeModelId = "DropletNet-03"
@@ -347,6 +352,7 @@ QtObject {
         if (liveActive || livePresentation === "completed")
             liveRunningExpanded = !liveRunningExpanded
     }
+    function toggleLiveRightPanel() { liveRightPanelExpanded = !liveRightPanelExpanded }
     function liveSecondaryAction() {
         if (liveStartSortingEnabled) {
             activeOperation = "live"
@@ -370,6 +376,7 @@ QtObject {
         physicalDaqOutputChecked = false
     }
     function toggleSequenceTest() { sequenceTestExpanded = !sequenceTestExpanded }
+    function toggleSequenceTestRightPanel() { sequenceTestRightPanelExpanded = !sequenceTestRightPanelExpanded }
     function loadSequenceTestToMemory() {
         if (sequenceTestPresentation === "selected")
             sequenceTestPresentation = "ready"
@@ -389,6 +396,7 @@ QtObject {
             runsPresentation = "runsLoaded"
     }
     function toggleRunsPanel() { runsPanelExpanded = !runsPanelExpanded }
+    function toggleRunsRightPanel() { runsRightPanelExpanded = !runsRightPanelExpanded }
     function editRunNotes() {
         if (runsPresentation === "runsLoaded")
             runsPresentation = "runsNotesEditing"

@@ -51,6 +51,7 @@ Item {
         shell.mockState.trainOperationPanelExpanded = true
         shell.mockState.modelLibraryPresentation = "readySelected"
         shell.mockState.selectedModelExpanded = true
+        shell.mockState.modelLibraryRightPanelExpanded = true
         shell.mockState.modelTestPresentation = "empty"
         shell.mockState.modelTestDatasetSelected = false
         shell.mockState.modelTestOutputLocationDraft = "C:/OpenDSS/ModelTests"
@@ -58,6 +59,7 @@ Item {
         shell.mockState.modelTestStatusExpanded = true
         shell.mockState.modelTestOperationPanelExpanded = true
         shell.mockState.livePresentation = "ready"
+        shell.mockState.liveRightPanelExpanded = true
         shell.mockState.liveSetupProfileExpanded = true
         shell.mockState.liveRunInformationExpanded = true
         shell.mockState.liveTriggerTimingExpanded = true
@@ -66,9 +68,11 @@ Item {
         shell.mockState.setTextSizePercent(100)
         shell.mockState.sequenceTestPresentation = "empty"
         shell.mockState.sequenceTestExpanded = true
+        shell.mockState.sequenceTestRightPanelExpanded = true
         shell.mockState.physicalDaqOutputChecked = false
         shell.mockState.runsPresentation = "runsEmpty"
         shell.mockState.runsPanelExpanded = true
+        shell.mockState.runsRightPanelExpanded = true
         shell.mockState.loadedRunOutcome = "completed"
         shell.mockState.settingsPresentation = "settingsReady"
         shell.mockState.cameraPromptHandled = true
@@ -500,6 +504,48 @@ Item {
         shell.form.modelTestWorkspace.operationPanelToggleButton.clicked()
         verify(!shell.form.modelTestWorkspace.operationPanelExpanded)
         compare(shell.form.selectedWorkspace, "modelTest")
+    }
+
+    function test_remainingOuterPanelTogglesKeepWorkspaceAndDisclosures() {
+        shell.form.navLibraryButton.clicked()
+        verify(shell.form.modelLibraryWorkspace.rightPanelExpanded)
+        verify(shell.form.modelLibraryWorkspace.selectedModelExpanded)
+        mouseClick(shell.form.modelLibraryWorkspace.rightPanelToggleButton)
+        tryCompare(shell.form.modelLibraryWorkspace, "rightPanelExpanded", false)
+        tryCompare(shell.form, "selectedWorkspace", "library")
+        verify(shell.form.modelLibraryWorkspace.selectedModelExpanded)
+        shell.form.modelLibraryWorkspace.rightPanelToggleButton.clicked()
+        verify(shell.form.modelLibraryWorkspace.rightPanelExpanded)
+
+        shell.form.navLiveButton.clicked()
+        verify(shell.form.liveWorkspace.rightPanelExpanded)
+        verify(shell.form.liveWorkspace.setupProfileExpanded)
+        shell.form.liveWorkspace.rightPanelToggleButton.clicked()
+        verify(!shell.form.liveWorkspace.rightPanelExpanded)
+        compare(shell.form.selectedWorkspace, "live")
+        verify(shell.form.liveWorkspace.setupProfileExpanded)
+        shell.form.liveWorkspace.rightPanelToggleButton.clicked()
+        verify(shell.form.liveWorkspace.rightPanelExpanded)
+
+        shell.form.navSequenceTestButton.clicked()
+        verify(shell.form.sequenceTestWorkspace.rightPanelExpanded)
+        verify(shell.form.sequenceTestWorkspace.sequenceTestExpanded)
+        shell.form.sequenceTestWorkspace.rightPanelToggleButton.clicked()
+        verify(!shell.form.sequenceTestWorkspace.rightPanelExpanded)
+        compare(shell.form.selectedWorkspace, "sequenceTest")
+        verify(shell.form.sequenceTestWorkspace.sequenceTestExpanded)
+        shell.form.sequenceTestWorkspace.rightPanelToggleButton.clicked()
+        verify(shell.form.sequenceTestWorkspace.rightPanelExpanded)
+
+        shell.form.navRunsButton.clicked()
+        verify(shell.form.runsWorkspace.rightPanelExpanded)
+        verify(shell.form.runsWorkspace.runsPanelExpanded)
+        shell.form.runsWorkspace.rightPanelToggleButton.clicked()
+        verify(!shell.form.runsWorkspace.rightPanelExpanded)
+        compare(shell.form.selectedWorkspace, "runs")
+        verify(shell.form.runsWorkspace.runsPanelExpanded)
+        shell.form.runsWorkspace.rightPanelToggleButton.clicked()
+        verify(shell.form.runsWorkspace.rightPanelExpanded)
     }
 
     function test_textSizeProjection() {

@@ -103,6 +103,7 @@ Item {
     Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: state.modelLibraryPresentation === "locked" }
     Binding { target: screen.modelLibraryWorkspace; property: "showError"; value: state.modelLibraryPresentation === "error" }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelExpanded"; value: state.selectedModelExpanded }
+    Binding { target: screen.modelLibraryWorkspace; property: "rightPanelExpanded"; value: state.modelLibraryRightPanelExpanded }
 
     Binding { target: screen.modelTestWorkspace; property: "presentation"; value: state.modelTestPresentation }
     Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: state.activeModelText }
@@ -128,10 +129,12 @@ Item {
     Binding { target: screen.liveWorkspace; property: "outputRecordingExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveOutputRecordingExpanded }
     Binding { target: screen.liveWorkspace; property: "runningExpanded"; value: (state.liveActive || state.livePresentation === "completed") && state.liveRunningExpanded }
     Binding { target: screen.liveWorkspace; property: "runningHeadingEnabled"; value: state.liveActive || state.livePresentation === "completed" }
+    Binding { target: screen.liveWorkspace; property: "rightPanelExpanded"; value: state.liveRightPanelExpanded }
 
     Binding { target: screen.sequenceTestWorkspace; property: "presentation"; value: state.sequenceTestPresentation }
     Binding { target: screen.sequenceTestWorkspace; property: "activeModelText"; value: state.activeModelText }
     Binding { target: screen.sequenceTestWorkspace; property: "sequenceTestExpanded"; value: state.sequenceTestExpanded }
+    Binding { target: screen.sequenceTestWorkspace; property: "rightPanelExpanded"; value: state.sequenceTestRightPanelExpanded }
     Binding { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; property: "checked"; value: state.physicalDaqOutputChecked }
     Binding { target: screen.sequenceTestWorkspace.startStopButton; property: "enabled"; value: state.sequenceTestPresentation === "running" || state.sequenceTestStartEnabled }
 
@@ -139,6 +142,7 @@ Item {
     Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }
     Binding { target: screen.runsWorkspace; property: "runsError"; value: state.runsPresentation === "runsError" }
     Binding { target: screen.runsWorkspace; property: "runsPanelExpanded"; value: state.runsPanelExpanded }
+    Binding { target: screen.runsWorkspace; property: "rightPanelExpanded"; value: state.runsRightPanelExpanded }
     Binding { target: screen.runsWorkspace; property: "notesEditing"; value: state.runsPresentation === "runsNotesEditing" }
     Binding { target: screen.runsWorkspace; property: "loadedRunStatusText"; value: state.loadedRunStatusText }
     Binding { target: screen.runsWorkspace; property: "loadedRunStopReasonText"; value: state.loadedRunStopReasonText }
@@ -226,6 +230,7 @@ Item {
     Connections { target: screen.modelLibraryWorkspace.setActiveButton; function onClicked() { state.setCandidateModelActive() } }
     Connections { target: screen.modelLibraryWorkspace.openInModelTestButton; function onClicked() { state.openLibraryModelTest() } }
     Connections { target: screen.modelLibraryWorkspace.selectedModelHeadingButton; function onClicked() { state.toggleSelectedModel() } }
+    Connections { target: screen.modelLibraryWorkspace.rightPanelToggleButton; function onClicked() { state.toggleModelLibraryRightPanel() } }
 
     Connections { target: screen.modelTestWorkspace.selectDatasetButton; function onClicked() { state.selectModelTestDataset() } }
     Connections { target: screen.modelTestWorkspace.outputLocationField; function onTextEdited() { state.modelTestOutputLocationDraft = screen.modelTestWorkspace.outputLocationField.text } }
@@ -246,14 +251,17 @@ Item {
     Connections { target: screen.liveWorkspace.triggerTimingHeadingButton; function onClicked() { state.toggleLiveTriggerTiming() } }
     Connections { target: screen.liveWorkspace.outputRecordingHeadingButton; function onClicked() { state.toggleLiveOutputRecording() } }
     Connections { target: screen.liveWorkspace.runningHeadingButton; function onClicked() { state.toggleLiveRunning() } }
+    Connections { target: screen.liveWorkspace.rightPanelToggleButton; function onClicked() { state.toggleLiveRightPanel() } }
 
     Connections { target: screen.sequenceTestWorkspace.loadSequenceButton; function onClicked() { state.loadSequenceTest() } }
     Connections { target: screen.sequenceTestWorkspace.loadToMemoryButton; function onClicked() { state.loadSequenceTestToMemory() } }
     Connections { target: screen.sequenceTestWorkspace.startStopButton; function onClicked() { state.startOrStopSequenceTest() } }
     Connections { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; function onToggled() { state.physicalDaqOutputChecked = screen.sequenceTestWorkspace.physicalDaqOutputControl.checked } }
     Connections { target: screen.sequenceTestWorkspace.sequenceTestHeadingButton; function onClicked() { state.toggleSequenceTest() } }
+    Connections { target: screen.sequenceTestWorkspace.rightPanelToggleButton; function onClicked() { state.toggleSequenceTestRightPanel() } }
 
     Connections { target: screen.runsWorkspace.runsPanelToggleButton; function onClicked() { state.toggleRunsPanel() } }
+    Connections { target: screen.runsWorkspace.rightPanelToggleButton; function onClicked() { state.toggleRunsRightPanel() } }
     Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { state.loadSelectedRun() } }
     Connections { target: screen.runsWorkspace.editNotesButton; function onClicked() { state.editRunNotes() } }
     Connections { target: screen.runsWorkspace.saveNotesButton; function onClicked() { state.finishRunNotesEditing() } }

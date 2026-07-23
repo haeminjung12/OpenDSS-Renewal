@@ -33,6 +33,12 @@ Rectangle {
     property alias datasetSummaryHeadingButton: datasetSummarySection.headingButton
     property alias labelHeadingButton: labelSection.headingButton
     property alias filterHeadingButton: filterSection.headingButton
+    property alias allFilterButton: allFilterButton
+    property alias class0FilterButton: class0FilterButton
+    property alias class1FilterButton: class1FilterButton
+    property alias class2FilterButton: class2FilterButton
+    property alias excludedFilterButton: excludedFilterButton
+    property alias unreviewedFilterButton: unreviewedFilterButton
 
     Column {
         anchors.fill: parent
@@ -185,12 +191,12 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             spacing: 4
-                            Button { width: parent.width; text: qsTr("All (%1)").arg(root.totalCount) }
-                            Button { width: parent.width; text: qsTr("Class 0 (12000)") }
-                            Button { width: parent.width; text: qsTr("Class 1 (6072)") }
-                            Button { width: parent.width; text: root.classCount === 3 ? qsTr("Class 2 (0)") : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3 }
-                            Button { width: parent.width; text: qsTr("Excluded (0)") }
-                            Button { width: parent.width; text: qsTr("Unreviewed (%1)").arg(root.totalCount - root.labeledCount) }
+                            Button { id: allFilterButton; width: parent.width; text: qsTr("All (%1)").arg(root.totalCount) }
+                            Button { id: class0FilterButton; width: parent.width; text: qsTr("Class 0 (12000)") }
+                            Button { id: class1FilterButton; width: parent.width; text: qsTr("Class 1 (6072)") }
+                            Button { id: class2FilterButton; width: parent.width; text: root.classCount === 3 ? qsTr("Class 2 (0)") : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3 }
+                            Button { id: excludedFilterButton; width: parent.width; text: qsTr("Excluded (0)") }
+                            Button { id: unreviewedFilterButton; width: parent.width; text: qsTr("Unreviewed (%1)").arg(root.totalCount - root.labeledCount) }
                         }
                     }
 

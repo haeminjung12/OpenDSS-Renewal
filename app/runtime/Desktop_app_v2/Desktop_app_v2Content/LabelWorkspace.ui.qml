@@ -90,15 +90,25 @@ Rectangle {
                     anchors.topMargin: Constants.spacing
                 }
 
-                Column {
+                ScrollView {
+                    id: rightPanelScroll
                     visible: root.rightPanelExpanded
                     anchors.top: rightPanelToggleButton.bottom
                     anchors.topMargin: Constants.spacing
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.bottom: parent.bottom
+                    anchors.bottom: saveAsButton.top
+                    anchors.bottomMargin: Constants.spacing
                     anchors.margins: Constants.spacing
-                    spacing: 2
+                    contentWidth: availableWidth
+                    contentHeight: rightSections.height
+                    clip: true
+
+                    Column {
+                        id: rightSections
+                        width: rightPanelScroll.availableWidth
+                        height: implicitHeight
+                        spacing: 2
 
                     Rectangle {
                         width: parent.width
@@ -184,9 +194,9 @@ Rectangle {
                         }
                     }
 
-                    Item { width: parent.width; height: Math.max(0, parent.height - y - saveAsButton.height) }
-                    Button { id: saveAsButton; width: parent.width; height: Constants.controlHeight; text: qsTr("Save As") }
+                    }
                 }
+                Button { id: saveAsButton; visible: root.rightPanelExpanded; height: Constants.controlHeight; text: qsTr("Save As"); anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: Constants.spacing }
             }
         }
     }

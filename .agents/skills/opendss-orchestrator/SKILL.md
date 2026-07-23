@@ -53,6 +53,7 @@ Create one bounded work order per job containing:
 - slice identity, job ID, dependencies, status, branch, worktree, expected base commit, and integration order;
 - one concise objective;
 - an ordered list of exact files and sections to read;
+- the exact applicable Qt skills required by `AGENTS.md`, their load order, and any adjacent Qt skills intentionally excluded;
 - only directly relevant existing modules and symbols;
 - exact permitted files and unique build output, or one narrow directory that requires a proposed file list before editing;
 - protected files, mechanics, schemas, and unrelated dirty changes;
@@ -87,6 +88,7 @@ The work order must state whether staging or committing is authorized. Default t
 1. Launch only the minimum required workers. One cohesive implementation normally gets one `opendss-worker`; use additional workers only for genuinely distinct ownership.
 2. Select the smallest available model that is sufficient for the job's scope and risk. Use a balanced coding model for bounded, conventional implementation or validation; reserve the strongest frontier model for cross-cutting architecture, ambiguous correctness-critical work, or failed correction cycles. Choose the lowest sufficient reasoning effort, increase it only when the task's risk or ambiguity requires it, and record the model and reasoning choice in the approval capsule and delegation record.
 3. Give each worker only its complete internal work order, relevant authority excerpts, exact implementation files, nearby dependencies when necessary, and validation commands. Do not pass complete specifications, Git history, unrelated modules, or raw build logs. State explicitly in every worker and reviewer handoff that the delegated agent must follow its role definition and supplied order directly, must not invoke the `opendss-orchestrator` skill, and must not perform orchestration or further delegation.
+   For Qt work, require the worker to load the routed skills before acting, use the official Qt Documentation MCP for API/version/Qt Design Studio/CMake questions, and follow repository authority when a generic skill default conflicts with the bounded work order or generated-file rules.
 4. Review every returned diff against the authorized writes, acceptance criteria, protected boundaries, and simplicity question. Use an `opendss-reviewer` when risk or scope warrants independent review; direct review is sufficient for a trivial change.
 5. Return blocking findings only to the owning worker. Allow at most two correction cycles.
 6. A dependent writer may start only after dependencies are integrated or from an exact base containing every accepted dependency. Treat integration as a single-writer operation and resolve no semantic conflict by guesswork.

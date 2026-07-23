@@ -264,6 +264,29 @@ Qt Design Studio is the authoritative visual editing environment for the OpenDSS
 
 For questions about Qt APIs, QML behavior, Qt Design Studio compatibility, CMake integration, or version-specific Qt features, use the official Qt Documentation MCP before model memory or general web search.
 
+### Qt skill routing
+
+Qt skills supplement this repository policy; they do not override canonical product authority, bounded work orders, protected assets, Qt Design Studio ownership, generated-file boundaries, or proportional validation. When a generic skill instruction conflicts with those constraints, follow this repository policy and report the conflict.
+
+Load and apply the smallest applicable skill set:
+
+| Task | Required skill routing |
+|---|---|
+| Create or materially redesign screens, layouts, navigation, or interaction composition | `qt-ui-design` first, then `qt-qml` when QML is examined or changed. Canonical OpenDSS design sources replace the skill's generic design heuristics where they differ. |
+| Write, fix, refactor, debug, optimize, or examine QML, including `*.ui.qml` | `qt-qml`. Also use the official Qt Documentation MCP for Qt API, version, behavior, or Qt Design Studio compatibility questions. |
+| Create or change durable Qt CMake integration | `qt-cmake-project`, plus the official Qt Documentation MCP for command signatures and version behavior. Limit writes to CMake files explicitly authorized by the work order; never edit generator-owned CMake output. |
+| Author Qt Quick Test cases | `qt-qml` and `qt-qml-test`. Source edits proposed by the test skill, including adding `objectName`, require explicit authorization for those exact source files. |
+| Build or run QML tests | `qt-qml-test-run`. Do not use its wiring mode unless the work order explicitly authorizes every CMake and test-harness write. Apply the slice's proportional-validation limits. |
+| Review or audit QML | `qt-qml` and `qt-qml-review`. Treat `qt-qml-review` as read-only and keep its scope to the work order or requested diff. |
+| Investigate QML or Qt Quick performance | `qt-qml-profiler`. Use it only for an explicit performance investigation, not routine validation. Load `qt-qml` if the resulting work includes QML edits. |
+| Review Qt/C++ | `qt-cpp-review`. Treat it as read-only and preserve the protected-asset change-control requirements. |
+| Produce developer reference documentation for QML | `qt-qml-docs`; use only when documentation is requested. |
+| Produce developer reference documentation for Qt/C++ | `qt-cpp-docs`; use only when documentation is requested. |
+| Extract a Figma design system into QML tokens | `qt-figma-token-extraction`, only for an explicit Figma-sourced workflow with an available Figma connector. Do not let the skill scaffold a replacement project or rewrite generator-owned CMake in this repository. |
+| Generate QML controls from Figma components | `qt-figma-component-generation` after token extraction prerequisites exist, plus `qt-qml` for QML authoring. Require a bounded work order for every output file and preserve `*.ui.qml` restrictions. |
+
+Do not load documentation, review, profiler, test, or Figma skills merely because the project uses Qt. Trigger them only for their named task. When multiple rows apply, use all listed skills in the stated order without duplicating their work.
+
 ### File ownership
 
 - `*.ui.qml` files contain designer-editable visual composition, token references, visual states, transitions, and exported property aliases only.
@@ -289,7 +312,8 @@ Every modified `*.ui.qml` file must remain editable in Qt Design Studio's 2D vie
 
 Every frontend work order must identify:
 
-- for any QML job, that the agent must load and apply the `qt-qml` skill before writing, reviewing, diagnosing, refactoring, or validating QML; this supplements the official Qt Documentation requirement for Qt API, version, and Design Studio behavior;
+- the exact applicable Qt skills from **Qt skill routing**, their order, and any skill capabilities intentionally excluded as out of scope;
+- for any QML job, that the agent must load and apply the `qt-qml` skill before writing, reviewing, diagnosing, refactoring, optimizing, or validating QML; this supplements the official Qt Documentation requirement for Qt API, version, and Design Studio behavior;
 - for a QML job affecting the visual-review topics, the exact relevant sections of `docs/v2/OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md` as required reading;
 - visual `*.ui.qml` files authorized for modification;
 - visual files that are read-only;

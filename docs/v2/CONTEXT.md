@@ -45,7 +45,7 @@ Except for the expressly scoped user-approved visual-review amendment, derived e
 
 - The user-approved [July 23, 2026 visual-review amendment](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) is authoritative for its listed visual topics and supersedes conflicting lower visual sources; it does not authorize production behavior.
 - The canonical product, information-architecture, interaction-state, and detailed-workflow baselines incorporate the approved July 23, 2026 UI/UX amendment.
-- The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md). Its approved GUI forms and deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`.
+- The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md). The July 23 visual-review corrections and deterministic hardware-free disclosure backbone are integrated through `7d1c34a`.
 - The user explicitly authorized a visual-only scaffold for every approved workspace with no speculative controls or behavior.
 - The adopted first-two-round workflow is recorded in the [Visual Scaffold Two-Round Plan](implementation/visual-scaffold-two-round-plan.md): Round 1 uses one visual-scaffold writer; Round 2 splits design and minimal backbone into nonoverlapping worktrees after the interface is frozen.
 - The active [page-composition review](reviews/page-composition-review.md) has been reconciled to the amendment; it remains a review artifact rather than independent authority.
@@ -53,8 +53,8 @@ Except for the expressly scoped user-approved visual-review amendment, derived e
 - A bounded work order naming exact files is still required before any form, wrapper, mock, test, or CMake input is edited.
 - Validation for these visual rounds is intentionally proportional and user-led: avoid the full legacy/hardware test matrix and prefer manual Qt Design Studio review where practical.
 - The Qt Design Studio designer/developer workflow and form-wrapper-controller boundary remain adopted implementation constraints.
-- Qt Design Studio generator registration was committed at `2019cb0`, followed by the visual test-host fix at `26edf96`. Configure in `odss-v2-dbg`, the `Desktop_app_v2App` and `tst_ShellSingleImage` builds, `ShellSingleImage` CTest (1/1), and the offscreen event-loop smoke with no QML runtime warnings passed; the generated registration/build gate is closed.
-- The slice remains open only for user-led overall visual validation in Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a larger 16:9 size, including focus and non-color cues. Automated GUI interaction is not accepted evidence: it was interrupted by user Escape, and its first launch lacked the MinGW runtime on `PATH`.
-- The tracked worktree was clean at validation handoff, and the protected untracked `Desktop_app_v2.qmlproject.qtds` was preserved.
+- The refreshed `qt-qml`/`qt-qml-review` audit corrected the Live heading visual seam, Sequence Viewer row order, and four Basic imports. Production `qmllint` was clean for eight files with zero warnings; `Desktop_app_v2App` and `tst_ShellSingleImage` built; the direct Quick Test passed 18/18 in 0.722s; and `ShellSingleImage` CTest passed 1/1.
+- The slice remains open only for user-led overall visual validation in Qt Design Studio 2D view and Live Preview at 1600 × 900, maximized, and a larger 16:9 size, including focus and non-color cues. GUI automation was not run.
+- Main retains unrelated user-owned dirty `AGENTS.md` and orchestrator-skill edits, plus the protected untracked `Desktop_app_v2.qmlproject.qtds`; do not treat the tracked main worktree as clean.
 - P0-1 detector characterization and neutral-contract work remains accepted groundwork.
 - Real Camera preview, TIFF capture, DAQ, Training, Live, Sequence Test, Results, persistence, and other production integrations remain later slices requiring explicit authorization.

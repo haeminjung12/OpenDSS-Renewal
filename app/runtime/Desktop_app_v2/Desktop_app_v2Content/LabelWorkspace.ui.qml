@@ -1,6 +1,6 @@
 /* This is a UI file (.ui.qml) intended for Qt Design Studio editing. */
 import QtQuick
-import QtQuick.Controls
+import QtQuick.Controls.Basic
 import Desktop_app_v2
 
 Rectangle {

@@ -32,14 +32,14 @@ Rectangle {
 
         Rectangle {
             width: parent.width
-            height: 150
+            height: storageContent.implicitHeight + Constants.spacing * 2
             color: Constants.surfaceColor
             border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
+            Column { id: storageContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
                 Text { text: qsTr("Storage"); font: Constants.headingFont; color: Constants.textColor }
                 Text { text: qsTr("Default Data Root"); color: Constants.textColor; font: Constants.smallFont }
                 Rectangle { width: parent.width; height: 28; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: root.defaultDataRoot; elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 6 } }
-                Row { spacing: Constants.spacing
+                Flow { width: parent.width; height: implicitHeight; spacing: Constants.spacing
                     Button { id: chooseDataRootButton; text: qsTr("Choose Default Data Root"); height: Constants.controlHeight }
                     Button { id: openDataRootButton; text: qsTr("Open Data Root"); height: Constants.controlHeight }
                 }
@@ -48,10 +48,10 @@ Rectangle {
 
         Rectangle {
             width: parent.width
-            height: 210
+            height: applicationInformationContent.implicitHeight + Constants.spacing * 2
             color: Constants.surfaceColor
             border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 6
+            Column { id: applicationInformationContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 6
                 Text { text: qsTr("Application Information"); font: Constants.headingFont; color: Constants.textColor }
                 Text { text: qsTr("OpenDSS Version: 2.0.0"); color: Constants.textColor; font: Constants.smallFont }
                 Text { text: qsTr("Schema Versions: Run Summary v2, Sequence v2"); color: Constants.textColor; font: Constants.smallFont }
@@ -64,10 +64,10 @@ Rectangle {
 
         Rectangle {
             width: parent.width
-            height: 108
+            height: diagnosticsContent.implicitHeight + Constants.spacing * 2
             color: Constants.surfaceColor
             border.color: Constants.borderColor
-            Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
+            Column { id: diagnosticsContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
                 Text { text: qsTr("Diagnostics"); font: Constants.headingFont; color: Constants.textColor }
                 Text { text: qsTr("Diagnostic Folder: C:/Users/Scientist/AppData/Local/OpenDSS/Logs"); elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; width: parent.width }
                 Button { id: openDiagnosticFolderButton; text: qsTr("Open Diagnostic Folder"); height: Constants.controlHeight }

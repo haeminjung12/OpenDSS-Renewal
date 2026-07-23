@@ -1072,7 +1072,7 @@ The later specification revision must, at minimum:
 10. Narrow Setup Profile content to hardware settings and run selections.
 11. Remove product-level legacy compatibility and migration requirements.
 12. Retain Results for Runs only.
-13. Retain a reduced Settings workspace for Storage, Application Information, and Diagnostics.
+13. Retain a reduced Settings workspace for Storage, Application Information, Diagnostics, and Visuals; Visuals contains only application-wide Text Size from 80% through 200%, default 100%.
 14. Define startup as `Data > Capture` on every launch, with all three Capture sections collapsed.
 15. Use simple contextual fault and recovery communication.
 16. Update all navigation paths, acceptance scenarios, and service responsibilities affected by these decisions.

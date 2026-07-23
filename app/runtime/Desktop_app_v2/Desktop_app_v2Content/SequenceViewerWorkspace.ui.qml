@@ -24,15 +24,46 @@ Rectangle {
         spacing: Constants.spacing
 
         Row {
+            id: workspaceHeader
             width: parent.width
             Text { text: qsTr("Data > Sequence Viewer"); font: Constants.headingFont; width: parent.width - openSequenceButton.width }
             Button { id: openSequenceButton; text: qsTr("Open Sequence"); height: Constants.controlHeight }
         }
 
         Rectangle {
+            id: navigationPanel
+            width: parent.width
+            height: 112
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+            Column {
+                anchors.fill: parent
+                anchors.margins: Constants.spacing
+                spacing: 6
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 6
+                    Button { id: previousButton; text: qsTr("Previous"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                    TextField { id: directSeekField; width: 64; height: Constants.controlHeight; enabled: root.presentation === "ready"; placeholderText: qsTr("Frame") }
+                    Slider { from: 1; to: Math.max(1, root.totalFrames); value: root.currentFrame; width: 240; enabled: root.presentation === "ready" }
+                    Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : root.currentFrame + qsTr(" / ") + root.totalFrames; anchors.verticalCenter: parent.verticalCenter }
+                    Button { id: nextButton; text: qsTr("Next"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                }
+                Row {
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    spacing: 6
+                    Button { id: zoomOutButton; text: qsTr("Zoom -"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                    Button { id: zoomInButton; text: qsTr("Zoom +"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                    Button { id: fitButton; text: qsTr("Fit"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                    Button { id: actualSizeButton; text: qsTr("1:1"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                }
+            }
+        }
+
+        Rectangle {
             id: viewerFocus
             width: parent.width
-            height: parent.height - navigationPanel.height - Constants.spacing * 2
+            height: parent.height - workspaceHeader.height - navigationPanel.height - Constants.spacing * 2
             color: Constants.viewerColor
             border.color: Constants.borderColor
             focus: true
@@ -57,31 +88,6 @@ Rectangle {
                 color: Constants.surfaceColor
                 font: Constants.largeFont
                 anchors.centerIn: parent
-            }
-        }
-
-        Rectangle {
-            id: navigationPanel
-            width: parent.width
-            height: 112
-            color: Constants.surfaceColor
-            border.color: Constants.borderColor
-            Column {
-                anchors.fill: parent
-                anchors.margins: Constants.spacing
-                spacing: 6
-                Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : qsTr("Frame ") + root.currentFrame + qsTr(" of ") + root.totalFrames; font: Constants.headingFont }
-                Row {
-                    spacing: 6
-                    Button { id: previousButton; text: qsTr("Previous"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Button { id: nextButton; text: qsTr("Next"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Text { text: qsTr("Frame"); anchors.verticalCenter: parent.verticalCenter }
-                    TextField { id: directSeekField; width: 100; height: Constants.controlHeight; enabled: root.presentation === "ready"; placeholderText: qsTr("Seek") }
-                    Button { id: zoomOutButton; text: qsTr("Zoom -"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Button { id: zoomInButton; text: qsTr("Zoom +"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Button { id: fitButton; text: qsTr("Fit"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Button { id: actualSizeButton; text: qsTr("1:1"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                }
             }
         }
     }

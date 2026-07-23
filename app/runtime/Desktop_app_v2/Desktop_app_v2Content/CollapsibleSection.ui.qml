@@ -7,7 +7,7 @@ import Desktop_app_v2
 
 Item {
     id: root
-    default property alias content: body.data
+    default property alias content: bodyContent.data
     property string sectionTitle: ""
     property string bodyText: ""
     property bool expanded: false
@@ -41,6 +41,16 @@ Item {
         color: Constants.surfaceColor
         border.color: Constants.borderColor
         anchors.top: headingButton.bottom
+        ScrollView {
+            anchors.fill: parent
+            clip: true
+            contentWidth: availableWidth
+            Item {
+                id: bodyContent
+                width: parent.width
+                height: Math.max(root.bodyHeight, childrenRect.height)
+            }
+        }
         Text { visible: root.bodyText !== ""; text: root.bodyText; color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
     }
 }

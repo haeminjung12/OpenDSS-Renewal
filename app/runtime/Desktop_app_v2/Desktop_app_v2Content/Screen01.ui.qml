@@ -24,12 +24,38 @@ Rectangle {
     property bool drawerOpen: false
     property string selectedWorkspace: "capture"
     property string singleImagePresentation: "unavailable"
-    property bool singleImageOpen: true
+    property bool singleImageOpen: false
     property bool imageSequenceOpen: false
     property bool datasetOpen: false
     property bool otherCaptureHeadingsDisabled: false
     property bool cameraPromptVisible: true
     property string cameraPromptChoice: ""
+    property string sequencePresentation: "ready"
+    property string datasetPresentation: "ready"
+    property int sequenceFrameCount: 0
+    property int datasetFrameCount: 0
+    property int datasetCropCount: 0
+    property bool cameraLocked: false
+    readonly property real captureBodyHeight: (captureSections.height
+                                                - singleImageSection.headingButton.height
+                                                - imageSequenceSection.headingButton.height
+                                                - datasetCaptureSection.headingButton.height
+                                                - captureSections.spacing * 2)
+                                               / Math.max(1, (singleImageOpen ? 1 : 0)
+                                                             + (imageSequenceOpen ? 1 : 0)
+                                                             + (datasetOpen ? 1 : 0))
+    property string cameraResolution: ""
+    property string cameraCustomWidth: ""
+    property string cameraCustomHeight: ""
+    property string cameraBitDepth: ""
+    property string cameraExposure: ""
+    property string cameraReadoutMode: ""
+    property string cameraLut: ""
+    property string daqDevice: ""
+    property string daqOutputChannel: ""
+    property string sequenceLocationText: ""
+    property string datasetLocationText: ""
+    property string datasetHandoffText: ""
     property alias hardwareButton: hardwareButton
     property alias fileNameField: fileNameField
     property alias saveLocationField: saveLocationField
@@ -51,6 +77,31 @@ Rectangle {
     property alias datasetCaptureSection: datasetCaptureSection
     property alias cameraPromptYesButton: cameraPromptYesButton
     property alias cameraPromptNoButton: cameraPromptNoButton
+    property alias restoreCameraButton: restoreCameraButton
+    property alias sequenceStartButton: sequenceStartButton
+    property alias datasetStartButton: datasetStartButton
+    property alias capturePauseButton: capturePauseButton
+    property alias captureStopButton: captureStopButton
+    property alias datasetPauseButton: datasetPauseButton
+    property alias datasetStopButton: datasetStopButton
+    property alias sequenceLocationField: sequenceLocationField
+    property alias datasetLocationField: datasetLocationField
+    property alias sequenceBrowseButton: sequenceBrowseButton
+    property alias datasetBrowseButton: datasetBrowseButton
+    property alias startCameraButton: startCameraButton
+    property alias cameraDeviceSelector: cameraDeviceSelector
+    property alias cameraResolutionSelector: cameraResolutionSelector
+    property alias cameraCustomWidthField: cameraCustomWidthField
+    property alias cameraCustomHeightField: cameraCustomHeightField
+    property alias cameraExposureField: cameraExposureField
+    property alias cameraLutSelector: cameraLutSelector
+    property alias daqChannelSelector: daqChannelSelector
+    property alias sequenceViewerButton: sequenceViewerButton
+    property alias sequenceTestButton: sequenceTestButton
+    property alias sequenceNewButton: sequenceNewButton
+    property alias datasetLabelButton: datasetLabelButton
+    property alias datasetFolderButton: datasetFolderButton
+    property alias datasetNewButton: datasetNewButton
 
     Rectangle {
         id: header
@@ -122,6 +173,7 @@ Rectangle {
                 anchors.bottom: parent.bottom
                 anchors.right: parent.right
                 Column {
+                    id: captureSections
                     spacing: 2
                     anchors.fill: parent
                     anchors.margins: Constants.spacing
@@ -129,11 +181,13 @@ Rectangle {
                         id: singleImageSection
                         sectionTitle: qsTr("Single Image")
                         expanded: root.singleImageOpen
+                        headingEnabled: !root.otherCaptureHeadingsDisabled || root.singleImagePresentation === "capturing"
                         width: parent.width
-                        bodyHeight: Constants.singleImageBodyHeight
+                        bodyHeight: root.captureBodyHeight
                         Column {
                             spacing: 6
-                            anchors.fill: parent
+                            width: parent.width
+                            height: implicitHeight
                             Text { text: qsTr("File Name"); font: Constants.smallFont }
                             TextField { id: fileNameField; text: root.fileNameText; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Optional — timestamp used") }
                             Text { text: qsTr("Save Location"); font: Constants.smallFont }
@@ -149,8 +203,60 @@ Rectangle {
                             Rectangle { visible: root.singleImagePresentation === "error"; width: parent.width; height: 34; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font.bold: true; anchors.centerIn: parent } }
                         }
                     }
-                    CollapsibleSection { id: imageSequenceSection; sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled; width: parent.width; bodyText: qsTr("Image Sequence") }
-                    CollapsibleSection { id: datasetCaptureSection; sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled; width: parent.width; bodyText: qsTr("Droplet Dataset Capture") }
+                    CollapsibleSection {
+                        id: imageSequenceSection; sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.sequencePresentation === "running" || root.sequencePresentation === "paused"; width: parent.width; bodyHeight: root.captureBodyHeight
+                        Column { spacing: 6; width: parent.width; height: implicitHeight
+                            Text { text: qsTr("Name"); font: Constants.smallFont }
+                            TextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Sequence name") }
+                            Text { text: qsTr("Experiment Type"); font: Constants.smallFont }
+                            TextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.controlHeight }
+                            Text { text: qsTr("Notes"); font: Constants.smallFont }
+                            TextArea { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: 58; placeholderText: qsTr("Optional notes") }
+                            Text { text: qsTr("Duration (optional — blank continues until Stop)"); font: Constants.smallFont }
+                            TextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Optional") }
+                            Text { text: qsTr("Save Location"); font: Constants.smallFont }
+                            Row { spacing: 6; width: parent.width
+                                TextField { id: sequenceLocationField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: root.sequenceLocationText; width: parent.width - sequenceBrowseButton.width - 6; height: Constants.controlHeight }
+                                Button { id: sequenceBrowseButton; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr("Browse"); height: Constants.controlHeight }
+                            }
+                            Button { id: sequenceStartButton; visible: root.sequencePresentation === "ready"; text: qsTr("Start Recording"); enabled: root.sequencePresentation === "ready" && root.cameraStatus === qsTr("Streaming") && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight }
+                            Row { visible: root.sequencePresentation === "running" || root.sequencePresentation === "paused"; spacing: 6
+                                Button { id: capturePauseButton; text: root.sequencePresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); height: Constants.controlHeight }
+                                Button { id: captureStopButton; text: qsTr("Stop"); height: Constants.controlHeight }
+                            }
+                            Text { visible: root.sequencePresentation !== "ready"; text: root.sequencePresentation === "completed" ? qsTr("Completed — 24 frames captured.") : qsTr("Frames captured: ") + root.sequenceFrameCount + (root.sequencePresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Recording")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Row { visible: root.sequencePresentation === "completed"; spacing: 4; Button { id: sequenceViewerButton; text: qsTr("Open in Sequence Viewer") } Button { id: sequenceTestButton; text: qsTr("Open in Sequence Test") } }
+                            Button { id: sequenceNewButton; visible: root.sequencePresentation === "completed"; text: qsTr("Start New Recording"); width: parent.width; height: Constants.controlHeight }
+                        }
+                    }
+                    CollapsibleSection {
+                        id: datasetCaptureSection; sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.datasetPresentation === "running" || root.datasetPresentation === "paused"; width: parent.width; bodyHeight: root.captureBodyHeight
+                        Column { spacing: 6; width: parent.width; height: implicitHeight
+                            Text { text: qsTr("Dataset Name"); font: Constants.smallFont }
+                            TextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Dataset name") }
+                            Text { text: qsTr("Experiment Type"); font: Constants.smallFont }
+                            TextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.controlHeight }
+                            Text { text: qsTr("Notes"); font: Constants.smallFont }
+                            TextArea { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: 58; placeholderText: qsTr("Optional notes") }
+                            Text { text: qsTr("Duration (optional — blank continues until Stop)"); font: Constants.smallFont }
+                            TextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Optional") }
+                            Text { text: qsTr("Save Location"); font: Constants.smallFont }
+                            Row { spacing: 6; width: parent.width
+                                TextField { id: datasetLocationField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: root.datasetLocationText; width: parent.width - datasetBrowseButton.width - 6; height: Constants.controlHeight }
+                                Button { id: datasetBrowseButton; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: qsTr("Browse"); height: Constants.controlHeight }
+                            }
+                            Text { text: qsTr("Fixed qualified processing is used; detector, crop, and timing settings are not editable."); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Button { id: datasetStartButton; visible: root.datasetPresentation === "ready"; text: qsTr("Start Droplet Dataset Capture"); enabled: root.datasetPresentation === "ready" && root.cameraStatus === qsTr("Streaming") && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight }
+                            Row { visible: root.datasetPresentation === "running" || root.datasetPresentation === "paused"; spacing: 6
+                                Button { id: datasetPauseButton; text: root.datasetPresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); height: Constants.controlHeight }
+                                Button { id: datasetStopButton; text: qsTr("Stop"); height: Constants.controlHeight }
+                            }
+                            Text { visible: root.datasetPresentation !== "ready"; text: root.datasetPresentation === "completed" ? qsTr("Completed — 18 frames, 42 crops captured.") : qsTr("Frames: ") + root.datasetFrameCount + qsTr("   Crops: ") + root.datasetCropCount + (root.datasetPresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Capturing")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Row { visible: root.datasetPresentation === "completed"; spacing: 4; Button { id: datasetLabelButton; text: qsTr("Open in Label") } Button { id: datasetFolderButton; text: qsTr("Open Folder") } }
+                            Button { id: datasetNewButton; visible: root.datasetPresentation === "completed"; text: qsTr("Start New Droplet Dataset Capture"); width: parent.width; height: Constants.controlHeight }
+                            Text { visible: root.datasetHandoffText !== ""; text: root.datasetHandoffText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                        }
+                    }
                 }
             }
         }
@@ -219,7 +325,42 @@ Rectangle {
         }
 
         Button { id: hardwareButton; text: root.drawerOpen ? "⌄" : "⌃"; width: 46; height: 34; anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin; Accessible.name: qsTr("Open or close Hardware panel") }
-        Rectangle { visible: root.drawerOpen; width: Constants.hardwarePanelWidth; height: Constants.hardwarePanelHeight; color: Constants.surfaceColor; border.color: Constants.borderColor; anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin + 36; Column { spacing: Constants.spacing; anchors.fill: parent; anchors.margins: Constants.spacing; Row { Text { text: qsTr("Hardware"); font: Constants.headingFont } Button { id: drawerCloseButton; text: "⌄"; width: 38; height: 30 } } Rectangle { width: parent.width; height: 75; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("Camera\nStatus: ") + root.cameraStatus; anchors.centerIn: parent; horizontalAlignment: Text.AlignHCenter } } Rectangle { width: parent.width; height: 75; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("DAQ\nStatus: ") + root.daqStatus; anchors.centerIn: parent; horizontalAlignment: Text.AlignHCenter } } } }
+        Rectangle {
+            visible: root.drawerOpen; width: Constants.hardwarePanelWidth; height: Constants.hardwarePanelHeight; color: Constants.surfaceColor; border.color: Constants.borderColor
+            anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin + 36
+            ScrollView { anchors.fill: parent; anchors.margins: Constants.spacing; clip: true; contentWidth: availableWidth
+                Column { width: parent.width; spacing: Constants.spacing
+                    Row { width: parent.width; Text { text: qsTr("Hardware — illustrative mock"); font: Constants.headingFont; width: parent.width - drawerCloseButton.width } Button { id: drawerCloseButton; text: qsTr("Close"); width: 58; height: 30 } }
+                    Rectangle { width: parent.width; height: 1; color: Constants.borderColor }
+                    Text { text: qsTr("Camera"); font: Constants.headingFont }
+                    Text { text: qsTr("Status: ") + root.cameraStatus + (root.cameraLocked ? qsTr(" — locked by current capture") : qsTr(" — mock only")); color: root.cameraStatus === qsTr("Unavailable") ? Constants.warningColor : Constants.readyColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                    Button { id: restoreCameraButton; visible: root.cameraStatus === qsTr("Unavailable"); enabled: !root.cameraLocked; text: qsTr("Restore Camera (mock)"); width: parent.width; height: Constants.controlHeight }
+                    Button { id: startCameraButton; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraStatus === qsTr("Streaming") ? qsTr("Stop Camera") : qsTr("Start Camera"); width: parent.width; height: Constants.controlHeight }
+                    Text { text: qsTr("Device"); font: Constants.smallFont }
+                    ComboBox { id: cameraDeviceSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Unavailable", "Illustrative Camera A"]; currentIndex: root.cameraStatus === qsTr("Unavailable") ? 0 : 1; width: parent.width }
+                    Text { text: qsTr("Resolution preset"); font: Constants.smallFont }
+                    ComboBox { id: cameraResolutionSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["1024 × 1024", "2048 × 2048", "Custom"]; currentIndex: root.cameraResolution === "2048 × 2048" ? 1 : root.cameraResolution === "Custom" ? 2 : 0; width: parent.width }
+                    Row { visible: root.cameraResolution === "Custom"; spacing: 6
+                        TextField { id: cameraCustomWidthField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomWidth; width: (parent.width - 6) / 2; placeholderText: qsTr("Custom Width") }
+                        TextField { id: cameraCustomHeightField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomHeight; width: (parent.width - 6) / 2; placeholderText: qsTr("Custom Height") }
+                    }
+                    Text { text: qsTr("Bit Depth: ") + root.cameraBitDepth; font: Constants.smallFont }
+                    Text { text: qsTr("Exposure"); font: Constants.smallFont }
+                    TextField { id: cameraExposureField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: parent.width }
+                    Text { text: qsTr("Readout Mode: ") + root.cameraReadoutMode; font: Constants.smallFont }
+                    Text { text: qsTr("Preview LUT"); font: Constants.smallFont }
+                    ComboBox { id: cameraLutSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Linear", "High contrast"]; currentIndex: root.cameraLut === "High contrast" ? 1 : 0; width: parent.width }
+                    Rectangle { width: parent.width; height: 1; color: Constants.borderColor }
+                    Text { text: qsTr("DAQ"); font: Constants.headingFont }
+                    Text { text: qsTr("Status: ") + root.daqStatus + qsTr(" — mock only"); color: Constants.readyColor; font: Constants.smallFont }
+                    Text { text: qsTr("Device"); font: Constants.smallFont }
+                    Text { text: root.daqDevice; font: Constants.smallFont }
+                    Text { text: qsTr("Output Channel"); font: Constants.smallFont }
+                    ComboBox { id: daqChannelSelector; model: ["ao0", "ao1"]; currentIndex: root.daqOutputChannel === "ao1" ? 1 : 0; width: parent.width }
+                    Text { text: qsTr("Capabilities: analog output; maximum supported voltage range 0–5 V; maximum supported output frequency 10 kHz (illustrative read-only facts)"); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                }
+            }
+        }
         Rectangle { visible: root.cameraPromptVisible && root.selectedWorkspace === "capture"; width: 430; height: 180; color: Constants.surfaceColor; border.color: Constants.warningColor; anchors.centerIn: parent; z: 2; Column { spacing: Constants.spacing; anchors.fill: parent; anchors.margins: Constants.spacing * 2; Text { text: qsTr("Camera unavailable. Continue?"); font: Constants.headingFont } Text { text: qsTr("Camera unavailable (not ready)"); color: Constants.warningColor; font: Constants.smallFont } Row { spacing: Constants.spacing; Button { id: cameraPromptYesButton; text: qsTr("Yes"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "yes" } Button { id: cameraPromptNoButton; text: qsTr("No"); width: 92; height: Constants.controlHeight; checkable: true; checked: root.cameraPromptChoice === "no" } } } }
     }
 

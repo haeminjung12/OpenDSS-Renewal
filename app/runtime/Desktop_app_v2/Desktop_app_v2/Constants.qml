@@ -13,7 +13,7 @@ QtObject {
     readonly property int navigationWidth: 208
     readonly property int operationPanelWidth: 390
     readonly property int hardwarePanelWidth: 380
-    readonly property int hardwarePanelHeight: 250
+    readonly property int hardwarePanelHeight: 600
     readonly property int controlHeight: 38
     readonly property int navigationItemHeight: 32
     readonly property int workspaceMargin: 18

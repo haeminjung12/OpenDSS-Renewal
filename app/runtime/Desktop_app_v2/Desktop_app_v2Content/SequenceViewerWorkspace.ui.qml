@@ -44,9 +44,9 @@ Rectangle {
                     anchors.horizontalCenter: parent.horizontalCenter
                     spacing: 6
                     Button { id: previousButton; text: qsTr("Previous"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                    Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : root.currentFrame + qsTr(" / ") + root.totalFrames; anchors.verticalCenter: parent.verticalCenter }
                     TextField { id: directSeekField; width: 64; height: Constants.controlHeight; enabled: root.presentation === "ready"; placeholderText: qsTr("Frame") }
                     Slider { from: 1; to: Math.max(1, root.totalFrames); value: root.currentFrame; width: 240; enabled: root.presentation === "ready" }
-                    Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : root.currentFrame + qsTr(" / ") + root.totalFrames; anchors.verticalCenter: parent.verticalCenter }
                     Button { id: nextButton; text: qsTr("Next"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
                 }
                 Row {

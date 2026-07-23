@@ -97,7 +97,7 @@ Rectangle {
                     anchors.topMargin: Constants.spacing
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.bottom: saveAsButton.top
+                    anchors.bottom: saveAsFooter.top
                     anchors.bottomMargin: Constants.spacing
                     anchors.margins: Constants.spacing
                     contentWidth: availableWidth
@@ -196,7 +196,19 @@ Rectangle {
 
                     }
                 }
-                Button { id: saveAsButton; visible: root.rightPanelExpanded; height: Constants.controlHeight; text: qsTr("Save As"); anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: Constants.spacing }
+                Rectangle {
+                    id: saveAsFooter
+                    visible: root.rightPanelExpanded
+                    height: Constants.controlHeight + Constants.spacing * 2
+                    color: Constants.backgroundColor
+                    border.color: Constants.borderColor
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+                    anchors.margins: Constants.spacing
+
+                    Button { id: saveAsButton; width: 120; height: Constants.controlHeight; text: qsTr("Save As"); anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+                }
             }
         }
     }

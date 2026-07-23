@@ -13,6 +13,8 @@ Item {
     property bool expanded: false
     property bool headingEnabled: true
     property int bodyHeight: Constants.compactBodyHeight
+    property bool useIntrinsicBodyHeight: false
+    readonly property real intrinsicBodyContentHeight: bodyContent.childrenRect.height > 0 ? bodyContent.childrenRect.y + bodyContent.childrenRect.height : (bodyTextLabel.visible ? bodyTextLabel.implicitHeight : root.bodyHeight)
     property alias headingButton: headingButton
     width: 320
     height: headingButton.height + (expanded ? body.height : 0)
@@ -37,20 +39,21 @@ Item {
         id: body
         visible: root.expanded
         width: parent.width
-        height: root.bodyHeight
+        height: root.useIntrinsicBodyHeight ? bodyScroll.topPadding + root.intrinsicBodyContentHeight + bodyScroll.bottomPadding : root.bodyHeight
         color: Constants.surfaceColor
         border.color: Constants.borderColor
         anchors.top: headingButton.bottom
         ScrollView {
+            id: bodyScroll
             anchors.fill: parent
             clip: true
             contentWidth: availableWidth
             Item {
                 id: bodyContent
                 width: parent.width
-                height: Math.max(root.bodyHeight, childrenRect.height)
+                height: root.useIntrinsicBodyHeight ? root.intrinsicBodyContentHeight : Math.max(root.bodyHeight, childrenRect.height)
             }
         }
-        Text { visible: root.bodyText !== ""; text: root.bodyText; color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
+        Text { id: bodyTextLabel; visible: root.bodyText !== ""; text: root.bodyText; color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
     }
 }

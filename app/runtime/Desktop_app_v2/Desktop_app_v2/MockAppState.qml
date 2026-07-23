@@ -11,16 +11,26 @@ QtObject {
     property string activeModelId: ""
     readonly property string activeModelText: activeModelId === "" ? qsTr("No Active Model") : activeModelId
     property bool hardwareDrawerOpen: false
+    property bool capturePanelExpanded: true
     property string activeOperation: ""
     property string labelPresentation: "empty"
-    property int labelClassCount: 0
+    property int labelClassCount: 3
+    property string labelDatasetName: qsTr("Droplet Dataset")
+    property int labelTotalCount: 18072
+    property int labelLabeledCount: 18069
+    property bool labelRightPanelExpanded: true
+    property bool labelDatasetSummaryExpanded: true
+    property bool labelExpanded: true
+    property bool labelFilterExpanded: true
+    property string selectedLabelFilter: "all"
+    property int labelSelectionIndex: 0
     property string sequenceViewerPresentation: "empty"
     property string trainPresentation: "empty"
     property string trainModelNameDraft: ""
     property string trainSaveLocationDraft: qsTr("C:/OpenDSS/Models")
     property bool trainingSetupExpanded: true
     property bool trainingStatusExpanded: true
-    property bool trainingResultsExpanded: true
+    property bool trainOperationPanelExpanded: true
     property string modelLibraryPresentation: "readySelected"
     property bool selectedModelExpanded: true
     property string modelTestPresentation: "empty"
@@ -28,7 +38,7 @@ QtObject {
     property string modelTestOutputLocationDraft: qsTr("C:/OpenDSS/ModelTests")
     property bool modelTestSetupExpanded: true
     property bool modelTestStatusExpanded: true
-    property bool modelTestResultsExpanded: true
+    property bool modelTestOperationPanelExpanded: true
     property string livePresentation: "unavailable"
     property bool liveSetupProfileExpanded: true
     property bool liveRunInformationExpanded: true
@@ -51,6 +61,7 @@ QtObject {
                                                    ? qsTr("Live Sorting  |  Stopped")
                                                    : qsTr("Live Sorting  |  Completed")
     property string settingsPresentation: "settingsReady"
+    property int textSizePercent: 100
     property bool cameraPromptHandled: false
     property string cameraPromptChoice: ""
     property bool singleImageOpen: false
@@ -160,42 +171,30 @@ QtObject {
     function toggleSingleImage() { if (!capturing && !captureRunning) singleImageOpen = !singleImageOpen }
     function toggleImageSequence() { if (!capturing && !captureRunning) imageSequenceOpen = !imageSequenceOpen }
     function toggleDataset() { if (!capturing && !captureRunning) datasetOpen = !datasetOpen }
+    function toggleCapturePanel() { capturePanelExpanded = !capturePanelExpanded }
     function continueWithoutCamera() { cameraPromptHandled = true; cameraPromptChoice = "yes" }
     function declineCamera() { cameraPromptHandled = true; cameraPromptChoice = "no" }
 
     function openLabelDataset() {
-        labelPresentation = "classDefinition"
-        labelClassCount = 2
+        labelPresentation = "ready"
+        labelDatasetName = qsTr("Droplet Dataset")
+        labelTotalCount = 18072
+        labelLabeledCount = 18069
     }
     function defineLabelClasses(count) {
-        labelClassCount = count
-        labelPresentation = "rightSectionsExpanded"
+        if (count === 2 || count === 3)
+            labelClassCount = count
+        labelPresentation = "ready"
     }
-    function toggleLabelSelectedCrop() {
-        if (labelPresentation === "rightSectionsExpanded")
-            labelPresentation = "selectedCropCollapsed"
-        else if (labelPresentation === "selectedCropCollapsed")
-            labelPresentation = "rightSectionsExpanded"
-        else if (labelPresentation === "classesFilterCollapsed")
-            labelPresentation = "rightSectionsCollapsed"
-        else if (labelPresentation === "rightSectionsCollapsed")
-            labelPresentation = "classesFilterCollapsed"
-    }
-    function toggleLabelClassesFilter() {
-        if (labelPresentation === "rightSectionsExpanded")
-            labelPresentation = "classesFilterCollapsed"
-        else if (labelPresentation === "classesFilterCollapsed")
-            labelPresentation = "rightSectionsExpanded"
-        else if (labelPresentation === "selectedCropCollapsed")
-            labelPresentation = "rightSectionsCollapsed"
-        else if (labelPresentation === "rightSectionsCollapsed")
-            labelPresentation = "selectedCropCollapsed"
-    }
-    function useLabelInTrain() {
-        if (activeOperation !== "training")
-            trainPresentation = "readyGpu"
-        selectedWorkspace = "train"
-    }
+    function toggleLabelPanel() { labelRightPanelExpanded = !labelRightPanelExpanded }
+    function toggleLabelDatasetSummary() { labelDatasetSummaryExpanded = !labelDatasetSummaryExpanded }
+    function toggleLabelSection() { labelExpanded = !labelExpanded }
+    function toggleLabelFilter() { labelFilterExpanded = !labelFilterExpanded }
+    function recordLabel() { labelLabeledCount = Math.min(labelTotalCount, labelLabeledCount + 1) }
+    function undoLabel() { labelLabeledCount = Math.max(0, labelLabeledCount - 1) }
+    function moveLabelSelection(direction) { labelSelectionIndex = Math.max(0, labelSelectionIndex + direction) }
+    function selectLabelFilter(filter) { selectedLabelFilter = filter }
+    function saveLabelDatasetAs() { labelDatasetName = qsTr("Droplet Dataset Copy") }
 
     function openViewerSequence() {
         sequenceViewerPresentation = "firstFrame"
@@ -228,10 +227,7 @@ QtObject {
         if (trainPresentation === "running")
             trainingStatusExpanded = !trainingStatusExpanded
     }
-    function toggleTrainingResults() {
-        if (trainPresentation === "completed")
-            trainingResultsExpanded = !trainingResultsExpanded
-    }
+    function toggleTrainOperationPanel() { trainOperationPanelExpanded = !trainOperationPanelExpanded }
     function startTraining() {
         if ((trainPresentation === "readyCpu" || trainPresentation === "readyGpu")
                 && trainModelNameDraft.trim() !== "" && activeOperation === "") {
@@ -295,10 +291,8 @@ QtObject {
         if (modelTestPresentation === "running")
             modelTestStatusExpanded = !modelTestStatusExpanded
     }
-    function toggleModelTestResults() {
-        if (modelTestPresentation === "completedTwoClass" || modelTestPresentation === "completedThreeClass")
-            modelTestResultsExpanded = !modelTestResultsExpanded
-    }
+    function toggleModelTestOperationPanel() { modelTestOperationPanelExpanded = !modelTestOperationPanelExpanded }
+    function openModelTestArtifact() { modelTestOutputLocationDraft = qsTr("Illustrative mock — no file opened") }
     function startModelTest() {
         if ((modelTestPresentation === "readyCpu" || modelTestPresentation === "readyGpu")
                 && activeOperation === "") {
@@ -318,6 +312,8 @@ QtObject {
         else
             modelTestPresentation = modelTestDatasetSelected ? "datasetOnly" : "empty"
     }
+
+    function setTextSizePercent(value) { textSizePercent = Math.max(80, Math.min(200, Math.round(value))) }
 
     function livePrimaryAction() {
         if (livePresentation === "ready")

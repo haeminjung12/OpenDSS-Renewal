@@ -29,16 +29,26 @@ Item {
         shell.mockState.daqAvailable = true
         shell.mockState.activeModelId = ""
         shell.mockState.hardwareDrawerOpen = false
+        shell.mockState.capturePanelExpanded = true
         shell.mockState.activeOperation = ""
         shell.mockState.labelPresentation = "empty"
-        shell.mockState.labelClassCount = 0
+        shell.mockState.labelClassCount = 3
+        shell.mockState.labelDatasetName = "Droplet Dataset"
+        shell.mockState.labelTotalCount = 18072
+        shell.mockState.labelLabeledCount = 18069
+        shell.mockState.labelRightPanelExpanded = true
+        shell.mockState.labelDatasetSummaryExpanded = true
+        shell.mockState.labelExpanded = true
+        shell.mockState.labelFilterExpanded = true
+        shell.mockState.selectedLabelFilter = "all"
+        shell.mockState.labelSelectionIndex = 0
         shell.mockState.sequenceViewerPresentation = "empty"
         shell.mockState.trainPresentation = "empty"
         shell.mockState.trainModelNameDraft = ""
         shell.mockState.trainSaveLocationDraft = "C:/OpenDSS/Models"
         shell.mockState.trainingSetupExpanded = true
         shell.mockState.trainingStatusExpanded = true
-        shell.mockState.trainingResultsExpanded = true
+        shell.mockState.trainOperationPanelExpanded = true
         shell.mockState.modelLibraryPresentation = "readySelected"
         shell.mockState.selectedModelExpanded = true
         shell.mockState.modelTestPresentation = "empty"
@@ -46,13 +56,14 @@ Item {
         shell.mockState.modelTestOutputLocationDraft = "C:/OpenDSS/ModelTests"
         shell.mockState.modelTestSetupExpanded = true
         shell.mockState.modelTestStatusExpanded = true
-        shell.mockState.modelTestResultsExpanded = true
+        shell.mockState.modelTestOperationPanelExpanded = true
         shell.mockState.livePresentation = "ready"
         shell.mockState.liveSetupProfileExpanded = true
         shell.mockState.liveRunInformationExpanded = true
         shell.mockState.liveTriggerTimingExpanded = true
         shell.mockState.liveOutputRecordingExpanded = true
         shell.mockState.liveRunningExpanded = true
+        shell.mockState.setTextSizePercent(100)
         shell.mockState.sequenceTestPresentation = "empty"
         shell.mockState.sequenceTestExpanded = true
         shell.mockState.physicalDaqOutputChecked = false
@@ -194,16 +205,6 @@ Item {
     }
 
     function test_workspaceHandoffs() {
-        shell.form.navLabelButton.clicked()
-        shell.form.labelWorkspace.openDatasetButton.clicked()
-        compare(shell.mockState.labelPresentation, "classDefinition")
-        shell.form.labelWorkspace.twoClassChoice.clicked()
-        compare(shell.mockState.labelPresentation, "rightSectionsExpanded")
-        compare(shell.mockState.labelClassCount, 2)
-        shell.form.labelWorkspace.useInTrainButton.clicked()
-        compare(shell.form.selectedWorkspace, "train")
-        compare(shell.mockState.trainPresentation, "readyGpu")
-
         shell.form.navLibraryButton.clicked()
         shell.form.modelLibraryWorkspace.candidateModelRowButton.clicked()
         shell.form.modelLibraryWorkspace.setActiveButton.clicked()
@@ -358,11 +359,12 @@ Item {
         shell.mockState.trainPresentation = "completed"
         shell.mockState.activeOperation = ""
         verify(shell.form.trainWorkspace.showCompleted)
-        shell.form.trainWorkspace.trainingResultsHeadingButton.clicked()
-        verify(!shell.mockState.trainingResultsExpanded)
-        verify(!shell.form.trainWorkspace.trainingResultsExpanded)
-        shell.form.trainWorkspace.trainingResultsHeadingButton.clicked()
-        verify(shell.form.trainWorkspace.trainingResultsExpanded)
+        verify(shell.form.trainWorkspace.openInModelTestButton !== null)
+        verify(shell.form.trainWorkspace.operationPanelToggleButton !== null)
+        shell.form.trainWorkspace.operationPanelToggleButton.clicked()
+        verify(!shell.form.trainWorkspace.operationPanelExpanded)
+        shell.form.trainWorkspace.operationPanelToggleButton.clicked()
+        verify(shell.form.trainWorkspace.operationPanelExpanded)
 
         shell.form.navModelTestButton.clicked()
         verify(shell.form.modelTestWorkspace.modelTestSetupExpanded)
@@ -385,11 +387,14 @@ Item {
         shell.mockState.modelTestPresentation = "completedTwoClass"
         shell.mockState.activeOperation = ""
         verify(shell.form.modelTestWorkspace.showCompleted)
-        shell.form.modelTestWorkspace.modelTestResultsHeadingButton.clicked()
-        verify(!shell.mockState.modelTestResultsExpanded)
-        verify(!shell.form.modelTestWorkspace.modelTestResultsExpanded)
-        shell.form.modelTestWorkspace.modelTestResultsHeadingButton.clicked()
-        verify(shell.form.modelTestWorkspace.modelTestResultsExpanded)
+        verify(shell.form.modelTestWorkspace.openPredictionsButton !== null)
+        verify(shell.form.modelTestWorkspace.openSummaryButton !== null)
+        shell.form.modelTestWorkspace.openPredictionsButton.clicked()
+        compare(shell.mockState.modelTestOutputLocationDraft, "Illustrative mock — no file opened")
+        shell.form.modelTestWorkspace.operationPanelToggleButton.clicked()
+        verify(!shell.form.modelTestWorkspace.operationPanelExpanded)
+        shell.form.modelTestWorkspace.operationPanelToggleButton.clicked()
+        verify(shell.form.modelTestWorkspace.operationPanelExpanded)
     }
 
     function test_libraryAndSequenceTestDisclosures() {
@@ -414,23 +419,102 @@ Item {
         verify(shell.form.sequenceTestWorkspace.sequenceTestExpanded)
     }
 
-    function test_labelDisclosureBehaviorRemainsWorking() {
+    function test_finalLabelStructureAndActions() {
         shell.form.navLabelButton.clicked()
-        shell.mockState.labelPresentation = "rightSectionsExpanded"
-        verify(shell.form.labelWorkspace.selectedCropExpanded)
-        verify(shell.form.labelWorkspace.classesFilterExpanded)
-        shell.form.labelWorkspace.selectedCropHeadingButton.clicked()
-        compare(shell.mockState.labelPresentation, "selectedCropCollapsed")
-        verify(!shell.form.labelWorkspace.selectedCropExpanded)
-        verify(shell.form.labelWorkspace.classesFilterExpanded)
-        shell.form.labelWorkspace.selectedCropHeadingButton.clicked()
-        compare(shell.mockState.labelPresentation, "rightSectionsExpanded")
-        shell.form.labelWorkspace.classesFilterHeadingButton.clicked()
-        compare(shell.mockState.labelPresentation, "classesFilterCollapsed")
-        verify(shell.form.labelWorkspace.selectedCropExpanded)
-        verify(!shell.form.labelWorkspace.classesFilterExpanded)
-        shell.form.labelWorkspace.classesFilterHeadingButton.clicked()
-        compare(shell.mockState.labelPresentation, "rightSectionsExpanded")
+        shell.form.labelWorkspace.openDatasetButton.clicked()
+        compare(shell.mockState.labelPresentation, "ready")
+        shell.form.labelWorkspace.twoClassChoice.clicked()
+        compare(shell.mockState.labelClassCount, 2)
+        verify(shell.form.labelWorkspace.class0Button.visible)
+        verify(shell.form.labelWorkspace.class1Button.visible)
+        verify(shell.form.labelWorkspace.class2Button.visible)
+        verify(!shell.form.labelWorkspace.class2Button.enabled)
+        shell.form.labelWorkspace.threeClassChoice.clicked()
+        compare(shell.mockState.labelClassCount, 3)
+        verify(shell.form.labelWorkspace.class2Button.enabled)
+
+        let labeledBefore = shell.mockState.labelLabeledCount
+        shell.form.labelWorkspace.class0Button.clicked()
+        compare(shell.mockState.labelLabeledCount, labeledBefore + 1)
+        shell.form.labelWorkspace.excludeButton.clicked()
+        compare(shell.mockState.labelLabeledCount, labeledBefore + 2)
+        shell.form.labelWorkspace.undoButton.clicked()
+        compare(shell.mockState.labelLabeledCount, labeledBefore + 1)
+        shell.form.labelWorkspace.previousButton.clicked()
+        compare(shell.mockState.labelSelectionIndex, 0)
+        shell.form.labelWorkspace.nextButton.clicked()
+        compare(shell.mockState.labelSelectionIndex, 1)
+        shell.form.labelWorkspace.saveAsButton.clicked()
+        compare(shell.mockState.labelDatasetName, "Droplet Dataset Copy")
+
+        shell.form.labelWorkspace.datasetSummaryHeadingButton.clicked()
+        verify(!shell.form.labelWorkspace.datasetSummaryExpanded)
+        shell.form.labelWorkspace.labelHeadingButton.clicked()
+        verify(!shell.form.labelWorkspace.labelExpanded)
+        shell.form.labelWorkspace.filterHeadingButton.clicked()
+        verify(!shell.form.labelWorkspace.filterExpanded)
+        shell.form.labelWorkspace.filterHeadingButton.clicked()
+        verify(shell.form.labelWorkspace.filterExpanded)
+        shell.form.labelWorkspace.class0FilterButton.clicked()
+        compare(shell.mockState.selectedLabelFilter, "class0")
+        shell.form.labelWorkspace.class1FilterButton.clicked()
+        compare(shell.mockState.selectedLabelFilter, "class1")
+        shell.form.labelWorkspace.class2FilterButton.clicked()
+        compare(shell.mockState.selectedLabelFilter, "class2")
+        shell.form.labelWorkspace.excludedFilterButton.clicked()
+        compare(shell.mockState.selectedLabelFilter, "excluded")
+        shell.form.labelWorkspace.unreviewedFilterButton.clicked()
+        compare(shell.mockState.selectedLabelFilter, "unreviewed")
+        shell.form.labelWorkspace.allFilterButton.clicked()
+        compare(shell.mockState.selectedLabelFilter, "all")
+        shell.form.labelWorkspace.rightPanelToggleButton.clicked()
+        verify(!shell.form.labelWorkspace.rightPanelExpanded)
+        shell.form.labelWorkspace.rightPanelToggleButton.clicked()
+        verify(shell.form.labelWorkspace.rightPanelExpanded)
+        verify(typeof shell.form.labelWorkspace.useInTrainButton === "undefined")
+        verify(typeof shell.form.labelWorkspace.selectedCropHeadingButton === "undefined")
+        verify(typeof shell.form.labelWorkspace.classesFilterHeadingButton === "undefined")
+        verify(typeof shell.form.trainWorkspace.trainingResultsHeadingButton === "undefined")
+        verify(typeof shell.form.modelTestWorkspace.modelTestResultsHeadingButton === "undefined")
+    }
+
+    function test_outerPanelToggleKeepsWorkspace() {
+        shell.form.navCaptureButton.clicked()
+        mouseClick(shell.form.capturePanelToggleButton)
+        tryCompare(shell.form, "capturePanelExpanded", false)
+        compare(shell.form.selectedWorkspace, "capture")
+        mouseClick(shell.form.capturePanelToggleButton)
+        tryCompare(shell.form, "capturePanelExpanded", true)
+
+        shell.form.navLabelButton.clicked()
+        shell.form.labelWorkspace.rightPanelToggleButton.clicked()
+        verify(!shell.form.labelWorkspace.rightPanelExpanded)
+        compare(shell.form.selectedWorkspace, "label")
+
+        shell.form.navTrainButton.clicked()
+        shell.form.trainWorkspace.operationPanelToggleButton.clicked()
+        verify(!shell.form.trainWorkspace.operationPanelExpanded)
+        compare(shell.form.selectedWorkspace, "train")
+
+        shell.form.navModelTestButton.clicked()
+        shell.form.modelTestWorkspace.operationPanelToggleButton.clicked()
+        verify(!shell.form.modelTestWorkspace.operationPanelExpanded)
+        compare(shell.form.selectedWorkspace, "modelTest")
+    }
+
+    function test_textSizeProjection() {
+        compare(shell.mockState.textSizePercent, 100)
+        compare(Constants.textSizePercent, 100)
+        shell.mockState.setTextSizePercent(80)
+        compare(shell.mockState.textSizePercent, 80)
+        compare(Constants.textSizePercent, 80)
+        shell.mockState.setTextSizePercent(200)
+        compare(shell.mockState.textSizePercent, 200)
+        compare(Constants.textSizePercent, 200)
+        shell.mockState.setTextSizePercent(220)
+        compare(shell.mockState.textSizePercent, 200)
+        shell.mockState.setTextSizePercent(60)
+        compare(shell.mockState.textSizePercent, 80)
     }
 
     function test_sequenceViewerTransitions() {

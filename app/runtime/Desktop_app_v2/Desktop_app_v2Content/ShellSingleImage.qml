@@ -37,6 +37,7 @@ Item {
         showSavedPath: state.showSavedPath
         showBanner: state.showBanner
         drawerOpen: state.hardwareDrawerOpen
+        capturePanelExpanded: state.capturePanelExpanded
         selectedWorkspace: state.selectedWorkspace
         singleImagePresentation: state.singleImagePresentation
         singleImageOpen: state.singleImageOpen
@@ -67,14 +68,15 @@ Item {
         captureStartsAvailable: state.activeOperation === ""
     }
 
-    Binding { target: screen.labelWorkspace; property: "presentation"; value: state.labelPresentation === "empty" || state.labelPresentation === "classDefinition" ? state.labelPresentation : "ready" }
+    Binding { target: screen.labelWorkspace; property: "presentation"; value: state.labelPresentation }
     Binding { target: screen.labelWorkspace; property: "classCount"; value: state.labelClassCount }
-    Binding { target: screen.labelWorkspace; property: "datasetName"; value: state.labelPresentation === "empty" ? "" : qsTr("Droplet Dataset") }
-    Binding { target: screen.labelWorkspace; property: "datasetPath"; value: state.labelPresentation === "empty" ? "" : qsTr("C:/OpenDSS/Datasets/droplets/dataset.json") }
-    Binding { target: screen.labelWorkspace; property: "selectedCount"; value: state.labelPresentation === "empty" || state.labelPresentation === "classDefinition" ? 0 : 3 }
-    Binding { target: screen.labelWorkspace; property: "saveState"; value: state.labelPresentation === "empty" || state.labelPresentation === "classDefinition" ? "" : qsTr("Saved") }
-    Binding { target: screen.labelWorkspace; property: "selectedCropExpanded"; value: state.labelPresentation !== "selectedCropCollapsed" && state.labelPresentation !== "rightSectionsCollapsed" }
-    Binding { target: screen.labelWorkspace; property: "classesFilterExpanded"; value: state.labelPresentation !== "classesFilterCollapsed" && state.labelPresentation !== "rightSectionsCollapsed" }
+    Binding { target: screen.labelWorkspace; property: "datasetName"; value: state.labelDatasetName }
+    Binding { target: screen.labelWorkspace; property: "totalCount"; value: state.labelTotalCount }
+    Binding { target: screen.labelWorkspace; property: "labeledCount"; value: state.labelLabeledCount }
+    Binding { target: screen.labelWorkspace; property: "rightPanelExpanded"; value: state.labelRightPanelExpanded }
+    Binding { target: screen.labelWorkspace; property: "datasetSummaryExpanded"; value: state.labelDatasetSummaryExpanded }
+    Binding { target: screen.labelWorkspace; property: "labelExpanded"; value: state.labelExpanded }
+    Binding { target: screen.labelWorkspace; property: "filterExpanded"; value: state.labelFilterExpanded }
 
     Binding { target: screen.sequenceViewerWorkspace; property: "presentation"; value: state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? state.sequenceViewerPresentation : "ready" }
     Binding { target: screen.sequenceViewerWorkspace; property: "currentFrame"; value: state.sequenceViewerPresentation === "firstFrame" ? 1 : state.sequenceViewerPresentation === "middleFrame" ? 60 : state.sequenceViewerPresentation === "finalFrame" ? 120 : 0 }
@@ -93,7 +95,7 @@ Item {
     Binding { target: screen.trainWorkspace; property: "showInterrupted"; value: state.trainPresentation === "interrupted" }
     Binding { target: screen.trainWorkspace; property: "trainingSetupExpanded"; value: state.trainingSetupExpanded }
     Binding { target: screen.trainWorkspace; property: "trainingStatusExpanded"; value: state.trainingStatusExpanded }
-    Binding { target: screen.trainWorkspace; property: "trainingResultsExpanded"; value: state.trainingResultsExpanded }
+    Binding { target: screen.trainWorkspace; property: "operationPanelExpanded"; value: state.trainOperationPanelExpanded }
 
     Binding { target: screen.modelLibraryWorkspace; property: "presentation"; value: state.modelLibraryPresentation }
     Binding { target: screen.modelLibraryWorkspace; property: "hasSelection"; value: state.modelLibraryPresentation !== "empty" && state.modelLibraryPresentation !== "error" }
@@ -115,7 +117,7 @@ Item {
     Binding { target: screen.modelTestWorkspace; property: "threeClassResult"; value: state.modelTestPresentation === "completedThreeClass" }
     Binding { target: screen.modelTestWorkspace; property: "modelTestSetupExpanded"; value: state.modelTestSetupExpanded }
     Binding { target: screen.modelTestWorkspace; property: "modelTestStatusExpanded"; value: state.modelTestStatusExpanded }
-    Binding { target: screen.modelTestWorkspace; property: "modelTestResultsExpanded"; value: state.modelTestResultsExpanded }
+    Binding { target: screen.modelTestWorkspace; property: "operationPanelExpanded"; value: state.modelTestOperationPanelExpanded }
 
     Binding { target: screen.liveWorkspace; property: "presentation"; value: state.livePresentation }
     Binding { target: screen.liveWorkspace; property: "cameraStreaming"; value: state.cameraStreaming }
@@ -143,6 +145,8 @@ Item {
     Binding { target: screen.runsWorkspace; property: "run042RowStatusText"; value: state.run042RowStatusText }
 
     Binding { target: screen.settingsWorkspace; property: "settingsPresentation"; value: state.settingsPresentation === "settingsError" ? "error" : "ready" }
+    Binding { target: screen.settingsWorkspace; property: "textSizePercent"; value: state.textSizePercent }
+    Binding { target: Constants; property: "textSizePercent"; value: state.textSizePercent }
 
     Connections {
         target: state
@@ -176,13 +180,29 @@ Item {
     Connections { target: screen.datasetLabelButton; function onClicked() { state.openLabel() } }
     Connections { target: screen.datasetFolderButton; function onClicked() { state.showMockFolder() } }
     Connections { target: screen.datasetNewButton; function onClicked() { state.startNewDataset() } }
+    Connections { target: screen.capturePanelToggleButton; function onClicked() { state.toggleCapturePanel() } }
 
     Connections { target: screen.labelWorkspace.openDatasetButton; function onClicked() { state.openLabelDataset() } }
     Connections { target: screen.labelWorkspace.twoClassChoice; function onClicked() { state.defineLabelClasses(2) } }
     Connections { target: screen.labelWorkspace.threeClassChoice; function onClicked() { state.defineLabelClasses(3) } }
-    Connections { target: screen.labelWorkspace.useInTrainButton; function onClicked() { state.useLabelInTrain() } }
-    Connections { target: screen.labelWorkspace.selectedCropHeadingButton; function onClicked() { state.toggleLabelSelectedCrop() } }
-    Connections { target: screen.labelWorkspace.classesFilterHeadingButton; function onClicked() { state.toggleLabelClassesFilter() } }
+    Connections { target: screen.labelWorkspace.rightPanelToggleButton; function onClicked() { state.toggleLabelPanel() } }
+    Connections { target: screen.labelWorkspace.datasetSummaryHeadingButton; function onClicked() { state.toggleLabelDatasetSummary() } }
+    Connections { target: screen.labelWorkspace.labelHeadingButton; function onClicked() { state.toggleLabelSection() } }
+    Connections { target: screen.labelWorkspace.filterHeadingButton; function onClicked() { state.toggleLabelFilter() } }
+    Connections { target: screen.labelWorkspace.allFilterButton; function onClicked() { state.selectLabelFilter("all") } }
+    Connections { target: screen.labelWorkspace.class0FilterButton; function onClicked() { state.selectLabelFilter("class0") } }
+    Connections { target: screen.labelWorkspace.class1FilterButton; function onClicked() { state.selectLabelFilter("class1") } }
+    Connections { target: screen.labelWorkspace.class2FilterButton; function onClicked() { state.selectLabelFilter("class2") } }
+    Connections { target: screen.labelWorkspace.excludedFilterButton; function onClicked() { state.selectLabelFilter("excluded") } }
+    Connections { target: screen.labelWorkspace.unreviewedFilterButton; function onClicked() { state.selectLabelFilter("unreviewed") } }
+    Connections { target: screen.labelWorkspace.class0Button; function onClicked() { state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.class1Button; function onClicked() { state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.class2Button; function onClicked() { state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.excludeButton; function onClicked() { state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.undoButton; function onClicked() { state.undoLabel() } }
+    Connections { target: screen.labelWorkspace.previousButton; function onClicked() { state.moveLabelSelection(-1) } }
+    Connections { target: screen.labelWorkspace.nextButton; function onClicked() { state.moveLabelSelection(1) } }
+    Connections { target: screen.labelWorkspace.saveAsButton; function onClicked() { state.saveLabelDatasetAs() } }
 
     Connections { target: screen.sequenceViewerWorkspace.openSequenceButton; function onClicked() { state.openViewerSequence() } }
     Connections { target: screen.sequenceViewerWorkspace.previousButton; function onClicked() { state.previousViewerFrame() } }
@@ -199,7 +219,7 @@ Item {
     Connections { target: screen.trainWorkspace.openInModelTestButton; function onClicked() { state.openTrainingInModelTest() } }
     Connections { target: screen.trainWorkspace.trainingSetupHeadingButton; function onClicked() { state.toggleTrainingSetup() } }
     Connections { target: screen.trainWorkspace.trainingStatusHeadingButton; function onClicked() { state.toggleTrainingStatus() } }
-    Connections { target: screen.trainWorkspace.trainingResultsHeadingButton; function onClicked() { state.toggleTrainingResults() } }
+    Connections { target: screen.trainWorkspace.operationPanelToggleButton; function onClicked() { state.toggleTrainOperationPanel() } }
 
     Connections { target: screen.modelLibraryWorkspace.activeModelRowButton; function onClicked() { state.selectActiveLibraryModel() } }
     Connections { target: screen.modelLibraryWorkspace.candidateModelRowButton; function onClicked() { state.selectCandidateLibraryModel() } }
@@ -212,10 +232,12 @@ Item {
     Connections { target: screen.modelTestWorkspace.browseButton; function onClicked() { state.browseModelTestOutput() } }
     Connections { target: screen.modelTestWorkspace.startButton; function onClicked() { state.startModelTest() } }
     Connections { target: screen.modelTestWorkspace.stopButton; function onClicked() { state.stopModelTest() } }
+    Connections { target: screen.modelTestWorkspace.openPredictionsButton; function onClicked() { state.openModelTestArtifact() } }
+    Connections { target: screen.modelTestWorkspace.openSummaryButton; function onClicked() { state.openModelTestArtifact() } }
     Connections { target: screen.modelTestWorkspace.startAnotherButton; function onClicked() { state.startAnotherModelTest() } }
     Connections { target: screen.modelTestWorkspace.modelTestSetupHeadingButton; function onClicked() { state.toggleModelTestSetup() } }
     Connections { target: screen.modelTestWorkspace.modelTestStatusHeadingButton; function onClicked() { state.toggleModelTestStatus() } }
-    Connections { target: screen.modelTestWorkspace.modelTestResultsHeadingButton; function onClicked() { state.toggleModelTestResults() } }
+    Connections { target: screen.modelTestWorkspace.operationPanelToggleButton; function onClicked() { state.toggleModelTestOperationPanel() } }
 
     Connections { target: screen.liveWorkspace.primaryActionButton; function onClicked() { state.livePrimaryAction() } }
     Connections { target: screen.liveWorkspace.secondaryActionButton; function onClicked() { state.liveSecondaryAction() } }
@@ -235,6 +257,7 @@ Item {
     Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { state.loadSelectedRun() } }
     Connections { target: screen.runsWorkspace.editNotesButton; function onClicked() { state.editRunNotes() } }
     Connections { target: screen.runsWorkspace.saveNotesButton; function onClicked() { state.finishRunNotesEditing() } }
+    Connections { target: screen.settingsWorkspace.textSizeSlider; function onMoved() { state.setTextSizePercent(screen.settingsWorkspace.textSizeSlider.value) } }
     Connections { target: screen.runsWorkspace.cancelNotesButton; function onClicked() { state.finishRunNotesEditing() } }
 
     Connections {

@@ -31,6 +31,8 @@ Rectangle {
         anchors.margins: Constants.workspaceMargin
         spacing: Constants.spacing
 
+        Text { text: qsTr("Label"); font: Constants.largeFont; color: Constants.textColor; width: parent.width; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter }
+
         Row {
             width: parent.width
             spacing: Constants.spacing
@@ -72,7 +74,7 @@ Rectangle {
         Rectangle {
             visible: root.presentation === "empty"
             width: parent.width
-            height: parent.height - 56
+            height: parent.height - y
             color: Constants.surfaceColor
             border.color: Constants.borderColor
             Text { text: qsTr("Open a Dataset to label Droplet Crops"); color: Constants.mutedTextColor; font: Constants.largeFont; anchors.centerIn: parent }

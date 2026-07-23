@@ -12,14 +12,25 @@ Rectangle {
     property string settingsPresentation: "ready"
     property string defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite")
 
+    Text {
+        id: workspaceTitle
+        text: qsTr("Settings")
+        font: Constants.largeFont
+        color: Constants.textColor
+        height: Constants.controlHeight
+        verticalAlignment: Text.AlignVCenter
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: Constants.workspaceMargin
+    }
+
     Column {
         width: parent.width * 0.66
         anchors.horizontalCenter: parent.horizontalCenter
-        anchors.top: parent.top
+        anchors.top: workspaceTitle.bottom
+        anchors.topMargin: Constants.spacing
         anchors.margins: Constants.workspaceMargin
         spacing: Constants.spacing
-
-        Text { text: qsTr("Settings"); font: Constants.largeFont; color: Constants.textColor }
 
         Rectangle {
             visible: root.settingsPresentation === "error"

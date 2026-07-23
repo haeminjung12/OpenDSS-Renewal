@@ -174,13 +174,15 @@ Rectangle {
             visible: root.selectedWorkspace === "capture"
             anchors.fill: parent
             anchors.margins: Constants.workspaceMargin
-            Rectangle { id: cameraPreview; color: Constants.viewerColor; border.color: Constants.borderColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: capturePanel.left; anchors.rightMargin: Constants.spacing; Text { text: root.cameraStatus === qsTr("Unavailable") ? qsTr("Camera unavailable") : qsTr("Camera preview"); color: Constants.surfaceColor; font: Constants.largeFont; anchors.centerIn: parent } }
+            Text { id: captureWorkspaceTitle; text: qsTr("Capture"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter; anchors.left: parent.left; anchors.top: parent.top }
+            Rectangle { id: cameraPreview; color: Constants.viewerColor; border.color: Constants.borderColor; anchors.top: captureWorkspaceTitle.bottom; anchors.topMargin: Constants.spacing; anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: capturePanel.left; anchors.rightMargin: Constants.spacing; Text { text: root.cameraStatus === qsTr("Unavailable") ? qsTr("Camera unavailable") : qsTr("Camera preview"); color: Constants.surfaceColor; font: Constants.largeFont; anchors.centerIn: parent } }
             Rectangle {
                 id: capturePanel
                 width: Constants.operationPanelWidth
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
-                anchors.top: parent.top
+                anchors.top: captureWorkspaceTitle.bottom
+                anchors.topMargin: Constants.spacing
                 anchors.bottom: parent.bottom
                 anchors.right: parent.right
                 Column {

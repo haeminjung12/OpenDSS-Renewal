@@ -34,7 +34,7 @@ Rectangle {
         anchors.margins: Constants.workspaceMargin
         spacing: Constants.spacing
 
-        Text { text: qsTr("Train"); font: Constants.largeFont; color: Constants.textColor }
+        Text { text: qsTr("Train"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter }
         Text { text: root.disabledReason; visible: root.presentation === "empty" || root.presentation === "unavailable"; color: Constants.warningColor; font: Constants.smallFont }
         Text { text: qsTr("Training stopped"); visible: root.showInterrupted; color: Constants.warningColor; font: Constants.headingFont }
 

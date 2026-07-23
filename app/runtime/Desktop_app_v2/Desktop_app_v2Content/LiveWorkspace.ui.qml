@@ -19,8 +19,24 @@ Item {
         anchors.fill: parent
         color: Constants.backgroundColor
 
+        Text {
+            id: workspaceTitle
+            text: qsTr("Live")
+            font: Constants.largeFont
+            color: Constants.textColor
+            height: Constants.controlHeight
+            verticalAlignment: Text.AlignVCenter
+            anchors.top: parent.top
+            anchors.left: parent.left
+            anchors.margins: Constants.workspaceMargin
+        }
+
         Row {
-            anchors.fill: parent
+            anchors.top: workspaceTitle.bottom
+            anchors.topMargin: Constants.spacing
+            anchors.bottom: parent.bottom
+            anchors.left: parent.left
+            anchors.right: parent.right
             anchors.margins: Constants.workspaceMargin
             spacing: Constants.workspaceMargin
 

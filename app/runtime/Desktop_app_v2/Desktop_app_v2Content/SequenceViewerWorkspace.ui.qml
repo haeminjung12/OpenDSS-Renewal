@@ -26,7 +26,7 @@ Rectangle {
         Row {
             id: workspaceHeader
             width: parent.width
-            Text { text: qsTr("Data > Sequence Viewer"); font: Constants.headingFont; width: parent.width - openSequenceButton.width }
+            Text { text: qsTr("Sequence Viewer"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter; width: parent.width - openSequenceButton.width }
             Button { id: openSequenceButton; text: qsTr("Open Sequence"); height: Constants.controlHeight }
         }
 

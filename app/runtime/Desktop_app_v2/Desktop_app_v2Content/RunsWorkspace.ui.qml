@@ -26,9 +26,11 @@ Rectangle {
 
     Text {
         id: workspaceHeading
-        text: qsTr("Results > Runs")
+        text: qsTr("Runs")
         font: Constants.largeFont
         color: Constants.textColor
+        height: Constants.controlHeight
+        verticalAlignment: Text.AlignVCenter
         anchors.left: parent.left
         anchors.top: parent.top
         anchors.margins: Constants.workspaceMargin

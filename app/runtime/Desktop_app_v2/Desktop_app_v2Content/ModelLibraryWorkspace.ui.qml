@@ -18,8 +18,24 @@ Rectangle {
     property alias setActiveButton: setActiveButton
     property alias openInModelTestButton: openInModelTestButton
 
+    Text {
+        id: workspaceTitle
+        text: qsTr("Library")
+        font: Constants.largeFont
+        color: Constants.textColor
+        height: Constants.controlHeight
+        verticalAlignment: Text.AlignVCenter
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: Constants.workspaceMargin
+    }
+
     Row {
-        anchors.fill: parent
+        anchors.top: workspaceTitle.bottom
+        anchors.topMargin: Constants.spacing
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.margins: Constants.workspaceMargin
         spacing: Constants.spacing
         Rectangle {
@@ -31,7 +47,7 @@ Rectangle {
                 anchors.fill: parent
                 anchors.margins: Constants.spacing * 2
                 spacing: Constants.spacing
-                Text { text: qsTr("Model Library"); font: Constants.largeFont }
+                Text { text: qsTr("Models"); font: Constants.headingFont }
                 Button { id: importButton; text: qsTr("Import Model"); height: Constants.controlHeight }
                 Column {
                     id: modelList

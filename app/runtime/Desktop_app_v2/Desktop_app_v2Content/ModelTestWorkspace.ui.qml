@@ -30,7 +30,7 @@ Rectangle {
         anchors.fill: parent
         anchors.margins: Constants.workspaceMargin
         spacing: Constants.spacing
-        Text { text: qsTr("Model Test"); font: Constants.largeFont }
+        Text { text: qsTr("Model Test"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter }
         Rectangle {
             width: parent.width; height: 100; color: Constants.surfaceColor; border.color: Constants.borderColor
             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 4; Text { text: qsTr("Active Model (read-only)"); font: Constants.headingFont } Text { text: root.activeModelText } Text { text: qsTr("Dataset: ") + root.datasetText } }

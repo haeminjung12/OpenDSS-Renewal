@@ -196,11 +196,13 @@ tokscale tui --client codex
 Apply the following authority order repository-wide:
 
 1. `docs/v2/canonical/product-model.md` controls approved product decisions D-001 through D-019, product structure, scope, terminology, configuration boundaries, and product-state ownership constraints.
-2. `docs/v2/canonical/information-architecture.md` and `docs/v2/canonical/interaction-and-state.md` control the current shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery.
-3. `docs/v2/canonical/detailed-workflows.md` supplies detailed scientific, artifact, persistence, recovery, and acceptance requirements that do not conflict with higher-authority documents.
-4. `docs/v2/design/consolidated-design-draft.md` is the current consolidated visual/component design baseline under review and does not override the approved product model or interaction baselines.
-5. `docs/v2/archive/product-design-draft-v0.1.md` is historical, non-normative design evidence only.
-6. Existing repository code is implementation evidence and a source of reusable technical components; it is not authority for v2 UX, product structure, terminology, product policy, or exposed configuration.
+2. `docs/v2/OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md` is the user-approved authority for its listed UI layout, naming, disclosure, and composition topics; it supersedes conflicting lower sources but cannot change Product Model policy or scope.
+3. `docs/v2/OpenDSS_v2_UIUX_Design_Amendment.md` controls its nonconflicting approved UI/UX decisions.
+4. `docs/v2/canonical/information-architecture.md` and `docs/v2/canonical/interaction-and-state.md` control the current shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery unless superseded by the scoped visual-review amendment.
+5. `docs/v2/canonical/detailed-workflows.md` supplies detailed scientific, artifact, persistence, recovery, and acceptance requirements that do not conflict with higher-authority documents.
+6. `docs/v2/design/consolidated-design-draft.md` is the current consolidated visual/component design baseline under review and does not override higher authority.
+7. `docs/v2/archive/product-design-draft-v0.1.md` is historical, non-normative design evidence only.
+8. Existing repository code is implementation evidence and a source of reusable technical components; it is not authority for v2 UX, product structure, terminology, product policy, or exposed configuration.
 
 D-001 through D-019 belong only to the Approved Product Model. Repository code must not be used to reintroduce superseded navigation, terminology, product states, scientific policy, or editable settings. Existing v1 behavior is not automatically a v2 requirement. The consolidated design specification remains **Consolidated Draft for Review** and must not be silently marked Approved.
 
@@ -288,6 +290,7 @@ Every modified `*.ui.qml` file must remain editable in Qt Design Studio's 2D vie
 Every frontend work order must identify:
 
 - for any QML job, that the agent must load and apply the `qt-qml` skill before writing, reviewing, diagnosing, refactoring, or validating QML; this supplements the official Qt Documentation requirement for Qt API, version, and Design Studio behavior;
+- for a QML job affecting the visual-review topics, the exact relevant sections of `docs/v2/OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md` as required reading;
 - visual `*.ui.qml` files authorized for modification;
 - visual files that are read-only;
 - wrapper QML, C++, mock, test, and durable CMake files authorized for modification;

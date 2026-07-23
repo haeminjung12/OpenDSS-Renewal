@@ -5,20 +5,22 @@
 Use this order when requirements differ:
 
 1. [Approved Product Model](canonical/product-model.md).
-2. [Approved UI/UX Design Amendment](OpenDSS_v2_UIUX_Design_Amendment.md) for every UI, layout, naming, interaction, and workflow matter it explicitly changes.
-3. [Information Architecture and Screen Inventory](canonical/information-architecture.md) and [Interaction and Application-State Specification](canonical/interaction-and-state.md).
-4. Nonconflicting requirements in the [Detailed Workflow Specification](canonical/detailed-workflows.md).
-5. [Consolidated Product Design Specification](design/consolidated-design-draft.md), which remains **Consolidated Draft for Review**.
-6. [Archived historical design evidence](archive/product-design-draft-v0.1.md).
-7. Repository code as implementation evidence only.
+2. [User-approved visual-review amendment](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) for its listed UI layout, naming, disclosure, and composition topics. It is subordinate to the Product Model and supersedes conflicting lower visual sources.
+3. [Approved UI/UX Design Amendment](OpenDSS_v2_UIUX_Design_Amendment.md) for its nonconflicting UI, layout, naming, interaction, and workflow decisions.
+4. [Information Architecture and Screen Inventory](canonical/information-architecture.md) and [Interaction and Application-State Specification](canonical/interaction-and-state.md), except where the scoped visual-review amendment supersedes conflicting visual language.
+5. Nonconflicting requirements in the [Detailed Workflow Specification](canonical/detailed-workflows.md).
+6. [Consolidated Product Design Specification](design/consolidated-design-draft.md), which remains **Consolidated Draft for Review**.
+7. [Archived historical design evidence](archive/product-design-draft-v0.1.md).
+8. Repository code as implementation evidence only.
 
-Derived engineering documents, including this file, cannot override canonical specifications. Report a conflict rather than choosing a convenient interpretation.
+Except for the expressly scoped user-approved visual-review amendment, derived engineering documents, including this file, cannot override canonical specifications. Report a conflict rather than choosing a convenient interpretation.
 
 ## Documentation map
 
 | Topic | Authoritative document | Relevant heading or section | Derived engineering document, when useful |
 |---|---|---|---|
 | Product scope and exclusions | [Approved Product Model](canonical/product-model.md) | §2 Product definition; §17 First-release boundaries | — |
+| User-approved visual review | [UI/UX Visual Review Amendment — 2026-07-23](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) | All decisions; scoped override for listed visual topics | Current Slice |
 | Approved UI/UX amendment | [Approved UI/UX Design Amendment](OpenDSS_v2_UIUX_Design_Amendment.md) | §§2–19 | All downstream documents listed below |
 | Navigation and workspace behavior | [Information Architecture and Screen Inventory](canonical/information-architecture.md) | §1 Application shell; §2 Navigation hierarchy; §3 Complete workspace inventory; §4 Workspace state inventory | — |
 | Application state and resource locks | [Interaction and Application-State Specification](canonical/interaction-and-state.md) | §3 Conceptual application-state model; §17 Shared resource ownership and navigation effects | — |
@@ -41,6 +43,7 @@ Derived engineering documents, including this file, cannot override canonical sp
 
 ## Current status
 
+- The user-approved [July 23, 2026 visual-review amendment](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) is authoritative for its listed visual topics and supersedes conflicting lower visual sources; it does not authorize production behavior.
 - The canonical product, information-architecture, interaction-state, and detailed-workflow baselines incorporate the approved July 23, 2026 UI/UX amendment.
 - The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md). Its approved GUI forms and deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`.
 - The user explicitly authorized a visual-only scaffold for every approved workspace with no speculative controls or behavior.

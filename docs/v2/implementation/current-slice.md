@@ -18,13 +18,14 @@ Establish the amended shell, Mock Single Image presentation, and a visual-only n
 
 1. [Repository agent policy](../../../AGENTS.md).
 2. [Implementation context](../CONTEXT.md).
-3. [Approved UI/UX amendment](../OpenDSS_v2_UIUX_Design_Amendment.md), §§2–5, 17, and 18.
-4. [Approved Product Model](../canonical/product-model.md), §§1, 4, 5, and 7.1.
-5. [Information Architecture](../canonical/information-architecture.md), §0 and §§1–4.
-6. [Interaction and Application-State Specification](../canonical/interaction-and-state.md), §0 and Capture/error sections.
-7. [Consolidated Design Draft](../design/consolidated-design-draft.md), amendment integration, shell, shared components, Capture, responsive/accessibility, and Qt Design Studio handoff sections. It remains **Consolidated Draft for Review**.
-8. [Qt Design Studio adoption record](qt-design-studio-adoption.md), continuing-slice constraints.
-9. [Visual scaffold first-two-round plan](visual-scaffold-two-round-plan.md).
+3. [User-approved visual-review amendment](../OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md), for any listed visual topic.
+4. [Approved UI/UX amendment](../OpenDSS_v2_UIUX_Design_Amendment.md), §§2–5, 17, and 18, except where superseded by the visual-review amendment.
+5. [Approved Product Model](../canonical/product-model.md), §§1, 4, 5, and 7.1.
+6. [Information Architecture](../canonical/information-architecture.md), §0 and §§1–4.
+7. [Interaction and Application-State Specification](../canonical/interaction-and-state.md), §0 and Capture/error sections.
+8. [Consolidated Design Draft](../design/consolidated-design-draft.md), amendment integration, shell, shared components, Capture, responsive/accessibility, and Qt Design Studio handoff sections. It remains **Consolidated Draft for Review**.
+9. [Qt Design Studio adoption record](qt-design-studio-adoption.md), continuing-slice constraints.
+10. [Visual scaffold first-two-round plan](visual-scaffold-two-round-plan.md).
 
 ## Authorized visual-baseline consequences
 
@@ -42,6 +43,7 @@ Establish the amended shell, Mock Single Image presentation, and a visual-only n
 - Qt Design Studio-editable skeletal hosts for Label, Sequence Viewer, Train, Model Test, Library, Live, Sequence Test, Results, and Settings using only approved regions and section names;
 - deterministic visual selection/mock states sufficient to review each approved workspace composition;
 - proposed exported aliases, signals, and state names only where an immediate Round 2 consumer is identified.
+- the user-approved visual-review consequences: shared click-to-collapse right-panel and Hardware disclosures; active primary navigation that remains selected; intrinsic-height expanded bodies; centered Sequence Viewer controls; consistent titles; the reviewed Label composition; source-grounded Live disclosures; and Settings controls inside section borders.
 
 ## Authorized files
 
@@ -82,6 +84,7 @@ No files are authorized by this planning record alone. The orchestrator must iss
 - The Camera-unavailable mock appears once per session and exposes the approved Yes/No outcomes.
 - Normal mock failure presentation is exactly `Error`; technical detail is absent from the workspace.
 - All approved workspaces have a recognizable, source-grounded visual host without speculative controls or runtime behavior.
+- Listed visual-review topics conform to the [user-approved visual-review amendment](../OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md), including intrinsic-height expanded right-panel bodies and the reviewed Label, Sequence Viewer, Live, and Settings composition.
 - Modified forms remain editable in Qt Design Studio 2D view and render in Live Preview.
 - No production, generated, protected, or later-slice source is changed.
 

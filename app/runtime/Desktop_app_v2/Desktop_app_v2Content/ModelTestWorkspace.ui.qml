@@ -16,7 +16,9 @@ Rectangle {
     property string blockerText: qsTr("No Active Model")
     property bool startEnabled: false
     property bool showRunning: false
+    property bool showCompleted: false
     property bool showError: false
+    property bool threeClassResult: false
     property bool modelTestSetupExpanded: true
     property bool modelTestStatusExpanded: true
     property alias selectDatasetButton: selectDatasetButton
@@ -24,6 +26,8 @@ Rectangle {
     property alias browseButton: browseButton
     property alias startButton: startButton
     property alias stopButton: stopButton
+    property alias openPredictionsButton: openPredictionsButton
+    property alias startAnotherButton: startAnotherButton
     property alias modelTestSetupHeadingButton: modelTestSetupSection.headingButton
     property alias modelTestStatusHeadingButton: modelTestStatusSection.headingButton
 
@@ -81,8 +85,15 @@ Rectangle {
                         Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall Accuracy") } }
                         Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-Class Accuracy") } }
                     }
-                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Confusion Matrix") } }
+                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: root.threeClassResult ? qsTr("Confusion Matrix (3 classes)") : qsTr("Confusion Matrix (2 classes)") } }
                     Rectangle { width: parent.width; height: 72; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Prediction summary") } }
+                    Row {
+                        visible: root.showCompleted
+                        spacing: Constants.spacing
+                        Button { id: openPredictionsButton; text: qsTr("Open Predictions CSV"); height: Constants.controlHeight }
+                        Button { id: openSummaryButton; text: qsTr("Open Summary"); height: Constants.controlHeight }
+                        Button { id: startAnotherButton; text: qsTr("Start Another"); height: Constants.controlHeight }
+                    }
                 }
             }
         }
@@ -168,17 +179,17 @@ Rectangle {
     }
 
     states: [
-        State { name: "empty"; PropertyChanges { root.presentation: "empty"; root.activeModelText: qsTr("No Active Model"); root.datasetText: qsTr("No Dataset selected"); root.startEnabled: false; root.showRunning: false; root.showError: false; root.blockerText: qsTr("No Active Model") } },
+        State { name: "empty"; PropertyChanges { root.presentation: "empty"; root.activeModelText: qsTr("No Active Model"); root.datasetText: qsTr("No Dataset selected"); root.startEnabled: false; root.showRunning: false; root.showCompleted: false; root.showError: false; root.blockerText: qsTr("No Active Model") } },
         State { name: "modelOnly"; PropertyChanges { root.presentation: "modelOnly"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("No Dataset selected"); root.startEnabled: false; root.blockerText: qsTr("No dataset selected") } },
         State { name: "datasetOnly"; PropertyChanges { root.presentation: "datasetOnly"; root.activeModelText: qsTr("No Active Model"); root.datasetText: qsTr("Dataset-042"); root.startEnabled: false; root.blockerText: qsTr("No Active Model") } },
         State { name: "classMismatch"; PropertyChanges { root.presentation: "classMismatch"; root.activeModelText: qsTr("DropletNet-04 (2 classes)"); root.datasetText: qsTr("Dataset-042 (3 classes)"); root.startEnabled: false; root.blockerText: qsTr("The selected model has 2 output classes, but the selected Dataset defines 3 classes") } },
         State { name: "noLabeled"; PropertyChanges { root.presentation: "noLabeled"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("Dataset-042"); root.startEnabled: false; root.blockerText: qsTr("No Labeled Droplet Crops") } },
         State { name: "readyCpu"; PropertyChanges { root.presentation: "readyCpu"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("Dataset-042"); root.deviceText: qsTr("CPU (automatic)"); root.startEnabled: true; root.blockerText: "" } },
         State { name: "readyGpu"; PropertyChanges { root.presentation: "readyGpu"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("Dataset-042"); root.deviceText: qsTr("GPU (automatic)"); root.startEnabled: true; root.blockerText: "" } },
-        State { name: "running"; PropertyChanges { root.presentation: "running"; root.showRunning: true; root.showError: false; root.deviceText: qsTr("GPU (automatic)") } },
-        State { name: "completedTwoClass"; PropertyChanges { root.presentation: "completedTwoClass"; root.showRunning: false; root.showError: false } },
-        State { name: "completedThreeClass"; PropertyChanges { root.presentation: "completedThreeClass"; root.showRunning: false; root.showError: false } },
-        State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showError: true } },
-        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showError: true; root.blockerText: qsTr("Output folder is not writable") } }
+        State { name: "running"; PropertyChanges { root.presentation: "running"; root.showRunning: true; root.showCompleted: false; root.showError: false; root.deviceText: qsTr("GPU (automatic)") } },
+        State { name: "completedTwoClass"; PropertyChanges { root.presentation: "completedTwoClass"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.threeClassResult: false } },
+        State { name: "completedThreeClass"; PropertyChanges { root.presentation: "completedThreeClass"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.threeClassResult: true } },
+        State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showCompleted: false; root.showError: true } },
+        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.blockerText: qsTr("Output folder is not writable") } }
     ]
 }

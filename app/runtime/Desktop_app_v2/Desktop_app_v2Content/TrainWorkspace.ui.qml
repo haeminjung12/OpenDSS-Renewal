@@ -14,8 +14,10 @@ Rectangle {
     property string disabledReason: qsTr("No dataset selected")
     property string modelNameText: ""
     property string saveLocationText: ""
+    property string resultPath: qsTr("C:/OpenDSS/Models/DropletNet-04.opendssmodel")
     property bool startEnabled: false
     property bool showRunning: false
+    property bool showCompleted: false
     property bool showError: false
     property bool showInterrupted: false
     property bool trainingSetupExpanded: true
@@ -27,6 +29,7 @@ Rectangle {
     property alias startButton: startButton
     property alias stopButton: stopButton
     property alias retrySaveButton: retrySaveButton
+    property alias openInModelTestButton: openInModelTestButton
     property alias trainingSetupHeadingButton: trainingSetupSection.headingButton
     property alias trainingStatusHeadingButton: trainingStatusSection.headingButton
 
@@ -88,14 +91,29 @@ Rectangle {
                     anchors.margins: Constants.spacing * 2
                     spacing: Constants.spacing
                     Text { text: qsTr("Results"); font: Constants.headingFont }
-                    Rectangle { width: parent.width; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Training Loss / Validation Loss") } }
-                    Rectangle { width: parent.width; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Validation Accuracy") } }
                     Row {
                         width: parent.width
                         spacing: Constants.spacing
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 72; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall results") } }
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 72; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class results") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 76; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Training Loss / Validation Loss") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 76; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Validation Accuracy") } }
                     }
+                    Row {
+                        visible: root.showCompleted
+                        width: parent.width
+                        spacing: Constants.spacing
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall results") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class results") } }
+                    }
+                    Row {
+                        visible: root.showCompleted
+                        width: parent.width
+                        spacing: Constants.spacing
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Macro F1") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class validation accuracy") } }
+                    }
+                    Text { visible: root.showCompleted; text: qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width }
+                    Text { visible: root.showCompleted; text: qsTr("Active Model confirmed"); color: Constants.readyColor }
+                    Button { id: openInModelTestButton; visible: root.showCompleted; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
                 }
             }
         }
@@ -187,13 +205,13 @@ Rectangle {
     }
 
     states: [
-        State { name: "empty"; PropertyChanges { root.presentation: "empty"; root.showRunning: false; root.showError: false; root.showInterrupted: false; root.startEnabled: false; root.datasetText: qsTr("No Dataset selected"); root.disabledReason: qsTr("No dataset selected") } },
+        State { name: "empty"; PropertyChanges { root.presentation: "empty"; root.showRunning: false; root.showCompleted: false; root.showError: false; root.showInterrupted: false; root.startEnabled: false; root.datasetText: qsTr("No Dataset selected"); root.disabledReason: qsTr("No dataset selected") } },
         State { name: "unavailable"; PropertyChanges { root.presentation: "unavailable"; root.showInterrupted: false; root.startEnabled: false; root.disabledReason: qsTr("No Labeled Droplet Crops") } },
         State { name: "readyCpu"; PropertyChanges { root.presentation: "readyCpu"; root.showInterrupted: false; root.startEnabled: true; root.deviceText: qsTr("CPU (automatic)"); root.disabledReason: "" } },
         State { name: "readyGpu"; PropertyChanges { root.presentation: "readyGpu"; root.showInterrupted: false; root.startEnabled: true; root.deviceText: qsTr("GPU (automatic)"); root.disabledReason: "" } },
-        State { name: "running"; PropertyChanges { root.presentation: "running"; root.showRunning: true; root.showError: false; root.showInterrupted: false; root.deviceText: qsTr("GPU (automatic)") } },
-        State { name: "completed"; PropertyChanges { root.presentation: "completed"; root.showRunning: false; root.showError: false; root.showInterrupted: false } },
-        State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showError: false; root.showInterrupted: true; root.startEnabled: false } },
-        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showError: true; root.showInterrupted: false } }
+        State { name: "running"; PropertyChanges { root.presentation: "running"; root.showRunning: true; root.showCompleted: false; root.showError: false; root.showInterrupted: false; root.deviceText: qsTr("GPU (automatic)") } },
+        State { name: "completed"; PropertyChanges { root.presentation: "completed"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.showInterrupted: false } },
+        State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showCompleted: false; root.showError: false; root.showInterrupted: true; root.startEnabled: false } },
+        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.showInterrupted: false } }
     ]
 }

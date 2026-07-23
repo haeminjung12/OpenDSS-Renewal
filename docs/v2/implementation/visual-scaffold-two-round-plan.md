@@ -8,6 +8,8 @@
 
 This plan authorizes a visual-only navigation scaffold for every approved OpenDSS v2 workspace. It does not authorize speculative controls, operational behavior, production hardware integration, persistence, scientific processing, or later-workspace implementation.
 
+**Current handoff:** Approved GUI forms and the deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`. Generated Qt Design Studio Content CMake registration and the targeted configure/build gate remain pending because nine new forms are omitted from generated Content CMake. No generated-CMake workaround, production integration, or user-led manual visual acceptance is recorded; the slice remains open.
+
 Canonical product and interaction documents remain authoritative. This plan controls delivery order, worker ownership, and proportional validation.
 
 ## Simplest complete approach
@@ -108,7 +110,7 @@ Round 2 uses two isolated worktrees/branches from the same accepted Round 1 base
 3. Integrate the design result first only when it preserves the frozen interface.
 4. Integrate the backbone result second.
 5. Resolve visual-contract changes by returning them to the owning worker; do not guess during integration.
-6. Stop after Round 2 acceptance. Do not begin Full Capture or production integration automatically.
+6. Complete generated Content CMake registration and the targeted configure/build gate, then obtain Round 2 acceptance. Do not begin Full Capture or production integration automatically.
 
 ## Minimal validation policy
 

@@ -42,7 +42,7 @@ Derived engineering documents, including this file, cannot override canonical sp
 ## Current status
 
 - The canonical product, information-architecture, interaction-state, and detailed-workflow baselines incorporate the approved July 23, 2026 UI/UX amendment.
-- The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md).
+- The current slice is the [visual navigation scaffold and Mock Single Image](implementation/current-slice.md). Its approved GUI forms and deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`.
 - The user explicitly authorized a visual-only scaffold for every approved workspace with no speculative controls or behavior.
 - The adopted first-two-round workflow is recorded in the [Visual Scaffold Two-Round Plan](implementation/visual-scaffold-two-round-plan.md): Round 1 uses one visual-scaffold writer; Round 2 splits design and minimal backbone into nonoverlapping worktrees after the interface is frozen.
 - The active [page-composition review](reviews/page-composition-review.md) has been reconciled to the amendment; it remains a review artifact rather than independent authority.
@@ -50,5 +50,7 @@ Derived engineering documents, including this file, cannot override canonical sp
 - A bounded work order naming exact files is still required before any form, wrapper, mock, test, or CMake input is edited.
 - Validation for these visual rounds is intentionally proportional and user-led: avoid the full legacy/hardware test matrix and prefer manual Qt Design Studio review where practical.
 - The Qt Design Studio designer/developer workflow and form-wrapper-controller boundary remain adopted implementation constraints.
+- Generated Qt Design Studio Content CMake registration and the targeted configure/build gate remain pending because the generated Content CMake omits nine new forms. No generated-CMake workaround or production integration was added; the slice remains open until that gate passes.
+- User-led Qt Design Studio/manual visual acceptance has not yet been recorded.
 - P0-1 detector characterization and neutral-contract work remains accepted groundwork.
 - Real Camera preview, TIFF capture, DAQ, Training, Live, Sequence Test, Results, persistence, and other production integrations remain later slices requiring explicit authorization.

@@ -4,6 +4,8 @@
 
 User-authorized for Round 1 visual-only scaffold planning and implementation through bounded work orders. Production behavior remains unauthorized.
 
+All approved GUI forms and the deterministic hardware-free backbone are complete and reviewed through `9b27313`, `7e953d9`, `5be26c2`, `12be7e3`, `67930e5`, `2dd088c`, `53dc6a7`, `0f16cc0`, `639a60e`, `c850a8a`, and `f39f1b8`. The generated Qt Design Studio Content CMake omits nine new forms, so generator registration and the targeted configure/build gate remain pending. No generated-CMake workaround or production integration was added. This slice remains open until that gate passes; user-led Qt Design Studio/manual visual acceptance is not yet recorded.
+
 The earlier baseline committed as `188a649` remains evidence. Its Single Image-only Capture composition, former smaller minimum, and former Hardware placement are superseded and must not be extended.
 
 ## Current objective
@@ -109,4 +111,4 @@ The approved implementation order is:
 10. Results
 11. Settings
 
-The all-workspace scaffold does not start the later behaviors listed above. Do not begin Full Capture or any later production behavior without explicit authorization after Round 2 acceptance.
+The all-workspace scaffold does not start the later behaviors listed above. Do not begin Full Capture or any later production behavior without explicit authorization after the generated-CMake/build gate and Round 2 acceptance.

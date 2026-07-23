@@ -9,8 +9,9 @@ Window {
     minimumWidth: Constants.width
     minimumHeight: Constants.height
 
-    visibility: Window.Maximized
     title: qsTr("OpenDSS")
+
+    Component.onCompleted: window.showMaximized()
 
     property bool correctingAspectRatio: false
 

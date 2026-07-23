@@ -14,15 +14,12 @@ Rectangle {
     property string disabledReason: qsTr("No dataset selected")
     property string modelNameText: ""
     property string saveLocationText: ""
-    property string resultPath: qsTr("C:/OpenDSS/Models/DropletNet-04.opendssmodel")
     property bool startEnabled: false
     property bool showRunning: false
-    property bool showCompleted: false
     property bool showError: false
     property bool showInterrupted: false
     property bool trainingSetupExpanded: true
     property bool trainingStatusExpanded: true
-    property bool trainingResultsExpanded: true
     property alias selectDatasetButton: selectDatasetButton
     property alias modelNameField: modelNameField
     property alias saveLocationField: saveLocationField
@@ -30,10 +27,8 @@ Rectangle {
     property alias startButton: startButton
     property alias stopButton: stopButton
     property alias retrySaveButton: retrySaveButton
-    property alias openInModelTestButton: openInModelTestButton
     property alias trainingSetupHeadingButton: trainingSetupSection.headingButton
     property alias trainingStatusHeadingButton: trainingStatusSection.headingButton
-    property alias trainingResultsHeadingButton: trainingResultsSection.headingButton
 
     Column {
         id: headingColumn
@@ -179,36 +174,6 @@ Rectangle {
                     }
                 }
 
-                CollapsibleSection {
-                    id: trainingResultsSection
-                    visible: root.showCompleted
-                    width: parent.width
-                    sectionTitle: qsTr("Training completed")
-                    expanded: root.trainingResultsExpanded
-                    useIntrinsicBodyHeight: true
-
-                    Item {
-                        width: parent.width
-                        height: trainingResultsContent.implicitHeight + Constants.spacing * 2
-                        Column {
-                            id: trainingResultsContent
-                            anchors.top: parent.top
-                            anchors.left: parent.left
-                            anchors.right: parent.right
-                            anchors.margins: Constants.spacing
-                            spacing: Constants.spacing
-                            Text { text: qsTr("Overall results"); font: Constants.headingFont }
-                            Text { text: qsTr("Accuracy  0.94    Samples  1,200") }
-                            Text { text: qsTr("Per-class results"); font: Constants.headingFont }
-                            Text { text: qsTr("Class 0  0.95    Class 1  0.93") }
-                            Text { text: qsTr("Confusion matrix"); font: Constants.headingFont }
-                            Text { text: qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width }
-                            Text { text: qsTr("Active Model confirmed"); color: Constants.readyColor }
-                            Button { id: openInModelTestButton; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
-                        }
-                    }
-                }
-
                 Rectangle {
                     visible: root.showError
                     width: parent.width
@@ -222,13 +187,13 @@ Rectangle {
     }
 
     states: [
-        State { name: "empty"; PropertyChanges { root.presentation: "empty"; root.showRunning: false; root.showCompleted: false; root.showError: false; root.showInterrupted: false; root.startEnabled: false; root.datasetText: qsTr("No Dataset selected"); root.disabledReason: qsTr("No dataset selected") } },
+        State { name: "empty"; PropertyChanges { root.presentation: "empty"; root.showRunning: false; root.showError: false; root.showInterrupted: false; root.startEnabled: false; root.datasetText: qsTr("No Dataset selected"); root.disabledReason: qsTr("No dataset selected") } },
         State { name: "unavailable"; PropertyChanges { root.presentation: "unavailable"; root.showInterrupted: false; root.startEnabled: false; root.disabledReason: qsTr("No Labeled Droplet Crops") } },
         State { name: "readyCpu"; PropertyChanges { root.presentation: "readyCpu"; root.showInterrupted: false; root.startEnabled: true; root.deviceText: qsTr("CPU (automatic)"); root.disabledReason: "" } },
         State { name: "readyGpu"; PropertyChanges { root.presentation: "readyGpu"; root.showInterrupted: false; root.startEnabled: true; root.deviceText: qsTr("GPU (automatic)"); root.disabledReason: "" } },
-        State { name: "running"; PropertyChanges { root.presentation: "running"; root.showRunning: true; root.showCompleted: false; root.showError: false; root.showInterrupted: false; root.deviceText: qsTr("GPU (automatic)") } },
-        State { name: "completed"; PropertyChanges { root.presentation: "completed"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.showInterrupted: false } },
-        State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showCompleted: false; root.showError: false; root.showInterrupted: true; root.startEnabled: false } },
-        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.showInterrupted: false } }
+        State { name: "running"; PropertyChanges { root.presentation: "running"; root.showRunning: true; root.showError: false; root.showInterrupted: false; root.deviceText: qsTr("GPU (automatic)") } },
+        State { name: "completed"; PropertyChanges { root.presentation: "completed"; root.showRunning: false; root.showError: false; root.showInterrupted: false } },
+        State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showError: false; root.showInterrupted: true; root.startEnabled: false } },
+        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showError: true; root.showInterrupted: false } }
     ]
 }

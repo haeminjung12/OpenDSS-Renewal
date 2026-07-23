@@ -91,12 +91,16 @@ Item {
     Binding { target: screen.trainWorkspace; property: "showCompleted"; value: state.trainPresentation === "completed" }
     Binding { target: screen.trainWorkspace; property: "showError"; value: state.trainPresentation === "error" }
     Binding { target: screen.trainWorkspace; property: "showInterrupted"; value: state.trainPresentation === "interrupted" }
+    Binding { target: screen.trainWorkspace; property: "trainingSetupExpanded"; value: state.trainingSetupExpanded }
+    Binding { target: screen.trainWorkspace; property: "trainingStatusExpanded"; value: state.trainingStatusExpanded }
+    Binding { target: screen.trainWorkspace; property: "trainingResultsExpanded"; value: state.trainingResultsExpanded }
 
     Binding { target: screen.modelLibraryWorkspace; property: "presentation"; value: state.modelLibraryPresentation }
     Binding { target: screen.modelLibraryWorkspace; property: "hasSelection"; value: state.modelLibraryPresentation !== "empty" && state.modelLibraryPresentation !== "error" }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedActive"; value: state.modelLibraryPresentation === "readyActive" || state.modelLibraryPresentation === "locked" }
     Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: state.modelLibraryPresentation === "locked" }
     Binding { target: screen.modelLibraryWorkspace; property: "showError"; value: state.modelLibraryPresentation === "error" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelExpanded"; value: state.selectedModelExpanded }
 
     Binding { target: screen.modelTestWorkspace; property: "presentation"; value: state.modelTestPresentation }
     Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: state.activeModelText }
@@ -109,13 +113,23 @@ Item {
     Binding { target: screen.modelTestWorkspace; property: "showCompleted"; value: state.modelTestPresentation === "completedTwoClass" || state.modelTestPresentation === "completedThreeClass" }
     Binding { target: screen.modelTestWorkspace; property: "showError"; value: state.modelTestPresentation === "interrupted" || state.modelTestPresentation === "error" }
     Binding { target: screen.modelTestWorkspace; property: "threeClassResult"; value: state.modelTestPresentation === "completedThreeClass" }
+    Binding { target: screen.modelTestWorkspace; property: "modelTestSetupExpanded"; value: state.modelTestSetupExpanded }
+    Binding { target: screen.modelTestWorkspace; property: "modelTestStatusExpanded"; value: state.modelTestStatusExpanded }
+    Binding { target: screen.modelTestWorkspace; property: "modelTestResultsExpanded"; value: state.modelTestResultsExpanded }
 
     Binding { target: screen.liveWorkspace; property: "presentation"; value: state.livePresentation }
     Binding { target: screen.liveWorkspace; property: "cameraStreaming"; value: state.cameraStreaming }
     Binding { target: screen.liveWorkspace; property: "startSortingEnabled"; value: state.liveStartSortingEnabled }
+    Binding { target: screen.liveWorkspace; property: "setupProfileExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveSetupProfileExpanded }
+    Binding { target: screen.liveWorkspace; property: "runInformationExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveRunInformationExpanded }
+    Binding { target: screen.liveWorkspace; property: "triggerTimingExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveTriggerTimingExpanded }
+    Binding { target: screen.liveWorkspace; property: "outputRecordingExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveOutputRecordingExpanded }
+    Binding { target: screen.liveWorkspace; property: "runningExpanded"; value: (state.liveActive || state.livePresentation === "completed") && state.liveRunningExpanded }
+    Binding { target: screen.liveWorkspace; property: "runningHeadingEnabled"; value: state.liveActive || state.livePresentation === "completed" }
 
     Binding { target: screen.sequenceTestWorkspace; property: "presentation"; value: state.sequenceTestPresentation }
     Binding { target: screen.sequenceTestWorkspace; property: "activeModelText"; value: state.activeModelText }
+    Binding { target: screen.sequenceTestWorkspace; property: "sequenceTestExpanded"; value: state.sequenceTestExpanded }
     Binding { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; property: "checked"; value: state.physicalDaqOutputChecked }
     Binding { target: screen.sequenceTestWorkspace.startStopButton; property: "enabled"; value: state.sequenceTestPresentation === "running" || state.sequenceTestStartEnabled }
 
@@ -183,11 +197,15 @@ Item {
     Connections { target: screen.trainWorkspace.stopButton; function onClicked() { state.stopTraining() } }
     Connections { target: screen.trainWorkspace.retrySaveButton; function onClicked() { state.retryTrainingSave() } }
     Connections { target: screen.trainWorkspace.openInModelTestButton; function onClicked() { state.openTrainingInModelTest() } }
+    Connections { target: screen.trainWorkspace.trainingSetupHeadingButton; function onClicked() { state.toggleTrainingSetup() } }
+    Connections { target: screen.trainWorkspace.trainingStatusHeadingButton; function onClicked() { state.toggleTrainingStatus() } }
+    Connections { target: screen.trainWorkspace.trainingResultsHeadingButton; function onClicked() { state.toggleTrainingResults() } }
 
     Connections { target: screen.modelLibraryWorkspace.activeModelRowButton; function onClicked() { state.selectActiveLibraryModel() } }
     Connections { target: screen.modelLibraryWorkspace.candidateModelRowButton; function onClicked() { state.selectCandidateLibraryModel() } }
     Connections { target: screen.modelLibraryWorkspace.setActiveButton; function onClicked() { state.setCandidateModelActive() } }
     Connections { target: screen.modelLibraryWorkspace.openInModelTestButton; function onClicked() { state.openLibraryModelTest() } }
+    Connections { target: screen.modelLibraryWorkspace.selectedModelHeadingButton; function onClicked() { state.toggleSelectedModel() } }
 
     Connections { target: screen.modelTestWorkspace.selectDatasetButton; function onClicked() { state.selectModelTestDataset() } }
     Connections { target: screen.modelTestWorkspace.outputLocationField; function onTextEdited() { state.modelTestOutputLocationDraft = screen.modelTestWorkspace.outputLocationField.text } }
@@ -195,14 +213,23 @@ Item {
     Connections { target: screen.modelTestWorkspace.startButton; function onClicked() { state.startModelTest() } }
     Connections { target: screen.modelTestWorkspace.stopButton; function onClicked() { state.stopModelTest() } }
     Connections { target: screen.modelTestWorkspace.startAnotherButton; function onClicked() { state.startAnotherModelTest() } }
+    Connections { target: screen.modelTestWorkspace.modelTestSetupHeadingButton; function onClicked() { state.toggleModelTestSetup() } }
+    Connections { target: screen.modelTestWorkspace.modelTestStatusHeadingButton; function onClicked() { state.toggleModelTestStatus() } }
+    Connections { target: screen.modelTestWorkspace.modelTestResultsHeadingButton; function onClicked() { state.toggleModelTestResults() } }
 
     Connections { target: screen.liveWorkspace.primaryActionButton; function onClicked() { state.livePrimaryAction() } }
     Connections { target: screen.liveWorkspace.secondaryActionButton; function onClicked() { state.liveSecondaryAction() } }
+    Connections { target: screen.liveWorkspace.setupProfileHeadingButton; function onClicked() { state.toggleLiveSetupProfile() } }
+    Connections { target: screen.liveWorkspace.runInformationHeadingButton; function onClicked() { state.toggleLiveRunInformation() } }
+    Connections { target: screen.liveWorkspace.triggerTimingHeadingButton; function onClicked() { state.toggleLiveTriggerTiming() } }
+    Connections { target: screen.liveWorkspace.outputRecordingHeadingButton; function onClicked() { state.toggleLiveOutputRecording() } }
+    Connections { target: screen.liveWorkspace.runningHeadingButton; function onClicked() { state.toggleLiveRunning() } }
 
     Connections { target: screen.sequenceTestWorkspace.loadSequenceButton; function onClicked() { state.loadSequenceTest() } }
     Connections { target: screen.sequenceTestWorkspace.loadToMemoryButton; function onClicked() { state.loadSequenceTestToMemory() } }
     Connections { target: screen.sequenceTestWorkspace.startStopButton; function onClicked() { state.startOrStopSequenceTest() } }
     Connections { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; function onToggled() { state.physicalDaqOutputChecked = screen.sequenceTestWorkspace.physicalDaqOutputControl.checked } }
+    Connections { target: screen.sequenceTestWorkspace.sequenceTestHeadingButton; function onClicked() { state.toggleSequenceTest() } }
 
     Connections { target: screen.runsWorkspace.runsPanelToggleButton; function onClicked() { state.toggleRunsPanel() } }
     Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { state.loadSelectedRun() } }

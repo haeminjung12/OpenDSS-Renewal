@@ -18,12 +18,25 @@ QtObject {
     property string trainPresentation: "empty"
     property string trainModelNameDraft: ""
     property string trainSaveLocationDraft: qsTr("C:/OpenDSS/Models")
+    property bool trainingSetupExpanded: true
+    property bool trainingStatusExpanded: true
+    property bool trainingResultsExpanded: true
     property string modelLibraryPresentation: "readySelected"
+    property bool selectedModelExpanded: true
     property string modelTestPresentation: "empty"
     property bool modelTestDatasetSelected: false
     property string modelTestOutputLocationDraft: qsTr("C:/OpenDSS/ModelTests")
+    property bool modelTestSetupExpanded: true
+    property bool modelTestStatusExpanded: true
+    property bool modelTestResultsExpanded: true
     property string livePresentation: "unavailable"
+    property bool liveSetupProfileExpanded: true
+    property bool liveRunInformationExpanded: true
+    property bool liveTriggerTimingExpanded: true
+    property bool liveOutputRecordingExpanded: true
+    property bool liveRunningExpanded: true
     property string sequenceTestPresentation: "empty"
+    property bool sequenceTestExpanded: true
     property bool physicalDaqOutputChecked: false
     property string runsPresentation: "runsEmpty"
     property bool runsPanelExpanded: true
@@ -207,6 +220,18 @@ QtObject {
 
     function selectTrainDataset() { trainPresentation = "readyGpu" }
     function browseTrainSaveLocation() { trainSaveLocationDraft = qsTr("C:/OpenDSS/MockModels") }
+    function toggleTrainingSetup() {
+        if (trainPresentation !== "running" && trainPresentation !== "completed" && trainPresentation !== "error")
+            trainingSetupExpanded = !trainingSetupExpanded
+    }
+    function toggleTrainingStatus() {
+        if (trainPresentation === "running")
+            trainingStatusExpanded = !trainingStatusExpanded
+    }
+    function toggleTrainingResults() {
+        if (trainPresentation === "completed")
+            trainingResultsExpanded = !trainingResultsExpanded
+    }
     function startTraining() {
         if ((trainPresentation === "readyCpu" || trainPresentation === "readyGpu")
                 && trainModelNameDraft.trim() !== "" && activeOperation === "") {
@@ -240,6 +265,7 @@ QtObject {
         activeModelId = "DropletNet-04"
     }
     function selectCandidateLibraryModel() { modelLibraryPresentation = "readySelected" }
+    function toggleSelectedModel() { selectedModelExpanded = !selectedModelExpanded }
     function setCandidateModelActive() {
         modelLibraryPresentation = "readyActive"
         activeModelId = "DropletNet-03"
@@ -257,6 +283,22 @@ QtObject {
         modelTestPresentation = activeModelId === "" ? "datasetOnly" : "readyGpu"
     }
     function browseModelTestOutput() { modelTestOutputLocationDraft = qsTr("C:/OpenDSS/MockModelTests") }
+    function toggleModelTestSetup() {
+        if (modelTestPresentation !== "running"
+                && modelTestPresentation !== "completedTwoClass"
+                && modelTestPresentation !== "completedThreeClass"
+                && modelTestPresentation !== "interrupted"
+                && modelTestPresentation !== "error")
+            modelTestSetupExpanded = !modelTestSetupExpanded
+    }
+    function toggleModelTestStatus() {
+        if (modelTestPresentation === "running")
+            modelTestStatusExpanded = !modelTestStatusExpanded
+    }
+    function toggleModelTestResults() {
+        if (modelTestPresentation === "completedTwoClass" || modelTestPresentation === "completedThreeClass")
+            modelTestResultsExpanded = !modelTestResultsExpanded
+    }
     function startModelTest() {
         if ((modelTestPresentation === "readyCpu" || modelTestPresentation === "readyGpu")
                 && activeOperation === "") {
@@ -289,13 +331,35 @@ QtObject {
         } else if (livePresentation === "completed")
             livePresentation = "ready"
     }
+    function toggleLiveSetupProfile() {
+        if (!liveActive && livePresentation !== "completed")
+            liveSetupProfileExpanded = !liveSetupProfileExpanded
+    }
+    function toggleLiveRunInformation() {
+        if (!liveActive && livePresentation !== "completed")
+            liveRunInformationExpanded = !liveRunInformationExpanded
+    }
+    function toggleLiveTriggerTiming() {
+        if (!liveActive && livePresentation !== "completed")
+            liveTriggerTimingExpanded = !liveTriggerTimingExpanded
+    }
+    function toggleLiveOutputRecording() {
+        if (!liveActive && livePresentation !== "completed")
+            liveOutputRecordingExpanded = !liveOutputRecordingExpanded
+    }
+    function toggleLiveRunning() {
+        if (liveActive || livePresentation === "completed")
+            liveRunningExpanded = !liveRunningExpanded
+    }
     function liveSecondaryAction() {
         if (liveStartSortingEnabled) {
             activeOperation = "live"
             hardwareDrawerOpen = false
+            liveRunningExpanded = true
             livePresentation = "running"
         } else if (liveOwnsOperation) {
             hardwareDrawerOpen = false
+            liveRunningExpanded = true
             livePresentation = "completed"
             activeOperation = ""
             loadedRunOutcome = "stopped"
@@ -309,6 +373,7 @@ QtObject {
         sequenceTestPresentation = "selected"
         physicalDaqOutputChecked = false
     }
+    function toggleSequenceTest() { sequenceTestExpanded = !sequenceTestExpanded }
     function loadSequenceTestToMemory() {
         if (sequenceTestPresentation === "selected")
             sequenceTestPresentation = "ready"

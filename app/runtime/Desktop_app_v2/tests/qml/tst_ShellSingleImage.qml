@@ -36,12 +36,25 @@ Item {
         shell.mockState.trainPresentation = "empty"
         shell.mockState.trainModelNameDraft = ""
         shell.mockState.trainSaveLocationDraft = "C:/OpenDSS/Models"
+        shell.mockState.trainingSetupExpanded = true
+        shell.mockState.trainingStatusExpanded = true
+        shell.mockState.trainingResultsExpanded = true
         shell.mockState.modelLibraryPresentation = "readySelected"
+        shell.mockState.selectedModelExpanded = true
         shell.mockState.modelTestPresentation = "empty"
         shell.mockState.modelTestDatasetSelected = false
         shell.mockState.modelTestOutputLocationDraft = "C:/OpenDSS/ModelTests"
+        shell.mockState.modelTestSetupExpanded = true
+        shell.mockState.modelTestStatusExpanded = true
+        shell.mockState.modelTestResultsExpanded = true
         shell.mockState.livePresentation = "ready"
+        shell.mockState.liveSetupProfileExpanded = true
+        shell.mockState.liveRunInformationExpanded = true
+        shell.mockState.liveTriggerTimingExpanded = true
+        shell.mockState.liveOutputRecordingExpanded = true
+        shell.mockState.liveRunningExpanded = true
         shell.mockState.sequenceTestPresentation = "empty"
+        shell.mockState.sequenceTestExpanded = true
         shell.mockState.physicalDaqOutputChecked = false
         shell.mockState.runsPresentation = "runsEmpty"
         shell.mockState.runsPanelExpanded = true
@@ -122,6 +135,10 @@ Item {
         compare(shell.form.settingsWorkspace.settingsPresentation, "ready")
         shell.form.navCaptureButton.clicked()
         compare(shell.form.selectedWorkspace, "capture")
+        verify(shell.form.navCaptureButton.checked)
+        shell.form.navCaptureButton.clicked()
+        compare(shell.form.selectedWorkspace, "capture")
+        verify(shell.form.navCaptureButton.checked)
     }
 
     function test_captureDisclosures() {
@@ -237,6 +254,183 @@ Item {
 
         shell.mockState.capturing = false
         verify(shell.form.liveWorkspace.startSortingEnabled)
+    }
+
+    function test_liveDisclosureRules() {
+        shell.form.navLiveButton.clicked()
+        compare(shell.mockState.livePresentation, "ready")
+        verify(shell.form.liveWorkspace.setupProfileExpanded)
+        verify(shell.form.liveWorkspace.runInformationExpanded)
+        verify(shell.form.liveWorkspace.triggerTimingExpanded)
+        verify(shell.form.liveWorkspace.outputRecordingExpanded)
+        verify(!shell.form.liveWorkspace.runningExpanded)
+        verify(!shell.form.liveWorkspace.runningHeadingEnabled)
+        verify(!shell.form.liveWorkspace.runningHeadingButton.enabled)
+
+        shell.form.liveWorkspace.setupProfileHeadingButton.clicked()
+        shell.form.liveWorkspace.runInformationHeadingButton.clicked()
+        shell.form.liveWorkspace.triggerTimingHeadingButton.clicked()
+        shell.form.liveWorkspace.outputRecordingHeadingButton.clicked()
+        verify(!shell.form.liveWorkspace.setupProfileExpanded)
+        verify(!shell.form.liveWorkspace.runInformationExpanded)
+        verify(!shell.form.liveWorkspace.triggerTimingExpanded)
+        verify(!shell.form.liveWorkspace.outputRecordingExpanded)
+        compare(shell.mockState.activeOperation, "")
+        compare(shell.mockState.livePresentation, "ready")
+
+        shell.form.liveWorkspace.setupProfileHeadingButton.clicked()
+        shell.form.liveWorkspace.runInformationHeadingButton.clicked()
+        shell.form.liveWorkspace.triggerTimingHeadingButton.clicked()
+        shell.form.liveWorkspace.outputRecordingHeadingButton.clicked()
+        verify(shell.form.liveWorkspace.setupProfileExpanded)
+        verify(shell.form.liveWorkspace.runInformationExpanded)
+        verify(shell.form.liveWorkspace.triggerTimingExpanded)
+        verify(shell.form.liveWorkspace.outputRecordingExpanded)
+
+        shell.form.liveWorkspace.sendTestPulseButton.clicked()
+        compare(shell.mockState.activeOperation, "")
+        compare(shell.mockState.livePresentation, "ready")
+
+        shell.form.liveWorkspace.secondaryActionButton.clicked()
+        compare(shell.mockState.livePresentation, "running")
+        compare(shell.mockState.activeOperation, "live")
+        verify(!shell.form.liveWorkspace.setupProfileExpanded)
+        verify(!shell.form.liveWorkspace.runInformationExpanded)
+        verify(!shell.form.liveWorkspace.triggerTimingExpanded)
+        verify(!shell.form.liveWorkspace.outputRecordingExpanded)
+        verify(!shell.form.liveWorkspace.setupProfileHeadingButton.enabled)
+        verify(!shell.form.liveWorkspace.runInformationHeadingButton.enabled)
+        verify(!shell.form.liveWorkspace.triggerTimingHeadingButton.enabled)
+        verify(!shell.form.liveWorkspace.outputRecordingHeadingButton.enabled)
+        verify(shell.form.liveWorkspace.runningExpanded)
+        verify(shell.form.liveWorkspace.runningHeadingEnabled)
+        verify(shell.form.liveWorkspace.runningHeadingButton.enabled)
+
+        shell.form.liveWorkspace.setupProfileHeadingButton.clicked()
+        verify(shell.mockState.liveSetupProfileExpanded)
+        verify(!shell.form.liveWorkspace.setupProfileExpanded)
+        shell.form.liveWorkspace.runningHeadingButton.clicked()
+        verify(!shell.mockState.liveRunningExpanded)
+        verify(!shell.form.liveWorkspace.runningExpanded)
+        shell.form.liveWorkspace.runningHeadingButton.clicked()
+        verify(shell.form.liveWorkspace.runningExpanded)
+
+        shell.form.liveWorkspace.primaryActionButton.clicked()
+        compare(shell.mockState.livePresentation, "paused")
+        verify(shell.form.liveWorkspace.runningExpanded)
+        shell.form.liveWorkspace.secondaryActionButton.clicked()
+        compare(shell.mockState.livePresentation, "completed")
+        compare(shell.mockState.activeOperation, "")
+        verify(!shell.form.liveWorkspace.setupProfileExpanded)
+        verify(!shell.form.liveWorkspace.setupProfileHeadingButton.enabled)
+        verify(shell.form.liveWorkspace.runningExpanded)
+        verify(shell.form.liveWorkspace.runningHeadingEnabled)
+        shell.form.liveWorkspace.runningHeadingButton.clicked()
+        verify(!shell.form.liveWorkspace.runningExpanded)
+        shell.form.liveWorkspace.runningHeadingButton.clicked()
+        verify(shell.form.liveWorkspace.runningExpanded)
+
+        shell.form.liveWorkspace.primaryActionButton.clicked()
+        compare(shell.mockState.livePresentation, "ready")
+        verify(shell.form.liveWorkspace.setupProfileExpanded)
+        verify(!shell.form.liveWorkspace.runningExpanded)
+    }
+
+    function test_trainAndModelTestDisclosures() {
+        shell.form.navTrainButton.clicked()
+        verify(shell.form.trainWorkspace.trainingSetupExpanded)
+        shell.form.trainWorkspace.trainingSetupHeadingButton.clicked()
+        verify(!shell.mockState.trainingSetupExpanded)
+        verify(!shell.form.trainWorkspace.trainingSetupExpanded)
+        compare(shell.mockState.trainPresentation, "empty")
+        compare(shell.mockState.activeOperation, "")
+        shell.form.trainWorkspace.trainingSetupHeadingButton.clicked()
+        verify(shell.form.trainWorkspace.trainingSetupExpanded)
+
+        shell.mockState.trainPresentation = "running"
+        shell.mockState.activeOperation = "training"
+        verify(shell.form.trainWorkspace.showRunning)
+        shell.form.trainWorkspace.trainingStatusHeadingButton.clicked()
+        verify(!shell.mockState.trainingStatusExpanded)
+        verify(!shell.form.trainWorkspace.trainingStatusExpanded)
+        shell.form.trainWorkspace.trainingStatusHeadingButton.clicked()
+        verify(shell.form.trainWorkspace.trainingStatusExpanded)
+        shell.mockState.trainPresentation = "completed"
+        shell.mockState.activeOperation = ""
+        verify(shell.form.trainWorkspace.showCompleted)
+        shell.form.trainWorkspace.trainingResultsHeadingButton.clicked()
+        verify(!shell.mockState.trainingResultsExpanded)
+        verify(!shell.form.trainWorkspace.trainingResultsExpanded)
+        shell.form.trainWorkspace.trainingResultsHeadingButton.clicked()
+        verify(shell.form.trainWorkspace.trainingResultsExpanded)
+
+        shell.form.navModelTestButton.clicked()
+        verify(shell.form.modelTestWorkspace.modelTestSetupExpanded)
+        shell.form.modelTestWorkspace.modelTestSetupHeadingButton.clicked()
+        verify(!shell.mockState.modelTestSetupExpanded)
+        verify(!shell.form.modelTestWorkspace.modelTestSetupExpanded)
+        compare(shell.mockState.modelTestPresentation, "empty")
+        compare(shell.mockState.activeOperation, "")
+        shell.form.modelTestWorkspace.modelTestSetupHeadingButton.clicked()
+        verify(shell.form.modelTestWorkspace.modelTestSetupExpanded)
+
+        shell.mockState.modelTestPresentation = "running"
+        shell.mockState.activeOperation = "modelTest"
+        verify(shell.form.modelTestWorkspace.showRunning)
+        shell.form.modelTestWorkspace.modelTestStatusHeadingButton.clicked()
+        verify(!shell.mockState.modelTestStatusExpanded)
+        verify(!shell.form.modelTestWorkspace.modelTestStatusExpanded)
+        shell.form.modelTestWorkspace.modelTestStatusHeadingButton.clicked()
+        verify(shell.form.modelTestWorkspace.modelTestStatusExpanded)
+        shell.mockState.modelTestPresentation = "completedTwoClass"
+        shell.mockState.activeOperation = ""
+        verify(shell.form.modelTestWorkspace.showCompleted)
+        shell.form.modelTestWorkspace.modelTestResultsHeadingButton.clicked()
+        verify(!shell.mockState.modelTestResultsExpanded)
+        verify(!shell.form.modelTestWorkspace.modelTestResultsExpanded)
+        shell.form.modelTestWorkspace.modelTestResultsHeadingButton.clicked()
+        verify(shell.form.modelTestWorkspace.modelTestResultsExpanded)
+    }
+
+    function test_libraryAndSequenceTestDisclosures() {
+        shell.form.navLibraryButton.clicked()
+        verify(shell.form.modelLibraryWorkspace.selectedModelExpanded)
+        shell.form.modelLibraryWorkspace.selectedModelHeadingButton.clicked()
+        verify(!shell.mockState.selectedModelExpanded)
+        verify(!shell.form.modelLibraryWorkspace.selectedModelExpanded)
+        compare(shell.mockState.modelLibraryPresentation, "readySelected")
+        compare(shell.mockState.activeOperation, "")
+        shell.form.modelLibraryWorkspace.selectedModelHeadingButton.clicked()
+        verify(shell.form.modelLibraryWorkspace.selectedModelExpanded)
+
+        shell.form.navSequenceTestButton.clicked()
+        verify(shell.form.sequenceTestWorkspace.sequenceTestExpanded)
+        shell.form.sequenceTestWorkspace.sequenceTestHeadingButton.clicked()
+        verify(!shell.mockState.sequenceTestExpanded)
+        verify(!shell.form.sequenceTestWorkspace.sequenceTestExpanded)
+        compare(shell.mockState.sequenceTestPresentation, "empty")
+        compare(shell.mockState.activeOperation, "")
+        shell.form.sequenceTestWorkspace.sequenceTestHeadingButton.clicked()
+        verify(shell.form.sequenceTestWorkspace.sequenceTestExpanded)
+    }
+
+    function test_labelDisclosureBehaviorRemainsWorking() {
+        shell.form.navLabelButton.clicked()
+        shell.mockState.labelPresentation = "rightSectionsExpanded"
+        verify(shell.form.labelWorkspace.selectedCropExpanded)
+        verify(shell.form.labelWorkspace.classesFilterExpanded)
+        shell.form.labelWorkspace.selectedCropHeadingButton.clicked()
+        compare(shell.mockState.labelPresentation, "selectedCropCollapsed")
+        verify(!shell.form.labelWorkspace.selectedCropExpanded)
+        verify(shell.form.labelWorkspace.classesFilterExpanded)
+        shell.form.labelWorkspace.selectedCropHeadingButton.clicked()
+        compare(shell.mockState.labelPresentation, "rightSectionsExpanded")
+        shell.form.labelWorkspace.classesFilterHeadingButton.clicked()
+        compare(shell.mockState.labelPresentation, "classesFilterCollapsed")
+        verify(shell.form.labelWorkspace.selectedCropExpanded)
+        verify(!shell.form.labelWorkspace.classesFilterExpanded)
+        shell.form.labelWorkspace.classesFilterHeadingButton.clicked()
+        compare(shell.mockState.labelPresentation, "rightSectionsExpanded")
     }
 
     function test_sequenceViewerTransitions() {

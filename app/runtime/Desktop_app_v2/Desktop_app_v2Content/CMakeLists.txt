@@ -13,6 +13,15 @@ qt6_add_qml_module(Desktop_app_v2Content
         "Screen01.ui.qml"
         "ShellSingleImage.qml"
         "CollapsibleSection.ui.qml"
+        "LabelWorkspace.ui.qml"
+        "TrainWorkspace.ui.qml"
+        "ModelLibraryWorkspace.ui.qml"
+        "ModelTestWorkspace.ui.qml"
+        "SettingsWorkspace.ui.qml"
+        "SequenceViewerWorkspace.ui.qml"
+        "SequenceTestWorkspace.ui.qml"
+        "LiveWorkspace.ui.qml"
+        "RunsWorkspace.ui.qml"
 )
 
 

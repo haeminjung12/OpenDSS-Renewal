@@ -56,6 +56,8 @@ Rectangle {
     property string sequenceLocationText: ""
     property string datasetLocationText: ""
     property string datasetHandoffText: ""
+    property bool hardwareActionEnabled: true
+    property bool captureStartsAvailable: true
     property alias hardwareButton: hardwareButton
     property alias fileNameField: fileNameField
     property alias saveLocationField: saveLocationField
@@ -102,6 +104,15 @@ Rectangle {
     property alias datasetLabelButton: datasetLabelButton
     property alias datasetFolderButton: datasetFolderButton
     property alias datasetNewButton: datasetNewButton
+    property alias labelWorkspace: labelWorkspace
+    property alias sequenceViewerWorkspace: sequenceViewerWorkspace
+    property alias trainWorkspace: trainWorkspace
+    property alias modelTestWorkspace: modelTestWorkspace
+    property alias modelLibraryWorkspace: modelLibraryWorkspace
+    property alias liveWorkspace: liveWorkspace
+    property alias sequenceTestWorkspace: sequenceTestWorkspace
+    property alias runsWorkspace: runsWorkspace
+    property alias settingsWorkspace: settingsWorkspace
 
     Rectangle {
         id: header
@@ -219,7 +230,7 @@ Rectangle {
                                 TextField { id: sequenceLocationField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: root.sequenceLocationText; width: parent.width - sequenceBrowseButton.width - 6; height: Constants.controlHeight }
                                 Button { id: sequenceBrowseButton; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr("Browse"); height: Constants.controlHeight }
                             }
-                            Button { id: sequenceStartButton; visible: root.sequencePresentation === "ready"; text: qsTr("Start Recording"); enabled: root.sequencePresentation === "ready" && root.cameraStatus === qsTr("Streaming") && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight }
+                            Button { id: sequenceStartButton; visible: root.sequencePresentation === "ready"; text: qsTr("Start Recording"); enabled: root.sequencePresentation === "ready" && root.cameraStatus === qsTr("Streaming") && root.captureStartsAvailable && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight }
                             Row { visible: root.sequencePresentation === "running" || root.sequencePresentation === "paused"; spacing: 6
                                 Button { id: capturePauseButton; text: root.sequencePresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); height: Constants.controlHeight }
                                 Button { id: captureStopButton; text: qsTr("Stop"); height: Constants.controlHeight }
@@ -246,7 +257,7 @@ Rectangle {
                                 Button { id: datasetBrowseButton; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: qsTr("Browse"); height: Constants.controlHeight }
                             }
                             Text { text: qsTr("Fixed qualified processing is used; detector, crop, and timing settings are not editable."); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                            Button { id: datasetStartButton; visible: root.datasetPresentation === "ready"; text: qsTr("Start Droplet Dataset Capture"); enabled: root.datasetPresentation === "ready" && root.cameraStatus === qsTr("Streaming") && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight }
+                            Button { id: datasetStartButton; visible: root.datasetPresentation === "ready"; text: qsTr("Start Droplet Dataset Capture"); enabled: root.datasetPresentation === "ready" && root.cameraStatus === qsTr("Streaming") && root.captureStartsAvailable && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight }
                             Row { visible: root.datasetPresentation === "running" || root.datasetPresentation === "paused"; spacing: 6
                                 Button { id: datasetPauseButton; text: root.datasetPresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); height: Constants.controlHeight }
                                 Button { id: datasetStopButton; text: qsTr("Stop"); height: Constants.controlHeight }
@@ -261,70 +272,53 @@ Rectangle {
             }
         }
 
-        Item { visible: root.selectedWorkspace === "label"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Rectangle { color: Constants.viewerColor; border.color: Constants.borderColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left; width: parent.width * 0.66; Text { text: qsTr("Droplet Crop collection"); color: Constants.surfaceColor; font: Constants.largeFont; anchors.centerIn: parent } }
-            Column { spacing: Constants.spacing; anchors.left: parent.left; anchors.leftMargin: parent.width * 0.68; anchors.right: parent.right; anchors.top: parent.top
-                Rectangle { width: parent.width; height: 250; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Selected Crop"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 220; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Classes & Filter"); anchors.centerIn: parent } }
-            }
+        LabelWorkspace {
+            id: labelWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "label"
         }
-        Item { visible: root.selectedWorkspace === "sequenceViewer"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Column { spacing: Constants.spacing; anchors.fill: parent
-                Rectangle { width: parent.width; height: parent.height - 80; color: Constants.viewerColor; border.color: Constants.borderColor; Text { text: qsTr("Still-frame viewer"); color: Constants.surfaceColor; font: Constants.largeFont; anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 70; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Frame navigation"); anchors.centerIn: parent } }
-            }
+        SequenceViewerWorkspace {
+            id: sequenceViewerWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "sequenceViewer"
         }
-        Item { visible: root.selectedWorkspace === "train"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Column { spacing: Constants.spacing; anchors.fill: parent
-                Rectangle { width: parent.width; height: 150; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Dataset / pre-training"); anchors.centerIn: parent } }
-                Row { spacing: Constants.spacing; width: parent.width
-                    Rectangle { width: (parent.width - Constants.spacing) / 2; height: 300; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Training progress / plots"); anchors.centerIn: parent } }
-                    Rectangle { width: (parent.width - Constants.spacing) / 2; height: 300; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Results"); anchors.centerIn: parent } }
-                }
-            }
+        TrainWorkspace {
+            id: trainWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "train"
         }
-        Item { visible: root.selectedWorkspace === "modelTest"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Column { spacing: Constants.spacing; anchors.fill: parent
-                Rectangle { width: parent.width; height: 100; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Active Model / Dataset context (read-only)"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 360; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Results"); anchors.centerIn: parent } }
-            }
+        ModelTestWorkspace {
+            id: modelTestWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "modelTest"
         }
-        Item { visible: root.selectedWorkspace === "library"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Row { spacing: Constants.spacing; anchors.fill: parent
-                Rectangle { width: parent.width * 0.42; height: parent.height; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Model list"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width * 0.58 - Constants.spacing; height: parent.height; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Selected-model detail"); anchors.centerIn: parent } }
-            }
+        ModelLibraryWorkspace {
+            id: modelLibraryWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "library"
         }
-        Item { visible: root.selectedWorkspace === "live"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Rectangle { color: Constants.viewerColor; border.color: Constants.borderColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left; width: parent.width * 0.63; Text { text: qsTr("Camera preview"); color: Constants.surfaceColor; font: Constants.largeFont; anchors.centerIn: parent } }
-            Column { spacing: 3; anchors.left: parent.left; anchors.leftMargin: parent.width * 0.65; anchors.right: parent.right; anchors.top: parent.top
-                Rectangle { width: parent.width; height: 46; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Setup Profile"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 46; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Run Information"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 46; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Trigger & Timing"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 46; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Output & Recording"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 46; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Running"); anchors.centerIn: parent } }
-            }
+        LiveWorkspace {
+            id: liveWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "live"
         }
-        Item { visible: root.selectedWorkspace === "sequenceTest"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Column { spacing: Constants.spacing; anchors.fill: parent
-                Rectangle { width: parent.width; height: 150; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Sequence / configuration"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 130; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Load / progress"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 200; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Results"); anchors.centerIn: parent } }
-            }
+        SequenceTestWorkspace {
+            id: sequenceTestWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "sequenceTest"
         }
-        Item { visible: root.selectedWorkspace === "runs"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Rectangle { color: Constants.surfaceColor; border.color: Constants.borderColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: runsPanel.left; anchors.rightMargin: Constants.spacing; Text { text: qsTr("Loaded Run"); font: Constants.largeFont; anchors.centerIn: parent } }
-            Rectangle { id: runsPanel; width: Constants.operationPanelWidth; color: Constants.surfaceColor; border.color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.right: parent.right; Text { text: qsTr("Runs"); font: Constants.headingFont; anchors.centerIn: parent } }
+        RunsWorkspace {
+            id: runsWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "runs"
         }
-        Item { visible: root.selectedWorkspace === "settings"; anchors.fill: parent; anchors.margins: Constants.workspaceMargin
-            Column { spacing: Constants.spacing; width: parent.width * 0.65; anchors.horizontalCenter: parent.horizontalCenter
-                Rectangle { width: parent.width; height: 140; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Storage"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 140; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Application Information"); anchors.centerIn: parent } }
-                Rectangle { width: parent.width; height: 140; color: Constants.surfaceColor; border.color: Constants.borderColor; Text { text: qsTr("Diagnostics"); anchors.centerIn: parent } }
-            }
+        SettingsWorkspace {
+            id: settingsWorkspace
+            anchors.fill: parent
+            visible: root.selectedWorkspace === "settings"
         }
 
-        Button { id: hardwareButton; text: root.drawerOpen ? "⌄" : "⌃"; width: 46; height: 34; anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin; Accessible.name: qsTr("Open or close Hardware panel") }
+        Button { id: hardwareButton; text: root.drawerOpen ? "⌄" : "⌃"; enabled: root.hardwareActionEnabled; width: 46; height: 34; anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin; Accessible.name: qsTr("Open or close Hardware panel") }
         Rectangle {
             visible: root.drawerOpen; width: Constants.hardwarePanelWidth; height: Constants.hardwarePanelHeight; color: Constants.surfaceColor; border.color: Constants.borderColor
             anchors.left: parent.left; anchors.leftMargin: Constants.workspaceMargin; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.workspaceMargin + 36

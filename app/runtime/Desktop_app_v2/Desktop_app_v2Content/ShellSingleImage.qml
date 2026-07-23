@@ -24,7 +24,7 @@ Item {
         id: screen
         anchors.fill: parent
         cameraStatus: state.cameraStatus
-        daqStatus: state.daqStatus
+        daqStatus: state.projectedDaqStatus
         activeModelText: state.activeModelText
         activityText: state.activityText
         fileNameText: state.fileNameDraft
@@ -45,8 +45,8 @@ Item {
         otherCaptureHeadingsDisabled: state.otherCaptureHeadingsDisabled
         cameraPromptVisible: state.cameraPromptVisible
         cameraPromptChoice: state.cameraPromptChoice
-        sequencePresentation: state.activeCapture === "sequence" ? state.capturePhase : "ready"
-        datasetPresentation: state.activeCapture === "dataset" ? state.capturePhase : "ready"
+        sequencePresentation: state.capturePresentation === "sequence" ? state.capturePhase : "ready"
+        datasetPresentation: state.capturePresentation === "dataset" ? state.capturePhase : "ready"
         sequenceFrameCount: state.sequenceFrameCount
         datasetFrameCount: state.datasetFrameCount
         datasetCropCount: state.datasetCropCount
@@ -63,7 +63,72 @@ Item {
         sequenceLocationText: state.sequenceLocationDraft
         datasetLocationText: state.datasetLocationDraft
         datasetHandoffText: state.datasetHandoffText
+        hardwareActionEnabled: !state.liveOwnsOperation
+        captureStartsAvailable: state.activeOperation === ""
     }
+
+    Binding { target: screen.labelWorkspace; property: "presentation"; value: state.labelPresentation === "empty" || state.labelPresentation === "classDefinition" ? state.labelPresentation : "ready" }
+    Binding { target: screen.labelWorkspace; property: "classCount"; value: state.labelClassCount }
+    Binding { target: screen.labelWorkspace; property: "datasetName"; value: state.labelPresentation === "empty" ? "" : qsTr("Droplet Dataset") }
+    Binding { target: screen.labelWorkspace; property: "datasetPath"; value: state.labelPresentation === "empty" ? "" : qsTr("C:/OpenDSS/Datasets/droplets/dataset.json") }
+    Binding { target: screen.labelWorkspace; property: "selectedCount"; value: state.labelPresentation === "empty" || state.labelPresentation === "classDefinition" ? 0 : 3 }
+    Binding { target: screen.labelWorkspace; property: "saveState"; value: state.labelPresentation === "empty" || state.labelPresentation === "classDefinition" ? "" : qsTr("Saved") }
+    Binding { target: screen.labelWorkspace; property: "selectedCropExpanded"; value: state.labelPresentation !== "selectedCropCollapsed" && state.labelPresentation !== "rightSectionsCollapsed" }
+    Binding { target: screen.labelWorkspace; property: "classesFilterExpanded"; value: state.labelPresentation !== "classesFilterCollapsed" && state.labelPresentation !== "rightSectionsCollapsed" }
+
+    Binding { target: screen.sequenceViewerWorkspace; property: "presentation"; value: state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? state.sequenceViewerPresentation : "ready" }
+    Binding { target: screen.sequenceViewerWorkspace; property: "currentFrame"; value: state.sequenceViewerPresentation === "firstFrame" ? 1 : state.sequenceViewerPresentation === "middleFrame" ? 60 : state.sequenceViewerPresentation === "finalFrame" ? 120 : 0 }
+    Binding { target: screen.sequenceViewerWorkspace; property: "totalFrames"; value: state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? 0 : 120 }
+
+    Binding { target: screen.trainWorkspace; property: "presentation"; value: state.trainPresentation }
+    Binding { target: screen.trainWorkspace; property: "datasetText"; value: state.trainPresentation === "empty" ? qsTr("No Dataset selected") : qsTr("Dataset-042") }
+    Binding { target: screen.trainWorkspace; property: "deviceText"; value: state.trainPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
+    Binding { target: screen.trainWorkspace; property: "disabledReason"; value: state.activeOperation !== "" ? qsTr("Another operation is active") : state.trainPresentation === "empty" ? qsTr("No dataset selected") : state.trainPresentation === "unavailable" ? qsTr("No Labeled Droplet Crops") : state.trainModelNameDraft.trim() === "" ? qsTr("Model name required") : "" }
+    Binding { target: screen.trainWorkspace; property: "modelNameText"; value: state.trainModelNameDraft }
+    Binding { target: screen.trainWorkspace; property: "saveLocationText"; value: state.trainSaveLocationDraft }
+    Binding { target: screen.trainWorkspace; property: "startEnabled"; value: (state.trainPresentation === "readyCpu" || state.trainPresentation === "readyGpu") && state.trainModelNameDraft.trim() !== "" && state.activeOperation === "" }
+    Binding { target: screen.trainWorkspace; property: "showRunning"; value: state.trainPresentation === "running" }
+    Binding { target: screen.trainWorkspace; property: "showCompleted"; value: state.trainPresentation === "completed" }
+    Binding { target: screen.trainWorkspace; property: "showError"; value: state.trainPresentation === "error" }
+    Binding { target: screen.trainWorkspace; property: "showInterrupted"; value: state.trainPresentation === "interrupted" }
+
+    Binding { target: screen.modelLibraryWorkspace; property: "presentation"; value: state.modelLibraryPresentation }
+    Binding { target: screen.modelLibraryWorkspace; property: "hasSelection"; value: state.modelLibraryPresentation !== "empty" && state.modelLibraryPresentation !== "error" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedActive"; value: state.modelLibraryPresentation === "readyActive" || state.modelLibraryPresentation === "locked" }
+    Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: state.modelLibraryPresentation === "locked" }
+    Binding { target: screen.modelLibraryWorkspace; property: "showError"; value: state.modelLibraryPresentation === "error" }
+
+    Binding { target: screen.modelTestWorkspace; property: "presentation"; value: state.modelTestPresentation }
+    Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: state.activeModelText }
+    Binding { target: screen.modelTestWorkspace; property: "datasetText"; value: state.modelTestDatasetSelected ? qsTr("Dataset-042") : qsTr("No Dataset selected") }
+    Binding { target: screen.modelTestWorkspace; property: "deviceText"; value: state.modelTestPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
+    Binding { target: screen.modelTestWorkspace; property: "outputLocationText"; value: state.modelTestOutputLocationDraft }
+    Binding { target: screen.modelTestWorkspace; property: "blockerText"; value: state.activeOperation !== "" ? qsTr("Another operation is active") : state.activeModelId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" }
+    Binding { target: screen.modelTestWorkspace; property: "startEnabled"; value: (state.modelTestPresentation === "readyCpu" || state.modelTestPresentation === "readyGpu") && state.activeOperation === "" }
+    Binding { target: screen.modelTestWorkspace; property: "showRunning"; value: state.modelTestPresentation === "running" }
+    Binding { target: screen.modelTestWorkspace; property: "showCompleted"; value: state.modelTestPresentation === "completedTwoClass" || state.modelTestPresentation === "completedThreeClass" }
+    Binding { target: screen.modelTestWorkspace; property: "showError"; value: state.modelTestPresentation === "interrupted" || state.modelTestPresentation === "error" }
+    Binding { target: screen.modelTestWorkspace; property: "threeClassResult"; value: state.modelTestPresentation === "completedThreeClass" }
+
+    Binding { target: screen.liveWorkspace; property: "presentation"; value: state.livePresentation }
+    Binding { target: screen.liveWorkspace; property: "cameraStreaming"; value: state.cameraStreaming }
+    Binding { target: screen.liveWorkspace; property: "startSortingEnabled"; value: state.liveStartSortingEnabled }
+
+    Binding { target: screen.sequenceTestWorkspace; property: "presentation"; value: state.sequenceTestPresentation }
+    Binding { target: screen.sequenceTestWorkspace; property: "activeModelText"; value: state.activeModelText }
+    Binding { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; property: "checked"; value: state.physicalDaqOutputChecked }
+    Binding { target: screen.sequenceTestWorkspace.startStopButton; property: "enabled"; value: state.sequenceTestPresentation === "running" || state.sequenceTestStartEnabled }
+
+    Binding { target: screen.runsWorkspace; property: "selectedRunId"; value: state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? "" : "Run-042" }
+    Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }
+    Binding { target: screen.runsWorkspace; property: "runsError"; value: state.runsPresentation === "runsError" }
+    Binding { target: screen.runsWorkspace; property: "runsPanelExpanded"; value: state.runsPanelExpanded }
+    Binding { target: screen.runsWorkspace; property: "notesEditing"; value: state.runsPresentation === "runsNotesEditing" }
+    Binding { target: screen.runsWorkspace; property: "loadedRunStatusText"; value: state.loadedRunStatusText }
+    Binding { target: screen.runsWorkspace; property: "loadedRunStopReasonText"; value: state.loadedRunStopReasonText }
+    Binding { target: screen.runsWorkspace; property: "run042RowStatusText"; value: state.run042RowStatusText }
+
+    Binding { target: screen.settingsWorkspace; property: "settingsPresentation"; value: state.settingsPresentation === "settingsError" ? "error" : "ready" }
 
     Connections {
         target: state
@@ -97,6 +162,53 @@ Item {
     Connections { target: screen.datasetLabelButton; function onClicked() { state.openLabel() } }
     Connections { target: screen.datasetFolderButton; function onClicked() { state.showMockFolder() } }
     Connections { target: screen.datasetNewButton; function onClicked() { state.startNewDataset() } }
+
+    Connections { target: screen.labelWorkspace.openDatasetButton; function onClicked() { state.openLabelDataset() } }
+    Connections { target: screen.labelWorkspace.twoClassChoice; function onClicked() { state.defineLabelClasses(2) } }
+    Connections { target: screen.labelWorkspace.threeClassChoice; function onClicked() { state.defineLabelClasses(3) } }
+    Connections { target: screen.labelWorkspace.useInTrainButton; function onClicked() { state.useLabelInTrain() } }
+    Connections { target: screen.labelWorkspace.selectedCropHeadingButton; function onClicked() { state.toggleLabelSelectedCrop() } }
+    Connections { target: screen.labelWorkspace.classesFilterHeadingButton; function onClicked() { state.toggleLabelClassesFilter() } }
+
+    Connections { target: screen.sequenceViewerWorkspace.openSequenceButton; function onClicked() { state.openViewerSequence() } }
+    Connections { target: screen.sequenceViewerWorkspace.previousButton; function onClicked() { state.previousViewerFrame() } }
+    Connections { target: screen.sequenceViewerWorkspace.nextButton; function onClicked() { state.nextViewerFrame() } }
+    Connections { target: screen.sequenceViewerWorkspace.directSeekField; function onAccepted() { state.seekViewerFrame(screen.sequenceViewerWorkspace.directSeekField.text) } }
+
+    Connections { target: screen.trainWorkspace.selectDatasetButton; function onClicked() { state.selectTrainDataset() } }
+    Connections { target: screen.trainWorkspace.modelNameField; function onTextEdited() { state.trainModelNameDraft = screen.trainWorkspace.modelNameField.text } }
+    Connections { target: screen.trainWorkspace.saveLocationField; function onTextEdited() { state.trainSaveLocationDraft = screen.trainWorkspace.saveLocationField.text } }
+    Connections { target: screen.trainWorkspace.browseButton; function onClicked() { state.browseTrainSaveLocation() } }
+    Connections { target: screen.trainWorkspace.startButton; function onClicked() { state.startTraining() } }
+    Connections { target: screen.trainWorkspace.stopButton; function onClicked() { state.stopTraining() } }
+    Connections { target: screen.trainWorkspace.retrySaveButton; function onClicked() { state.retryTrainingSave() } }
+    Connections { target: screen.trainWorkspace.openInModelTestButton; function onClicked() { state.openTrainingInModelTest() } }
+
+    Connections { target: screen.modelLibraryWorkspace.activeModelRowButton; function onClicked() { state.selectActiveLibraryModel() } }
+    Connections { target: screen.modelLibraryWorkspace.candidateModelRowButton; function onClicked() { state.selectCandidateLibraryModel() } }
+    Connections { target: screen.modelLibraryWorkspace.setActiveButton; function onClicked() { state.setCandidateModelActive() } }
+    Connections { target: screen.modelLibraryWorkspace.openInModelTestButton; function onClicked() { state.openLibraryModelTest() } }
+
+    Connections { target: screen.modelTestWorkspace.selectDatasetButton; function onClicked() { state.selectModelTestDataset() } }
+    Connections { target: screen.modelTestWorkspace.outputLocationField; function onTextEdited() { state.modelTestOutputLocationDraft = screen.modelTestWorkspace.outputLocationField.text } }
+    Connections { target: screen.modelTestWorkspace.browseButton; function onClicked() { state.browseModelTestOutput() } }
+    Connections { target: screen.modelTestWorkspace.startButton; function onClicked() { state.startModelTest() } }
+    Connections { target: screen.modelTestWorkspace.stopButton; function onClicked() { state.stopModelTest() } }
+    Connections { target: screen.modelTestWorkspace.startAnotherButton; function onClicked() { state.startAnotherModelTest() } }
+
+    Connections { target: screen.liveWorkspace.primaryActionButton; function onClicked() { state.livePrimaryAction() } }
+    Connections { target: screen.liveWorkspace.secondaryActionButton; function onClicked() { state.liveSecondaryAction() } }
+
+    Connections { target: screen.sequenceTestWorkspace.loadSequenceButton; function onClicked() { state.loadSequenceTest() } }
+    Connections { target: screen.sequenceTestWorkspace.loadToMemoryButton; function onClicked() { state.loadSequenceTestToMemory() } }
+    Connections { target: screen.sequenceTestWorkspace.startStopButton; function onClicked() { state.startOrStopSequenceTest() } }
+    Connections { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; function onToggled() { state.physicalDaqOutputChecked = screen.sequenceTestWorkspace.physicalDaqOutputControl.checked } }
+
+    Connections { target: screen.runsWorkspace.runsPanelToggleButton; function onClicked() { state.toggleRunsPanel() } }
+    Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { state.loadSelectedRun() } }
+    Connections { target: screen.runsWorkspace.editNotesButton; function onClicked() { state.editRunNotes() } }
+    Connections { target: screen.runsWorkspace.saveNotesButton; function onClicked() { state.finishRunNotesEditing() } }
+    Connections { target: screen.runsWorkspace.cancelNotesButton; function onClicked() { state.finishRunNotesEditing() } }
 
     Connections {
         target: screen.hardwareButton

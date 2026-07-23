@@ -11,6 +11,8 @@ Rectangle {
 
     property string settingsPresentation: "ready"
     property string defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite")
+    property int textSizePercent: 100
+    property alias textSizeSlider: textSizeSlider
 
     Text {
         id: workspaceTitle
@@ -82,6 +84,24 @@ Rectangle {
                 Text { text: qsTr("Diagnostics"); font: Constants.headingFont; color: Constants.textColor }
                 Text { text: qsTr("Diagnostic Folder: C:/Users/Scientist/AppData/Local/OpenDSS/Logs"); elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; width: parent.width }
                 Button { id: openDiagnosticFolderButton; text: qsTr("Open Diagnostic Folder"); height: Constants.controlHeight }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: visualsContent.implicitHeight + Constants.spacing * 2
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+            Column { id: visualsContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
+                Text { text: qsTr("Visuals"); font: Constants.headingFont; color: Constants.textColor }
+                Row {
+                    width: parent.width
+                    spacing: Constants.spacing
+                    Text { text: qsTr("Text Size"); width: 120; verticalAlignment: Text.AlignVCenter; color: Constants.textColor }
+                    Slider { id: textSizeSlider; from: 80; to: 200; value: root.textSizePercent; width: parent.width - 190; height: Constants.controlHeight }
+                    Text { text: qsTr("%1%").arg(root.textSizePercent); width: 50; verticalAlignment: Text.AlignVCenter; horizontalAlignment: Text.AlignRight; color: Constants.textColor }
+                }
+                Text { text: qsTr("80%–200%; default 100%"); color: Constants.mutedTextColor; font: Constants.smallFont }
             }
         }
     }

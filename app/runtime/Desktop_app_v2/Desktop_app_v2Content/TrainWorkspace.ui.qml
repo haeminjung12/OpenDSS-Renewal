@@ -20,6 +20,7 @@ Rectangle {
     property bool showCompleted: false
     property bool showError: false
     property bool showInterrupted: false
+    property bool operationPanelExpanded: true
     property bool trainingSetupExpanded: true
     property bool trainingStatusExpanded: true
     property alias selectDatasetButton: selectDatasetButton
@@ -30,6 +31,7 @@ Rectangle {
     property alias stopButton: stopButton
     property alias retrySaveButton: retrySaveButton
     property alias openInModelTestButton: openInModelTestButton
+    property alias operationPanelToggleButton: operationPanelToggleButton
     property alias trainingSetupHeadingButton: trainingSetupSection.headingButton
     property alias trainingStatusHeadingButton: trainingStatusSection.headingButton
 
@@ -120,13 +122,25 @@ Rectangle {
 
         Rectangle {
             id: operationPanel
-            width: Constants.operationPanelWidth
+            width: root.operationPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
             height: parent.height
             color: Constants.surfaceColor
             border.color: Constants.borderColor
 
-            Column {
+            Button {
+                id: operationPanelToggleButton
+                text: root.operationPanelExpanded ? qsTr("‹ Training panel") : qsTr("›")
+                width: parent.width - Constants.spacing * 2
+                height: Constants.controlHeight
                 anchors.top: parent.top
+                anchors.horizontalCenter: parent.horizontalCenter
+                anchors.topMargin: Constants.spacing
+            }
+
+            Column {
+                visible: root.operationPanelExpanded
+                anchors.top: operationPanelToggleButton.bottom
+                anchors.topMargin: Constants.spacing
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: Constants.spacing

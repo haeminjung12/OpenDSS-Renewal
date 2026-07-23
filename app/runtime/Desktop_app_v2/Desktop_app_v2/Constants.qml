@@ -4,14 +4,17 @@ import QtQuick
 QtObject {
     readonly property int width: 1600
     readonly property int height: 900
-    readonly property font font: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize })
-    readonly property font smallFont: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize * 0.88 })
-    readonly property font headingFont: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize * 1.22, bold: true })
-    readonly property font largeFont: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize * 1.6 })
+    property int textSizePercent: 100
+    readonly property real textScale: Math.max(80, Math.min(200, textSizePercent)) / 100
+    readonly property font font: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize * textScale })
+    readonly property font smallFont: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize * 0.88 * textScale })
+    readonly property font headingFont: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize * 1.22 * textScale, bold: true })
+    readonly property font largeFont: Qt.font({ family: Qt.application.font.family, pixelSize: Qt.application.font.pixelSize * 1.6 * textScale })
 
     readonly property int shellHeaderHeight: 54
     readonly property int navigationWidth: 208
     readonly property int operationPanelWidth: 390
+    readonly property int collapsedOperationPanelWidth: 46
     readonly property int hardwarePanelWidth: 380
     readonly property int hardwarePanelHeight: 600
     readonly property int controlHeight: 38

@@ -22,6 +22,7 @@ Rectangle {
     property bool showSavedPath: false
     property bool showBanner: false
     property bool drawerOpen: false
+    property bool capturePanelExpanded: true
     property string selectedWorkspace: "capture"
     property string singleImagePresentation: "unavailable"
     property bool singleImageOpen: false
@@ -51,6 +52,7 @@ Rectangle {
     property bool hardwareActionEnabled: true
     property bool captureStartsAvailable: true
     property alias hardwareButton: hardwareButton
+    property alias capturePanelToggleButton: capturePanelToggleButton
     property alias fileNameField: fileNameField
     property alias saveLocationField: saveLocationField
     property alias browseButton: browseButton
@@ -170,15 +172,28 @@ Rectangle {
             Rectangle { id: cameraPreview; color: Constants.viewerColor; border.color: Constants.borderColor; anchors.top: captureWorkspaceTitle.bottom; anchors.topMargin: Constants.spacing; anchors.bottom: parent.bottom; anchors.left: parent.left; anchors.right: capturePanel.left; anchors.rightMargin: Constants.spacing; Text { text: root.cameraStatus === qsTr("Unavailable") ? qsTr("Camera unavailable") : qsTr("Camera preview"); color: Constants.surfaceColor; font: Constants.largeFont; anchors.centerIn: parent } }
             Rectangle {
                 id: capturePanel
-                width: Constants.operationPanelWidth
+                width: root.capturePanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
                 anchors.top: captureWorkspaceTitle.bottom
                 anchors.topMargin: Constants.spacing
                 anchors.bottom: parent.bottom
                 anchors.right: parent.right
+                Button {
+                    id: capturePanelToggleButton
+                    text: root.capturePanelExpanded ? qsTr("‹ Capture panel") : qsTr("›")
+                    width: parent.width - Constants.spacing * 2
+                    height: Constants.controlHeight
+                    anchors.top: parent.top
+                    anchors.horizontalCenter: parent.horizontalCenter
+                    anchors.topMargin: Constants.spacing
+                }
                 ScrollView {
-                    anchors.fill: parent
+                    visible: root.capturePanelExpanded
+                    anchors.top: capturePanelToggleButton.bottom
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
                     anchors.margins: Constants.spacing
                     clip: true
                     contentWidth: availableWidth

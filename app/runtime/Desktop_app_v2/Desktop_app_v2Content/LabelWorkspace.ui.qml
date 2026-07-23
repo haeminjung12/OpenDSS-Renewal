@@ -18,13 +18,14 @@ Rectangle {
     property string saveState: ""
     property bool selectedCropExpanded: true
     property bool classesFilterExpanded: true
+    property bool threeClassMode: classCount === 3
 
     property alias openDatasetButton: openDatasetButton
     property alias twoClassChoice: twoClassChoice
     property alias threeClassChoice: threeClassChoice
     property alias useInTrainButton: useInTrainButton
-    property alias selectedCropHeadingButton: selectedCropHeadingButton
-    property alias classesFilterHeadingButton: classesFilterHeadingButton
+    property alias selectedCropHeadingButton: selectedCropSection.headingButton
+    property alias classesFilterHeadingButton: classesFilterSection.headingButton
 
     Column {
         anchors.fill: parent
@@ -136,103 +137,146 @@ Rectangle {
                     }
                 }
 
-                Column {
+                ScrollView {
+                    id: rightPanel
                     width: parent.width - cropColumn.width - Constants.spacing
                     height: parent.height
-                    spacing: Constants.spacing
+                    contentWidth: availableWidth
+                    contentHeight: rightSections.height
 
-                    Button {
-                        id: selectedCropHeadingButton
-                        width: parent.width
-                        height: 42
-                        text: (root.selectedCropExpanded ? "⌄  " : "›  ") + qsTr("Selected Crop")
-                        checkable: true
-                        checked: root.selectedCropExpanded
-                        focusPolicy: Qt.StrongFocus
-                    }
+                    Column {
+                        id: rightSections
+                        width: rightPanel.availableWidth
+                        height: implicitHeight
+                        spacing: 2
 
-                    Rectangle {
-                        id: selectedCropBody
-                        visible: root.selectedCropExpanded
-                        width: parent.width
-                        height: 245
-                        color: Constants.surfaceColor
-                        border.color: Constants.borderColor
-                        Column {
-                            anchors.fill: parent
-                            anchors.margins: Constants.spacing
-                            spacing: 6
-                            Text { text: qsTr("SELECTED CROP"); font: Constants.headingFont }
-                            Rectangle { width: parent.width; height: 82; color: Constants.viewerColor; Text { text: qsTr("Selected crop"); color: Constants.surfaceColor; anchors.centerIn: parent } }
-                            Text { text: qsTr("Selected: ") + root.selectedCount }
-                            Row { spacing: 6
-                                Button { id: class0Button; text: qsTr("Class 0"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                                Button { id: class1Button; text: qsTr("Class 1"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                                Button { id: class2Button; text: qsTr("Class 2"); visible: root.classCount === 3; enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                            }
-                            Row { spacing: 6
-                                Button { id: skipButton; text: qsTr("Skip"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                                Button { id: removeFromDatasetButton; text: qsTr("Remove from Dataset"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                            }
-                            Row { spacing: 6
-                                Button { id: restoreButton; text: qsTr("Restore"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                                Button { id: undoButton; text: qsTr("Undo"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
+                        CollapsibleSection {
+                            id: selectedCropSection
+                            width: parent.width
+                            sectionTitle: qsTr("Selected Crop")
+                            expanded: root.selectedCropExpanded
+                            useIntrinsicBodyHeight: true
+
+                            Column {
+                                width: parent.width
+                                height: implicitHeight
+                                spacing: Constants.spacing
+
+                                Rectangle {
+                                    width: parent.width
+                                    height: width
+                                    color: Constants.viewerColor
+                                    border.color: Constants.borderColor
+
+                                    Image {
+                                        id: selectedCropPreview
+                                        anchors.fill: parent
+                                        fillMode: Image.PreserveAspectFit
+                                        sourceSize.width: 64
+                                        sourceSize.height: 64
+                                    }
+
+                                    Rectangle {
+                                        anchors.fill: parent
+                                        visible: selectedCropPreview.status !== Image.Ready
+                                        color: Constants.viewerColor
+                                        Text {
+                                            anchors.centerIn: parent
+                                            text: qsTr("Selected Crop\n64 × 64\nSelected: %1").arg(root.selectedCount)
+                                            horizontalAlignment: Text.AlignHCenter
+                                            color: Constants.surfaceColor
+                                            font: Constants.headingFont
+                                        }
+                                    }
+                                }
+
+                                Grid {
+                                    width: parent.width
+                                    height: 48
+                                    columns: 3
+                                    spacing: 6
+
+                                    Button {
+                                        id: class0Button
+                                        width: (parent.width - parent.spacing * 2) / 3
+                                        height: parent.height
+                                        text: qsTr("Class 0")
+                                        enabled: root.presentation === "ready"
+                                        background: Rectangle { color: "#7ea9d8"; border.color: Constants.borderColor }
+                                    }
+                                    Button {
+                                        id: class1Button
+                                        width: (parent.width - parent.spacing * 2) / 3
+                                        height: parent.height
+                                        text: qsTr("Class 1")
+                                        enabled: root.presentation === "ready"
+                                        background: Rectangle { color: "#e7a766"; border.color: Constants.borderColor }
+                                    }
+                                    Button {
+                                        id: class2Button
+                                        width: (parent.width - parent.spacing * 2) / 3
+                                        height: parent.height
+                                        text: qsTr("Class 2")
+                                        enabled: root.presentation === "ready" && root.threeClassMode
+                                        background: Rectangle { color: "#a98bd4"; border.color: Constants.borderColor }
+                                    }
+                                }
+
+                                Grid {
+                                    width: parent.width
+                                    height: Constants.controlHeight * 2 + spacing
+                                    columns: 2
+                                    spacing: 6
+
+                                    Button { id: skipButton; width: (parent.width - parent.spacing) / 2; height: Constants.controlHeight; text: qsTr("Skip"); enabled: root.presentation === "ready" }
+                                    Button { id: removeFromDatasetButton; width: (parent.width - parent.spacing) / 2; height: Constants.controlHeight; text: qsTr("Remove from Dataset"); enabled: root.presentation === "ready" }
+                                    Button { id: restoreButton; width: (parent.width - parent.spacing) / 2; height: Constants.controlHeight; text: qsTr("Restore"); enabled: root.presentation === "ready" }
+                                    Button { id: undoButton; width: (parent.width - parent.spacing) / 2; height: Constants.controlHeight; text: qsTr("Undo"); enabled: root.presentation === "ready" }
+                                }
                             }
                         }
-                    }
 
-                    Button {
-                        id: classesFilterHeadingButton
-                        width: parent.width
-                        height: 42
-                        text: (root.classesFilterExpanded ? "⌄  " : "›  ") + qsTr("Classes & Filter")
-                        checkable: true
-                        checked: root.classesFilterExpanded
-                        focusPolicy: Qt.StrongFocus
-                    }
+                        CollapsibleSection {
+                            id: classesFilterSection
+                            width: parent.width
+                            sectionTitle: qsTr("Classes & Filter")
+                            expanded: root.classesFilterExpanded
+                            useIntrinsicBodyHeight: true
 
-                    Rectangle {
-                        id: classesFilterBody
-                        visible: root.classesFilterExpanded
-                        width: parent.width
-                        height: parent.height - selectedCropHeadingButton.height - classesFilterHeadingButton.height
-                                - (root.selectedCropExpanded ? selectedCropBody.height : 0)
-                                - Constants.spacing * (root.selectedCropExpanded ? 3 : 2)
-                        color: Constants.surfaceColor
-                        border.color: Constants.borderColor
-                        Column {
-                            anchors.fill: parent
-                            anchors.margins: Constants.spacing
-                            spacing: 6
-                            Text { text: qsTr("CLASS NAMES & FILTERS"); font: Constants.headingFont }
-                            Row { spacing: 6
-                                Button { id: allFilterButton; text: qsTr("All") }
-                                Button { id: class0FilterButton; text: qsTr("Class 0") }
-                                Button { id: class1FilterButton; text: qsTr("Class 1") }
-                                Button { id: class2FilterButton; visible: root.classCount === 3; text: qsTr("Class 2") }
-                            }
-                            Row { spacing: 6
-                                Button { id: unlabeledFilterButton; text: qsTr("Unlabeled") }
-                                Button { id: skippedFilterButton; text: qsTr("Skipped") }
-                                Button { id: removedFilterButton; text: qsTr("Removed") }
-                            }
-                            Row {
+                            Column {
+                                width: parent.width
+                                height: implicitHeight
                                 spacing: 6
-                                Text { text: qsTr("0") }
-                                TextField { id: class0NameField; text: qsTr("Class 0"); width: 150 }
+                                Text { text: qsTr("CLASS NAMES & FILTERS"); font: Constants.headingFont }
+                                Row { spacing: 6
+                                    Button { id: allFilterButton; text: qsTr("All") }
+                                    Button { id: class0FilterButton; text: qsTr("Class 0") }
+                                    Button { id: class1FilterButton; text: qsTr("Class 1") }
+                                    Button { id: class2FilterButton; visible: root.threeClassMode; text: qsTr("Class 2") }
+                                }
+                                Row { spacing: 6
+                                    Button { id: unlabeledFilterButton; text: qsTr("Unlabeled") }
+                                    Button { id: skippedFilterButton; text: qsTr("Skipped") }
+                                    Button { id: removedFilterButton; text: qsTr("Removed") }
+                                }
+                                Row {
+                                    spacing: 6
+                                    Text { text: qsTr("0") }
+                                    TextField { id: class0NameField; text: qsTr("Class 0"); width: 150 }
+                                }
+                                Row {
+                                    spacing: 6
+                                    Text { text: qsTr("1") }
+                                    TextField { id: class1NameField; text: qsTr("Class 1"); width: 150 }
+                                }
+                                Row {
+                                    visible: root.threeClassMode
+                                    spacing: 6
+                                    Text { text: qsTr("2") }
+                                    TextField { id: class2NameField; text: qsTr("Class 2"); width: 150 }
+                                }
+                                Button { id: useInTrainButton; text: qsTr("Use in Train"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
                             }
-                            Row {
-                                spacing: 6
-                                Text { text: qsTr("1") }
-                                TextField { id: class1NameField; text: qsTr("Class 1"); width: 150 }
-                            }
-                            Row {
-                                visible: root.classCount === 3
-                                spacing: 6
-                                Text { text: qsTr("2") }
-                                TextField { id: class2NameField; text: qsTr("Class 2"); width: 150 }
-                            }
-                            Button { id: useInTrainButton; text: qsTr("Use in Train"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
                         }
                     }
                 }

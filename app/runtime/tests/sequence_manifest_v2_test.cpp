@@ -9,6 +9,7 @@
 #include <QTemporaryDir>
 
 #include <iostream>
+#include <limits>
 
 namespace {
 
@@ -48,6 +49,12 @@ SequenceManifestData validData() {
 bool writeObject(const QString& path, const QJsonObject& object) {
     QFile file(path);
     const QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Indented);
+    return file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+           file.write(bytes) == bytes.size();
+}
+
+bool writeBytes(const QString& path, const QByteArray& bytes) {
+    QFile file(path);
     return file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
            file.write(bytes) == bytes.size();
 }
@@ -192,6 +199,35 @@ int main(int argc, char** argv) {
     loaded = SequenceManifestV2::load(path, &error);
     if (!loaded || loaded->data().requestedDurationSeconds)
         return fail(20, "Null requested duration did not round trip.");
+
+    SequenceManifestData largeInteger = input;
+    largeInteger.frameCount = 9007199254740993LL;
+    largeInteger.integrity.sourceFrameGaps = {
+        1, {{(std::numeric_limits<qint64>::max)(), (std::numeric_limits<qint64>::max)()}}};
+    largeInteger.integrity.queueRejections = {};
+    if (!SequenceManifestV2::save(path, largeInteger, &error))
+        return fail(21, "Exact 64-bit integer save failed: " + error);
+    loaded = SequenceManifestV2::load(path, &error);
+    if (!loaded || loaded->data().frameCount != 9007199254740993LL ||
+        loaded->data().integrity.sourceFrameGaps.ranges.front().first !=
+            (std::numeric_limits<qint64>::max)()) {
+        return fail(22, "64-bit integers above 2^53 did not round trip exactly.");
+    }
+
+    file.setFileName(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return fail(23, "Could not read 64-bit Sequence fixture.");
+    QByteArray outOfRangeBytes = file.readAll();
+    file.close();
+    const QByteArray exactFrameCount = "\"frame_count\": 9007199254740993";
+    if (!outOfRangeBytes.contains(exactFrameCount))
+        return fail(24, "Saved Sequence did not retain the exact frame_count literal.");
+    outOfRangeBytes.replace(exactFrameCount, "\"frame_count\": 9223372036854775808");
+    if (!writeBytes(path, outOfRangeBytes))
+        return fail(25, "Could not write out-of-range integer fixture.");
+    loaded = SequenceManifestV2::load(path, &error);
+    if (loaded || !error.contains("nonnegative integer", Qt::CaseInsensitive))
+        return fail(26, "JSON integer 2^63 was accepted.");
 
     return 0;
 }

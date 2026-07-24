@@ -57,14 +57,14 @@ bool requiredTimestamp(const QJsonObject& object, const QString& key, QString& v
 bool requiredInteger(const QJsonObject& object, const QString& key, qint64& value,
                      QString* error) {
     const QJsonValue jsonValue = object.value(key);
-    if (!jsonValue.isDouble())
+    if (!jsonValue.isDouble()) {
         return fail(error, QString("Field '%1' must be an integer.").arg(key));
-    const double number = jsonValue.toDouble();
-    if (!std::isfinite(number) || std::floor(number) != number || number < 0.0 ||
-        number > static_cast<double>((std::numeric_limits<qint64>::max)())) {
+    }
+    const qint64 integer = jsonValue.toInteger(-1);
+    if (integer < 0) {
         return fail(error, QString("Field '%1' must be a nonnegative integer.").arg(key));
     }
-    value = static_cast<qint64>(number);
+    value = integer;
     return true;
 }
 

@@ -375,6 +375,9 @@ bool DatasetManifestV2::save(const QString& path, const QString& datasetId,
 
     QJsonArray labelsJson;
     for (const UserLabelRecord& label : labels) {
+        if (label.excluded && !label.classId.trimmed().isEmpty()) {
+            return fail(error, "An excluded user label must not also assign class_id.");
+        }
         QJsonObject object{{"label_id", label.labelId}, {"record_id", label.recordId}};
         if (label.excluded)
             object.insert("excluded", true);

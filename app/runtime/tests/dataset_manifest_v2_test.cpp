@@ -333,14 +333,25 @@ int main(int argc, char** argv) {
         return fail(36, "Failed Dataset save replaced the valid manifest.");
     savedFile.close();
 
+    const QVector<UserLabelRecord> contradictoryLabels{
+        {"contradictory-label", "saved-record", "1", true},
+    };
+    if (DatasetManifestV2::save(savedPath, "contradictory-dataset", savedClasses,
+                                savedRecords, contradictoryLabels, &error)) {
+        return fail(37, "Contradictory excluded/class-assigned label was saved.");
+    }
+    if (!savedFile.open(QIODevice::ReadOnly) || savedFile.readAll() != savedBytes)
+        return fail(38, "Contradictory Dataset save replaced the valid manifest.");
+    savedFile.close();
+
     const QString neutralPath = QDir(temp.path()).filePath("neutral-dataset.json");
     if (!DatasetManifestV2::save(neutralPath, "neutral-dataset", {}, savedRecords, {}, &error)) {
-        return fail(37, "Zero-class neutral Dataset save failed: " + error);
+        return fail(39, "Zero-class neutral Dataset save failed: " + error);
     }
     auto neutral = DatasetManifestV2::load(neutralPath, &error);
     if (!neutral || !neutral->classes().isEmpty() || !neutral->labels().isEmpty() ||
         neutral->records().size() != 1) {
-        return fail(38, "Zero-class neutral Dataset round trip failed: " + error);
+        return fail(40, "Zero-class neutral Dataset round trip failed: " + error);
     }
     if (!expectLoadFailure(neutralPath,
                            manifest({}, QJsonArray{record("neutral", "crops/assigned.png",
@@ -349,7 +360,7 @@ int main(int argc, char** argv) {
                                                           {"record_id", "neutral"},
                                                           {"excluded", true}}}),
                            "must not contain labels")) {
-        return fail(39, "Dataset labels were accepted without configured classes.");
+        return fail(41, "Dataset labels were accepted without configured classes.");
     }
 
     return 0;

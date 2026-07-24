@@ -520,3 +520,61 @@ add_test(
     $<TARGET_FILE:sequence_test_service_test>
 )
 set_tests_properties(sequence_test_service_test PROPERTIES TIMEOUT 30)
+
+qt_add_executable(run_repository_test
+  run_repository_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/results/run_repository.cpp
+  ../v2/run/run_manifest_v2.cpp
+  ../v2/run/run_writer_v2.cpp
+)
+target_include_directories(run_repository_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(run_repository_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME run_repository_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:run_repository_test>
+)
+set_tests_properties(run_repository_test PROPERTIES TIMEOUT 30)
+
+qt_add_executable(model_test_summary_v2_test
+  model_test_summary_v2_test.cpp
+  ../v2/model_test/model_test_summary_v2.cpp
+)
+target_include_directories(model_test_summary_v2_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(model_test_summary_v2_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME model_test_summary_v2_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:model_test_summary_v2_test>
+)
+set_tests_properties(model_test_summary_v2_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(model_test_writer_test
+  model_test_writer_test.cpp
+  ../v2/model_test/model_test_summary_v2.cpp
+  ../v2/model_test/model_test_writer.cpp
+)
+target_include_directories(model_test_writer_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(model_test_writer_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME model_test_writer_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:model_test_writer_test>
+)
+set_tests_properties(model_test_writer_test PROPERTIES TIMEOUT 30)

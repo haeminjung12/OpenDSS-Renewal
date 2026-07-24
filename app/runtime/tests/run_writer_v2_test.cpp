@@ -71,11 +71,24 @@ void testCompletedAndEscaping() {
     require(atStart.has_value() && atStart->data().events.isEmpty() &&
                 atStart->data().status == RunStatus::Interrupted,
             qPrintable(error));
+    QFile oldPartialFile(partialSummary);
+    require(oldPartialFile.open(QIODevice::ReadOnly), "read starting partial summary");
+    const QByteArray oldPartialSummary = oldPartialFile.readAll();
+    oldPartialFile.close();
     const QByteArray cropBytes("preserved-source-bytes\0tail", 27);
     require(writer->appendEvent(event(), cropBytes, &error), qPrintable(error));
     auto afterAppend = RunManifestV2::load(partialSummary, &error);
     require(afterAppend.has_value() && afterAppend->data().events.size() == 1,
             qPrintable(error));
+    require(oldPartialFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "restore stale partial summary");
+    require(oldPartialFile.write(oldPartialSummary) == oldPartialSummary.size(),
+            "write stale partial summary");
+    oldPartialFile.close();
+    auto crashWindow = RunManifestV2::load(partialSummary, &error);
+    require(crashWindow.has_value() && crashWindow->data().events.size() == 1 &&
+                crashWindow->derivedCounts().total == 1,
+            "flushed partial CSV recovers across stale-summary crash window");
     require(writer->flush(&error), qPrintable(error));
     require(QFileInfo::exists(QDir(root).filePath("events.partial.csv")),
             "partial exists while active");

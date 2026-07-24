@@ -374,7 +374,9 @@ bool validateData(const RunManifestData& data, QString* error) {
         return fail(error, "Sequence Test processing FPS values are invalid for Run status.");
     }
     if (!std::isfinite(data.hitBoundary.boundaryY) ||
+        data.hitBoundary.boundaryY < 0.0 ||
         data.hitBoundary.imageWidth <= 0 || data.hitBoundary.imageHeight <= 0 ||
+        data.hitBoundary.boundaryY >= data.hitBoundary.imageHeight ||
         (data.hitBoundary.hitSide != HitSide::PositiveY &&
          data.hitBoundary.hitSide != HitSide::NegativeY))
         return fail(error, "Hit boundary snapshot is invalid.");
@@ -751,11 +753,15 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
     }
     manifest.derived_ = derive(data);
     if (!root.value("counts").isObject() ||
-        !exactObject(root.value("counts").toObject(), derivedJson(data, manifest.derived_),
-                     "counts", error) ||
-        !root.value("decision_vs_observed").isObject() ||
-        !exactObject(root.value("decision_vs_observed").toObject(),
-                     matrixJson(manifest.derived_), "decision_vs_observed", error)) {
+        !root.value("decision_vs_observed").isObject()) {
+        fail(error, "Run derived fields must be objects.");
+        return std::nullopt;
+    }
+    if (!partialSummary &&
+        (!exactObject(root.value("counts").toObject(),
+                      derivedJson(data, manifest.derived_), "counts", error) ||
+         !exactObject(root.value("decision_vs_observed").toObject(),
+                      matrixJson(manifest.derived_), "decision_vs_observed", error))) {
         return std::nullopt;
     }
     return manifest;

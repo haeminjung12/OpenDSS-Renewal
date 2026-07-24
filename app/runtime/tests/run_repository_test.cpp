@@ -2,16 +2,19 @@
 #include "../v2/run/run_writer_v2.h"
 
 #include <QCoreApplication>
-#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QLockFile>
+#include <QProcess>
 #include <QTemporaryDir>
 
+#include <atomic>
 #include <cstdlib>
 #include <filesystem>
 #include <iostream>
+#include <thread>
 
 using namespace desktop_app::v2::results;
 using namespace desktop_app::v2::run;
@@ -74,6 +77,9 @@ QString createRun(const QString& folder, const QString& id,
     require(writer->finalize(RunStatus::Completed, startedAt, "duration", 20.0,
                              &error),
             "finalize");
+    QFile source(QDir(folder).filePath("source.json"));
+    require(source.open(QIODevice::WriteOnly), "open source");
+    require(source.write("source-content") == 14, "write source");
     return QDir(folder).filePath("run_summary.json");
 }
 
@@ -81,10 +87,6 @@ QByteArray bytes(const QString& path) {
     QFile file(path);
     require(file.open(QIODevice::ReadOnly), "read file bytes");
     return file.readAll();
-}
-
-QByteArray hash(const QString& path) {
-    return QCryptographicHash::hash(bytes(path), QCryptographicHash::Sha256);
 }
 
 void testDiscoveryLoadAndDiagnostics() {
@@ -157,8 +159,10 @@ void testNotesOnlyAndNonReplacement() {
     const QString runFolder = QFileInfo(summary).absolutePath();
     const QString events = QDir(runFolder).filePath("events.csv");
     const QString crop = QDir(runFolder).filePath("crops/event.bin");
-    const QByteArray eventsBefore = hash(events);
-    const QByteArray cropBefore = hash(crop);
+    const QString source = QDir(runFolder).filePath("source.json");
+    const QByteArray eventsBefore = bytes(events);
+    const QByteArray cropBefore = bytes(crop);
+    const QByteArray sourceBefore = bytes(source);
     QJsonObject before = QJsonDocument::fromJson(bytes(summary)).object();
 
     QString error;
@@ -170,8 +174,9 @@ void testNotesOnlyAndNonReplacement() {
     before.remove("notes");
     after.remove("notes");
     require(before == after, "only notes field changed");
-    require(hash(events) == eventsBefore && hash(crop) == cropBefore,
-            "events and crops unchanged");
+    require(bytes(events) == eventsBefore && bytes(crop) == cropBefore &&
+                bytes(source) == sourceBefore,
+            "events, crops, and source unchanged");
 
     const QByteArray validSummary = bytes(summary);
     require(QFile::remove(events), "remove events");
@@ -180,6 +185,77 @@ void testNotesOnlyAndNonReplacement() {
     require(bytes(summary) == validSummary,
             "failed update does not replace summary");
 }
+
+void testConcurrentNotesUpdatesSerializeOrDeny() {
+    stage = "concurrent notes";
+    QTemporaryDir temporary;
+    const QString summary =
+        createRun(QDir(temporary.path()).filePath("run"), "concurrent",
+                  "2026-07-24T10:00:00Z");
+    const QByteArray before = bytes(summary);
+
+    QLockFile held(summary + ".lock");
+    held.setStaleLockTime(0);
+    require(held.tryLock(0), "hold notes lock");
+    bool deniedResult = true;
+    QString deniedError;
+    std::thread denied([&] {
+        deniedResult =
+            RunRepository::updateNotes(summary, "denied", &deniedError);
+    });
+    denied.join();
+    require(!deniedResult && deniedError.contains("locked"),
+            "concurrent notes update denied");
+    require(bytes(summary) == before, "lock denial leaves summary unchanged");
+    held.unlock();
+
+    std::atomic<bool> start{false};
+    bool firstResult = false;
+    bool secondResult = false;
+    QString firstError;
+    QString secondError;
+    std::thread first([&] {
+        while (!start.load())
+            std::this_thread::yield();
+        firstResult =
+            RunRepository::updateNotes(summary, "first", &firstError);
+    });
+    std::thread second([&] {
+        while (!start.load())
+            std::this_thread::yield();
+        secondResult =
+            RunRepository::updateNotes(summary, "second", &secondError);
+    });
+    start = true;
+    first.join();
+    second.join();
+    require(firstResult || secondResult, "one concurrent update succeeds");
+    require(firstResult || firstError.contains("locked"),
+            "first update succeeds or reports lock denial");
+    require(secondResult || secondError.contains("locked"),
+            "second update succeeds or reports lock denial");
+    QString error;
+    auto loaded = RunRepository::load(summary, &error);
+    require(loaded.has_value(), qPrintable(error));
+    require((firstResult && loaded->data().notes == "first") ||
+                (secondResult && loaded->data().notes == "second"),
+            "final notes came from a successful serialized update");
+}
+
+#ifdef Q_OS_WIN
+bool createJunction(const QString& junction, const QString& target) {
+    return QProcess::execute(
+               "cmd.exe",
+               {"/c", "mklink", "/J", QDir::toNativeSeparators(junction),
+                QDir::toNativeSeparators(target)}) == 0;
+}
+
+bool removeJunction(const QString& junction) {
+    return QProcess::execute(
+               "cmd.exe",
+               {"/c", "rmdir", QDir::toNativeSeparators(junction)}) == 0;
+}
+#endif
 
 void testLinkedRunIsNotTraversed() {
     stage = "links";
@@ -203,6 +279,31 @@ void testLinkedRunIsNotTraversed() {
     require(error.contains("linked Run directory"), "linked Run diagnostic");
     require(!RunRepository::load(QDir(link).filePath("run_summary.json"), &error),
             "summary through linked Run rejected");
+    std::filesystem::remove(std::filesystem::path(link.toStdWString()), ec);
+    require(!ec, "remove linked Run");
+}
+
+void testJunctionRunIsNotTraversed() {
+#ifdef Q_OS_WIN
+    stage = "junctions";
+    QTemporaryDir temporary;
+    const QString outside = QDir(temporary.path()).filePath("outside");
+    createRun(outside, "outside", "2026-07-24T10:00:00Z");
+    const QString runs = QDir(temporary.path()).filePath("root/Runs");
+    require(QDir().mkpath(runs), "create Runs");
+    const QString junction = QDir(runs).filePath("junction");
+    if (!createJunction(junction, outside))
+        return;
+
+    QString error;
+    const auto discovered =
+        RunRepository::discover(QDir(temporary.path()).filePath("root"), &error);
+    require(discovered.isEmpty(), "junction Run not discovered");
+    require(error.contains("linked Run directory"), "junction Run diagnostic");
+    require(!RunRepository::load(QDir(junction).filePath("run_summary.json"), &error),
+            "summary through junction Run rejected");
+    require(removeJunction(junction), "remove junction Run");
+#endif
 }
 
 } // namespace
@@ -211,6 +312,8 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testDiscoveryLoadAndDiagnostics();
     testNotesOnlyAndNonReplacement();
+    testConcurrentNotesUpdatesSerializeOrDeny();
     testLinkedRunIsNotTraversed();
+    testJunctionRunIsNotTraversed();
     return 0;
 }

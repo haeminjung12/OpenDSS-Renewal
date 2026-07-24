@@ -1,12 +1,9 @@
 #include "run_repository.h"
 
-#include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
-#include <QJsonDocument>
-#include <QJsonObject>
+#include <QLockFile>
 #include <QStringList>
 
 #include <algorithm>
@@ -34,6 +31,19 @@ bool containsParentTraversal(const QString& path) {
         .contains(QStringLiteral(".."));
 }
 
+bool isLinkOrJunction(const QFileInfo& info) {
+    return info.isSymLink() || info.isJunction();
+}
+
+bool canonicalMatchesAbsolute(const QFileInfo& info) {
+    const QString canonical =
+        QDir::fromNativeSeparators(info.canonicalFilePath());
+    const QString absolute = QDir::fromNativeSeparators(
+        QDir::cleanPath(info.absoluteFilePath()));
+    return !canonical.isEmpty() &&
+           canonical.compare(absolute, pathSensitivity()) == 0;
+}
+
 bool canonicalSummaryPath(const QString& path, QString& canonical,
                           QString* error) {
     if (containsParentTraversal(path))
@@ -41,11 +51,12 @@ bool canonicalSummaryPath(const QString& path, QString& canonical,
 
     const QFileInfo info(path);
     if (info.fileName() != QStringLiteral("run_summary.json") || !info.exists() ||
-        !info.isFile() || info.isSymLink()) {
+        !info.isFile() || isLinkOrJunction(info) ||
+        !canonicalMatchesAbsolute(info)) {
         return fail(error, "Expected a finalized regular run_summary.json file.");
     }
     const QFileInfo folder(info.absolutePath());
-    if (!folder.exists() || !folder.isDir() || folder.isSymLink())
+    if (!folder.exists() || !folder.isDir() || isLinkOrJunction(folder))
         return fail(error, "Run folder is not a regular directory.");
 
     canonical = QDir::fromNativeSeparators(info.canonicalFilePath());
@@ -68,7 +79,7 @@ bool resolveContained(const QString& runFolder, const QString& relative,
         QDir::fromNativeSeparators(candidate.canonicalFilePath());
     if (canonicalRoot.isEmpty() || canonicalCandidate.isEmpty() ||
         (requireDirectory ? !candidate.isDir() : !candidate.exists()) ||
-        candidate.isSymLink()) {
+        isLinkOrJunction(candidate) || !canonicalMatchesAbsolute(candidate)) {
         return fail(error, QString("Missing or linked Run artifact '%1'.").arg(relative));
     }
     if (canonicalCandidate.compare(canonicalRoot, pathSensitivity()) != 0 &&
@@ -81,7 +92,7 @@ bool resolveContained(const QString& runFolder, const QString& relative,
     for (const QString& part :
          QDir::fromNativeSeparators(relative).split('/', Qt::SkipEmptyParts)) {
         current = QDir(current).filePath(part);
-        if (QFileInfo(current).isSymLink())
+        if (isLinkOrJunction(QFileInfo(current)))
             return fail(error,
                         QString("Run artifact '%1' traverses a link.").arg(relative));
     }
@@ -160,60 +171,6 @@ RunSummary makeSummary(const QString& summaryPath,
     return summary;
 }
 
-bool readObject(const QString& path, QJsonObject& object, QString* error) {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly))
-        return fail(error, "Could not read Run Summary for notes update.");
-    QJsonParseError parseError;
-    const auto document = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !document.isObject())
-        return fail(error, "Run Summary changed to invalid JSON.");
-    object = document.object();
-    return true;
-}
-
-std::optional<QByteArray> fileHash(const QString& path, QString* error) {
-    QFile file(path);
-    if (!file.open(QIODevice::ReadOnly)) {
-        fail(error, QString("Could not hash Run artifact '%1'.").arg(path));
-        return std::nullopt;
-    }
-    QCryptographicHash hash(QCryptographicHash::Sha256);
-    if (!hash.addData(&file)) {
-        fail(error, QString("Could not hash Run artifact '%1'.").arg(path));
-        return std::nullopt;
-    }
-    return hash.result();
-}
-
-bool artifactHashes(const QString& runFolder, const run::RunManifestData& data,
-                    QVector<QPair<QString, QByteArray>>& hashes, QString* error) {
-    QStringList paths{data.files.eventsCsv};
-    for (const auto& event : data.events)
-        paths.push_back(event.cropPath);
-    paths.removeDuplicates();
-    for (const QString& relative : paths) {
-        QString resolved;
-        if (!resolveContained(runFolder, relative, false, resolved, error))
-            return false;
-        auto hash = fileHash(resolved, error);
-        if (!hash)
-            return false;
-        hashes.push_back({resolved, *hash});
-    }
-    return true;
-}
-
-bool hashesUnchanged(const QVector<QPair<QString, QByteArray>>& before,
-                     QString* error) {
-    for (const auto& item : before) {
-        auto after = fileHash(item.first, error);
-        if (!after || *after != item.second)
-            return fail(error, "Run event or Droplet Crop data changed during notes update.");
-    }
-    return true;
-}
-
 } // namespace
 
 QVector<RunSummary> RunRepository::discover(const QString& dataRoot,
@@ -224,7 +181,8 @@ QVector<RunSummary> RunRepository::discover(const QString& dataRoot,
     QStringList diagnostics;
 
     const QFileInfo supplied(dataRoot);
-    if (!supplied.exists() || !supplied.isDir() || supplied.isSymLink()) {
+    if (!supplied.exists() || !supplied.isDir() || isLinkOrJunction(supplied) ||
+        !canonicalMatchesAbsolute(supplied)) {
         fail(error, "Run discovery root is not a regular directory.");
         return result;
     }
@@ -239,7 +197,8 @@ QVector<RunSummary> RunRepository::discover(const QString& dataRoot,
         const QFileInfo defaultRuns(
             QDir(container).filePath(QStringLiteral("Runs")));
         if (defaultRuns.exists()) {
-            if (!defaultRuns.isDir() || defaultRuns.isSymLink()) {
+            if (!defaultRuns.isDir() || isLinkOrJunction(defaultRuns) ||
+                !canonicalMatchesAbsolute(defaultRuns)) {
                 fail(error, "Default Runs path is not a regular directory.");
                 return result;
             }
@@ -249,7 +208,7 @@ QVector<RunSummary> RunRepository::discover(const QString& dataRoot,
             QDir(container).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot,
                                           QDir::Name);
         for (const QFileInfo& child : children) {
-            if (child.isSymLink()) {
+            if (isLinkOrJunction(child) || !canonicalMatchesAbsolute(child)) {
                 diagnostics.push_back(
                     QString("%1: linked Run directory was skipped.")
                         .arg(child.absoluteFilePath()));
@@ -303,34 +262,18 @@ bool RunRepository::updateNotes(const QString& summaryPath, const QString& notes
     QString canonical;
     if (!canonicalSummaryPath(summaryPath, canonical, error))
         return false;
+    QLockFile lock(canonical + QStringLiteral(".lock"));
+    lock.setStaleLockTime(0);
+    if (!lock.tryLock(100))
+        return fail(error, "Run Notes are locked by another OpenDSS update.");
+
     auto manifest = loadSupported(canonical, error);
     if (!manifest)
         return false;
 
-    QJsonObject beforeObject;
-    if (!readObject(canonical, beforeObject, error))
-        return false;
-    const QString runFolder = QFileInfo(canonical).absolutePath();
-    QVector<QPair<QString, QByteArray>> beforeHashes;
-    if (!artifactHashes(runFolder, manifest->data(), beforeHashes, error))
-        return false;
-
     run::RunManifestData updated = manifest->data();
     updated.notes = notes;
-    if (!run::RunManifestV2::save(canonical, updated, error))
-        return false;
-
-    auto afterManifest = loadSupported(canonical, error);
-    QJsonObject afterObject;
-    if (!afterManifest || !readObject(canonical, afterObject, error))
-        return false;
-    beforeObject.remove(QStringLiteral("notes"));
-    afterObject.remove(QStringLiteral("notes"));
-    if (beforeObject != afterObject ||
-        afterManifest->data().notes != notes) {
-        return fail(error, "Notes update changed non-note Run Summary data.");
-    }
-    return hashesUnchanged(beforeHashes, error);
+    return run::RunManifestV2::save(canonical, updated, error);
 }
 
 } // namespace desktop_app::v2::results

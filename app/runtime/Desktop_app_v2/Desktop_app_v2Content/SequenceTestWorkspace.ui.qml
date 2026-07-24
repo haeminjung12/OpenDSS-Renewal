@@ -36,31 +36,32 @@ Item {
             anchors.margins: Constants.workspaceMargin
         }
 
-        Row {
+        SplitView {
+            font: Constants.font
             anchors.top: workspaceTitle.bottom
             anchors.topMargin: Constants.spacing
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.margins: Constants.workspaceMargin
-            spacing: Constants.workspaceMargin
 
-            Column {
-                width: parent.width - rightPanel.width - parent.spacing
-                height: parent.height
-                spacing: Constants.spacing
+            SplitView {
+                orientation: Qt.Vertical
+                SplitView.fillWidth: true
 
                 Rectangle {
-                    width: parent.width
-                    height: parent.height * 0.48
+                    SplitView.fillWidth: true
+                    SplitView.preferredHeight: parent.height * 0.5
+                    SplitView.minimumHeight: Math.round(180 * Constants.textScale)
                     color: Constants.viewerColor
                     border.color: Constants.borderColor
-                    Text { anchors.centerIn: parent; text: qsTr("First-frame preview"); color: "#ffffff"; font: Constants.headingFont }
+                    Text { anchors.centerIn: parent; text: root.loaded ? qsTr("First-frame preview") : qsTr("No Image Sequence selected\nLoad a Sequence to begin."); horizontalAlignment: Text.AlignHCenter; color: Constants.surfaceColor; font: Constants.headingFont }
                 }
 
                 Rectangle {
-                    width: parent.width
-                    height: parent.height * 0.48
+                    SplitView.fillWidth: true
+                    SplitView.fillHeight: true
+                    SplitView.minimumHeight: Math.round(160 * Constants.textScale)
                     color: Constants.surfaceColor
                     border.color: Constants.borderColor
                     Column {
@@ -83,34 +84,65 @@ Item {
 
             Rectangle {
                 id: rightPanel
-                width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
-                height: parent.height
+                SplitView.preferredWidth: Constants.operationPanelWidth
+                SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+                SplitView.maximumWidth: root.rightPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
 
+                Rectangle {
+                    id: panelTopStrip
+                    height: Constants.controlHeight
+                    color: Constants.backgroundColor
+                    border.color: Constants.borderColor
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    Text {
+                        text: qsTr("Sequence Test")
+                        visible: root.rightPanelExpanded
+                        font: Constants.headingFont
+                        color: Constants.textColor
+                        anchors.left: parent.left
+                        anchors.leftMargin: Constants.spacing
+                        anchors.right: rightPanelToggleButton.left
+                        anchors.rightMargin: Constants.spacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        elide: Text.ElideRight
+                    }
+                }
                 Button {
                     id: rightPanelToggleButton
-                    width: parent.width
-                    height: Constants.controlHeight
                     text: root.rightPanelExpanded ? "›" : "‹"
+                    width: Math.round(30 * Constants.textScale)
+                    height: panelTopStrip.height
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    z: 1
                     Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Sequence Test panel") : qsTr("Expand Sequence Test panel")
+                    background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
+                    contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
 
                 ScrollView {
+                    id: rightPanelScroll
                     visible: root.rightPanelExpanded
-                    anchors.top: rightPanelToggleButton.bottom
+                    anchors.top: panelTopStrip.bottom
                     anchors.bottom: parent.bottom
                     anchors.left: parent.left
                     anchors.right: parent.right
+                    anchors.leftMargin: Constants.spacing
                     clip: true
                     contentWidth: availableWidth
 
                     Column {
-                        width: parent.width
+                        width: rightPanelScroll.availableWidth
+                        height: implicitHeight
                         spacing: Constants.spacing
 
                         CollapsibleSection {
                         id: sequenceTestSection
+                        width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Sequence Test")
                         expanded: root.sequenceTestExpanded
                         useIntrinsicBodyHeight: true
@@ -127,10 +159,22 @@ Item {
                                 Text { text: qsTr("Active Model: %1").arg(root.activeModelText); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: root.loaded ? qsTr("Sequence loaded") : (root.presentation === "selected" ? qsTr("Sequence selected") : qsTr("No sequence selected")); color: Constants.mutedTextColor; font: Constants.smallFont }
                                 Text { text: root.running ? qsTr("Processing progress") : qsTr("Load status"); color: Constants.mutedTextColor; font: Constants.smallFont }
-                                Button { id: loadSequenceButton; text: qsTr("Load Sequence"); enabled: !root.running && !root.error }
-                                Button { id: loadToMemoryButton; text: qsTr("Load to Memory"); enabled: root.presentation === "selected" }
+                                Row {
+                                    width: parent.width
+                                    spacing: Constants.spacing
+                                    Button { id: loadSequenceButton; text: qsTr("Load Sequence"); enabled: !root.running && !root.error; width: (parent.width - parent.spacing) / 2 }
+                                    Button { id: loadToMemoryButton; text: qsTr("Load to Memory"); enabled: root.presentation === "selected"; width: (parent.width - parent.spacing) / 2 }
+                                }
                                 CheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output"); enabled: !root.running }
-                                Button { id: startStopButton; text: root.running ? qsTr("Stop") : qsTr("Start Sequence Test"); enabled: root.running || root.presentation === "ready" }
+                                Text {
+                                    visible: !root.running && root.presentation !== "ready"
+                                    text: root.activeModelText === qsTr("No Active Model") ? qsTr("Start requires an Active Model.") : (root.presentation === "selected" ? qsTr("Load the selected Sequence to memory before Start.") : (root.error ? qsTr("Resolve the current Error before Start.") : qsTr("Load a Sequence before Start.")))
+                                    color: Constants.warningColor
+                                    font: Constants.smallFont
+                                    wrapMode: Text.WordWrap
+                                    width: parent.width
+                                }
+                                Button { id: startStopButton; text: root.running ? qsTr("Stop") : qsTr("Start Sequence Test"); enabled: root.running || root.presentation === "ready"; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: root.running ? Constants.faultColor : (startStopButton.enabled ? Constants.accentColor : Constants.borderColor) } }
                             }
                         }
                         }

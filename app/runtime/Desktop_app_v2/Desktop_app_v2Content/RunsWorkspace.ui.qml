@@ -38,29 +38,30 @@ Rectangle {
         anchors.margins: Constants.workspaceMargin
     }
 
-    Row {
+    SplitView {
+        font: Constants.font
         anchors.top: workspaceHeading.bottom
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Constants.workspaceMargin
         anchors.topMargin: Constants.spacing
-        spacing: Constants.spacing
 
         Rectangle {
-            width: parent.width - runsPanel.width - parent.spacing
-            height: parent.height
+            SplitView.fillWidth: true
             color: Constants.surfaceColor
             border.color: Constants.borderColor
 
             ScrollView {
+                id: runDetailsScroll
                 anchors.fill: parent
                 anchors.margins: Constants.spacing * 2
                 clip: true
                 contentWidth: availableWidth
 
                 Column {
-                    width: parent.width
+                    width: runDetailsScroll.availableWidth
+                    height: implicitHeight
                     spacing: Constants.spacing
 
                     Rectangle {
@@ -114,18 +115,19 @@ Rectangle {
                         Text { text: qsTr("Select a Run and choose Load selected Run."); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
                     }
 
-                    Row {
+                    Flow {
                         visible: root.loadedRunId !== "" && !root.runsError
                         width: parent.width
+                        height: childrenRect.height
                         spacing: Constants.spacing
 
                         Rectangle {
-                            width: (parent.width - parent.spacing * 2) / 3
-                            height: 142
+                            width: parent.width >= Math.round(900 * Constants.textScale) ? (parent.width - parent.spacing * 2) / 3 : parent.width
+                            height: Math.round(142 * Constants.textScale)
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
                             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
-                                Text { text: qsTr("Experimental Information"); font: Constants.headingFont; color: Constants.textColor }
+                                Text { text: qsTr("Experimental Information"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
                                 Text { text: qsTr("Experiment Type: Sorting Run"); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Started: 2026-07-23 10:41"); color: Constants.textColor; font: Constants.smallFont }
                                 Text { id: loadedRunStopReasonText; text: qsTr("Stop Reason: Completed duration"); color: Constants.textColor; font: Constants.smallFont }
@@ -133,12 +135,12 @@ Rectangle {
                             }
                         }
                         Rectangle {
-                            width: (parent.width - parent.spacing * 2) / 3
-                            height: 142
+                            width: parent.width >= Math.round(900 * Constants.textScale) ? (parent.width - parent.spacing * 2) / 3 : parent.width
+                            height: Math.round(142 * Constants.textScale)
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
                             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
-                                Text { text: qsTr("Routing / Configuration Snapshot"); font: Constants.headingFont; color: Constants.textColor }
+                                Text { text: qsTr("Routing / Configuration Snapshot"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
                                 Text { text: qsTr("Trigger Every Droplet: Off"); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Hit Class: Class 1"); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Hit Boundary: Top is Hit"); color: Constants.textColor; font: Constants.smallFont }
@@ -146,8 +148,8 @@ Rectangle {
                             }
                         }
                         Rectangle {
-                            width: (parent.width - parent.spacing * 2) / 3
-                            height: 142
+                            width: parent.width >= Math.round(900 * Constants.textScale) ? (parent.width - parent.spacing * 2) / 3 : parent.width
+                            height: Math.round(142 * Constants.textScale)
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
                             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
@@ -160,29 +162,30 @@ Rectangle {
                         }
                     }
 
-                    Row {
+                    Flow {
                         visible: root.loadedRunId !== "" && !root.runsError
                         width: parent.width
+                        height: childrenRect.height
                         spacing: Constants.spacing
 
                         Rectangle {
-                            width: (parent.width - parent.spacing) * 0.5
-                            height: 118
+                            width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width
+                            height: Math.round(118 * Constants.textScale)
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
                             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
-                                Text { text: qsTr("Counts"); font: Constants.headingFont; color: Constants.textColor }
+                                Text { text: qsTr("Counts"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
                                 Text { text: qsTr("Predicted Class 0: 714\nPredicted Class 1: 534"); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Decision Hit: 702  •  Decision Waste: 546"); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
                         }
                         Rectangle {
-                            width: (parent.width - parent.spacing) * 0.5
-                            height: 118
+                            width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width
+                            height: Math.round(118 * Constants.textScale)
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
                             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
-                                Text { text: qsTr("Observed Route"); font: Constants.headingFont; color: Constants.textColor }
+                                Text { text: qsTr("Observed Route"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
                                 Text { text: qsTr("Observed Hit: 688\nObserved Waste: 536\nUnresolved: 24"); color: Constants.textColor; font: Constants.smallFont }
                             }
                         }
@@ -191,24 +194,25 @@ Rectangle {
                     Rectangle {
                         visible: root.loadedRunId !== "" && !root.runsError
                         width: parent.width
-                        height: 154
+                        height: routeMatrixContent.implicitHeight + Constants.spacing * 2
                         color: Constants.backgroundColor
                         border.color: Constants.borderColor
-                        Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 7
-                            Text { text: qsTr("Decision-versus-Observed Route"); font: Constants.headingFont; color: Constants.textColor }
-                            Grid { columns: 4; columnSpacing: 22; rowSpacing: 5
-                                Text { text: qsTr("Decision"); font: Constants.smallFont; color: Constants.mutedTextColor }
-                                Text { text: qsTr("Observed Hit"); font: Constants.smallFont; color: Constants.mutedTextColor }
-                                Text { text: qsTr("Observed Waste"); font: Constants.smallFont; color: Constants.mutedTextColor }
-                                Text { text: qsTr("Unresolved"); font: Constants.smallFont; color: Constants.mutedTextColor }
-                                Text { text: qsTr("Hit"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("681"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("7"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("14"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Waste"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("7"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("529"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("10"); color: Constants.textColor; font: Constants.smallFont }
+                        Column { id: routeMatrixContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 7
+                            Text { text: qsTr("Decision-versus-Observed Route"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
+                            Grid { id: routeMatrix; width: parent.width; columns: 4; columnSpacing: Constants.spacing; rowSpacing: 5
+                                readonly property real cellWidth: (width - columnSpacing * 3) / 4
+                                Text { width: routeMatrix.cellWidth; text: qsTr("Decision"); font: Constants.smallFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("Observed Hit"); font: Constants.smallFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("Observed Waste"); font: Constants.smallFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("Unresolved"); font: Constants.smallFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("Hit"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("681"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("7"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("14"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("Waste"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("7"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("529"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: qsTr("10"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
                             }
                         }
                     }
@@ -216,12 +220,12 @@ Rectangle {
                     Rectangle {
                         visible: root.loadedRunId !== "" && !root.runsError
                         width: parent.width
-                        height: 190
+                        height: filesNotesFlow.childrenRect.height + Constants.spacing * 2
                         color: Constants.backgroundColor
                         border.color: Constants.borderColor
-                        Row { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: Constants.spacing
-                            Column { width: (parent.width - parent.spacing) * 0.5; spacing: 6
-                                Text { text: qsTr("Files and Notes"); font: Constants.headingFont; color: Constants.textColor }
+                        Flow { id: filesNotesFlow; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: Constants.spacing
+                            Column { width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width; height: implicitHeight; spacing: 6
+                                Text { text: qsTr("Files and Notes"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
                                 Button { text: qsTr("Open Droplet Log"); width: parent.width; height: Constants.controlHeight }
                                 Button { text: qsTr("Open Run Folder"); width: parent.width; height: Constants.controlHeight }
                                 Row { width: parent.width; spacing: 6
@@ -229,12 +233,12 @@ Rectangle {
                                     Button { text: qsTr("Open Saved Sequence"); width: (parent.width - parent.spacing) / 2; height: Constants.controlHeight }
                                 }
                             }
-                            Column { width: (parent.width - parent.spacing) * 0.5; spacing: 6
-                                Text { text: qsTr("Notes"); font: Constants.headingFont; color: Constants.textColor }
+                            Column { width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width; height: implicitHeight; spacing: 6
+                                Text { text: qsTr("Notes"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
                                 TextArea {
                                     id: notesEditor
                                     width: parent.width
-                                    height: 64
+                                    height: Math.max(implicitHeight, Math.round(80 * Constants.textScale))
                                     text: qsTr("Factual Run notes are shown here.")
                                     readOnly: !root.notesEditing
                                     wrapMode: TextEdit.Wrap
@@ -244,7 +248,6 @@ Rectangle {
                                     Button { id: saveNotesButton; visible: root.notesEditing; text: qsTr("Save Notes"); height: Constants.controlHeight }
                                     Button { id: cancelNotesButton; visible: root.notesEditing; text: qsTr("Cancel"); height: Constants.controlHeight }
                                 }
-                                Text { text: qsTr("Provenance  ›  Collapsed"); color: Constants.textColor; font: Constants.smallFont }
                             }
                         }
                     }
@@ -254,25 +257,53 @@ Rectangle {
 
         Item {
             id: runsPanel
-            width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
-            height: parent.height
+            SplitView.preferredWidth: Constants.operationPanelWidth
+            SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+            SplitView.maximumWidth: root.rightPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
 
-            Button {
-                id: rightPanelToggleButton
+            Rectangle {
+                id: panelTopStrip
+                height: Constants.controlHeight
+                color: Constants.backgroundColor
+                border.color: Constants.borderColor
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.right: parent.right
-                height: Constants.controlHeight
+                Text {
+                    text: qsTr("Runs")
+                    visible: root.rightPanelExpanded
+                    font: Constants.headingFont
+                    color: Constants.textColor
+                    anchors.left: parent.left
+                    anchors.leftMargin: Constants.spacing
+                    anchors.right: rightPanelToggleButton.left
+                    anchors.rightMargin: Constants.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                }
+            }
+            Button {
+                id: rightPanelToggleButton
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                width: Math.round(30 * Constants.textScale)
+                height: panelTopStrip.height
                 text: root.rightPanelExpanded ? "›" : "‹"
+                z: 1
                 Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Runs panel") : qsTr("Expand Runs panel")
+                background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
+                contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
             CollapsibleSection {
                 id: runsSection
                 visible: root.rightPanelExpanded
-                anchors.top: rightPanelToggleButton.bottom
+                anchors.top: panelTopStrip.bottom
+                anchors.topMargin: Constants.spacing
                 anchors.left: parent.left
+                anchors.leftMargin: Constants.spacing
                 anchors.right: parent.right
+                anchors.rightMargin: Constants.spacing
                 sectionTitle: qsTr("Runs")
                 expanded: root.runsPanelExpanded
                 useIntrinsicBodyHeight: true
@@ -327,6 +358,8 @@ Rectangle {
                             height: Constants.controlHeight
                             text: qsTr("Load selected Run")
                             enabled: root.selectedRunId !== "" && !root.runsError
+                            palette.buttonText: Constants.surfaceColor
+                            background: Rectangle { color: loadSelectedRunButton.enabled ? Constants.accentColor : Constants.borderColor }
                         }
                     }
                 }

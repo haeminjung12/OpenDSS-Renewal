@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 /* This is a UI file (.ui.qml) intended for Qt Design Studio editing. */
 import QtQuick
 import QtQuick.Controls.Basic
@@ -47,65 +48,128 @@ Rectangle {
 
         Text { text: qsTr("Label"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight }
 
-        Row {
+        SplitView {
+            font: Constants.font
             width: parent.width
             height: parent.height - y
-            spacing: Constants.spacing
 
             Rectangle {
                 id: cropArea
-                width: parent.width - rightPanel.width - parent.spacing
-                height: parent.height
+                SplitView.fillWidth: true
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
 
-                Text { text: qsTr("Droplet Crop Grid"); font: Constants.headingFont; color: Constants.textColor; anchors.top: parent.top; anchors.left: parent.left; anchors.margins: Constants.spacing }
-                Grid {
-                    columns: 5
+                Text { id: cropGridTitle; text: qsTr("Droplet Crop Grid"); font: Constants.headingFont; color: Constants.textColor; anchors.top: parent.top; anchors.left: parent.left; anchors.margins: Constants.spacing }
+                Row {
+                    id: paginationControls
+                    visible: root.presentation !== "empty"
+                    height: Math.max(pageSpinBox.implicitHeight, imagesPerPageSelector.implicitHeight)
                     spacing: Constants.spacing
-                    anchors.centerIn: parent
+                    anchors.top: cropGridTitle.bottom
+                    anchors.topMargin: Constants.spacing
+                    anchors.left: parent.left
+                    anchors.leftMargin: Constants.spacing
+                    Text { text: qsTr("Page"); color: Constants.textColor; font: Constants.font; anchors.verticalCenter: parent.verticalCenter }
+                    SpinBox { id: pageSpinBox; from: 1; to: 1; value: 1 }
+                    Text { text: qsTr("Images per page"); color: Constants.textColor; font: Constants.font; anchors.verticalCenter: parent.verticalCenter }
+                    ComboBox { id: imagesPerPageSelector; model: ["100", "200", "500"]; currentIndex: 2; width: Math.round(96 * Constants.textScale) }
+                }
+                ScrollView {
+                    id: cropGridScroll
+                    visible: root.presentation !== "empty"
+                    anchors.top: paginationControls.bottom
+                    anchors.bottom: parent.bottom
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.margins: Constants.spacing
+                    contentWidth: availableWidth
+                    contentHeight: Math.max(availableHeight, cropGrid.implicitHeight)
+                    clip: true
+
+                Grid {
+                    id: cropGrid
+                    columns: Math.max(1, Math.floor((cropGridScroll.availableWidth + spacing) / (106 + spacing)))
+                    spacing: Constants.spacing
+                    width: columns * 106 + Math.max(0, columns - 1) * spacing
+                    x: Math.max(0, (cropGridScroll.availableWidth - width) / 2)
+                    y: Math.max(0, (parent.height - height) / 2)
                     Repeater {
-                        model: 15
+                        model: 24
                         Rectangle {
                             required property int index
+                            readonly property int globalIndex: index
+                            readonly property int classIndex: (globalIndex * 37 + 11) % 3
                             width: 106
                             height: 82
-                            color: Constants.viewerColor
+                            color: classIndex === 0 ? "#dbeafe" : classIndex === 1 ? "#ffedd5" : "#ede9fe"
                             border.width: 4
-                            border.color: index % 3 === 0 ? "#2b6cb0" : index % 3 === 1 ? "#e07a24" : "#7652b8"
-                            Text { anchors.centerIn: parent; color: Constants.surfaceColor; text: qsTr("Crop %1").arg(parent.index + 1); font: Constants.smallFont }
+                            border.color: classIndex === 0 ? "#2b6cb0" : classIndex === 1 ? "#e07a24" : "#7652b8"
                         }
                     }
+                }
+                }
+                Text {
+                    visible: root.presentation === "empty"
+                    text: qsTr("No Dataset selected\nOpen a Dataset to begin labeling.")
+                    color: Constants.mutedTextColor
+                    font: Constants.headingFont
+                    horizontalAlignment: Text.AlignHCenter
+                    anchors.centerIn: parent
                 }
             }
 
             Rectangle {
                 id: rightPanel
-                width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
-                height: parent.height
+                SplitView.preferredWidth: Constants.operationPanelWidth
+                SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+                SplitView.maximumWidth: root.rightPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
 
+                Rectangle {
+                    id: panelTopStrip
+                    height: Constants.controlHeight
+                    color: Constants.backgroundColor
+                    border.color: Constants.borderColor
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    Text {
+                        text: qsTr("Label")
+                        visible: root.rightPanelExpanded
+                        font: Constants.headingFont
+                        color: Constants.textColor
+                        anchors.left: parent.left
+                        anchors.leftMargin: Constants.spacing
+                        anchors.right: rightPanelToggleButton.left
+                        anchors.rightMargin: Constants.spacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        elide: Text.ElideRight
+                    }
+                }
                 Button {
                     id: rightPanelToggleButton
-                    text: root.rightPanelExpanded ? qsTr("‹ Label panel") : qsTr("›")
-                    width: parent.width - Constants.spacing * 2
-                    height: Constants.controlHeight
-                    anchors.top: parent.top
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.topMargin: Constants.spacing
+                    text: root.rightPanelExpanded ? "›" : "‹"
+                    width: Math.round(30 * Constants.textScale)
+                    height: panelTopStrip.height
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    z: 1
+                    background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
+                    contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
 
                 ScrollView {
                     id: rightPanelScroll
                     visible: root.rightPanelExpanded
-                    anchors.top: rightPanelToggleButton.bottom
+                    anchors.top: panelTopStrip.bottom
                     anchors.topMargin: Constants.spacing
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.bottom: saveAsFooter.top
                     anchors.bottomMargin: Constants.spacing
                     anchors.margins: Constants.spacing
+                    anchors.leftMargin: Constants.spacing
                     contentWidth: availableWidth
                     contentHeight: rightSections.height
                     clip: true
@@ -148,7 +212,7 @@ Rectangle {
                             Text { text: qsTr("Labeled: %1").arg(root.labeledCount) }
                             Row {
                                 spacing: Constants.spacing
-                                Text { text: qsTr("Class setup"); verticalAlignment: Text.AlignVCenter }
+                                Text { text: qsTr("Class setup"); font: Constants.font; verticalAlignment: Text.AlignVCenter }
                                 RadioButton { id: twoClassChoice; text: qsTr("2 classes"); checked: root.classCount === 2 }
                                 RadioButton { id: threeClassChoice; text: qsTr("3 classes"); checked: root.classCount === 3 }
                             }
@@ -162,21 +226,51 @@ Rectangle {
                         sectionTitle: qsTr("Label")
                         expanded: root.labelExpanded
                         useIntrinsicBodyHeight: true
-                        Column {
+                        SplitView {
+                            id: labelSplitView
+                            orientation: Qt.Vertical
                             width: parent.width
-                            height: implicitHeight
-                            spacing: Constants.spacing
-                            Rectangle { width: parent.width; height: 152; color: Constants.viewerColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Selected Crop\n64 × 64"); horizontalAlignment: Text.AlignHCenter; color: Constants.surfaceColor; font: Constants.headingFont } }
-                            Grid { columns: 3; width: parent.width; spacing: 6
-                                Button { id: class0Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 0"); background: Rectangle { color: "#2b6cb0" } }
-                                Button { id: class1Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 1"); background: Rectangle { color: "#e07a24" } }
-                                Button { id: class2Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 2"); enabled: root.classCount === 3; background: Rectangle { color: "#7652b8" } }
+                            height: selectedCropPane.SplitView.maximumHeight + labelActionContent.implicitHeight + Constants.spacing
+                            handle: Rectangle {
+                                implicitHeight: Constants.spacing
+                                color: Constants.borderColor
                             }
-                            Button { id: excludeButton; width: parent.width; height: Constants.controlHeight; text: qsTr("Exclude") }
-                            Row { width: parent.width; spacing: 6
-                                Button { id: undoButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Undo") }
-                                Button { id: previousButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Previous") }
-                                Button { id: nextButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Next") }
+
+                            Item {
+                                id: selectedCropPane
+                                SplitView.preferredHeight: Math.min(Math.round(180 * Constants.textScale), labelSplitView.width)
+                                SplitView.minimumHeight: Math.min(Math.round(120 * Constants.textScale), labelSplitView.width)
+                                SplitView.maximumHeight: Math.max(labelSplitView.width, Math.min(Math.round(520 * Constants.textScale), labelSplitView.width * 2))
+                                Rectangle {
+                                    width: Math.min(parent.width, parent.height)
+                                    height: width
+                                    anchors.centerIn: parent
+                                    color: Constants.viewerColor
+                                    border.color: Constants.borderColor
+                                    Text { anchors.centerIn: parent; text: qsTr("Selected Crop\n64 × 64"); horizontalAlignment: Text.AlignHCenter; color: Constants.surfaceColor; font: Constants.headingFont }
+                                }
+                            }
+
+                            Item {
+                                SplitView.minimumHeight: labelActionContent.implicitHeight
+                                SplitView.preferredHeight: labelActionContent.implicitHeight
+                                SplitView.fillHeight: true
+                                Column {
+                                    id: labelActionContent
+                                    anchors.fill: parent
+                                    spacing: Constants.spacing
+                                    Grid { columns: 3; width: parent.width; spacing: 6
+                                        Button { id: class0Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 0"); palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.accentColor } }
+                                        Button { id: class1Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 1"); palette.buttonText: Constants.surfaceColor; background: Rectangle { color: "#d46a18" } }
+                                        Button { id: class2Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 2"); enabled: root.classCount === 3; palette.buttonText: class2Button.enabled ? Constants.surfaceColor : Constants.mutedTextColor; background: Rectangle { color: class2Button.enabled ? "#7652b8" : Constants.backgroundColor; border.color: Constants.borderColor } }
+                                    }
+                                    Button { id: excludeButton; width: parent.width; height: Constants.controlHeight; text: qsTr("Exclude") }
+                                    Row { width: parent.width; spacing: 6
+                                        Button { id: undoButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("↶  Undo") }
+                                        Button { id: previousButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("←  Previous") }
+                                        Button { id: nextButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Next  →") }
+                                    }
+                                }
                             }
                         }
                     }

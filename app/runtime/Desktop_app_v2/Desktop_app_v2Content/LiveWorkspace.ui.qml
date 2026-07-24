@@ -60,18 +60,17 @@ Item {
             anchors.margins: Constants.workspaceMargin
         }
 
-        Row {
+        SplitView {
+            font: Constants.font
             anchors.top: workspaceTitle.bottom
             anchors.topMargin: Constants.spacing
             anchors.bottom: parent.bottom
             anchors.left: parent.left
             anchors.right: parent.right
             anchors.margins: Constants.workspaceMargin
-            spacing: Constants.workspaceMargin
 
             Rectangle {
-                width: parent.width - rightPanel.width - parent.spacing
-                height: parent.height
+                SplitView.fillWidth: true
                 color: Constants.viewerColor
                 border.color: Constants.borderColor
 
@@ -80,24 +79,6 @@ Item {
                     text: root.unavailable ? qsTr("Camera unavailable") : qsTr("Camera preview")
                     color: "#ffffff"
                     font: Constants.largeFont
-                }
-
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    anchors.bottom: parent.bottom
-                    anchors.bottomMargin: Constants.spacing * 2
-                    spacing: Constants.spacing
-
-                    Button {
-                        id: primaryActionButton
-                        text: root.active ? (root.presentation === "paused" ? qsTr("Resume") : qsTr("Pause")) : (root.completed ? qsTr("Start New Run") : (root.presentation === "ready" && root.cameraStreaming ? qsTr("Stop Camera") : qsTr("Start Camera")))
-                        enabled: !root.unavailable && !root.error
-                    }
-                    Button {
-                        id: secondaryActionButton
-                        text: root.active ? qsTr("Stop") : (root.completed ? qsTr("Open Run Summary") : qsTr("Start Sorting"))
-                        enabled: root.active || root.completed || (root.presentation === "ready" && root.startSortingEnabled)
-                    }
                 }
 
                 Rectangle {
@@ -113,34 +94,65 @@ Item {
 
             Rectangle {
                 id: rightPanel
-                width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
-                height: parent.height
+                SplitView.preferredWidth: Constants.operationPanelWidth
+                SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+                SplitView.maximumWidth: root.rightPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
 
+                Rectangle {
+                    id: panelTopStrip
+                    height: Constants.controlHeight
+                    color: Constants.backgroundColor
+                    border.color: Constants.borderColor
+                    anchors.top: parent.top
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    Text {
+                        text: qsTr("Live")
+                        visible: root.rightPanelExpanded
+                        font: Constants.headingFont
+                        color: Constants.textColor
+                        anchors.left: parent.left
+                        anchors.leftMargin: Constants.spacing
+                        anchors.right: rightPanelToggleButton.left
+                        anchors.rightMargin: Constants.spacing
+                        anchors.verticalCenter: parent.verticalCenter
+                        elide: Text.ElideRight
+                    }
+                }
                 Button {
                     id: rightPanelToggleButton
-                    width: parent.width
-                    height: Constants.controlHeight
                     text: root.rightPanelExpanded ? "›" : "‹"
+                    width: Math.round(30 * Constants.textScale)
+                    height: panelTopStrip.height
+                    anchors.right: parent.right
+                    anchors.verticalCenter: parent.verticalCenter
+                    z: 1
                     Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Live panel") : qsTr("Expand Live panel")
+                    background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
+                    contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
 
                 ScrollView {
+                    id: rightPanelScroll
                     visible: root.rightPanelExpanded
-                    anchors.top: rightPanelToggleButton.bottom
-                    anchors.bottom: parent.bottom
+                    anchors.top: panelTopStrip.bottom
+                    anchors.bottom: actionFooter.top
                     anchors.left: parent.left
                     anchors.right: parent.right
+                    anchors.leftMargin: Constants.spacing
                     clip: true
                     contentWidth: availableWidth
 
                     Column {
-                        width: parent.width
+                        width: rightPanelScroll.availableWidth
+                        height: implicitHeight
                         spacing: Constants.spacing
 
                         CollapsibleSection {
                         id: setupProfileSection
+                        width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Setup Profile")
                         expanded: root.setupProfileExpanded
                         headingEnabled: !root.setupLocked
@@ -171,6 +183,7 @@ Item {
 
                         CollapsibleSection {
                         id: runInformationSection
+                        width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Run Information")
                         expanded: root.runInformationExpanded
                         headingEnabled: !root.setupLocked
@@ -188,15 +201,15 @@ Item {
                                 anchors.margins: Constants.spacing
                                 spacing: Constants.spacing
 
-                                Text { text: qsTr("Run Name"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Run Name"); color: Constants.textColor; font: Constants.font }
                                 TextField { id: runNameField; width: parent.width; text: qsTr("Run-042"); readOnly: root.setupLocked; Accessible.name: qsTr("Run Name") }
-                                Text { text: qsTr("Experiment Type"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Experiment Type"); color: Constants.textColor; font: Constants.font }
                                 TextField { id: experimentTypeField; width: parent.width; text: qsTr("Droplet sorting"); readOnly: root.setupLocked; Accessible.name: qsTr("Experiment Type") }
-                                Text { text: qsTr("Notes"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Notes"); color: Constants.textColor; font: Constants.font }
                                 TextField { id: notesField; width: parent.width; text: qsTr("Deterministic visual review run"); readOnly: root.setupLocked; Accessible.name: qsTr("Notes") }
-                                Text { text: qsTr("Duration"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Duration"); color: Constants.textColor; font: Constants.font }
                                 TextField { id: durationField; width: parent.width; text: ""; placeholderText: qsTr("Optional — continue until Stop"); readOnly: root.setupLocked; Accessible.name: qsTr("Duration") }
-                                Text { text: qsTr("Save Location"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Save Location"); color: Constants.textColor; font: Constants.font }
                                 TextField { id: saveLocationField; width: parent.width; text: qsTr("C:/OpenDSS/Runs"); readOnly: root.setupLocked; Accessible.name: qsTr("Save Location") }
                             }
                         }
@@ -204,6 +217,7 @@ Item {
 
                         CollapsibleSection {
                         id: triggerTimingSection
+                        width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Trigger & Timing")
                         expanded: root.triggerTimingExpanded
                         headingEnabled: !root.setupLocked
@@ -222,7 +236,7 @@ Item {
                                 spacing: Constants.spacing
 
                                 Text { text: qsTr("Active Model: %1").arg(root.activeModelText); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Hit Class"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Hit Class"); color: Constants.textColor; font: Constants.font }
                                 ComboBox {
                                     id: hitClassControl
                                     width: parent.width
@@ -243,14 +257,14 @@ Item {
                                     checked: true
                                     enabled: !root.setupLocked
                                 }
-                                Text { text: root.hitBoundaryText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                                Button { id: sendTestPulseButton; text: qsTr("Send Test Pulse"); enabled: !root.setupLocked }
+                                Button { id: sendTestPulseButton; text: qsTr("Send Test Sine Wave"); enabled: !root.setupLocked }
                             }
                         }
                     }
 
                         CollapsibleSection {
                         id: outputRecordingSection
+                        width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Output & Recording")
                         expanded: root.outputRecordingExpanded
                         headingEnabled: !root.setupLocked
@@ -281,8 +295,12 @@ Item {
 
                         CollapsibleSection {
                         id: runningSection
-                        sectionTitle: qsTr("Running")
-                        expanded: root.runningExpanded
+                        width: rightPanelScroll.availableWidth
+                        visible: root.active || root.completed
+                        sectionTitle: qsTr("Run Status")
+                        expanded: true
+                        headingButton.visible: false
+                        headingButton.height: 0
                         useIntrinsicBodyHeight: true
 
                         Item {
@@ -306,9 +324,60 @@ Item {
                                 Text { text: qsTr("Decision Hit: 212  •  Decision Waste: 216"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                                 Text { text: qsTr("Observed Hit: 205  •  Observed Waste: 211  •  Unresolved: 12"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                                 Text { text: qsTr("Camera FPS: 61.3  •  Inference Time: 4.2 ms"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the camera action bar.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the camera action bar.") : qsTr("Pause or Stop this Run from the camera action bar.")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { text: root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the footer.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the footer.") : qsTr("Pause or Stop this Run from the footer.")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
                         }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    id: actionFooter
+                    visible: root.rightPanelExpanded
+                    height: Constants.controlHeight * 2 + Constants.spacing * 3
+                    color: Constants.backgroundColor
+                    border.color: Constants.borderColor
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.bottom: parent.bottom
+
+                    Text {
+                        text: root.unavailable ? qsTr("Camera unavailable — restore Hardware to continue.") : (root.error ? qsTr("Resolve the current error before continuing.") : (root.active ? (root.presentation === "paused" ? qsTr("Run paused.") : qsTr("Run in progress.")) : (root.completed ? qsTr("Run complete.") : (root.cameraStreaming ? (root.startSortingEnabled ? qsTr("Ready to start sorting.") : qsTr("Camera streaming — sorting is not ready.")) : qsTr("Start Camera to check sorting readiness.")))))
+                        color: root.unavailable || root.error ? Constants.warningColor : Constants.textColor
+                        font: Constants.smallFont
+                        elide: Text.ElideRight
+                        anchors.top: parent.top
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.margins: Constants.spacing
+                    }
+
+                    Row {
+                        anchors.left: parent.left
+                        anchors.right: parent.right
+                        anchors.bottom: parent.bottom
+                        anchors.margins: Constants.spacing
+                        spacing: Constants.spacing
+
+                        Button {
+                            id: primaryActionButton
+                            visible: root.active || root.completed || root.presentation === "ready"
+                            width: secondaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width
+                            height: Constants.controlHeight
+                            text: root.active ? (root.presentation === "paused" ? qsTr("Resume") : qsTr("Pause")) : (root.completed ? qsTr("Start New Run") : (root.cameraStreaming ? qsTr("Stop Camera") : qsTr("Start Camera")))
+                            enabled: !root.unavailable && !root.error
+                            palette.buttonText: Constants.surfaceColor
+                            background: Rectangle { color: primaryActionButton.enabled ? Constants.accentColor : Constants.borderColor }
+                        }
+                        Button {
+                            id: secondaryActionButton
+                            visible: root.active || root.completed || root.presentation === "ready"
+                            width: primaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width
+                            height: Constants.controlHeight
+                            text: root.active ? qsTr("Stop") : (root.completed ? qsTr("Open Run Summary") : qsTr("Start Sorting"))
+                            enabled: root.active || root.completed || (root.presentation === "ready" && root.cameraStreaming && root.startSortingEnabled)
+                            palette.buttonText: Constants.surfaceColor
+                            background: Rectangle { color: root.active ? Constants.faultColor : (secondaryActionButton.enabled ? Constants.accentColor : Constants.borderColor) }
                         }
                     }
                 }

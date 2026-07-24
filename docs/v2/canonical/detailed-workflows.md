@@ -32,14 +32,20 @@ This document is normative for the first public release unless a later approved 
 
 The Approved v2 Product Model remains controlling. The July 23, 2026 UI/UX Design Amendment controls every workflow matter it explicitly changes. The following flows replace conflicting older flow fragments in this document.
 
+Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. Their directly draggable default width is approximately **536 px at 100% Text Size**, not fixed, and scales with Text Size.
+
+The docked Hardware panel has the visible title **Hardware Configuration**, not an illustrative-mock label. It contains two titled collapsible groups, **Camera** and **DAQ**. **Output Configuration** is nested inside DAQ and contains Output Channel, Amplitude, Frequency, Event Duration, Decision-to-trigger Delay, and Continuous configured waveform controls. This is visual/product hierarchy only; actual clickable group collapse must use the existing DESIGN/FUNCTIONAL seam and does not authorize new runtime handlers.
+
 ### Camera startup
 
 ```text
 Launch maximized at Data > Capture
 → attempt Camera connection
 → Camera available: continue
-→ Camera unavailable: ask "Camera unavailable. Continue?" once
-   → Yes: continue without Camera
+→ Camera unavailable: show the once-per-session shell-global modal overlay
+  "Camera unavailable. Continue?" above the entire shell and current workspace,
+  with Data > Capture selected beneath it
+   → Yes: continue without Camera; ordinary unavailable status remains visible
    → No: close OpenDSS
 ```
 
@@ -49,7 +55,8 @@ Launch maximized at Data > Capture
 
 ```text
 Dataset
-→ Faster or More Accurate
+→ MobileNet or EfficientNet Architecture
+→ compatible Weights
 → Model Name
 → Save Location
 → Start Training
@@ -58,11 +65,11 @@ Dataset
 → Model becomes Active
 ```
 
-During Training, show progress, elapsed and remaining timing, automatic device, a Training/Validation Loss plot, and a Validation Accuracy plot. After success, show overall and per-class results, a confusion matrix when generated, the saved path, and Active Model confirmation. If final save fails, show `Error`, retain temporary artifacts, enable Retry Save, and do not activate the Model.
+During Training, show progress, elapsed and remaining timing, requested and effective device, a Training/Validation Loss plot, and a Validation Accuracy plot. After success, show overall and per-class results, a confusion matrix when generated, the saved path, and Active Model confirmation. If final save fails, show `Error`, retain temporary artifacts, enable Retry Save, and do not activate the Model.
 
 ### Active Model use
 
-Model Test and Sequence Test always use the Active Model. To use another Model, the user first selects it in Library and chooses Set Active. The Active Model is locked against replacement or mutation while Model Test, Live, or Sequence Test uses it.
+Model Test and Sequence Test always use the Active Model. To use another Model in either workspace, the user first selects it in Library and chooses Set Active. Any Model Package remains protected from rename, deletion, or mutation while referenced. Live is the explicit selection exception: an active Run may transfer to another valid effective Active Model under the timestamped effective-configuration-history contract.
 
 ### Live
 
@@ -96,7 +103,7 @@ Physical DAQ Output is a checkbox that is off by default. When off, Sequence Tes
 
 ### Results
 
-Selecting a Run in the right-side Runs panel changes selection only. Pressing Load replaces the loaded center detail. The detail contains identity, operation type, status, key counts, Predicted Class, Decision, Observed Route, their decision-versus-observation matrix, Notes, file actions, and collapsed provenance. It does not become a chart, event-browser, Training-history, or Model-Test-history workspace.
+Selecting a Run in the right-side Runs panel changes selection only. Pressing Load replaces the loaded center detail. The detail contains identity, operation type, status, key counts, Predicted Class, Decision, Observed Route, their decision-versus-observation matrix, Notes, file actions, and stored scientific provenance/artifact facts in the applicable factual groups. It does not show a separate visible **Provenance ›** row and does not become a chart, event-browser, Training-history, or Model-Test-history workspace.
 
 ## 2. Product objective
 
@@ -1131,16 +1138,18 @@ The normal interface SHALL contain:
 
 ```text
 Dataset
-Model Type
-    Faster
-    More Accurate
-Advanced Parameters
+Architecture
+    MobileNet — Faster
+    EfficientNet — More Accurate
+Weights
+Compute Device
+Model Name
+Save Location
 Start Training
 ```
 
-The user SHALL NOT be required to select:
+Because GPU is selected by default, the user SHALL NOT be required to alter Compute Device before starting Training. The user may explicitly select CPU. The user SHALL NOT be required to select or edit:
 
-- CPU or GPU;
 - training/validation/test ratios;
 - random seed;
 - batch size;
@@ -1150,18 +1159,30 @@ The user SHALL NOT be required to select:
 - early stopping;
 - optimizer.
 
-Those technical fields MAY be available in **Advanced Parameters**, except the fixed split and fixed seed.
+Those technical hyperparameters SHALL NOT be exposed. OpenDSS uses qualified versioned training configuration and records its effective values in model metadata.
 
-### 15.5 Model Type
+### 15.5 Architecture and Weights
 
-**Faster** and **More Accurate** SHALL be one user-facing model choice.
-
-Technical architecture names MAY be displayed as secondary information, such as:
+Architecture SHALL be one selector with:
 
 ```text
-Faster — MobileNet-based
-More Accurate — EfficientNet-based
+MobileNet — Faster
+EfficientNet — More Accurate
 ```
+
+**Faster** and **More Accurate** SHALL appear on the same line as their architecture identity in smaller, lighter text. MobileNet and EfficientNet remain the architecture identities.
+
+Weights SHALL be a separate selector containing:
+
+```text
+ImageNet-pretrained
+compatible bundled OpenDSS droplet-trained checkpoints
+compatible user-added OpenDSS droplet-trained checkpoints
+```
+
+A droplet-trained checkpoint SHALL be identified by its Model Package identity and checksum. It SHALL be selectable only when its declared architecture and required model, preprocessing, and tensor contracts are compatible with the selected Architecture. Missing, unreadable, incompatible, or checksum-mismatched checkpoints SHALL be rejected with one direct reason while retaining the last valid selection.
+
+This selection contract SHALL NOT replace or behaviorally modify the qualified Python trainer, model export, preprocessing, or ONNX inference mechanics. Any such change requires the protected-asset characterization, regression, performance, justification, and rollback evidence required by repository policy.
 
 ### 15.6 Fixed automatic split
 
@@ -1179,46 +1200,34 @@ The fixed random seed SHALL be:
 1729
 ```
 
-The split and seed SHALL NOT be editable in the normal or Advanced interface.
+The split and seed SHALL NOT be editable.
 
 The split assignment and ratios SHALL be stored in model training metadata.
 
-### 15.7 Device selection
+### 15.7 Compute Device selection
 
-The system SHALL select the training device automatically:
+Train SHALL provide a **Compute Device** selector with **GPU** selected by default and **CPU** available. Compute Device is a normal execution selection, not a training hyperparameter.
 
 ```text
-Compatible bundled GPU environment available
-    → GPU training
-
-Otherwise
-    → CPU training
+Requested GPU + qualified GPU available
+    → Effective GPU
+Requested GPU + qualified GPU unavailable
+    → Effective CPU with a direct explanation
+Requested CPU
+    → Effective CPU; no automatic promotion to GPU
 ```
+
+The requested and effective devices SHALL be displayed during Training and recorded in model metadata. The fixed 70/15/15 split and seed 1729 remain noneditable.
 
 The selected device SHALL be visible as factual status.
 
-The user SHALL NOT be required to choose CPU or GPU.
+Because GPU is selected by default, the user SHALL NOT be required to alter the default; CPU remains an explicit selectable alternative.
 
 Live sorting inference remains CPU-based and is not changed by the training device.
 
-### 15.8 Advanced Parameters
+### 15.8 No Advanced Parameters
 
-Advanced Parameters SHALL use a structured form with named fields and reset-to-default controls.
-
-It SHALL NOT require users to edit raw JSON.
-
-The Advanced section MAY include supported hyperparameters such as:
-
-- batch size;
-- epoch or stage settings;
-- learning rates;
-- optimizer;
-- weight decay;
-- augmentation;
-- early stopping;
-- scheduler settings.
-
-The fixed 70/15/15 split and seed 1729 SHALL remain read-only or hidden.
+The Train workspace SHALL NOT expose an Advanced Parameters section, technical hyperparameter controls, reset-to-default hyperparameter actions, or raw training configuration.
 
 ### 15.9 Primary flow
 
@@ -1229,16 +1238,16 @@ The fixed 70/15/15 split and seed 1729 SHALL remain read-only or hidden.
    - two-class or three-class schema;
    - Class IDs and Class Names;
    - eligible image counts.
-4. The user selects **Faster** or **More Accurate**.
-5. The user optionally changes Advanced Parameters.
-6. The user selects **Start Training**.
-7. The system selects GPU or CPU automatically.
-8. The system creates a temporary training run location.
-9. Training begins.
-10. Live metrics are displayed.
-11. When training technically completes, the system opens **Name Model**.
-12. The user enters a Model Name and selects a Save Location.
-13. The system saves the model package.
+4. The user selects **MobileNet** or **EfficientNet** Architecture.
+5. The user selects compatible Weights.
+6. The user selects Compute Device; GPU is the default and CPU is available.
+7. The user enters a Model Name and selects a Save Location.
+8. The user selects **Start Training**.
+9. The system resolves and displays the effective device. An unavailable GPU request falls back to CPU with a direct explanation; a CPU request stays on CPU.
+10. The system creates a temporary training run location.
+11. Training begins.
+12. Live metrics are displayed.
+13. When training technically completes, the system saves the model package automatically.
 14. The new model automatically becomes the Active Model.
 15. The Model Library refreshes.
 
@@ -1300,7 +1309,7 @@ The package SHALL preserve:
 - source Dataset identification;
 - source Dataset Class IDs and Class Name snapshot;
 - source label counts;
-- architecture and Model Type;
+- architecture, Faster/More Accurate supporting label, and Weights identity/checksum;
 - fixed split and split assignment or reproducible split information;
 - random seed;
 - training parameters;
@@ -1323,7 +1332,7 @@ After successful save:
 ### 15.15 Acceptance criteria
 
 - Training works without asking the user to install or locate Python.
-- Device selection is automatic.
+- Compute Device defaults to GPU, permits CPU selection, and displays and records requested/effective device with the approved GPU-to-CPU fallback behavior.
 - The 70/15/15 split and seed 1729 are fixed.
 - Live metrics update during Training.
 - A technically completed low-performing model can still be named, saved, and activated.
@@ -1468,7 +1477,8 @@ Models > Library
 Each model entry SHOULD display:
 
 - Model Name;
-- Model Type or architecture;
+- technical architecture and its Faster/More Accurate supporting label;
+- Weights identity and checksum;
 - class count;
 - Class IDs and Class Names;
 - creation date;
@@ -1508,6 +1518,8 @@ Minimum checks include:
 - class count is two or three;
 - metadata class count and ONNX output dimension agree;
 - required preprocessing and input dimensions exist.
+
+When a Model Package is offered as a droplet-trained Weights checkpoint, import or selection SHALL also verify its declared architecture, required model/preprocessing/tensor contracts, identity, and checksum against the selected Architecture. Failure SHALL reject that checkpoint with a direct technical reason and SHALL NOT silently substitute another checkpoint.
 
 Import SHALL NOT assign a scientific compatibility, approval, recommendation, or quality status.
 
@@ -1773,7 +1785,7 @@ The setup SHALL expose:
 - DAQ settings;
 - timing settings;
 - optional **Record Full Image Sequence**;
-- **Send Test Pulse**.
+- **Send Test Sine Wave**.
 
 ### 20.5 Hit Class
 
@@ -1855,15 +1867,41 @@ An Active Model SHALL NOT be required.
 
 If an Active Model exists, classification SHALL still run and be logged, but it SHALL NOT control triggering.
 
-### 20.10 Send Test Pulse
+### 20.10 Shared DAQ sine-output settings
 
-**Send Test Pulse** SHALL be available to the normal user.
+All physical DAQ output SHALL be sine-wave output. Hardware > DAQ SHALL expose:
 
-It SHALL issue one DAQ pulse using the current applied DAQ settings.
+| Setting | Range and default | Applicability |
+|---|---|---|
+| **Amplitude** | 0–10 Vpp; default 5 Vpp; visual increment 1 Vpp | Centered at 0 V, with extrema `-Vpp/2` and `+Vpp/2`; continuous, event-triggered, and test output. |
+| **Frequency** | 1–1000 kHz; default 10 kHz; visual increment 1 kHz | Continuous, event-triggered, and test output. |
+| **Event Duration** | 1–500 ms; default 5 ms; visual increment 1 ms | Event-triggered and test finite sine waves; never limits continuous output. |
+| **Decision-to-trigger Delay** | 0–500 ms; default 0 ms; visual increment 1 ms | Decision-triggered output only; measured from accepted `Decision = Hit` to the start of the finite sine wave. |
 
-It SHALL require a Ready DAQ.
+Valid settings SHALL apply immediately. During continuous output, supported Amplitude and Frequency edits SHALL retune immediately. If the qualified adapter cannot apply a requested value or live retune, OpenDSS SHALL reject the edit with a direct explanation and retain the last applied value. Event Duration and Decision-to-trigger Delay changes SHALL apply only to future, not-yet-issued event output.
+
+### 20.10.1 Send Test Sine Wave
+
+**Send Test Sine Wave** SHALL be available to the normal user.
+
+It SHALL require a Ready DAQ and issue one finite sine wave using current applied Amplitude, Frequency, and Event Duration. Decision-to-trigger Delay SHALL NOT apply.
 
 It SHALL not create a Run or Droplet Log entry unless a future hardware-test log is separately specified.
+
+Send Test Sine Wave remains a discrete action. It SHALL NOT start Continuous configured waveform and SHALL be unavailable while the continuous waveform has priority.
+
+### 20.10.2 Continuous configured waveform
+
+**Continuous configured waveform** SHALL be a shared Hardware > DAQ Start/Stop action on the same physical output channel used for event-triggered finite sine waves.
+
+- It MAY start while Live or Sequence Test owns DAQ.
+- It SHALL run until explicit Stop, application exit, DAQ disconnect, or DAQ fault.
+- While active, it SHALL have priority over event-triggered finite sine waves. Processing, classification, decision formation, and logging SHALL continue, but each otherwise-requested output SHALL be recorded as **suppressed / not issued** and discarded rather than queued.
+- After it stops, event-triggered finite sine waves SHALL resume only when DAQ Output is enabled and DAQ is Ready.
+- Its explicit Stop, application exit, DAQ disconnect, or DAQ fault SHALL stop and reset it, returning output to 0 V.
+- HardwareCoordinator SHALL own one factual DAQ-output state. OperationCoordinator SHALL arbitrate continuous output against operation-requested event-triggered finite sine waves.
+
+This authority synchronization does not implement or authorize a protected runtime change. These requirements SHALL NOT replace or behaviorally change qualified NI-DAQmx waveform, timing, rate-fallback, final-zero, cleanup, or routing mechanics without a separate functional work order and the protected-asset characterization, regression, performance, hardware-in-the-loop, justification, and rollback evidence required by repository policy.
 
 ### 20.11 Record Full Image Sequence
 
@@ -1947,7 +1985,7 @@ A model is optional.
 
 - The user explicitly chooses both Hit Class and Hit boundary calibration.
 - Positive/negative y directions are shown relative to the displayed image.
-- Test Pulse is available to a normal user.
+- Test Sine Wave is available to a normal user.
 - Duration can be blank.
 - Setup Profiles can be imported and exported.
 - Start is disabled only for factual technical blockers.
@@ -1981,7 +2019,21 @@ When the user selects **Start Sorting**, the system SHALL:
 3. create a Run folder;
 4. write an initial `run_summary.json`;
 5. open a recoverable partial Droplet Log;
-6. start the selected processing pipeline.
+6. retain the initial effective-configuration snapshot;
+7. start the selected processing pipeline.
+
+### 21.4.1 Active-Run effective configuration
+
+While Live is active, **Active Model**, **Hit Class**, **Trigger Every Droplet**, **DAQ Output**, and hit-boundary fields SHALL remain editable.
+
+A valid committed change SHALL:
+
+1. apply immediately;
+2. preserve the initial Run snapshot;
+3. append a timestamped effective-configuration identity and the changed factual values to Run history;
+4. cause every subsequently affected event to identify that effective configuration.
+
+An invalid model, class, DAQ, or boundary change SHALL be rejected with one direct reason while the last valid effective configuration remains authoritative. Model packages in use remain protected from rename, deletion, or mutation.
 
 ### 21.5 Class-Based Sorting event flow
 
@@ -1999,7 +2051,9 @@ Class Scores produced
 Predicted Class = index of largest score
     ↓
 Predicted Class == Hit Class?
-    ├── Yes → Decision = Hit → issue DAQ output
+    ├── Yes → Decision = Hit → wait configured Decision-to-trigger Delay
+    │                         → issue one configured event-triggered finite sine wave,
+    │                           subject to continuous-output suppression and discard rather than queue
     └── No  → Decision = Waste → no Hit output
     ↓
 Track y-axis trajectory
@@ -2032,7 +2086,10 @@ Droplet detected
     ↓
 Decision = Hit
     ↓
-Issue DAQ output
+Wait configured Decision-to-trigger Delay
+    ↓
+Issue one configured event-triggered finite sine wave,
+subject to continuous-output suppression and discard rather than queue
     ↓
 If a model is available:
     classify and log Predicted Class and Class Scores
@@ -2376,7 +2433,7 @@ Diagnostics SHALL provide access to the diagnostic folder. Technical detail rema
 
 Visuals SHALL contain only **Text Size**.
 
-Text Size is an application-wide preference from **80%** through **200%**, inclusive, with a default of **100%**. No other setting SHALL be added.
+Text Size SHALL be one application-wide dropdown containing exactly **80%**, **100%**, **125%**, **150%**, **175%**, and **200%**, with a default of **100%**. The 100% setting SHALL use an approximately **22 px** body-text baseline. No other setting SHALL be added.
 
 Storage and Text Size preference state SHALL have one authoritative owner consistent with **SettingsRepository**; workspaces SHALL NOT duplicate that authority.
 
@@ -2529,7 +2586,8 @@ At minimum it SHALL contain:
 - Model ID;
 - Model Name;
 - creation timestamp;
-- Model Type and technical architecture;
+- technical architecture and its Faster/More Accurate supporting label;
+- Weights source identity and checksum;
 - class count;
 - Class IDs;
 - Class Name snapshot;
@@ -2635,6 +2693,17 @@ The Run Summary SHALL preserve the Class Names displayed at Run start.
 
 Later changes to Dataset or model display names SHALL NOT alter historical Run Summaries.
 
+### 28.3 Effective-configuration history
+
+A Live Run Summary SHALL retain:
+
+- the initial effective-configuration snapshot;
+- an ordered history of each accepted active-Run change;
+- a timestamp and stable effective-configuration identity for each history entry;
+- the factual Active Model, Hit Class, Trigger Every Droplet, DAQ Output, and hit-boundary values effective after that change.
+
+Every finalized event SHALL identify the effective-configuration identity used for its processing and decision. History is additive; a later change SHALL NOT overwrite the initial snapshot or an earlier entry.
+
 ---
 
 ## 29. Droplet Log contract
@@ -2649,6 +2718,7 @@ Required columns are:
 event_id
 detection_timestamp
 source_frame_index
+effective_configuration_id
 crop_path
 predicted_class_id
 score_class_0
@@ -2656,8 +2726,11 @@ score_class_1
 score_class_2
 decision
 observed_route
+daq_pulse_status
 inference_time_ms
 ```
+
+`daq_pulse_status` is a legacy-named compatibility field and SHALL NOT be renamed by this authority synchronization. When Continuous configured waveform suppresses an otherwise-requested event-triggered finite sine wave, `daq_pulse_status` SHALL record **suppressed / not issued**. Processing, classification, Decision, Observed Route, crop persistence, and the remainder of the event row continue normally.
 
 For two-class models, `score_class_2` SHALL be omitted or left empty according to one consistent schema convention.
 
@@ -2883,11 +2956,11 @@ A failed save SHALL never be reported as successful.
 
 ### 35.2 GPU behavior
 
-The installed training runtime SHALL detect whether a compatible NVIDIA environment is usable.
+The installed training runtime SHALL detect whether a qualified NVIDIA environment is usable.
 
-If usable, Training SHALL select GPU.
+When the user requests GPU and the qualified environment is usable, Training SHALL use effective GPU.
 
-Otherwise, Training SHALL select CPU.
+When the user requests GPU and the qualified environment is unavailable, Training SHALL fall back to effective CPU and show a direct explanation. When the user requests CPU, Training SHALL use CPU without automatic promotion.
 
 The installer SHALL not require the user to construct or register a virtual environment manually.
 
@@ -2961,6 +3034,8 @@ Model metadata SHALL preserve:
 - split ratios;
 - split seed;
 - model architecture;
+- Faster/More Accurate supporting label;
+- Weights source identity and checksum;
 - Training parameters;
 - Python and package versions;
 - CPU/GPU device;
@@ -2981,6 +3056,10 @@ Run Summary SHALL preserve:
 - Hit Class;
 - Hit boundary calibration;
 - Trigger Every Droplet;
+- initial effective-configuration snapshot;
+- timestamped effective-configuration change history;
+- each event's effective-configuration identity;
+- suppressed/not-issued event-triggered finite-sine-wave facts;
 - user-entered experiment metadata;
 - timing and status.
 
@@ -3083,10 +3162,12 @@ No placeholder buttons SHALL be added for excluded features.
 
 **Given** no camera or DAQ is connected  
 **When** OpenDSS launches  
-**Then** the application opens normally  
+**Then** the shell-global modal overlay **Camera unavailable. Continue?** appears once above the entire shell and current workspace while Data > Capture remains selected beneath it
+**And** choosing **Yes** opens the application normally without Camera
 **And** camera-dependent controls are disabled  
 **And** the preview says **Camera unavailable**  
-**And** Label, Train, Model Test, Library, Sequence Viewer, and Results remain available as their file prerequisites permit.
+**And** Label, Train, Model Test, Library, Sequence Viewer, and Results remain available as their file prerequisites permit
+**And** choosing **No** closes OpenDSS.
 
 ## 46. AC-03 — Single Image
 
@@ -3147,15 +3228,23 @@ No placeholder buttons SHALL be added for excluded features.
 **Then** the system uses 70/15/15 and seed 1729  
 **And** the user is not asked to configure them.
 
-## 54. AC-11 — Automatic device selection
+## 54. AC-11 — Train Compute Device selection
 
-**Given** a usable bundled CUDA environment  
-**When** Training starts  
-**Then** GPU is selected.
+**Given** GPU is requested and a usable qualified CUDA environment is available
+**When** Training starts
+**Then** effective GPU is used
+**And** requested GPU and effective GPU are displayed and recorded.
 
-**Given** no usable CUDA environment  
-**When** Training starts  
-**Then** CPU is selected.
+**Given** GPU is requested and no usable qualified CUDA environment is available
+**When** Training starts
+**Then** effective CPU is used
+**And** a direct fallback explanation is shown
+**And** requested GPU and effective CPU are displayed and recorded.
+
+**Given** CPU is requested
+**When** Training starts
+**Then** effective CPU is used
+**And** OpenDSS does not promote the request to GPU.
 
 ## 55. AC-12 — User retains scientific authority
 
@@ -3371,11 +3460,21 @@ Authoritative for:
 Authoritative for:
 
 - camera connection and streaming state;
-- DAQ readiness and active output state;
+- DAQ readiness and the single continuous/event-output state;
 - applying camera/DAQ settings;
-- Send Test Pulse;
+- Send Test Sine Wave;
+- Continuous configured waveform Start/Stop/reset;
 - preventing invalid hardware operation;
 - fault propagation.
+
+### 73.6 OperationCoordinator
+
+Authoritative for:
+
+- the current long-running operation and resource locks;
+- arbitration between Continuous configured waveform and operation-requested event-triggered finite sine waves;
+- permitting continuous output while Live or Sequence Test owns DAQ;
+- restoring event-triggered finite-sine-wave eligibility only when DAQ Output is enabled and DAQ is Ready.
 
 ---
 
@@ -3416,7 +3515,6 @@ The current repository includes behaviors that SHALL be treated as historical im
 - a fixed binary Hit/Waste/Exclude dataset schema;
 - a model metadata sorting policy that defaults Class 1 as the target;
 - user-managed external Python environments;
-- user-selected CPU/GPU training;
 - training-collapse rejection;
 - separate Reports behavior.
 

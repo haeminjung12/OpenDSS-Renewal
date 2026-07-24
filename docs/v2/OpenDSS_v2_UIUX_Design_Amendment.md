@@ -43,11 +43,11 @@ OpenDSS shall:
 1600 × 900
 ```
 
-- preserve a **16:9 window aspect ratio** during manual resizing;
+- allow free manual resizing to any aspect ratio at or above the minimum size;
 - prevent resizing below 1600 × 900;
 - retain Minimize, Maximize/Restore, and Close behavior.
 
-The restored window may be enlarged beyond 1600 × 900 only while retaining the 16:9 ratio.
+The restored window may use any user-selected aspect ratio while remaining at least 1600 × 900. Workspace content fills all available window space through the bottom in both maximized and restored states.
 
 ## 2.2 Global status header
 
@@ -91,21 +91,31 @@ Settings
 
 No Home screen shall be added.
 
+Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. Their directly draggable default width is approximately **536 px at 100% Text Size**, not fixed, and scales with Text Size.
+
+Right-panel typography uses a consistent hierarchy: workspace/outer-panel titles are strongest, disclosure headers are secondary, and ordinary setting labels use the same normal font baseline as control content and buttons. Smaller muted typography is reserved for intentional supporting, warning, or status text.
+
 ## 2.4 Hardware panel
 
-The previous right-side Hardware drawer is replaced by a **bottom-left overlay Hardware panel**.
+The previous right-side Hardware drawer is replaced by a **Hardware panel docked at the bottom of the resizable left-navigation column**.
+
+Its visible title is **Hardware Configuration**, not an illustrative-mock label. Its content has two titled collapsible groups, **Camera** and **DAQ**, using the same white section surface. **Output Configuration** is nested inside DAQ as a visually inset, bordered white subordinate group. It ends with one high-visibility primary **Start Sine Wave** button and has no separate sine-wave heading, status subsection, or explanatory paragraph. The accepted DESIGN/FUNCTIONAL seam exports `cameraSectionHeadingButton`, `cameraSectionExpanded`, `daqSectionHeadingButton`, and `daqSectionExpanded`; the functional wrapper owns their click-to-toggle connections.
 
 The Hardware panel shall:
 
-- open and close through a visible arrow control;
-- overlay the lower-left portion of the workspace;
-- not push the workspace upward;
+- open and close through a right-aligned chevron;
+- match the current width of the left-navigation column;
+- expand upward within that column;
+- not overlay the workspace;
 - not span the entire application width;
 - remain visually subordinate to the active workspace;
-- retain Camera and DAQ as separate sections;
-- close or lock according to operation ownership rules.
+- retain Camera and DAQ as separate titled collapsible groups;
+- show no redundant visible **Close** action;
+- remain available under the Product Model's operation-ownership and DAQ-arbitration rules.
 
-Its exact width and height shall be controlled through shared design tokens.
+Its width follows the resizable left-navigation column. Its open height shall start from a compact shared design-token default and be directly user-adjustable vertically within bounded limits. Hardware content scrolls when it exceeds the selected height. The selected height resets on each application launch and is not persisted.
+
+This hierarchy is visual/product authority. Actual clickable group collapse shall use the existing DESIGN/FUNCTIONAL seam and shall not add new runtime handlers in a visual-only pass.
 
 ---
 
@@ -115,7 +125,7 @@ On application startup:
 
 1. OpenDSS attempts to connect to the configured Camera automatically.
 2. The application opens at `Data > Capture`.
-3. If no Camera is available, OpenDSS shows:
+3. If no Camera is available, OpenDSS shows the following once-per-session shell-global modal overlay above the entire shell and current workspace while `Data > Capture` remains selected beneath it:
 
 ```text
 Camera unavailable. Continue?
@@ -128,6 +138,8 @@ Behavior:
 - **Yes** continues into OpenDSS without a Camera.
 - **No** closes the application.
 - The popup shall not repeat during the same session.
+- The prompt owns modal keyboard focus while shown; initial focus is **Yes**, and focus does not move to the shell beneath it.
+- After **Yes**, ordinary unavailable status remains visible in Capture.
 - Later Camera failures use the standard minimal error treatment.
 
 The Camera device may be connected while its stream is stopped.
@@ -222,7 +234,7 @@ The name **Droplet Dataset Capture** replaces **Dataset Capture** throughout:
 
 The central Droplet Crop grid shall dominate the workspace.
 
-The right panel uses the shared 390 px expanded-width token and collapses as one outer panel. It contains, in order:
+The right panel uses the shared approximately 536 px expanded-width token at 100% Text Size and collapses as one outer panel. It contains, in order:
 
 ```text
 Load Dataset
@@ -240,7 +252,7 @@ Dataset Summary shows total and labeled counts plus a two-or-three-class selecti
 
 ## 6.3 Label and Filter
 
-Label contains the selected-crop preview and exactly:
+Label contains a vertically adjustable selected-crop preview that can be enlarged or reduced, and exactly:
 
 - Class 0;
 - Class 1;
@@ -337,11 +349,21 @@ No missing-frame popup or visible skip summary is required.
 The user enters the following before Training begins:
 
 - Dataset;
-- Model Type:
-  - Faster;
-  - More Accurate;
+- Architecture:
+  - **MobileNet — Faster** on one line, with **Faster** smaller and lighter;
+  - **EfficientNet — More Accurate** on one line, with **More Accurate** smaller and lighter;
+- Weights:
+  - ImageNet-pretrained;
+  - **OpenDSS droplet checkpoint — bundled** for compatible bundled checkpoints;
+  - **OpenDSS droplet checkpoint — user-added** for compatible user-added checkpoints;
 - Model Name;
 - Save Location.
+
+The Architecture selector's closed field and popup options both show the Architecture identity and its smaller, muted **Faster** or **More Accurate** supporting label on one line. Hover and selected-option treatment shall keep both parts readable. This supersedes the former two-line presentation.
+
+The fixed `70 / 15 / 15` split and Seed are not shown as persistent minor text in the normal Train setup panel, but both remain part of recorded model metadata. **Compute Device** is a normal Train selector with **GPU** selected by default and **CPU** available. No persistent GPU-fallback helper is shown beneath the selector. A GPU request uses qualified GPU when available and otherwise falls back to effective CPU with a direct runtime explanation; a CPU request stays on CPU. Requested and effective devices are recorded. Model Test remains automatic.
+
+**Load Weights** may be shown as a non-exported visual-only button pending an approved definition of its file-selection, compatibility, validation, and state semantics. This visual allowance does not create a handler, persistence behavior, or functional interface.
 
 ## 8.2 Mandatory save behavior
 
@@ -349,7 +371,8 @@ The approved flow is:
 
 ```text
 Select Dataset
-→ Select Faster or More Accurate
+→ Select Architecture
+→ Select Weights
 → Enter Model Name
 → Select Save Location
 → Start Training
@@ -381,7 +404,7 @@ During Training, show:
 - Validation Loss;
 - Validation Accuracy;
 - estimated remaining time;
-- automatic execution device.
+- requested and effective execution device.
 
 Two minimal plots update live:
 
@@ -436,7 +459,7 @@ Models > Library
 
 ## 9.3 Model locking
 
-The Active Model cannot be replaced, renamed, deleted, or otherwise mutated while Model Test, Live, or Sequence Test is using it.
+Model Test and Sequence Test block replacement of the Active Model they reference. Any Model Package referenced by Model Test, Live, or Sequence Test cannot be renamed, deleted, or otherwise mutated while in use. Live is the explicit selection exception: an active Run may transfer to another valid effective Active Model under the timestamped effective-configuration-history contract.
 
 ---
 
@@ -448,7 +471,7 @@ Each row displays only:
 
 - a green check icon on the left when the Model is Active;
 - Model Name in dark bold text;
-- Model Type beneath it in smaller, lighter text.
+- technical architecture beneath it, followed by the smaller, lighter **Faster** or **More Accurate** supporting label.
 
 No other metadata is shown in the list row.
 
@@ -470,7 +493,7 @@ It contains:
 - Active state;
 - trained date;
 - source Dataset;
-- Model Type;
+- technical architecture and its **Faster** or **More Accurate** supporting label;
 - classes;
 - Training results;
 - package location;
@@ -535,8 +558,10 @@ Contains:
 - Hit Class;
 - Trigger Every Droplet ON/OFF;
 - DAQ Output ON/OFF;
-- Send Test Pulse;
+- Send Test Sine Wave;
 - Hit boundary calibration.
+
+While Live is active, Active Model, Hit Class, Trigger Every Droplet, DAQ Output, and hit-boundary fields remain visible and editable. Accepted changes apply immediately under the timestamped effective-configuration-history contract.
 
 ## 11.4 Trigger Every Droplet
 
@@ -572,20 +597,22 @@ When **DAQ Output is OFF**:
 When **DAQ Output is ON**:
 
 - DAQ Ready is required;
-- physical output follows the selected Decision behavior.
+- an event-triggered finite sine wave follows the selected Decision behavior.
 
 This control is not presented as a safety-rated Emergency Stop.
 
-## 11.6 Send Test Pulse
+## 11.6 Send Test Sine Wave
 
-Send Test Pulse:
+Send Test Sine Wave:
 
 - requires DAQ Ready;
-- uses current applied DAQ settings;
-- produces one output pulse;
+- uses the current applied Amplitude, Frequency, and Event Duration;
+- produces one finite sine wave without Decision-to-trigger Delay;
 - creates no Run;
 - creates no Droplet Log event;
 - appears inside Trigger & Timing.
+
+Continuous configured waveform is not a second Live action beside Send Test Sine Wave. Its Start/Stop control and factual state appear in shared Hardware > DAQ.
 
 ## 11.7 Running section
 
@@ -602,6 +629,7 @@ Contains:
 - Unresolved;
 - Camera FPS;
 - Inference Time;
+- current effective-configuration identity;
 - Pause/Resume;
 - Stop.
 
@@ -618,6 +646,8 @@ Camera preview remains active.
 # 12. Hit boundary calibration
 
 ## 12.1 Interaction
+
+The Trigger & Timing section does not show a persistent minor `Hit boundary: calibrated outlet region` helper. Removing that helper does not change boundary calibration behavior or state.
 
 Before Start:
 
@@ -662,9 +692,9 @@ It does not change:
 The calibration is:
 
 - saved in the Setup Profile;
-- snapshotted in the Run Summary;
+- retained in the initial Run snapshot and timestamped effective-configuration history;
 - visible as a nonpersistent Camera overlay;
-- editable only before Start.
+- editable before Start and while Live is active, with valid committed changes applying immediately.
 
 Persist at least:
 
@@ -707,6 +737,8 @@ Contains:
 - load status;
 - Start;
 - Stop.
+
+**Load Sequence** and **Load to Memory** share one row and each occupies half of the available content width.
 
 ## 13.3 Supported input
 
@@ -822,7 +854,9 @@ Display:
 - Decision-versus-Observed Route matrix;
 - Notes;
 - file actions;
-- collapsed provenance.
+- the stored scientific provenance and artifact facts within their applicable factual groups.
+
+Do not show a separate visible **Provenance ›** disclosure row.
 
 Do not add:
 
@@ -847,11 +881,11 @@ Visuals
 
 Camera and DAQ controls do not appear in Settings.
 
-Visuals contains only application-wide **Text Size**, selectable from **80%** through **200%**, default **100%**. No other setting is added.
+Visuals contains only application-wide **Text Size**, presented as one dropdown with exactly **80%**, **100%**, **125%**, **150%**, **175%**, and **200%**. The default is **100%**, with an approximately **22 px** body-text baseline. No other setting is added.
 
 ---
 
-# 16. Bottom Hardware panel
+# 16. Docked Hardware panel
 
 ## 16.1 Camera section
 
@@ -869,7 +903,11 @@ Show:
 
 Use the term **Bit Depth**, not Bit Rate.
 
+Design-time mocks may show one explicitly illustrative adapter with Bit Depth options **8-bit**, **12-bit**, and **16-bit**, and Readout options **Fast** and **Slow**. These are not universal capability claims. Production controls and enumerated options shall be derived from the integrated qualified Camera adapter, and unsupported placeholder controls shall not appear.
+
 LUT controls affect preview presentation only.
+
+The approved visual control is a two-handle RangeSlider for preview-presentation minimum and maximum. Its functional interface, validation, adapter mapping, and persistence remain deferred.
 
 LUT does not modify:
 
@@ -880,18 +918,32 @@ LUT does not modify:
 
 ## 16.2 DAQ section
 
-Show:
+All physical DAQ output is sine-wave output; no pulse or other physical waveform mode is defined.
+
+The DAQ group shows:
 
 - Status;
 - auto-detected Device;
 - Device selector when more than one supported device is found;
-- Output Channel;
-- maximum supported voltage range when reported by the device;
-- maximum supported output frequency when reported by the device.
 
-Voltage and frequency limits are read-only hardware capability information.
+Its nested titled **Output Configuration** section contains:
+
+- Output Channel;
+- **Amplitude**, 0–10 Vpp, default 5 Vpp, visual increment 1 Vpp, centered at 0 V with extrema `-Vpp/2` and `+Vpp/2`;
+- **Frequency**, 1–1000 kHz, default 10 kHz, visual increment 1 kHz;
+- **Event Duration**, 1–500 ms, default 5 ms, visual increment 1 ms;
+- **Decision-to-trigger Delay**, 0–500 ms, default 0 ms, visual increment 1 ms;
+- **Continuous configured waveform** Start/Stop and factual output state on the same physical output channel used for event-triggered finite sine waves.
+
+Amplitude and Frequency apply to continuous, event-triggered, and test sine output. Event Duration applies to event-triggered and test finite sine waves and does not limit continuous output. Decision-to-trigger Delay is measured from an accepted `Decision = Hit` to the start of its finite sine wave and does not apply to Send Test Sine Wave.
 
 Only settings supported by the connected and qualified hardware adapter shall appear.
+
+Valid changes apply immediately. During continuous output, supported Amplitude and Frequency edits retune immediately. If the adapter cannot apply a requested value or live retune, the edit is rejected with a direct explanation and the last applied value remains active. Event Duration and Decision-to-trigger Delay changes apply only to future, not-yet-issued event output.
+
+Continuous configured waveform runs until Stop, application exit, DAQ disconnect, or DAQ fault, then resets and returns output to 0 V. It has priority over event-triggered finite sine waves; otherwise-requested output is recorded as **suppressed / not issued** and discarded, never queued. Event output resumes after Stop only when DAQ Output is enabled and DAQ is Ready. **HardwareCoordinator** presents one authoritative DAQ-output state, and **OperationCoordinator** owns arbitration.
+
+This authority synchronization does not implement or authorize a protected runtime change. Any change to qualified NI-DAQmx waveform, timing, rate-fallback, final-zero, cleanup, or routing mechanics requires a separate functional work order and the repository's protected-asset characterization, regression, performance, hardware-in-the-loop, justification, and rollback evidence.
 
 ---
 
@@ -945,7 +997,7 @@ The current implementation slice remains focused on:
 - the OpenDSS shell;
 - maximized startup;
 - 1600 × 900 minimum restored size;
-- enforced 16:9 resizing;
+- free restored-window resizing above the minimum, with content filling all available window space through the bottom;
 - bottom-left Hardware panel frame;
 - startup Camera availability mock;
 - Capture section headers;
@@ -961,7 +1013,7 @@ Real Camera, TIFF, DAQ, Training, Run persistence, and later workspaces remain s
 This amendment supersedes prior requirements for:
 
 1. 1280 × 720 minimum window size;
-2. unconstrained restored-window aspect ratio;
+2. constrained or fixed restored-window aspect ratio;
 3. right-side Hardware drawer;
 4. `Dataset Capture` naming;
 5. detailed visible fault messages;

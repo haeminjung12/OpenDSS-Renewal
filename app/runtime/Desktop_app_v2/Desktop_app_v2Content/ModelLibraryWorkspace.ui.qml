@@ -34,25 +34,30 @@ Rectangle {
         anchors.margins: Constants.workspaceMargin
     }
 
-    Row {
+    SplitView {
+        font: Constants.font
         anchors.top: workspaceTitle.bottom
         anchors.topMargin: Constants.spacing
         anchors.bottom: parent.bottom
         anchors.left: parent.left
         anchors.right: parent.right
         anchors.margins: Constants.workspaceMargin
-        spacing: Constants.spacing
         Rectangle {
-            width: parent.width - rightPanel.width - Constants.spacing
-            height: parent.height
+            SplitView.fillWidth: true
             color: Constants.surfaceColor
             border.color: Constants.borderColor
-            Column {
+            ScrollView {
+                id: modelListScroll
                 anchors.fill: parent
                 anchors.margins: Constants.spacing * 2
+                contentWidth: availableWidth
+                clip: true
+            Column {
+                width: modelListScroll.availableWidth
+                height: implicitHeight
                 spacing: Constants.spacing
                 Text { text: qsTr("Models"); font: Constants.headingFont }
-                Button { id: importButton; text: qsTr("Import Model"); height: Constants.controlHeight }
+                Button { id: importButton; text: qsTr("Import Model"); height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.accentColor } }
                 Column {
                     id: modelList
                     visible: root.presentation !== "empty"
@@ -61,7 +66,7 @@ Rectangle {
                     Button {
                         id: activeModelRowButton
                         width: parent.width
-                        height: 58
+                        height: Math.round(82 * Constants.textScale)
                         padding: Constants.spacing
                         activeFocusOnTab: true
                         background: Rectangle {
@@ -71,13 +76,18 @@ Rectangle {
                         contentItem: Row {
                             spacing: Constants.spacing
                             Text { text: qsTr("✓"); visible: true; color: Constants.readyColor; Accessible.name: qsTr("Active Model") }
-                            Column { Text { text: qsTr("DropletNet-04"); font.bold: true } Text { text: qsTr("More Accurate"); color: Constants.mutedTextColor; font: Constants.smallFont } }
+                            Column {
+                                width: activeModelRowButton.width - 48
+                                Text { text: qsTr("DropletNet-04"); font.bold: true }
+                                Text { text: qsTr("Architecture: EfficientNet-B0"); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: parent.width }
+                                Text { text: qsTr("More Accurate  •  Labels: Class 0, Class 1"); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
+                            }
                         }
                     }
                     Button {
                         id: candidateModelRowButton
                         width: parent.width
-                        height: 58
+                        height: Math.round(82 * Constants.textScale)
                         padding: Constants.spacing
                         activeFocusOnTab: true
                         background: Rectangle {
@@ -86,38 +96,72 @@ Rectangle {
                         }
                         contentItem: Column {
                             Text { text: qsTr("DropletNet-03"); font.bold: true }
-                            Text { text: qsTr("Faster"); color: Constants.mutedTextColor; font: Constants.smallFont }
+                            Text { text: qsTr("Architecture: MobileNetV3-Small"); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: candidateModelRowButton.width - Constants.spacing * 2 }
+                            Text { text: qsTr("Faster  •  Labels: Class 0, Class 1"); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: candidateModelRowButton.width - Constants.spacing * 2 }
                         }
                     }
                 }
                 Text { visible: root.presentation === "empty"; text: qsTr("No discovered v2 Model Packages"); color: Constants.mutedTextColor; wrapMode: Text.WordWrap; width: parent.width }
             }
+            }
         }
         Rectangle {
             id: rightPanel
-            width: root.rightPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
-            height: parent.height
+            SplitView.preferredWidth: Constants.operationPanelWidth
+            SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+            SplitView.maximumWidth: root.rightPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
             color: root.showError ? Constants.errorSurfaceColor : Constants.surfaceColor
             border.color: root.showError ? Constants.faultColor : Constants.borderColor
 
+            Rectangle {
+                id: panelTopStrip
+                height: Constants.controlHeight
+                color: Constants.backgroundColor
+                border.color: Constants.borderColor
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                Text {
+                    text: qsTr("Library")
+                    visible: root.rightPanelExpanded
+                    font: Constants.headingFont
+                    color: Constants.textColor
+                    anchors.left: parent.left
+                    anchors.leftMargin: Constants.spacing
+                    anchors.right: rightPanelToggleButton.left
+                    anchors.rightMargin: Constants.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                }
+            }
             Button {
                 id: rightPanelToggleButton
-                width: parent.width
-                height: Constants.controlHeight
                 text: root.rightPanelExpanded ? "›" : "‹"
+                width: Math.round(30 * Constants.textScale)
+                height: panelTopStrip.height
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                z: 1
                 Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Library panel") : qsTr("Expand Library panel")
+                background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
+                contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
-            Column {
+            ScrollView {
+                id: selectedModelScroll
                 visible: root.rightPanelExpanded
-                anchors.top: rightPanelToggleButton.bottom
+                anchors.top: panelTopStrip.bottom
+                anchors.bottom: parent.bottom
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: Constants.spacing
+                anchors.leftMargin: Constants.spacing
+                contentWidth: availableWidth
+                clip: true
 
                 CollapsibleSection {
                     id: selectedModelSection
-                    width: parent.width
+                    width: selectedModelScroll.availableWidth
                     sectionTitle: qsTr("Selected Model")
                     expanded: root.selectedModelExpanded
                     useIntrinsicBodyHeight: true
@@ -135,11 +179,11 @@ Rectangle {
                             Text { visible: root.showError; text: qsTr("Error"); font: Constants.largeFont; color: Constants.faultColor }
                             Text { visible: root.hasSelection && !root.showError; text: qsTr("DropletNet-03") ; font: Constants.headingFont }
                             Text { visible: root.hasSelection && !root.showError; text: qsTr("Active state: %1").arg(root.selectedActive ? qsTr("Active Model") : qsTr("Not Active")) }
-                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: 2026-07-23\nDataset: Dataset-042\nModel Type: Faster\nClasses: 2\nTraining results: Accuracy 0.94\nPackage: C:/OpenDSS/Models/DropletNet-03.opendssmodel"); wrapMode: Text.WordWrap; width: parent.width }
-                            Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor }
-                            Button { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.controlHeight }
+                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: 2026-07-23\nDataset: Dataset-042\nArchitecture: MobileNetV3-Small\nFaster\nLabels: Class 0, Class 1\nTraining results: Accuracy 0.94\nPackage: C:/OpenDSS/Models/DropletNet-03.opendssmodel"); wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor; wrapMode: Text.WordWrap; width: parent.width }
+                            Button { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: setActiveButton.enabled ? Constants.accentColor : Constants.borderColor } }
                             Button { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
-                            Row { visible: root.hasSelection; spacing: Constants.spacing; Button { id: exportButton; text: qsTr("Export") } Button { id: duplicateButton; text: qsTr("Duplicate") } Button { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked } Button { id: deleteButton; text: qsTr("Delete"); enabled: !root.selectedActive && !root.modelLocked } }
+                            Flow { visible: root.hasSelection; width: parent.width; height: implicitHeight; spacing: Constants.spacing; Button { id: exportButton; text: qsTr("Export") } Button { id: duplicateButton; text: qsTr("Duplicate") } Button { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked } Button { id: deleteButton; text: qsTr("Delete"); enabled: !root.selectedActive && !root.modelLocked; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: deleteButton.enabled ? Constants.faultColor : Constants.borderColor } } }
                         }
                     }
                 }

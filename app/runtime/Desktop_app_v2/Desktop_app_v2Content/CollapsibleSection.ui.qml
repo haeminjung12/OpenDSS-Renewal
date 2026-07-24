@@ -22,7 +22,8 @@ Item {
     Button {
         id: headingButton
         width: parent.width
-        height: 42
+        height: 42 * Constants.textScale
+        font: Constants.font
         enabled: root.headingEnabled
         focusPolicy: Qt.StrongFocus
         background: Rectangle {
@@ -31,26 +32,53 @@ Item {
             border.width: headingButton.activeFocus ? 2 : 1
         }
         contentItem: Item {
-            Text { text: (root.expanded ? "⌄  " : "›  ") + root.sectionTitle; color: root.headingEnabled ? Constants.textColor : Constants.mutedTextColor; font: Constants.headingFont; anchors.left: parent.left; anchors.leftMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
-            Text { text: root.headingEnabled ? (root.expanded ? qsTr("Expanded") : qsTr("Collapsed")) : qsTr("Disabled"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+            Text {
+                id: disclosureIndicator
+                text: root.expanded ? "⌄" : "›"
+                color: root.headingEnabled ? Constants.textColor : Constants.mutedTextColor
+                font: Constants.headingFont
+                anchors.left: parent.left
+                anchors.leftMargin: Constants.spacing
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                id: disclosureStatus
+                visible: !root.headingEnabled
+                text: qsTr("Disabled")
+                color: Constants.mutedTextColor
+                font: Constants.smallFont
+                anchors.right: parent.right
+                anchors.rightMargin: Constants.spacing
+                anchors.verticalCenter: parent.verticalCenter
+            }
+            Text {
+                text: root.sectionTitle
+                color: root.headingEnabled ? Constants.textColor : Constants.mutedTextColor
+                font: Constants.headingFont
+                elide: Text.ElideRight
+                anchors.left: disclosureIndicator.right
+                anchors.leftMargin: Constants.spacing
+                anchors.right: disclosureStatus.visible ? disclosureStatus.left : parent.right
+                anchors.rightMargin: Constants.spacing
+                anchors.verticalCenter: parent.verticalCenter
+            }
         }
     }
     Rectangle {
         id: body
         visible: root.expanded
         width: parent.width
-        height: root.useIntrinsicBodyHeight ? bodyScroll.topPadding + root.intrinsicBodyContentHeight + bodyScroll.bottomPadding : root.bodyHeight
+        height: root.useIntrinsicBodyHeight ? root.intrinsicBodyContentHeight : root.bodyHeight
         color: Constants.surfaceColor
         border.color: Constants.borderColor
         anchors.top: headingButton.bottom
-        ScrollView {
+        Item {
             id: bodyScroll
             anchors.fill: parent
             clip: true
-            contentWidth: availableWidth
             Item {
                 id: bodyContent
-                width: parent.width
+                width: bodyScroll.width
                 height: root.useIntrinsicBodyHeight ? root.intrinsicBodyContentHeight : Math.max(root.bodyHeight, childrenRect.height)
             }
         }

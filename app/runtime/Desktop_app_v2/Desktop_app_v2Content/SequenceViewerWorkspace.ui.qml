@@ -1,6 +1,7 @@
 /* This is a UI file (.ui.qml) intended for Qt Design Studio editing. */
 import QtQuick
 import QtQuick.Controls
+import QtQuick.Layouts
 import Desktop_app_v2
 
 Rectangle {
@@ -27,37 +28,7 @@ Rectangle {
             id: workspaceHeader
             width: parent.width
             Text { text: qsTr("Sequence Viewer"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight; verticalAlignment: Text.AlignVCenter; width: parent.width - openSequenceButton.width }
-            Button { id: openSequenceButton; text: qsTr("Open Sequence"); height: Constants.controlHeight }
-        }
-
-        Rectangle {
-            id: navigationPanel
-            width: parent.width
-            height: 112
-            color: Constants.surfaceColor
-            border.color: Constants.borderColor
-            Column {
-                anchors.fill: parent
-                anchors.margins: Constants.spacing
-                spacing: 6
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 6
-                    Button { id: previousButton; text: qsTr("Previous"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : root.currentFrame + qsTr(" / ") + root.totalFrames; anchors.verticalCenter: parent.verticalCenter }
-                    TextField { id: directSeekField; width: 64; height: Constants.controlHeight; enabled: root.presentation === "ready"; placeholderText: qsTr("Frame") }
-                    Slider { from: 1; to: Math.max(1, root.totalFrames); value: root.currentFrame; width: 240; enabled: root.presentation === "ready" }
-                    Button { id: nextButton; text: qsTr("Next"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                }
-                Row {
-                    anchors.horizontalCenter: parent.horizontalCenter
-                    spacing: 6
-                    Button { id: zoomOutButton; text: qsTr("Zoom -"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Button { id: zoomInButton; text: qsTr("Zoom +"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Button { id: fitButton; text: qsTr("Fit"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                    Button { id: actualSizeButton; text: qsTr("1:1"); enabled: root.presentation === "ready"; height: Constants.controlHeight }
-                }
-            }
+            Button { id: openSequenceButton; text: qsTr("Open Sequence"); height: Constants.controlHeight; font: Constants.font }
         }
 
         Rectangle {
@@ -88,6 +59,54 @@ Rectangle {
                 color: Constants.surfaceColor
                 font: Constants.largeFont
                 anchors.centerIn: parent
+            }
+        }
+
+        Rectangle {
+            id: navigationPanel
+            width: parent.width
+            height: Constants.controlHeight * 2 + Constants.spacing * 3
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+            ScrollView {
+                id: sequenceControlsScroll
+                anchors.fill: parent
+                contentWidth: Math.max(availableWidth, sequenceControls.x + sequenceControls.width + Constants.spacing)
+                contentHeight: availableHeight
+                clip: true
+                font: Constants.font
+
+            Column {
+                id: sequenceControls
+                x: Math.max(Constants.spacing, (sequenceControlsScroll.availableWidth - width) / 2)
+                y: Constants.spacing
+                width: Math.max(900 * Constants.textScale, sequenceControlsScroll.availableWidth - Constants.spacing * 2)
+                height: implicitHeight
+                spacing: Constants.spacing
+                RowLayout {
+                    width: parent.width
+                    spacing: 6
+                    Button { id: jumpBack50Button; text: qsTr("-50"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: jumpBack10Button; text: qsTr("-10"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: previousButton; text: qsTr("Previous"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: nextButton; text: qsTr("Next"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: jumpForward10Button; text: qsTr("+10"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: jumpForward50Button; text: qsTr("+50"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Slider { id: frameSlider; from: 1; to: Math.max(1, root.totalFrames); value: root.currentFrame; enabled: root.presentation === "ready"; Layout.fillWidth: true; Layout.minimumWidth: 120 * Constants.textScale }
+                    Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : root.currentFrame + qsTr(" / ") + root.totalFrames; Layout.alignment: Qt.AlignVCenter }
+                }
+                RowLayout {
+                    width: parent.width
+                    spacing: 6
+                    Text { text: qsTr("Go to frame"); Layout.alignment: Qt.AlignVCenter }
+                    TextField { id: directSeekField; enabled: root.presentation === "ready"; placeholderText: qsTr("Frame"); Layout.preferredWidth: 84 * Constants.textScale; Layout.preferredHeight: Constants.controlHeight }
+                    Item { Layout.fillWidth: true }
+                    Button { id: zoomOutButton; text: qsTr("Zoom -"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: zoomInButton; text: qsTr("Zoom +"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: fitButton; text: qsTr("Fit"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                    Button { id: actualSizeButton; text: qsTr("1:1"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.controlHeight }
+                }
+            }
             }
         }
     }

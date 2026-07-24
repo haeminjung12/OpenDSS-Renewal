@@ -30,22 +30,22 @@ This document is a product model, not a complete replacement requirements specif
 
 The July 23, 2026 UI/UX amendment is incorporated into this product model without reopening D-001 through D-019. Where an older statement in this document conflicts with the following integrated decisions, this subsection controls:
 
-- OpenDSS launches maximized. A restored window has a hard minimum logical size of **1600 × 900**, preserves **16:9** during manual resizing, and retains Minimize, Maximize/Restore, and Close.
+- OpenDSS launches maximized. A restored window has a hard minimum logical size of **1600 × 900**, may be manually resized to any aspect ratio at or above that minimum, and retains Minimize, Maximize/Restore, and Close. Content fills all available window space through the bottom.
 - The compact one-line status header presents Camera, DAQ, Active Model, and Current Activity with an icon, label, value, readiness color, and a non-color readiness cue.
-- The former right-side shell panel is replaced by a bottom-left overlay **Hardware panel** opened and closed by an arrow. It does not push the workspace, span the window, or appear in Settings.
-- Startup remains `Data > Capture`. OpenDSS attempts Camera connection automatically. If unavailable, one session-only prompt asks `Camera unavailable. Continue?`; Yes continues without Camera and No closes OpenDSS. `Start Camera` controls streaming.
+- The former right-side shell panel is replaced by a **Hardware panel** docked at the bottom of the resizable left-navigation column with the visible title **Hardware Configuration**. It has the same width as that column, expands upward within it, and opens or closes through a right-aligned chevron. Its content has two titled collapsible groups, **Camera** and **DAQ**; **Output Configuration** is nested inside DAQ. It is not a workspace overlay, does not span the window, has no visible redundant Close action, and does not appear in Settings. This hierarchy is visual/product authority; clickable group collapse must use the existing DESIGN/FUNCTIONAL seam and does not authorize new runtime handlers.
+- Startup remains `Data > Capture`. OpenDSS attempts Camera connection automatically. If unavailable, one session-only shell-global modal overlay appears above the entire shell and current workspace and asks `Camera unavailable. Continue?`; `Data > Capture` remains selected beneath it. Yes continues without Camera, after which ordinary unavailable status remains visible, and No closes OpenDSS. `Start Camera` controls streaming.
 - Normal visible failures use the message `Error`; technical details go to the program log under `Settings > Diagnostics`. Paths appear only after confirmed writes, and failure never projects success.
 - Capture retains one shared Camera preview and three independently collapsible bodies under permanently visible headings: Single Image, Image Sequence, and **Droplet Dataset Capture**. Multiple bodies may be open while idle; an active section remains open while the other headings remain visible but disabled.
-- Workspace outer right panels collapse as a whole and share one consistent expanded width, represented by the current 390 px implementation token. Inner disclosure sections retain intrinsic stacking where applicable.
-- Label is dominated by the Droplet Crop grid. Its fixed-width, outer-collapsible right panel contains, in order, **Load Dataset**, **Dataset Summary**, **Label**, **Filter**, and bottom-right **Save As**. Configured Datasets may switch between two and three classes. Class 0, Class 1, and Class 2 remain visible; Class 2 is disabled while two classes are selected. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
+- The left navigation and workspace outer right panels are draggable. Workspace outer right panels collapse as a whole; **approximately 536 px is their default width at 100% Text Size, not a fixed width**. The exact outer-panel titles are **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, and **Runs**; Settings has no outer collapsible panel. Each outer panel uses a light top strip with its title left-aligned while expanded and its existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states; when collapsed width is insufficient, only the fixed chevron may remain visible. Existing exported toggle aliases remain unchanged. Navigation and right-panel defaults scale with Text Size, reset on each application launch, and are not persisted. Inner disclosure sections retain intrinsic stacking where applicable.
+- Label is dominated by the Droplet Crop grid. Its adjustable, outer-collapsible right panel contains, in order, **Load Dataset**, **Dataset Summary**, **Label**, **Filter**, and bottom-right **Save As**. Configured Datasets may switch between two and three classes. Class 0, Class 1, and Class 2 remain visible; Class 2 is disabled while two classes are selected. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
 - **Sequence Viewer** is frame-navigation only. It has no Play, Pause, automatic playback, speed control, or playback lifecycle state.
-- Train collects Dataset, Faster or More Accurate, Model Name, and Save Location before Start. Successful Training automatically saves the Model Package and makes it Active. Save failure retains temporary artifacts, exposes Retry Save, and does not activate the Model. Dataset Summary remains a main white region, with a separate main white Results region below it for the two approved live plots and specified completion tables.
-- Model Test and Sequence Test always use the Active Model and have no local Model selector. The Active Model cannot be replaced or mutated while Model Test, Live, or Sequence Test uses it. Model Test keeps Dataset Summary as a main white region and places its approved metrics, confusion matrix, and prediction summaries in a separate main white Results region below.
+- Train collects Dataset, Architecture, Weights, Model Name, and Save Location before Start. Architecture presents **MobileNet** with smaller, lighter **Faster** supporting text and **EfficientNet** with smaller, lighter **More Accurate** supporting text. Weights includes ImageNet-pretrained weights and technically compatible bundled or user-added OpenDSS droplet-trained checkpoints. Successful Training automatically saves the Model Package and makes it Active. Save failure retains temporary artifacts, exposes Retry Save, and does not activate the Model. Dataset Summary remains a main white region, with a separate main white Results region below it for the two approved live plots and specified completion tables.
+- Model Test and Sequence Test always use the Active Model and have no local Model selector. Their referenced Model Package cannot be replaced or mutated while in use. Live is the explicit exception for Active Model selection: an active Run may transfer to another valid effective Active Model under the timestamped effective-configuration-history contract, while every referenced package remains protected from mutation. Model Test keeps Dataset Summary in a main white region and places its approved metrics, confusion matrix, and prediction summaries in a separate main white Results region below.
 - Library selection is distinct from activation. An Active Model row has a green check plus textual or accessible meaning; Set Active remains explicit; selected Model details live in one collapsible panel.
-- Live stays in one workspace from setup through completion. Trigger Every Droplet and DAQ Output are independent toggles. DAQ Output OFF still permits nonphysical processing, logging, and Run persistence without DAQ readiness.
+- Live stays in one workspace from setup through completion. Trigger Every Droplet and DAQ Output are independent toggles. DAQ Output OFF still permits nonphysical processing, logging, and Run persistence without DAQ readiness. While Live is active, Active Model, Hit Class, Trigger Every Droplet, DAQ Output, and hit-boundary fields remain editable; valid committed changes apply immediately. The initial configuration snapshot is retained, every accepted change is appended to a timestamped effective-configuration history, and every event identifies the effective configuration used for it.
 - Hit boundary calibration uses one clicked image point, a horizontal line extending right, and `Top is Hit` or `Bottom is Hit`. It affects Observed Route only and is saved in the Setup Profile and Run Summary.
 - Sequence Test accepts OpenDSS Image Sequence folders containing `sequence.json`, uses editable Processing FPS defaulted from recorded FPS, loads through a bounded memory buffer, and keeps Physical DAQ Output off by default.
-- Results keeps the loaded Run in the center while a right-side Runs panel requires explicit selection plus Load. Settings contains only Storage, Application Information, Diagnostics, and Visuals; Visuals contains only the application-wide Text Size preference from 80% through 200%, default 100%.
+- Results keeps the loaded Run in the center while a right-side Runs panel requires explicit selection plus Load. Settings contains only Storage, Application Information, Diagnostics, and Visuals; Visuals contains one Text Size dropdown with exactly 80%, 100%, 125%, 150%, 175%, and 200%, default 100% at an approximately 22 px body baseline.
 
 ---
 
@@ -204,21 +204,30 @@ Current Activity: Idle | Capturing Image | Recording Sequence |
 The slide-out panel is owned by the application shell and persists across workspaces.
 
 ```text
-Hardware
+Hardware Configuration
 ├── Camera
 └── DAQ
+    └── Output Configuration
+        ├── Output Channel
+        ├── Amplitude
+        ├── Frequency
+        ├── Event Duration
+        ├── Decision-to-trigger Delay
+        └── Continuous configured waveform
 ```
 
 The panel provides the only user-editable technical settings in the first release.
 
+**Camera** and **DAQ** are titled collapsible groups. **Output Configuration** is nested inside DAQ and owns the listed output controls. This hierarchy does not create a second settings owner or authorize new runtime handlers; actual click-to-collapse behavior must use the existing DESIGN/FUNCTIONAL seam.
+
 - Camera and DAQ values are shared across workspaces.
 - A workspace does not keep its own duplicate copy of hardware settings.
-- Valid changes apply immediately while the corresponding device is available and not owned by an active operation.
+- Valid changes apply immediately while the corresponding device is available and the change is permitted by the ownership and arbitration rules. Camera acquisition restrictions remain in force while Camera is owned; supported DAQ Amplitude and Frequency edits may retune active continuous output immediately under the explicit DAQ arbitration rules.
 - Invalid changes are rejected and the last successfully applied value remains active.
 - Camera controls lock while a camera-owning operation is running.
-- DAQ controls lock while a DAQ-owning operation is running.
-- During Live Sorting, the panel closes and remains unavailable until the Run ends.
-- The global status header remains visible while the panel is closed.
+- DAQ controls follow the single HardwareCoordinator state and OperationCoordinator arbitration while a DAQ-owning operation is running.
+- During Live Sorting, the docked panel remains available; Camera acquisition fields remain locked while approved DAQ actions follow their factual readiness and arbitration rules.
+- The global status header remains visible regardless of whether the docked panel is expanded or collapsed.
 
 The panel's open/closed presentation may remain stable during ordinary navigation, but it is not a saved scientific artifact and is not restored as a startup requirement.
 
@@ -238,7 +247,7 @@ Develop a droplet-classification model
                     → assign two or three classes and labels
                         → labeled Dataset
                             → Models > Train
-                                → Train Faster or More Accurate model
+                                → Train MobileNet or EfficientNet model with compatible Weights
                                     → Model Package
                                         → automatically becomes Active Model
                                             → optional Models > Model Test
@@ -350,7 +359,7 @@ The scientist selects either supported class schema during initial setup and may
 
 Numeric Class IDs remain stable identifiers and Class Names remain editable. Switching the selected schema must not silently reassign or discard existing labels. Before a three-class Dataset changes to two classes, any existing Class 2 labels must be resolved explicitly so every retained label is valid under the selected schema.
 
-The Droplet Crop grid dominates the main area. One fixed-width, outer-collapsible right panel contains, in order:
+The Droplet Crop grid dominates the main area. One adjustable, outer-collapsible right panel contains, in order:
 
 1. **Load Dataset**, a static, always-expanded card/header;
 2. **Dataset Summary**, showing total and labeled counts plus the selected two-or-three-class schema, which remains switchable for configured Datasets;
@@ -374,12 +383,23 @@ It requires no camera, DAQ, model, or training environment and never produces DA
 
 ## 7.4 Models > Train
 
-Training accepts one compatible labeled Dataset and one Model Type:
+Training accepts one compatible labeled Dataset, one Architecture, and one Weights selection:
 
 ```text
-Faster
-More Accurate
+MobileNet
+    Faster
+EfficientNet
+    More Accurate
+
+Weights
+    ImageNet-pretrained
+    compatible bundled OpenDSS droplet-trained checkpoint
+    compatible user-added OpenDSS droplet-trained checkpoint
 ```
+
+**Faster** and **More Accurate** are smaller, lighter supporting labels; Architecture identity is MobileNet or EfficientNet.
+
+A droplet-trained checkpoint is selectable only when its declared architecture and required model, preprocessing, and tensor contracts are compatible with the selected Architecture. The application identifies it by its Model Package identity and checksum and rejects an incompatible, missing, unreadable, or checksum-mismatched checkpoint with a direct reason while retaining the last valid selection. This defines selection and validation only; it does not replace or modify the qualified Python trainer, export mechanics, preprocessing, or ONNX inference mechanics.
 
 There are no user-editable Advanced Training Parameters in the first public release.
 
@@ -394,14 +414,18 @@ Training always uses:
 Seed 1729
 ```
 
-Compute device selection is automatic:
+Training provides a **Compute Device** selector with **GPU** selected by default and **CPU** available as an explicit alternative:
 
 ```text
-Compatible bundled GPU environment available
-    → GPU
-Otherwise
-    → CPU
+Requested GPU + qualified GPU available
+    → Effective GPU
+Requested GPU + qualified GPU unavailable
+    → Effective CPU with a direct explanation
+Requested CPU
+    → Effective CPU; no automatic promotion to GPU
 ```
+
+The requested and effective devices are displayed and recorded. Compute Device is a normal Train selection, not a training hyperparameter. The fixed split and seed remain unchanged.
 
 Model Name and Save Location are required before Training starts. When Training completes, the application saves the Model Package automatically and then makes it the global Active Model.
 
@@ -421,7 +445,7 @@ It does not change Active Model state.
 
 The workspace keeps Dataset Summary in a main white region. A separate main white **Results** region sits below it and contains the approved metrics, confusion matrix, and prediction summaries; this placement does not add new data semantics.
 
-Model Test uses the same automatic compute-device policy as Training:
+Model Test retains its automatic compute-device policy:
 
 ```text
 Compatible bundled GPU inference environment available
@@ -476,7 +500,7 @@ Run configuration includes:
 - Hit boundary calibration;
 - Record Full Image Sequence;
 - Setup Profile actions;
-- Send Test Pulse;
+- Send Test Sine Wave;
 - Start Sorting.
 
 The two first-class Trigger Every Droplets are:
@@ -490,17 +514,17 @@ Class-Based Sorting requires an Active Model. Trigger Every Droplet does not.
 
 The underlying detection, crop, routing algorithm, and internal synchronization/timing values are fixed qualified application configuration. They are not exposed for editing.
 
-DAQ Output Channel and supported pulse/waveform controls are DAQ hardware settings and therefore belong in the shared DAQ panel.
+DAQ Output Channel and the supported sine-output controls are DAQ hardware settings and therefore belong in the shared Hardware > DAQ panel. That panel also owns the explicit start/stop control and factual state for Continuous configured waveform output.
 
 ### Start transition
 
 When Start Sorting is selected:
 
 - OpenDSS creates the Run folder and initial structured files;
-- the complete effective Run configuration is snapshotted;
-- camera and DAQ controls lock;
-- the hardware panel closes;
-- pre-run configuration controls disappear;
+- the complete initial effective Run configuration is snapshotted;
+- Camera acquisition settings lock, while Active Model, Hit Class, Trigger Every Droplet, DAQ Output, and hit-boundary fields remain editable under the effective-configuration history rule;
+- the docked Hardware panel remains available subject to factual device readiness and the arbitration rules below;
+- the editable Live configuration and monitor remain available in the same workspace;
 - the right panel changes to the Live Sorting monitor.
 
 ### Running state
@@ -520,7 +544,10 @@ The right-side monitor shows:
 - Observed Hit, Observed Waste, and Unresolved;
 - inference time;
 - camera FPS;
+- the current effective-configuration identity;
 - Pause and Stop.
+
+Every accepted active-Run change to Active Model, Hit Class, Trigger Every Droplet, DAQ Output, or hit-boundary fields applies immediately, receives a timestamped effective-configuration identity, and is retained alongside the initial snapshot. Every event refers to the identity effective when that event was processed.
 
 ### Pause state
 
@@ -530,7 +557,7 @@ Pause keeps the live camera preview active but stops:
 - new DAQ output;
 - new event finalization.
 
-Camera and DAQ settings remain hidden and locked. Resume continues the same Run.
+The same editable Live fields and docked Hardware panel remain available. Resume continues the same Run and its effective-configuration history.
 
 ### Completion or interruption
 
@@ -611,7 +638,7 @@ Representative functions are:
 - display application and schema versions;
 - display runtime and driver availability;
 - open the diagnostic folder;
-- set application-wide Text Size from **80%** through **200%**, default **100%**.
+- select application-wide Text Size from one dropdown containing exactly **80%**, **100%**, **125%**, **150%**, **175%**, and **200%**, default **100%**. The 100% setting uses an approximately **22 px** body-text baseline.
 
 **Visuals** contains only Text Size. Settings does not expose any other visual or application preference.
 
@@ -781,7 +808,7 @@ Camera settings
 DAQ settings
 ```
 
-They apply immediately while valid, available, and idle.
+They apply immediately while valid and available when permitted by the ownership and arbitration rules. Camera acquisition restrictions remain in force while Camera is owned; supported DAQ Amplitude and Frequency edits may retune active continuous output immediately.
 
 ### 11.2 User-selectable run and workflow values
 
@@ -790,7 +817,9 @@ The following remain normal user selections rather than technical tuning paramet
 - Dataset;
 - a two-class or three-class Dataset schema, including switching a configured Dataset while preserving label consistency;
 - Class Names and labels;
-- Model Type: Faster or More Accurate;
+- Architecture: MobileNet or EfficientNet, with Faster or More Accurate supporting label;
+- Weights: ImageNet-pretrained or compatible OpenDSS droplet-trained checkpoint;
+- Train Compute Device: GPU selected by default or CPU selected explicitly, with requested and effective device recorded and unavailable requested GPU falling back to effective CPU;
 - Model and Active Model;
 - Trigger Every Droplet;
 - Hit Class;
@@ -798,7 +827,7 @@ The following remain normal user selections rather than technical tuning paramet
 - Physical DAQ Output for Sequence Test;
 - Record Full Image Sequence;
 - names, notes, Duration, and Save Location.
-- application-wide Text Size from 80% through 200%.
+- application-wide Text Size selected from exactly 80%, 100%, 125%, 150%, 175%, and 200%, default 100%.
 
 ### 11.3 Fixed qualified application configuration
 
@@ -811,7 +840,6 @@ The following are not user-editable in the first release:
 - internal tracking and synchronization timing;
 - training hyperparameters;
 - training split and seed;
-- manual CPU/GPU selection.
 
 The effective values or a versioned configuration identifier must still be recorded where needed for reproducibility.
 
@@ -825,7 +853,7 @@ The effective values or a versioned configuration identifier must still be recor
 | Image Sequence | Required | No | No | No |
 | Droplet Dataset Capture | Required | No | No | No |
 | Label | No | No | No | No |
-| Train | No | No | No | Optional automatic acceleration |
+| Train | No | No | No | GPU requested by default; CPU selectable; unavailable requested GPU falls back to effective CPU |
 | Model Test | No | No | Required | Optional automatic acceleration; CPU fallback |
 | Model Library | No | No | No | No |
 | Sequence Viewer | No | No | No | No |
@@ -839,9 +867,27 @@ The effective values or a versioned configuration identifier must still be recor
 
 No separate software arming state is added.
 
-- Send Test Pulse requires DAQ Ready.
+- Send Test Sine Wave requires DAQ Ready.
 - Live Sorting requires the factual technical prerequisites for its selected Trigger Every Droplet.
-- Sequence Test starts with Physical DAQ Output enabled and requires DAQ Ready unless the user disables output.
+- Sequence Test starts with Physical DAQ Output disabled. DAQ Ready is required only when the user enables physical output.
+- All physical DAQ output is sine-wave output. Operation-requested output is an **event-triggered finite sine wave** issued for an accepted `Decision = Hit`.
+- **Continuous configured waveform** is a shared Hardware > DAQ action on the same physical output channel used for event-triggered finite sine waves. It may start while Live or Sequence Test owns DAQ and runs until explicit Stop, application exit, DAQ disconnect, or DAQ fault.
+- While Continuous configured waveform is active, it has priority. Processing, classification, decision formation, and logging continue, but each otherwise-requested event-triggered finite sine wave is recorded as **suppressed / not issued** and discarded rather than queued.
+- After Continuous configured waveform stops, event-triggered finite sine waves resume only when DAQ Output is enabled and DAQ is Ready.
+- Continuous configured waveform stops and resets on its explicit Stop, application exit, DAQ disconnect, or DAQ fault, returning output to 0 V.
+- HardwareCoordinator owns one authoritative DAQ-output state; OperationCoordinator owns arbitration between the continuous waveform and operation-requested event-triggered finite sine waves.
+- Hardware > DAQ exposes these numeric settings:
+
+| Setting | Range and default | Meaning and applicability |
+|---|---|---|
+| **Amplitude** | 0–10 Vpp; default 5 Vpp; visual increment 1 Vpp | Centered at 0 V, with extrema `-Vpp/2` and `+Vpp/2`; applies to continuous, event-triggered, and test output. |
+| **Frequency** | 1–1000 kHz; default 10 kHz; visual increment 1 kHz | Applies to continuous, event-triggered, and test output. |
+| **Event Duration** | 1–500 ms; default 5 ms; visual increment 1 ms | Applies to event-triggered and test finite sine waves; does not limit continuous output. |
+| **Decision-to-trigger Delay** | 0–500 ms; default 0 ms; visual increment 1 ms | Measured from an accepted `Decision = Hit` to the start of its finite sine wave; does not apply to Send Test Sine Wave. |
+
+- Valid DAQ-setting changes apply immediately. During continuous output, supported Amplitude and Frequency edits retune immediately. If the qualified adapter cannot apply a requested value or live retune, OpenDSS rejects it with a direct explanation and retains the last applied value. Event Duration and Decision-to-trigger Delay changes affect only future, not-yet-issued event output.
+- Send Test Sine Wave uses the current applied Amplitude, Frequency, and Event Duration without Decision-to-trigger Delay. It creates no Run or event.
+- This authority synchronization does not implement or authorize a protected runtime change. Any change to qualified NI-DAQmx waveform, timing, rate-fallback, final-zero, cleanup, or routing mechanics requires a separate functional work order and the repository's protected-asset characterization, regression, performance, hardware-in-the-loop, justification, and rollback evidence.
 - OpenDSS Stop and fault handling are not safety-rated Emergency Stop functions and do not replace required physical safety controls.
 
 ---
@@ -1014,11 +1060,11 @@ A suitable ownership boundary is:
 | State or responsibility | Authoritative owner |
 |---|---|
 | Camera status and settings | HardwareCoordinator |
-| DAQ status and settings | HardwareCoordinator |
+| DAQ status, settings, and the single continuous/event-output state | HardwareCoordinator |
 | Active Model and model packages | ModelRegistry |
 | Current Dataset and label persistence | DatasetService |
 | Current Sequence and sequence loading | SequenceService |
-| Current long-running operation and resource locks | OperationCoordinator |
+| Current long-running operation, resource locks, and arbitration between continuous waveform and event-triggered finite sine waves | OperationCoordinator |
 | Training execution | TrainingService |
 | Run discovery and persisted Run data | RunRepository |
 | Storage and application-wide Text Size preferences | SettingsRepository |
@@ -1037,7 +1083,7 @@ This ownership table is an architecture constraint for the next phase, not a req
 | D-001 | Primary navigation | Domain navigation: Data / Models / Sort / Results / Settings | Retains domain-oriented top level |
 | D-002 | Physical DAQ arming | No separate software arming | Technical readiness remains the software prerequisite model |
 | D-003 | Post-training activation | Saved model automatically becomes Active | Retains automatic global activation |
-| D-004 | Model Test compute device | Optional GPU using Training's automatic policy; CPU fallback | GPU never blocks Model Test |
+| D-004 | Model Test compute device | Optional automatic GPU acceleration with CPU fallback | GPU never blocks Model Test |
 | D-005 | Observed Route | Add Unresolved | Prevents forced unsupported Hit/Waste observations |
 | D-006 | Sequence Test location | `Sort > Sequence Test` | Groups it with routing and optional physical output |
 | D-007 | Setup and Live | One Live workspace with pre-run and running states | Removes separate Sort Setup workspace |
@@ -1049,8 +1095,8 @@ This ownership table is an architecture constraint for the next phase, not a req
 | D-013 | Results scope | Runs only | Live Sorting and Sequence Test only |
 | D-014 | Capture composition | One shared live Camera preview with three fixed, independently collapsible right-panel sections; all headings always visible, none expanded by default, expanded bodies sharing space and scrolling independently, and active/result visibility preserved | Shared Capture layout |
 | D-015 | Advanced Training Parameters | Not editable | Qualified fixed configurations only |
-| D-016 | Settings application | Camera and DAQ only; immediate while available and idle | Shared shell-level hardware panel |
-| D-017 | Settings workspace | Retain reduced Settings | Storage, Application Information, Diagnostics, and Visuals; Visuals contains only application-wide Text Size from 80% through 200%, default 100%, owned by SettingsRepository preference state |
+| D-016 | Settings application | Camera and DAQ only; immediate while available and permitted by ownership/arbitration rules | Shared shell-level Hardware panel |
+| D-017 | Settings workspace | Retain reduced Settings | Storage, Application Information, Diagnostics, and Visuals; Visuals contains only the exact Text Size choices 80%, 100%, 125%, 150%, 175%, and 200%, default 100% at an approximately 22 px body baseline, owned by SettingsRepository preference state |
 | D-018 | Startup | Open Data > Capture every launch with all three Capture sections collapsed; no last-workspace memory | Fixed Capture workspace startup |
 | D-019 | Fault communication | Simple contextual communication | Disabled reason, one banner, direct recovery actions |
 
@@ -1072,7 +1118,7 @@ The later specification revision must, at minimum:
 10. Narrow Setup Profile content to hardware settings and run selections.
 11. Remove product-level legacy compatibility and migration requirements.
 12. Retain Results for Runs only.
-13. Retain a reduced Settings workspace for Storage, Application Information, Diagnostics, and Visuals; Visuals contains only application-wide Text Size from 80% through 200%, default 100%.
+13. Retain a reduced Settings workspace for Storage, Application Information, Diagnostics, and Visuals; Visuals contains only the exact Text Size choices 80%, 100%, 125%, 150%, 175%, and 200%, default 100% at an approximately 22 px body baseline.
 14. Define startup as `Data > Capture` on every launch, with all three Capture sections collapsed.
 15. Use simple contextual fault and recovery communication.
 16. Update all navigation paths, acceptance scenarios, and service responsibilities affected by these decisions.

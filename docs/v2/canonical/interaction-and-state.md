@@ -20,9 +20,9 @@ The July 23, 2026 UI/UX amendment controls the following interaction and state b
 
 ### 0.1 Startup, shell, and errors
 
-OpenDSS starts maximized at `Data > Capture`, attempts Camera connection automatically, and shows `Camera unavailable. Continue?` once per session only when no Camera is available. Yes continues without Camera; No closes OpenDSS. Restored size is never below 1600 × 900 and manual resizing preserves 16:9.
+OpenDSS starts maximized at `Data > Capture`, attempts Camera connection automatically, and shows `Camera unavailable. Continue?` once per session only when no Camera is available. This is a shell-global modal overlay above the entire shell and current workspace, with `Data > Capture` still selected beneath it. Yes continues without Camera and leaves ordinary unavailable status visible; No closes OpenDSS. Restored size is never below 1600 × 900, manual resizing is free to use any aspect ratio above that minimum, and content fills all available window space through the bottom.
 
-The header remains a single line. Each Camera, DAQ, Active Model, and Current Activity item has icon, text, value, readiness color, and a non-color readiness cue. The bottom-left Hardware panel overlays the workspace and is closed or locked when resource ownership prevents edits.
+The header remains a single line. Each Camera, DAQ, Active Model, and Current Activity item has icon, text, value, readiness color, and a non-color readiness cue. Hardware is docked at the bottom of the resizable left-navigation column, matches that column's width, expands upward when opened, and remains available subject to factual device readiness and operation arbitration.
 
 Ordinary workspace failure presentation is `Error`. Logs own technical details and remain reachable through Settings > Diagnostics. Retry and Open Folder are allowed only when directly useful; paths and success states appear only after confirmed success.
 
@@ -36,7 +36,7 @@ Ordinary workspace failure presentation is `Error`. Logs own technical details a
 
 ### 0.3 Active Model ownership and locks
 
-Model Test and Sequence Test consume the authoritative Active Model and expose no local Model selector. Library is the only path to Set Active. While Model Test, Live, or Sequence Test uses the Active Model, replacement, rename, deletion, package mutation, and Set Active are blocked with one direct reason.
+Model Test and Sequence Test consume the authoritative Active Model and expose no local Model selector. Library is the ordinary path to Set Active. While Model Test or Sequence Test uses the Active Model, replacement, rename, deletion, package mutation, and Set Active are blocked with one direct reason. Live is the explicit exception: its Active Model field remains editable while active, and a valid committed selection applies immediately through ModelRegistry and the effective-configuration-history contract; package mutation remains blocked while a package is in use.
 
 ### 0.4 Live decision, DAQ, and observed-route state
 
@@ -46,7 +46,7 @@ Model Test and Sequence Test consume the authoritative Active Model and expose n
 - DAQ Output OFF permits Start when all non-DAQ prerequisites pass and retains processing, detection, classification when applicable, tracking, event logging, Run creation, and persistence without physical output.
 - DAQ Output ON additionally requires DAQ Ready and sends physical output according to Decision.
 
-Hit boundary calibration owns `boundary_y`, `hit_side`, `image_width`, and `image_height`. `Top is Hit` maps −Y to Hit and +Y to Waste; `Bottom is Hit` reverses that mapping. The boundary affects Observed Route only, never Predicted Class, Decision, or DAQ output, and is editable only before Start.
+Hit boundary calibration owns `boundary_y`, `hit_side`, `image_width`, and `image_height`. `Top is Hit` maps −Y to Hit and +Y to Waste; `Bottom is Hit` reverses that mapping. The boundary affects Observed Route only, never Predicted Class, Decision, or DAQ output. During Live, its fields remain editable and valid committed changes apply immediately under the effective-configuration-history contract.
 
 ### 0.5 Sequence Test loading and timing
 
@@ -136,6 +136,8 @@ The diagrams do not define color, typography, iconography, animation, exact dime
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
+Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. This outer-panel composition is distinct from titled inner disclosure headers and does not change existing exported toggle aliases or wrapper ownership.
+
 ### 2.2 Primary navigation behavior
 
 - Selecting a primary item exposes its approved secondary items.
@@ -157,6 +159,8 @@ Data > Capture
 ```
 
 The application does not restore the previously open workspace. This startup rule does not clear separately persisted domain state such as the Active Model or storage preferences.
+
+If the camera is unavailable, the once-per-session `Camera unavailable. Continue?` prompt is a shell-global modal overlay above the entire shell and current workspace while `Data > Capture` remains selected beneath it. Yes continues without Camera; No closes OpenDSS.
 
 If the camera is unavailable at launch, the Capture preview remains present and displays:
 
@@ -261,7 +265,7 @@ Application State
 | State | Authoritative owner | Interaction consequence |
 |---|---|---|
 | Camera state and applied Camera settings | Hardware coordination domain | Header, panel, previews, and Camera-dependent enablement agree. |
-| DAQ state and applied DAQ settings | Hardware coordination domain | Header, panel, Send Test Pulse, Live, and Sequence Test agree. |
+| DAQ state and applied DAQ settings | Hardware coordination domain | Header, panel, Send Test Sine Wave, Live, and Sequence Test agree. |
 | Active Model and package metadata | Model registry domain | Header, Library, Live, Train completion, Model Test, and Sequence Test agree. |
 | Dataset content and label persistence | Dataset domain | Label, Train, and Model Test use the same class, crop-state, and readability result. |
 | Image Sequence loading | Sequence domain | Sequence Viewer and Sequence Test use the same v2 sequence interpretation. |
@@ -343,9 +347,9 @@ For Live and Sequence Test, a clean user Stop uses the completed post-operation 
 When a long-running operation is accepted:
 
 1. OpenDSS validates prerequisites.
-2. OpenDSS snapshots all effective user selections and fixed qualified configuration required for provenance.
+2. OpenDSS retains the initial snapshot of all effective user selections and fixed qualified configuration required for provenance.
 3. The operation owns the required resources.
-4. Later navigation, Setup Profile changes, idle settings, or Active Model changes that are allowed elsewhere do not alter the active operation.
+4. Later navigation, Setup Profile changes, or idle settings do not alter the active operation. Live is the explicit exception for valid committed changes to Active Model, Hit Class, Trigger Every Droplet, DAQ Output, and hit-boundary fields: each applies immediately, appends a timestamped effective-configuration identity, and is referenced by every affected event.
 
 ---
 
@@ -438,7 +442,7 @@ Double activation of Start shall not create duplicate operations or folders.
 | **Live** | Live camera preview | Inference, new DAQ output, and new event finalization | Continues the same Run and configuration snapshot. |
 | **Sequence Viewer** | Current frame display | Frame navigation | Retains the current frame position. |
 
-Camera and DAQ settings remain locked during an operation pause when that operation owns them.
+During an operation pause, Camera acquisition settings remain locked when Camera is owned. DAQ edits remain available only when the device is available and the explicit ownership and arbitration rules permit them; supported Amplitude and Frequency edits may retune active continuous output immediately.
 
 ### 4.8 Completion actions
 
@@ -492,38 +496,47 @@ Class definition, model naming, Run Notes editing, operation completion, and fau
 
 ---
 
-## 5. Shared Camera/DAQ hardware panel
+## 5. Shared Hardware Configuration panel
 
 ### 5.1 Low-fidelity panel
 
 ```text
-Header:  Camera: Streaming | DAQ: Ready | ...             [ Hardware ]
+Header:  Camera: Streaming | DAQ: Ready | ...
 
-                                              ┌─────────────────────────┐
-                                              │ HARDWARE                │
-                                              │                         │
-                                              │ Camera                  │
-                                              │ Status: <status>        │
-                                              │ <supported controls>    │
-                                              │                         │
-                                              │ DAQ                     │
-                                              │ Status: <status>        │
-                                              │ Output Channel [ ... ▼ ]│
-                                              │ <supported controls>    │
-                                              │                         │
-                                              │ [ Close ]               │
-                                              └─────────────────────────┘
+┌── resizable left navigation ──┐
+│ navigation                    │
+│                               │
+│ ┌───────────────────────────┐ │
+│ │ HARDWARE CONFIGURATION  ˄ │ │
+│ │ ▾ Camera                  │ │
+│ │ Status: <status>          │ │
+│ │ <supported controls>      │ │
+│ │ ▾ DAQ                     │ │
+│ │ Status: <status>          │ │
+│ │   Output Configuration    │ │
+│ │   Output Channel [ ... ▼ ]│ │
+│ │   Amplitude / Frequency   │ │
+│ │   Event Duration / Delay  │ │
+│ │   [ Start/Stop Continuous]│ │
+│ └───────────────────────────┘ │
+└───────────────────────────────┘
 ```
 
 `<supported controls>` means the actual qualified Camera or DAQ properties exposed by the integrated hardware adapter. The UI shall not add generic placeholder fields for unsupported properties.
 
+**Hardware Configuration** is the visible panel title, not an illustrative-mock label. **Camera** and **DAQ** are titled collapsible groups. **Output Configuration** is nested inside DAQ as a visually inset, bordered subordinate group and contains Output Channel, Amplitude, Frequency, Event Duration, Decision-to-trigger Delay, and one **Start Sine Wave** button. The DAQ form has no separate sine-wave heading, status subsection, or explanatory paragraph. This hierarchy is visual/product authority; actual clickable group collapse must use the existing DESIGN/FUNCTIONAL seam and does not authorize new runtime handlers. The form exports `cameraSectionHeadingButton`, `cameraSectionExpanded`, `daqSectionHeadingButton`, and `daqSectionExpanded`; functional wrapper code owns the two click-to-toggle connections.
+
+The Hardware panel opens at a compact design-token height. Its upper boundary is directly adjustable vertically within the left-navigation column, subject to bounded minimum and maximum heights. Content scrolls when it exceeds the selected height. The selected height is session-local, resets on application launch, and is not persisted.
+
 ### 5.2 Open and close behavior
 
-- The header's **Hardware** action opens or closes the shell-owned panel.
+- The panel's right-aligned chevron opens or closes the shell-owned panel.
 - Ordinary open/closed presentation may remain stable while navigating during the current session.
 - The panel does not define a separate workspace or navigation item.
 - The global status header remains visible while the panel is open.
-- During Live Starting, Running, Paused, and Stopping, the panel closes and the Hardware action is disabled.
+- The panel is docked at the bottom of the resizable left-navigation column, matches that column's width, expands upward within it, and has no visible redundant Close action.
+- The user may resize the open panel vertically within its bounds without changing device state; overflow content scrolls.
+- During Live and Sequence Test, the panel remains available under the explicit Camera-lock and DAQ-arbitration rules.
 
 ### 5.3 Immediate-apply behavior
 
@@ -554,8 +567,8 @@ If the device rejects the change:
 | **Idle and available** | Section visible and enabled. | Valid edits apply immediately. | None. |
 | **Unavailable** | Section visible with status. | All controls in that device section disabled. | **Camera unavailable** or **DAQ unavailable**. |
 | **Owned by non-Live operation** | Panel may open. Owned section is read-only; unowned available section remains editable. | No change to the owned device. | **Camera settings are locked while Image Sequence recording is active**, or equivalent. |
-| **Live active or paused** | Panel closed; Hardware action disabled. | No Camera or DAQ edit. | **Hardware settings are locked while sorting is active** or **The current Run is paused**. |
-| **Starting or Stopping** | Same lock as the owning operation. | No owned-device edit. | Operation-specific starting/stopping reason. |
+| **Live active or paused** | Panel remains docked and may open. | Camera acquisition fields remain locked. Continuous configured waveform may start or stop; other permitted DAQ edits follow immediate apply. | Invalid or unavailable actions show their direct factual reason. |
+| **Starting or Stopping** | Panel remains docked. | Controls that cannot safely change in that transition are disabled; the single DAQ-output state remains factual. | Operation-specific starting/stopping reason. |
 
 ### 5.5 Ownership effects
 
@@ -563,8 +576,22 @@ If the device rejects the change:
 - Live owns Camera and DAQ.
 - Sequence Test owns DAQ only when Physical DAQ Output is enabled.
 - Training and Model Test own neither hardware device; the panel remains available.
+
+### 5.6 Continuous configured waveform arbitration
+
+- All physical DAQ output is sine-wave output. Operation-requested output is an event-triggered finite sine wave issued for an accepted `Decision = Hit`.
+- Continuous configured waveform is a shared Hardware > DAQ action on the same physical output channel as event-triggered finite sine waves.
+- It may start while Live or Sequence Test owns DAQ.
+- While active, it has priority. Processing, classification, decisions, and logging continue, but every otherwise-requested event-triggered finite sine wave is recorded as **suppressed / not issued** and discarded rather than queued.
+- Event-triggered output resumes after it stops only when DAQ Output is enabled and DAQ is Ready.
+- Its explicit Stop, application exit, DAQ disconnect, or DAQ fault stops and resets it, returning the output to 0 V.
+- HardwareCoordinator owns one authoritative DAQ-output state; OperationCoordinator owns arbitration with operation-requested event-triggered finite sine waves.
+- Hardware > DAQ exposes Amplitude from 0–10 Vpp (default 5 Vpp, centered at 0 V with extrema `-Vpp/2` and `+Vpp/2`, increment 1 Vpp), Frequency from 1–1000 kHz (default 10 kHz, increment 1 kHz), Event Duration from 1–500 ms (default 5 ms, increment 1 ms), and Decision-to-trigger Delay from 0–500 ms (default 0 ms, increment 1 ms).
+- Amplitude and Frequency apply to continuous, event-triggered, and test sine output. Event Duration applies to event-triggered and test finite sine waves, not continuous output. Decision-to-trigger Delay is measured from accepted `Decision = Hit` and applies only to decision-triggered output.
+- Valid changes apply immediately. Supported Amplitude and Frequency edits retune active continuous output immediately. If the adapter cannot apply a requested value or live retune, the edit is rejected with a direct explanation and the last applied value remains active. Event Duration and Decision-to-trigger Delay changes apply only to future, not-yet-issued event output.
 - Sequence Viewer, Label, Library, Results, and Settings own neither device.
-- Send Test Pulse briefly uses the DAQ but does not create a Run or occupy the long-running-operation slot.
+- Send Test Sine Wave uses current Amplitude, Frequency, and Event Duration without Decision-to-trigger Delay. It briefly uses the DAQ but creates no Run or event and does not occupy the long-running-operation slot.
+- This authority synchronization does not implement or authorize changes to protected NI-DAQmx mechanics; a separate functional work order and the repository's protected-asset characterization, regression, performance, hardware-in-the-loop, justification, and rollback evidence remain required.
 
 ### 5.6 Prohibited panel content
 
@@ -965,15 +992,17 @@ Models > Train
 
 ┌────────────────────────────────────────────┬───────────────────────────┐
 │ DATASET SUMMARY                            │ TRAINING SETUP            │
-│ Dataset: <name> [ Select Dataset ]         │ Model Type                │
-│ Classes: 2 or 3                            │ ( ) Faster                │
-│ Class 0: <name> — <eligible count>         │ ( ) More Accurate         │
-│ Class 1: <name> — <eligible count>         │                           │
-│ Class 2: <name> — <eligible count>         │ Compute Device            │
-│                                            │ <GPU or CPU, automatic>   │
+│ Dataset: <name> [ Select Dataset ]         │ Architecture              │
+│ Classes: 2 or 3                            │ MobileNet — Faster        │
+│ Class 0: <name> — <eligible count>         │ EfficientNet — More Accurate │
+│ Class 1: <name> — <eligible count>         │                          │
+│ Class 2: <name> — <eligible count>         │                          │
+│                                            │ Weights [ value ▼ ]       │
+│                                            │ Compute Device            │
+│                                            │ [ GPU ▼ ]                 │
+│                                            │ Effective: <GPU or CPU>   │
 │                                            │                           │
-│                                            │ Split: 70 / 15 / 15       │
-│                                            │ Seed: 1729                │
+│                                            │                           │
 │                                            │ Model Name [________]     │
 │                                            │ Save Location [____] [...]│
 │                                            │                           │
@@ -982,6 +1011,7 @@ Models > Train
 ```
 
 There is no Advanced Training Parameters section or expansion control.
+The fixed seed is omitted from the normal Train presentation but remains recorded in model metadata. Compute Device is a normal Train selector with GPU selected by default and CPU available; it is not a hyperparameter. Requested and effective devices are displayed and recorded.
 
 ### 9.2 Running layout
 
@@ -989,7 +1019,8 @@ There is no Advanced Training Parameters section or expansion control.
 ┌────────────────────────────────────────────┬───────────────────────────┐
 │ TRAINING METRICS                           │ TRAINING STATUS           │
 │ Training/Validation Loss plot              │ Status: Running           │
-│ Validation Accuracy plot                   │ Device: <GPU or CPU>      │
+│ Validation Accuracy plot                   │ Requested: <GPU or CPU>   │
+│                                            │ Effective: <GPU or CPU>   │
 │                                            │ Elapsed: <time>           │
 │                                            │ Estimated Remaining: <t> │
 │                                            │ Epoch: <n> of <n>         │
@@ -1016,10 +1047,12 @@ Active Model: <name>
 - The Dataset selector loads one v2 Dataset through the authoritative Dataset contract.
 - Only Labeled Droplet Crops are eligible.
 - Image counts are factual; no class-balance warning is shown.
-- Model Type requires Faster or More Accurate.
+- Architecture requires MobileNet or EfficientNet; **MobileNet — Faster** and **EfficientNet — More Accurate** appear on one line, with Faster and More Accurate rendered smaller and lighter.
+- Weights requires ImageNet-pretrained or a technically compatible bundled/user-added OpenDSS droplet-trained checkpoint identified by Model Package identity and checksum.
+- Incompatible, missing, unreadable, or checksum-mismatched checkpoints are rejected with a direct reason while the last valid selection remains active.
 - Split 70/15/15 and seed 1729 are displayed as read-only facts or concise supporting information.
-- Device selection is automatic. GPU availability selects GPU; otherwise CPU is used.
-- Start locks Dataset, Model Type, Model Name, and Save Location and occupies the global operation slot.
+- A GPU request uses qualified GPU when available and otherwise falls back to effective CPU with a direct explanation. A CPU request stays on CPU and is never promoted automatically.
+- Start locks Dataset, Architecture, Weights, Compute Device, Model Name, and Save Location and occupies the global operation slot.
 - Stop Training ends processing and does not create a normal completed Model Package.
 - Low accuracy, model collapse, or one dominant Predicted Class does not prevent automatic save when required artifacts exist.
 - Final save occurs automatically at the preselected name and location.
@@ -1131,8 +1164,9 @@ No OpenDSS v2 Model Packages found.
 │ MODEL PACKAGES                             │ SELECTED MODEL            │
 │                                            │ Name: <name>              │
 │ ● <active model>                           │ Active: Yes / No          │
-│   <model 2>                                │ Model Type: <value>       │
-│   <model 3>                                │ Classes: <2 or 3>         │
+│   <model 2>                                │ Architecture: <value>     │
+│   <model 3>                                │ <Faster/More Accurate>    │
+│                                            │ Classes: <2 or 3>         │
 │                                            │ Class IDs and Names       │
 │                                            │ Source Dataset            │
 │                                            │ Creation Date             │
@@ -1208,7 +1242,7 @@ Sort > Live
 │                                            │ [ ] Record Full Image     │
 │                                            │     Sequence              │
 │                                            │                           │
-│                                            │ [ Send Test Pulse ]       │
+│                                            │ [ Send Test Sine Wave ]   │
 │                                            │ [ Start Sorting ]         │
 └────────────────────────────────────────────┴────────────────────────────┘
 ```
@@ -1260,12 +1294,13 @@ The interface does not use the ambiguous term Hit Channel.
 - An unsupported schema is not partially interpreted; current valid configuration remains unchanged.
 - No Import, Export, Delete, or managed profile list appears.
 
-### 12.4 Send Test Pulse
+### 12.4 Send Test Sine Wave
 
-- Send Test Pulse requires DAQ Ready and current applied DAQ settings.
-- It is disabled while another operation owns DAQ.
+- Send Test Sine Wave requires DAQ Ready and current applied Amplitude, Frequency, and Event Duration.
+- It remains a discrete action and does not start Continuous configured waveform.
+- It is disabled when DAQ is unavailable, settings are invalid, or continuous waveform output has priority.
 - It may be used by the normal user.
-- It issues one pulse and creates no Run or Droplet Log event.
+- It issues one finite sine wave without Decision-to-trigger Delay and creates no Run or Droplet Log event.
 - It does not constitute a software arming state or safety-rated Emergency Stop function.
 
 ### 12.5 Start enablement
@@ -1291,10 +1326,11 @@ STARTING
     ├── create Run ID and folder
     ├── write initial run_summary.json
     ├── open recoverable Droplet Log
-    ├── snapshot effective configuration
-    ├── lock Camera, DAQ, selected model, Run output, and global slot
-    ├── close Hardware panel
-    └── replace configuration panel with monitor
+    ├── retain initial effective-configuration snapshot
+    ├── lock Camera acquisition, Run output, and global slot
+    ├── retain editable Active Model, Hit Class, Trigger Every Droplet,
+    │   DAQ Output, and hit-boundary fields
+    └── keep docked Hardware available under DAQ arbitration
     ▼
 RUNNING
 ```
@@ -1312,6 +1348,7 @@ The transition occurs inside the same Live workspace without navigation.
 │                                            │ Active Model: <value>      │
 │                                            │ Hit Class: <value>         │
 │                                            │ Hit boundary calibration: <value>│
+│                                            │ Effective config: <id>     │
 │                                            │                            │
 │                                            │ Total Droplets: <count>    │
 │                                            │ Predicted Class 0: <count> │
@@ -1342,7 +1379,8 @@ When no model is used, Predicted Class and Inference Time fields that depend on 
   - Decision Hit/Waste;
   - Observed Route Hit/Waste/Unresolved.
 - Optional nonpersistent preview overlays may appear only if implemented without adding controls or changing saved source files.
-- The Hardware action remains disabled and the panel remains closed.
+- Active Model, Hit Class, Trigger Every Droplet, DAQ Output, and hit-boundary fields remain editable. Each valid committed change applies immediately, appends a timestamped effective-configuration identity while retaining the initial snapshot, and is referenced by every affected event.
+- The docked Hardware panel remains available. Continuous configured waveform follows Section 5.6.
 
 ### 12.9 Paused layout
 
@@ -1357,7 +1395,7 @@ No inference, new DAQ output, or new event finalization occurs.
 [ Resume ]  [ Stop ]
 ```
 
-The configuration snapshot, Camera lock, DAQ lock, model use lock, Run output ownership, and global operation slot remain held.
+The initial configuration snapshot, effective-configuration history, Camera lock, Run output ownership, and global operation slot remain held. The approved Live fields and docked Hardware panel remain editable under Sections 3.7 and 5.6.
 
 ### 12.10 Stopping and finalization
 
@@ -1424,15 +1462,17 @@ Sort > Sequence Test
 ┌────────────────────────────────────────────┬────────────────────────────┐
 │ SOURCE AND PROCESSING SUMMARY               │ SEQUENCE TEST SETUP        │
 │ Active Model: <name/none>                   │ Trigger Every Droplet [OFF]│
-│ [ Load Sequence ] <name>                    │ Hit Class [ class ▼ ]      │
+│ [ Load Sequence ][ Load to Memory ]         │ Hit Class [ class ▼ ]      │
 │ First-frame preview                         │ Processing FPS [____]      │
 │ Frames / recorded FPS                       │ [ ] Physical DAQ Output    │
 │ Available memory / buffer size              │ Save Location [____] [...] │
-│ [ Load to Memory ] <load status>            │ [ Start ] [ Stop ]         │
+│ <selected name / load status>               │ [ Start ] [ Stop ]         │
 └────────────────────────────────────────────┴────────────────────────────┘
 ```
 
 Physical DAQ Output is unchecked when a new Sequence Test setup is initialized.
+
+In the current right-panel composition, **Load Sequence** and **Load to Memory** share one row and each occupies half of the available content width. Selection and memory-loading semantics remain sequential even though the controls share a row.
 
 ### 13.2 Conditional behavior
 
@@ -1506,10 +1546,12 @@ Results > Runs
 ┌──────────────────────────────────────────────────────────────────────┐
 │ LOADED RUN DETAIL                         │ RUNS                       │
 │ <identity/status/count groups/matrix>      │ <selected row>             │
-│ <notes/file actions/collapsed provenance> │ <row>                      │
+│ <notes/file actions/factual artifact data>│ <row>                      │
 │                                            │ [ Load ]                   │
 └────────────────────────────────────────────┴────────────────────────────┘
 ```
+
+No separate visible **Provenance ›** disclosure row is shown. Stored scientific provenance and artifact facts remain available in their applicable factual groups and persisted artifacts.
 
 The list contains Live Sorting and Sequence Test Runs only.
 
@@ -1587,6 +1629,9 @@ Settings
 │ DIAGNOSTICS                                                          │
 │ Diagnostic Folder: <path>                                            │
 │ [ Open Diagnostic Folder ]                                           │
+│                                                                      │
+│ VISUALS                                                              │
+│ Text Size [ 100% ▼ ]                                                 │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1598,6 +1643,7 @@ Settings
 - Open Data Root and Open Diagnostic Folder invoke Windows Explorer.
 - Application and runtime information is read-only.
 - Camera and DAQ settings do not appear in Settings; they remain in the hardware panel.
+- Text Size is one dropdown containing exactly 80%, 100%, 125%, 150%, 175%, and 200%. The default is 100%, with an approximately 22 px body-text baseline.
 - No detector, crop, routing, timing, training, cloud, account, telemetry, update, or legacy-migration controls appear.
 
 ---
@@ -1612,11 +1658,11 @@ The reason sequences below are evaluated from left to right; the first applicabl
 | **Start Recording** | Global slot free; Camera Streaming; sequence location writable. | `Another operation is active` → `Camera unavailable` → `Output folder is not writable`. |
 | **Start Droplet Dataset Capture** | Global slot free; Camera Streaming; fixed processing configuration loadable; Dataset location writable. | `Another operation is active` → `Camera unavailable` → `Processing configuration unavailable` → `Output folder is not writable`. |
 | **Assign Class** | Dataset loaded and writable; not R-locked; at least one applicable crop selected; class definition exists. | `Dataset is in use by Training/Model Test` → `No Dataset selected` → `No Droplet Crop selected` → `Number of Classes not selected`. |
-| **Start Training** | Global slot free; Dataset selected/readable; Labeled crops exist/readable; Model Type, Model Name, and Save Location valid; training runtime available; temporary/final output writable. | `Another operation is active` → `No dataset selected` → `No Labeled Droplet Crops` → `Required Droplet Crop is missing` → `No Model Type selected` → `No Model Name entered` → `Save location is not writable` → `Training environment unavailable`. |
+| **Start Training** | Global slot free; Dataset selected/readable; Labeled crops exist/readable; Architecture, compatible Weights, Model Name, and Save Location valid; training runtime available; temporary/final output writable. | `Another operation is active` → `No dataset selected` → `No Labeled Droplet Crops` → `Required Droplet Crop is missing` → `No Architecture selected` → `No compatible Weights selected` → `No Model Name entered` → `Save location is not writable` → `Training environment unavailable`. |
 | **Retry Save** | Training completed; temporary artifacts retained; prior automatic save failed; destination now writable. | `No completed temporary artifacts` → `Save location is not writable`. |
 | **Start Model Test** | Global slot free; Active Model and Dataset available/readable; same class count; eligible Labeled crops readable; output writable; automatic GPU or CPU device available. | `Another operation is active` → `No Active Model` → `No dataset selected` → factual class-count mismatch → `No Labeled Droplet Crops` → `Required Droplet Crop is missing` → `Model Test runtime unavailable` → `Output folder is not writable`. GPU absence alone is never a reason. |
 | **Set Active** | Valid nonactive model selected; package not locked; current Active Model not locked against replacement. | `No Active Model` → `Selected model is already Active` → `Model is in use by <operation>`. |
-| **Send Test Pulse** | DAQ Ready; current DAQ settings valid; DAQ unowned. | `DAQ is in use by <operation>` → `DAQ unavailable` → `DAQ settings are invalid`. |
+| **Send Test Sine Wave** | DAQ Ready; current Amplitude, Frequency, and Event Duration valid; continuous waveform not active. | `Continuous waveform has priority` → `DAQ unavailable` → `DAQ settings are invalid`. |
 | **Open Profile** | Live is in pre-run. A locked or unavailable device does not prevent inspection; its profile values simply remain unapplied and are identified directly. | `Sorting is active`. File-schema errors appear after selection. |
 | **Start Sorting** | Global slot free; Camera Streaming; hit boundary selected; Run location writable; Class-Based also has loadable Active Model and Hit Class; DAQ Ready only when DAQ Output is ON. | `Another operation is active` → `Camera unavailable` → `No active model` when Class-Based → `No Hit Class selected` when Class-Based → `No hit boundary selected` → `DAQ unavailable` only when DAQ Output is ON → `Output folder is not writable`. |
 | **Start Sequence Test** | Global slot free; v2 sequence selected/readable; Trigger Every Droplet and Hit boundary calibration selected; Class-Based has compatible model and Hit Class; DAQ Ready when physical output checked; Run location writable. | `Another operation is active` → `No sequence selected` → `Unsupported OpenDSS v2 sequence` → `No Trigger Every Droplet selected` → `No Active Model` when Class-Based → `No Hit Class selected` when Class-Based → `No Hit boundary calibration selected` → `DAQ unavailable` when physical output checked → `Output folder is not writable`. |
@@ -1678,7 +1724,7 @@ Contextual links perform two actions only: navigate to the approved destination 
 | Source | Link | Destination | Preselection and resulting state |
 |---|---|---|---|
 | Droplet Dataset Capture Completed/Interrupted with recoverable Dataset | **Open in Label** | Data > Label | Selects the `dataset.json`; destination becomes Ready or Unavailable based on the same Dataset loader. |
-| Label | **Use in Train** | Models > Train | Selects the current Dataset; Model Type remains a separate user selection. |
+| Label | **Use in Train** | Models > Train | Selects the current Dataset; Architecture and compatible Weights remain separate user selections. |
 | Train after successful Model save | **Open in Model Test** | Models > Model Test | Selects the new Model Package; the source Dataset may remain selected when still available. |
 | Model Library | **Open in Model Test** | Models > Model Test | Selects the current Model Package without changing Active Model. |
 | Image Sequence Completed | **Open in Sequence Viewer** | Data > Sequence Viewer | Selects the completed `sequence.json` and displays its first frame. |
@@ -1697,7 +1743,7 @@ No handoff starts the destination operation, creates a project, prevents direct 
 | Camera unavailable before capture or Live Start | Do not start; keep preview region. | **Camera unavailable** beside disabled action. | Restore Camera; no modal. |
 | Camera disconnect during Image Sequence or Droplet Dataset Capture | Stop acquisition; flush recoverable writes; finalize metadata if possible. | `<operation> interrupted. The camera disconnected. <preservation result>.` | Open Sequence/Dataset when recoverable; Open Folder. |
 | Camera disconnect during Live | Stop inference and new DAQ commands; flush Run data. | **Live Sorting interrupted. The camera disconnected.** | Open Run Summary/Folder; Start New Run after recovery. |
-| DAQ unavailable before Live or physical-output Sequence Test | Do not start or pulse. | **DAQ unavailable**. | Restore DAQ; Sequence Test may explicitly disable physical output. |
+| DAQ unavailable before Live or physical-output Sequence Test | Do not start or issue a sine wave. | **DAQ unavailable**. | Restore DAQ; Sequence Test may explicitly disable physical output. |
 | DAQ fault during Live or physical-output Sequence Test | Stop new DAQ output and interrupt/fail operation; flush Run data. | Direct DAQ reason and preservation result. | Open Run Summary/Folder; retry after DAQ recovery. |
 | Model/Dataset class-count mismatch in Model Test | Do not start. | **The selected model has 2 output classes, but the selected Dataset defines 3 classes**, or converse. | Select compatible model or Dataset. |
 | Unsupported v2 schema | Do not partially load; preserve current valid selection. | **Unsupported OpenDSS v2 schema** with selected path when useful. | Select another artifact; Open Folder when useful. |
@@ -1715,6 +1761,7 @@ A hardware or persistence fault is communicated once in the relevant workspace. 
 ### 20.1 Shell and state
 
 - Every launch opens Data > Capture with all three Capture sections collapsed.
+- The once-per-session Camera-unavailable choice is a shell-global modal overlay above the entire shell and current workspace; Capture remains selected beneath it, Yes continues without Camera with ordinary unavailable status still visible, and No closes OpenDSS.
 - The header, panel, workspace, and disabled actions agree on Camera, DAQ, Active Model, and current operation state.
 - Navigation during a long-running operation does not stop it or create another owner.
 - Returning to the owning workspace restores its current state and controls.
@@ -1733,7 +1780,7 @@ A hardware or persistence fault is communicated once in the relevant workspace. 
 - Label supports two and three classes with stable Class IDs and editable Class Names.
 - Skip, Remove from Dataset, Restore, relabel, bulk label, and Undo are available without quality judgments.
 - Training exposes Faster and More Accurate only; no Advanced Training Parameters appear.
-- Training and Model Test select GPU automatically when compatible and otherwise use CPU.
+- Training exposes GPU-default/CPU-selectable Compute Device and records requested/effective device; an unavailable GPU request falls back to CPU with a direct explanation, while a CPU request stays CPU. Model Test continues to select GPU automatically when compatible and otherwise uses CPU.
 - Model Test permits the source Dataset without warning and blocks only class-count incompatibility and other technical faults.
 - Successful model save makes that model Active.
 
@@ -1771,7 +1818,7 @@ The low-fidelity design shall not contain or imply:
 - editable routing-algorithm settings;
 - editable internal timing settings;
 - Advanced Training Parameters;
-- CPU/GPU selection controls;
+- CPU/GPU selection controls outside the approved Train Compute Device selector;
 - confidence-threshold controls;
 - scientific quality gates or class-balance warnings;
 - model approval, candidate, rejected, promoted, or certified states;
@@ -1798,7 +1845,7 @@ The low-fidelity design shall not contain or imply:
 | **PM §4 — Approved primary navigation** | Shell navigation, no Home, startup workspace, and contextual rather than mandatory handoffs. |
 | **PM §5 — Global application shell** | Status header, workspace regions, shell-owned Camera/DAQ panel, immediate apply, and locking. |
 | **PM §§7.1–7.3 — Capture, Label, Sequence Viewer** | Sections 6–8 low-fidelity layouts and interaction behavior. |
-| **PM §§7.4–7.6 — Train, Model Test, Library** | Sections 9–11, including no Advanced Training Parameters and automatic GPU/CPU behavior. |
+| **PM §§7.4–7.6 — Train, Model Test, Library** | Sections 9–11, including no Advanced Training Parameters, the GPU-default/CPU-selectable Train Compute Device, and automatic Model Test GPU/CPU behavior. |
 | **PM §7.7 — Sort > Live** | Section 12 pre-run, start transition, running, paused, and post-operation presentations. |
 | **PM §7.8 — Sort > Sequence Test** | Section 13 placement, optional physical output, trigger modes, and Run creation. |
 | **PM §§7.9–7.10 — Results and Settings** | Sections 14–15 Runs-only review and reduced Settings. |
@@ -1817,12 +1864,12 @@ The low-fidelity design shall not contain or imply:
 | **WF §10 — Default storage** | Default folders, user-selected writable locations, timestamp fallback, and ordinary file ownership. |
 | **WF §§11–13 — Capture workflows** | Single Image fields/output, Image Sequence Duration/Pause/frames, Droplet Dataset Capture counts/artifacts/recovery. |
 | **WF §14 — Label** | Dataset selection, two/three classes, stable IDs, Class Names, bulk actions, Skip, Remove, Restore, Undo, Image Counts, and atomic save. |
-| **WF §15 — Train** | Faster/More Accurate, fixed split/seed, automatic device, metrics, Stop, model package, and automatic activation, as amended to remove Advanced Parameters. |
+| **WF §15 — Train** | MobileNet/Faster or EfficientNet/More Accurate Architecture, compatible Weights, fixed split/seed, GPU-default/CPU-selectable Compute Device with requested/effective status, metrics, Stop, model package, and automatic activation. Compute Device is not a hyperparameter. |
 | **WF §16 — Model Test** | Model/Dataset selection, source-Dataset permission, class-count blocking, metrics, confusion matrix, and predictions CSV, as amended for GPU fallback. |
 | **WF §17 — Model Library** | Set Active, Import, Export, Duplicate, Rename, Delete, metadata, and package-use protection. |
 | **WF §18 — Sequence Viewer** | Supported inputs, frame-navigation controls, no hardware, no DAQ output. |
 | **WF §19 — Sequence Test** | Trigger Every Droplets, explicit physical output, maximum-rate processing, no Camera, event logging, and Run creation, as relocated under Sort and amended for Unresolved. |
-| **WF §§20–21 — Sorting setup and Live** | Run fields, Hit Class, Hit boundary calibration, test pulse, optional full sequence, event flow, Pause, Stop, counters, persistence, and fault stop, consolidated into Live. |
+| **WF §§20–21 — Sorting setup and Live** | Run fields, Hit Class, Hit boundary calibration, test sine wave, optional full sequence, Live event flow, Pause, Stop, counters, persistence, and fault stop, consolidated into Live. |
 | **WF §22 — Results** | Run list, Run Summary, Notes, file actions, and Decision-versus-Observed Route presentation, amended for Unresolved. |
 | **WF §§24–30 — File contracts** | Canonical v2 files and artifact-selection interactions. |
 | **WF §§31–34 — Persistence, recovery, errors** | Background writes, flush points, partial files, atomic JSON, crash recovery, direct errors, and no false success. |
@@ -1865,7 +1912,7 @@ Those activities must preserve this specification, the approved information arch
 - **WF §§11–14 — Data workflows:** Single Image, Image Sequence, Droplet Dataset Capture, and Label behavior and artifacts. fileciteturn0file0L510-L1028
 - **WF §§15–17 — Model workflows:** Training, Model Test, and Model Library requirements retained where not superseded by the approved model. fileciteturn0file0L1034-L1469
 - **WF §§18–19 — Sequence review and testing:** Sequence Viewer, Trigger Every Droplets, optional physical DAQ output, processing, and Run creation. fileciteturn0file0L1473-L1657
-- **WF §§20–22 — Sorting and Results:** run fields, Hit Class, Hit boundary calibration, Send Test Pulse, Live actions/counters/faults, and Run review. fileciteturn0file0L1661-L2259
+- **WF §§20–22 — Sorting and Results:** run fields, Hit Class, Hit boundary calibration, Send Test Sine Wave, Live actions/counters/faults, and Run review. fileciteturn0file0L1661-L2259
 - **WF §§23–30 — Settings and file contracts:** Settings requirements and canonical Dataset, Sequence, Model, Run, Droplet Log, and Setup Profile contracts as amended by the approved model. fileciteturn0file0L2263-L2680
 - **WF §§31–34 — Persistence, recovery, and errors:** background writes, flush points, atomic JSON, crash recovery, and plain-language errors. fileciteturn0file0L2684-L2829
 - **WF §§35–43 — Launch, camera-free use, provenance, nonfunctional requirements, and exclusions:** offline startup, hardware-free workspaces, reproducibility, responsiveness, integrity, and first-release boundaries. fileciteturn0file0L2833-L3032

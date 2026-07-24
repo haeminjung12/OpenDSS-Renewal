@@ -265,7 +265,12 @@ Item {
     Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { state.loadSelectedRun() } }
     Connections { target: screen.runsWorkspace.editNotesButton; function onClicked() { state.editRunNotes() } }
     Connections { target: screen.runsWorkspace.saveNotesButton; function onClicked() { state.finishRunNotesEditing() } }
-    Connections { target: screen.settingsWorkspace.textSizeSlider; function onMoved() { state.setTextSizePercent(screen.settingsWorkspace.textSizeSlider.value) } }
+    Connections {
+        target: screen.settingsWorkspace.textSizeSelector
+        function onActivated() {
+            state.setTextSizePercent([80, 100, 125, 150, 175, 200][screen.settingsWorkspace.textSizeSelector.currentIndex])
+        }
+    }
     Connections { target: screen.runsWorkspace.cancelNotesButton; function onClicked() { state.finishRunNotesEditing() } }
 
     Connections {
@@ -291,6 +296,8 @@ Item {
     Connections { target: screen.singleImageSection.headingButton; function onClicked() { state.toggleSingleImage() } }
     Connections { target: screen.imageSequenceSection.headingButton; function onClicked() { state.toggleImageSequence() } }
     Connections { target: screen.datasetCaptureSection.headingButton; function onClicked() { state.toggleDataset() } }
+    Connections { target: screen.cameraSectionHeadingButton; function onClicked() { screen.cameraSectionExpanded = !screen.cameraSectionExpanded } }
+    Connections { target: screen.daqSectionHeadingButton; function onClicked() { screen.daqSectionExpanded = !screen.daqSectionExpanded } }
 
     Connections {
         target: screen.cameraPromptYesButton

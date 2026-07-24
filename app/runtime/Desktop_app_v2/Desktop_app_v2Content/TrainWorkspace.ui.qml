@@ -1,3 +1,4 @@
+pragma ComponentBehavior: Bound
 /* This is a UI file (.ui.qml) intended for Qt Design Studio editing. */
 import QtQuick
 import QtQuick.Controls
@@ -48,7 +49,8 @@ Rectangle {
         Text { text: qsTr("Training stopped"); visible: root.showInterrupted; color: Constants.warningColor; font: Constants.headingFont }
     }
 
-    Row {
+    SplitView {
+        font: Constants.font
         anchors.top: headingColumn.bottom
         anchors.topMargin: Constants.spacing
         anchors.bottom: parent.bottom
@@ -57,11 +59,9 @@ Rectangle {
         anchors.leftMargin: Constants.workspaceMargin
         anchors.rightMargin: Constants.workspaceMargin
         anchors.bottomMargin: Constants.workspaceMargin
-        spacing: Constants.spacing
 
         Item {
-            width: parent.width - operationPanel.width - parent.spacing
-            height: parent.height
+            SplitView.fillWidth: true
 
             Rectangle {
                 id: datasetSummary
@@ -93,11 +93,36 @@ Rectangle {
                     anchors.margins: Constants.spacing * 2
                     spacing: Constants.spacing
                     Text { text: qsTr("Results"); font: Constants.headingFont }
-                    Row {
+                    Flow {
                         width: parent.width
+                        height: childrenRect.height
                         spacing: Constants.spacing
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 76; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Training Loss / Validation Loss") } }
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 76; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Validation Accuracy") } }
+                        Rectangle {
+                            width: parent.width >= Math.round(760 * Constants.textScale) ? (parent.width - parent.spacing) / 2 : parent.width
+                            height: Math.round(180 * Constants.textScale)
+                            color: Constants.backgroundColor
+                            border.color: Constants.borderColor
+                            Text { text: qsTr("Training Loss / Validation Loss"); font: Constants.headingFont; width: parent.width - Constants.spacing * 2; wrapMode: Text.WordWrap; anchors.top: parent.top; anchors.left: parent.left; anchors.margins: Constants.spacing }
+                            Rectangle { width: 1; color: Constants.mutedTextColor; anchors.top: parent.top; anchors.topMargin: Constants.spacing * 4; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.spacing * 2; anchors.left: parent.left; anchors.leftMargin: Constants.spacing * 3 }
+                            Rectangle { height: 1; color: Constants.mutedTextColor; anchors.left: parent.left; anchors.leftMargin: Constants.spacing * 3; anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.spacing * 2 }
+                            Column { anchors.fill: parent; anchors.topMargin: Constants.spacing * 5; anchors.leftMargin: Constants.spacing * 3; anchors.rightMargin: Constants.spacing; anchors.bottomMargin: Constants.spacing * 2; spacing: Math.max(8, height / 4)
+                                Repeater { model: 3; Rectangle { required property int index; width: parent.width; height: 1; color: Constants.borderColor } }
+                            }
+                            Text { text: qsTr("Waiting for training data"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
+                        }
+                        Rectangle {
+                            width: parent.width >= Math.round(760 * Constants.textScale) ? (parent.width - parent.spacing) / 2 : parent.width
+                            height: Math.round(180 * Constants.textScale)
+                            color: Constants.backgroundColor
+                            border.color: Constants.borderColor
+                            Text { text: qsTr("Validation Accuracy"); font: Constants.headingFont; width: parent.width - Constants.spacing * 2; wrapMode: Text.WordWrap; anchors.top: parent.top; anchors.left: parent.left; anchors.margins: Constants.spacing }
+                            Rectangle { width: 1; color: Constants.mutedTextColor; anchors.top: parent.top; anchors.topMargin: Constants.spacing * 4; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.spacing * 2; anchors.left: parent.left; anchors.leftMargin: Constants.spacing * 3 }
+                            Rectangle { height: 1; color: Constants.mutedTextColor; anchors.left: parent.left; anchors.leftMargin: Constants.spacing * 3; anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.bottom: parent.bottom; anchors.bottomMargin: Constants.spacing * 2 }
+                            Column { anchors.fill: parent; anchors.topMargin: Constants.spacing * 5; anchors.leftMargin: Constants.spacing * 3; anchors.rightMargin: Constants.spacing; anchors.bottomMargin: Constants.spacing * 2; spacing: Math.max(8, height / 4)
+                                Repeater { model: 3; Rectangle { required property int index; width: parent.width; height: 1; color: Constants.borderColor } }
+                            }
+                            Text { text: qsTr("Waiting for training data"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
+                        }
                     }
                     Row {
                         visible: root.showCompleted
@@ -122,28 +147,53 @@ Rectangle {
 
         Rectangle {
             id: operationPanel
-            width: root.operationPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
-            height: parent.height
+            SplitView.preferredWidth: Constants.operationPanelWidth
+            SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+            SplitView.maximumWidth: root.operationPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
             color: Constants.surfaceColor
             border.color: Constants.borderColor
 
+            Rectangle {
+                id: panelTopStrip
+                height: Constants.controlHeight
+                color: Constants.backgroundColor
+                border.color: Constants.borderColor
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                Text {
+                    text: qsTr("Train")
+                    visible: root.operationPanelExpanded
+                    font: Constants.headingFont
+                    color: Constants.textColor
+                    anchors.left: parent.left
+                    anchors.leftMargin: Constants.spacing
+                    anchors.right: operationPanelToggleButton.left
+                    anchors.rightMargin: Constants.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                }
+            }
             Button {
                 id: operationPanelToggleButton
-                text: root.operationPanelExpanded ? qsTr("‹ Training panel") : qsTr("›")
-                width: parent.width - Constants.spacing * 2
-                height: Constants.controlHeight
-                anchors.top: parent.top
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.topMargin: Constants.spacing
+                text: root.operationPanelExpanded ? "›" : "‹"
+                width: Math.round(30 * Constants.textScale)
+                height: panelTopStrip.height
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                z: 1
+                background: Rectangle { color: Constants.backgroundColor; border.color: operationPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: operationPanelToggleButton.activeFocus ? 2 : 1 }
+                contentItem: Text { text: operationPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
             Column {
                 visible: root.operationPanelExpanded
-                anchors.top: operationPanelToggleButton.bottom
+                anchors.top: panelTopStrip.bottom
                 anchors.topMargin: Constants.spacing
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: Constants.spacing
+                anchors.leftMargin: Constants.spacing
                 spacing: 2
 
                 CollapsibleSection {
@@ -164,15 +214,124 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
-                            Text { text: qsTr("Model Type") }
-                            Row { spacing: Constants.spacing; Button { id: fasterButton; text: qsTr("Faster"); checkable: true; checked: true } Button { id: moreAccurateButton; text: qsTr("More Accurate"); checkable: true } }
-                            Text { text: qsTr("Compute Device: %1").arg(root.deviceText); color: Constants.mutedTextColor }
-                            Text { text: qsTr("Split: 70 / 15 / 15    Seed: 1729"); color: Constants.mutedTextColor }
-                            Text { text: qsTr("Model Name") }
+                            Text { text: qsTr("Architecture"); font: Constants.font }
+                            ComboBox {
+                                id: architectureSelector
+                                width: parent.width
+                                height: Math.round(54 * Constants.textScale)
+                                enabled: true
+                                model: [qsTr("MobileNet"), qsTr("EfficientNet")]
+                                background: Rectangle {
+                                    color: Constants.surfaceColor
+                                    border.color: architectureSelector.activeFocus ? Constants.accentColor : Constants.borderColor
+                                    border.width: architectureSelector.activeFocus ? 2 : 1
+                                }
+                                contentItem: Item {
+                                    Text {
+                                        id: selectedArchitectureName
+                                        text: architectureSelector.currentText
+                                        color: Constants.textColor
+                                        font: Constants.font
+                                        anchors.left: parent.left
+                                        anchors.verticalCenter: parent.verticalCenter
+                                    }
+                                    Text {
+                                        text: architectureSelector.currentIndex === 0 ? qsTr("— Faster") : qsTr("— More Accurate")
+                                        color: Constants.mutedTextColor
+                                        font: Constants.smallFont
+                                        anchors.left: selectedArchitectureName.right
+                                        anchors.leftMargin: Constants.spacing
+                                        anchors.right: parent.right
+                                        anchors.rightMargin: Math.round(28 * Constants.textScale)
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        elide: Text.ElideRight
+                                    }
+                                }
+                                delegate: ItemDelegate {
+                                    id: architectureOptionDelegate
+                                    required property int index
+                                    required property string modelData
+                                    width: architectureSelector.width
+                                    height: Math.round(54 * Constants.textScale)
+                                    highlighted: architectureSelector.highlightedIndex === index
+                                    hoverEnabled: true
+                                    contentItem: Item {
+                                        Text {
+                                            id: architectureOptionName
+                                            text: architectureOptionDelegate.modelData
+                                            color: Constants.textColor
+                                            font: Constants.font
+                                            anchors.left: parent.left
+                                            anchors.verticalCenter: parent.verticalCenter
+                                        }
+                                        Text {
+                                            text: architectureOptionDelegate.index === 0 ? qsTr("— Faster") : qsTr("— More Accurate")
+                                            color: Constants.mutedTextColor
+                                            font: Constants.smallFont
+                                            anchors.left: architectureOptionName.right
+                                            anchors.leftMargin: Constants.spacing
+                                            anchors.right: parent.right
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            elide: Text.ElideRight
+                                        }
+                                    }
+                                    background: Rectangle {
+                                        color: architectureOptionDelegate.index === architectureSelector.currentIndex || architectureOptionDelegate.hovered || architectureOptionDelegate.highlighted ? Constants.backgroundColor : Constants.surfaceColor
+                                        border.color: Constants.borderColor
+                                    }
+                                }
+                            }
+                            Text { text: qsTr("Weights"); font: Constants.font }
+                            ComboBox {
+                                id: weightsSelector
+                                width: parent.width
+                                height: Constants.controlHeight
+                                enabled: true
+                                model: [qsTr("ImageNet-pretrained"), qsTr("OpenDSS droplet checkpoint — bundled"), qsTr("OpenDSS droplet checkpoint — user-added")]
+                                contentItem: Text {
+                                    text: weightsSelector.currentText
+                                    color: Constants.textColor
+                                    font: Constants.font
+                                    verticalAlignment: Text.AlignVCenter
+                                    elide: Text.ElideRight
+                                    leftPadding: Constants.spacing
+                                    rightPadding: Math.round(28 * Constants.textScale)
+                                }
+                                delegate: ItemDelegate {
+                                    id: weightsOptionDelegate
+                                    required property int index
+                                    required property string modelData
+                                    width: weightsSelector.width
+                                    height: Constants.controlHeight
+                                    highlighted: weightsSelector.highlightedIndex === index
+                                    hoverEnabled: true
+                                    contentItem: Text {
+                                        text: weightsOptionDelegate.modelData
+                                        color: Constants.textColor
+                                        font: Constants.font
+                                        verticalAlignment: Text.AlignVCenter
+                                        elide: Text.ElideRight
+                                    }
+                                    background: Rectangle {
+                                        color: weightsOptionDelegate.index === weightsSelector.currentIndex || weightsOptionDelegate.hovered || weightsOptionDelegate.highlighted ? Constants.backgroundColor : Constants.surfaceColor
+                                        border.color: Constants.borderColor
+                                    }
+                                }
+                            }
+                            Button { id: loadWeightsButton; text: qsTr("Load Weights"); width: parent.width; height: Constants.controlHeight }
+                            Text { text: qsTr("Compute Device"); font: Constants.font }
+                            ComboBox {
+                                id: trainingDeviceSelector
+                                width: parent.width
+                                enabled: true
+                                model: [qsTr("GPU"), qsTr("CPU")]
+                                currentIndex: 0
+                            }
+                            Text { text: qsTr("Model Name"); font: Constants.font }
                             TextField { id: modelNameField; text: root.modelNameText; height: Constants.controlHeight; width: parent.width }
-                            Text { text: qsTr("Save Location") }
+                            Text { text: qsTr("Save Location"); font: Constants.font }
                             Row { width: parent.width; spacing: Constants.spacing; TextField { id: saveLocationField; text: root.saveLocationText; height: Constants.controlHeight; width: parent.width - browseButton.width - Constants.spacing } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } }
-                            Button { id: startButton; text: qsTr("Start Training"); enabled: root.startEnabled; height: Constants.controlHeight; width: parent.width }
+                            Button { id: startButton; text: qsTr("Start Training"); enabled: root.startEnabled; height: Constants.controlHeight; width: parent.width; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: startButton.enabled ? Constants.accentColor : Constants.borderColor } }
                         }
                     }
                 }
@@ -201,7 +360,7 @@ Rectangle {
                             Text { text: qsTr("Epoch: 12 of 40") }
                             ProgressBar { value: 0.3; width: parent.width }
                             Text { text: qsTr("Overall progress") }
-                            Button { id: stopButton; text: qsTr("Stop Training"); height: Constants.controlHeight; width: parent.width }
+                            Button { id: stopButton; text: qsTr("Stop Training"); height: Constants.controlHeight; width: parent.width; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.faultColor } }
                         }
                     }
                 }

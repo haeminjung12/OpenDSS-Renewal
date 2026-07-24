@@ -46,7 +46,8 @@ Rectangle {
         anchors.margins: Constants.workspaceMargin
     }
 
-    Row {
+    SplitView {
+        font: Constants.font
         anchors.top: workspaceTitle.bottom
         anchors.topMargin: Constants.spacing
         anchors.bottom: parent.bottom
@@ -55,11 +56,9 @@ Rectangle {
         anchors.leftMargin: Constants.workspaceMargin
         anchors.rightMargin: Constants.workspaceMargin
         anchors.bottomMargin: Constants.workspaceMargin
-        spacing: Constants.spacing
 
         Item {
-            width: parent.width - operationPanel.width - parent.spacing
-            height: parent.height
+            SplitView.fillWidth: true
 
             Rectangle {
                 id: datasetSummary
@@ -103,28 +102,53 @@ Rectangle {
 
         Rectangle {
             id: operationPanel
-            width: root.operationPanelExpanded ? Constants.operationPanelWidth : Constants.collapsedOperationPanelWidth
-            height: parent.height
+            SplitView.preferredWidth: Constants.operationPanelWidth
+            SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+            SplitView.maximumWidth: root.operationPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
             color: Constants.surfaceColor
             border.color: Constants.borderColor
 
+            Rectangle {
+                id: panelTopStrip
+                height: Constants.controlHeight
+                color: Constants.backgroundColor
+                border.color: Constants.borderColor
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                Text {
+                    text: qsTr("Model Test")
+                    visible: root.operationPanelExpanded
+                    font: Constants.headingFont
+                    color: Constants.textColor
+                    anchors.left: parent.left
+                    anchors.leftMargin: Constants.spacing
+                    anchors.right: operationPanelToggleButton.left
+                    anchors.rightMargin: Constants.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                }
+            }
             Button {
                 id: operationPanelToggleButton
-                text: root.operationPanelExpanded ? qsTr("‹ Model Test panel") : qsTr("›")
-                width: parent.width - Constants.spacing * 2
-                height: Constants.controlHeight
-                anchors.top: parent.top
-                anchors.horizontalCenter: parent.horizontalCenter
-                anchors.topMargin: Constants.spacing
+                text: root.operationPanelExpanded ? "›" : "‹"
+                width: Math.round(30 * Constants.textScale)
+                height: panelTopStrip.height
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                z: 1
+                background: Rectangle { color: Constants.backgroundColor; border.color: operationPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: operationPanelToggleButton.activeFocus ? 2 : 1 }
+                contentItem: Text { text: operationPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
             Column {
                 visible: root.operationPanelExpanded
-                anchors.top: operationPanelToggleButton.bottom
+                anchors.top: panelTopStrip.bottom
                 anchors.topMargin: Constants.spacing
                 anchors.left: parent.left
                 anchors.right: parent.right
                 anchors.margins: Constants.spacing
+                anchors.leftMargin: Constants.spacing
                 spacing: 2
 
                 CollapsibleSection {
@@ -146,11 +170,11 @@ Rectangle {
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
                             Button { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.controlHeight }
-                            Text { text: qsTr("Output Location") }
+                            Text { text: qsTr("Output Location"); font: Constants.font }
                             Row { width: parent.width; spacing: Constants.spacing; TextField { id: outputLocationField; text: root.outputLocationText; width: parent.width - browseButton.width - Constants.spacing; height: Constants.controlHeight } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } }
                             Text { visible: !root.startEnabled; text: root.blockerText; color: Constants.warningColor }
                             Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; color: Constants.mutedTextColor }
-                            Button { id: startButton; text: qsTr("Start Model Test"); enabled: root.startEnabled; height: Constants.controlHeight }
+                            Button { id: startButton; text: qsTr("Start Model Test"); enabled: root.startEnabled; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: startButton.enabled ? Constants.accentColor : Constants.borderColor } }
                         }
                     }
                 }
@@ -176,7 +200,7 @@ Rectangle {
                             Text { text: qsTr("Device: ") + root.deviceText }
                             Text { text: qsTr("Processed: 360 of 1,200") }
                             ProgressBar { value: 0.3; width: parent.width }
-                            Button { id: stopButton; text: qsTr("Stop Model Test"); height: Constants.controlHeight }
+                            Button { id: stopButton; text: qsTr("Stop Model Test"); height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.faultColor } }
                         }
                     }
                 }

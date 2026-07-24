@@ -14,9 +14,11 @@ using namespace desktop_app::v2::run;
 
 namespace {
 
+const char* stage = "";
+
 void require(bool condition, const char* message) {
     if (!condition) {
-        std::cerr << message << '\n';
+        std::cerr << "FAIL " << stage << ": " << message << '\n';
         std::exit(1);
     }
 }
@@ -35,12 +37,14 @@ RunManifestData baseData() {
     data.sourceSequence = {"sequence-1", "Source sequence", "source/sequence.json"};
     data.routing.triggerMode = TriggerMode::EveryDroplet;
     data.routing.physicalDaqOutputEnabled = false;
+    data.cameraSettings = {{"exposure_us", 100}};
     data.requestedProcessingFps = 20.0;
     data.achievedProcessingFps = 19.5;
     data.detectorSettings = {{"threshold", 1}};
     data.cropSettings = {{"size", 64}};
     data.daqSettings = {{"channel", "Dev1/ao0"}};
     data.timingSettings = {{"delay_us", 10}};
+    data.hitBoundary = {180.0, HitSide::NegativeY, 1200, 360};
     return data;
 }
 
@@ -52,19 +56,25 @@ RunEvent event(QString id, qint64 frame, Route observed) {
     value.cropPath = QString("crops/%1.png").arg(frame);
     value.decision = Route::Hit;
     value.observedRoute = observed;
+    value.daqPulseStatus = DaqPulseStatus::SuppressedNotIssued;
     return value;
 }
 
 QString createNoModelRun(const QString& root) {
+    stage = "create no-model start";
     QString error;
     auto writer = RunWriterV2::start(root, baseData(), &error);
     require(writer.has_value(), qPrintable(error));
-    require(writer->appendEvent(event("event-1", 1, Route::Hit), "crop1", &error),
-            qPrintable(error));
-    require(writer->appendEvent(event("event-2", 2, Route::Waste), "crop2", &error),
-            qPrintable(error));
-    require(writer->appendEvent(event("event-3", 3, Route::Unresolved), "crop3", &error),
-            qPrintable(error));
+    stage = "create no-model append 1";
+    bool ok = writer->appendEvent(event("event-1", 1, Route::Hit), "crop1", &error);
+    require(ok, qPrintable(error));
+    stage = "create no-model append 2";
+    ok = writer->appendEvent(event("event-2", 2, Route::Waste), "crop2", &error);
+    require(ok, qPrintable(error));
+    stage = "create no-model append 3";
+    ok = writer->appendEvent(event("event-3", 3, Route::Unresolved), "crop3", &error);
+    require(ok, qPrintable(error));
+    stage = "create no-model finalize";
     require(writer->finalize(RunStatus::Completed, "2026-07-24T10:00:02Z",
                              "duration", 19.5, &error),
             qPrintable(error));
@@ -72,6 +82,7 @@ QString createNoModelRun(const QString& root) {
 }
 
 void testNoModelRoundTripAndStrictness() {
+    stage = "no-model";
     QTemporaryDir temporary;
     require(temporary.isValid(), "temporary directory");
     const QString runRoot = QDir(temporary.path()).filePath("run");
@@ -81,6 +92,10 @@ void testNoModelRoundTripAndStrictness() {
     require(loaded.has_value(), qPrintable(error));
     require(!loaded->data().model && loaded->data().events.size() == 3,
             "no-model events round-trip");
+    require(loaded->data().cameraSettings.value("exposure_us").toInt() == 100 &&
+                loaded->data().hitBoundary.boundaryY == 180.0 &&
+                loaded->data().hitBoundary.hitSide == HitSide::NegativeY,
+            "camera and Hit boundary snapshots round-trip");
     const auto& counts = loaded->derivedCounts();
     require(counts.total == 3 && counts.unclassified == 3 &&
                 counts.decisionHit == 3 && counts.observedHit == 1 &&
@@ -110,6 +125,7 @@ void testNoModelRoundTripAndStrictness() {
 }
 
 void testTwoAndThreeClassHistory() {
+    stage = "modeled";
     for (int classCount : {2, 3}) {
         QTemporaryDir temporary;
         require(temporary.isValid(), "temporary directory");
@@ -136,6 +152,8 @@ void testTwoAndThreeClassHistory() {
             value.scores.fill(0.1, classCount);
             value.scores[i] = 0.8;
             value.decision = i == 0 ? Route::Hit : Route::Waste;
+            value.daqPulseStatus = i == 0 ? DaqPulseStatus::SuppressedNotIssued
+                                         : DaqPulseStatus::NotRequested;
             value.inferenceTimeMs = 1.25 + i;
             require(writer->appendEvent(value, QByteArray("crop") + QByteArray::number(i),
                                         &error),
@@ -157,6 +175,7 @@ void testTwoAndThreeClassHistory() {
 }
 
 void testValidationEdges() {
+    stage = "edges";
     QTemporaryDir temporary;
     QString error;
     auto writer = RunWriterV2::start(QDir(temporary.path()).filePath("run"),
@@ -185,6 +204,50 @@ void testValidationEdges() {
     badScores.inferenceTimeMs = 1.0;
     require(!modeledWriter->appendEvent(badScores, "crop", &error),
             "wrong score count rejected");
+
+    RunEvent wrongArgmax = event("argmax", 2, Route::Hit);
+    wrongArgmax.predictedClassId = "0";
+    wrongArgmax.scores = {0.1, 0.9};
+    wrongArgmax.inferenceTimeMs = 1.0;
+    require(!modeledWriter->appendEvent(wrongArgmax, "crop", &error),
+            "prediction must match argmax");
+
+    RunEvent tie = event("tie", 3, Route::Hit);
+    tie.predictedClassId = "0";
+    tie.scores = {0.5, 0.5};
+    tie.inferenceTimeMs = 1.0;
+    require(modeledWriter->appendEvent(tie, "tie-crop", &error),
+            "first ordered class wins score ties");
+
+    RunEvent requested = event("requested", 4, Route::Hit);
+    requested.daqPulseStatus = DaqPulseStatus::Requested;
+    require(!writer->appendEvent(requested, "crop", &error),
+            "requested is not a finalized DAQ status");
+
+    RunManifestData physical = baseData();
+    physical.routing.physicalDaqOutputEnabled = true;
+    physical.model = ModelSnapshot{"physical-model", "Physical model", QString(64, 'c'),
+                                   {{"0", "Hit class"}, {"1", "Waste class"}}};
+    physical.routing.triggerMode = TriggerMode::ClassBased;
+    physical.routing.hitClassId = "0";
+    auto physicalWriter = RunWriterV2::start(
+        QDir(temporary.path()).filePath("physical"), physical, &error);
+    require(physicalWriter.has_value(), qPrintable(error));
+    RunEvent physicalHit = event("physical-hit", 1, Route::Hit);
+    physicalHit.predictedClassId = "0";
+    physicalHit.scores = {0.9, 0.1};
+    physicalHit.inferenceTimeMs = 1.0;
+    physicalHit.daqPulseStatus = DaqPulseStatus::Issued;
+    require(physicalWriter->appendEvent(physicalHit, "crop", &error),
+            "physical Hit accepts issued");
+    RunEvent physicalWaste = event("physical-waste", 2, Route::Waste);
+    physicalWaste.decision = Route::Waste;
+    physicalWaste.predictedClassId = "1";
+    physicalWaste.scores = {0.1, 0.9};
+    physicalWaste.inferenceTimeMs = 1.0;
+    physicalWaste.daqPulseStatus = DaqPulseStatus::NotRequested;
+    require(physicalWriter->appendEvent(physicalWaste, "crop", &error),
+            "Waste remains not_requested with physical output enabled");
 }
 
 } // namespace

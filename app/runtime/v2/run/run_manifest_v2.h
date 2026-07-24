@@ -11,7 +11,7 @@ namespace desktop_app::v2::run {
 enum class RunOperation { SequenceTest, LiveSorting };
 enum class RunStatus { Completed, Interrupted, Failed };
 enum class TriggerMode { ClassBased, EveryDroplet };
-enum class OutletDirection { PositiveY, NegativeY };
+enum class HitSide { PositiveY, NegativeY };
 enum class Route { Hit, Waste, Unresolved };
 enum class DaqPulseStatus { NotRequested, Requested, Issued, SuppressedNotIssued, Failed };
 
@@ -36,8 +36,14 @@ struct SourceSequenceSnapshot {
 struct RoutingSnapshot {
     TriggerMode triggerMode = TriggerMode::EveryDroplet;
     std::optional<QString> hitClassId;
-    OutletDirection hitOutletDirection = OutletDirection::PositiveY;
     bool physicalDaqOutputEnabled = false;
+};
+
+struct HitBoundarySnapshot {
+    double boundaryY = 0.0;
+    HitSide hitSide = HitSide::PositiveY;
+    int imageWidth = 0;
+    int imageHeight = 0;
 };
 
 struct RunEvent {
@@ -75,10 +81,12 @@ struct RunManifestData {
     SourceSequenceSnapshot sourceSequence;
     std::optional<ModelSnapshot> model;
     RoutingSnapshot routing;
+    QJsonObject cameraSettings;
     QJsonObject detectorSettings;
     QJsonObject cropSettings;
     QJsonObject daqSettings;
     QJsonObject timingSettings;
+    HitBoundarySnapshot hitBoundary;
     double requestedProcessingFps = 0.0;
     double achievedProcessingFps = 0.0;
     RunFiles files;
@@ -109,6 +117,8 @@ class RunManifestV2 {
     static std::optional<RunManifestV2> load(const QString& path, QString* error = nullptr);
     static bool save(const QString& path, const RunManifestData& data,
                      QString* error = nullptr);
+    static bool savePartial(const QString& path, const RunManifestData& data,
+                            QString* error = nullptr);
 
     const RunManifestData& data() const noexcept;
     const RunDerivedCounts& derivedCounts() const noexcept;

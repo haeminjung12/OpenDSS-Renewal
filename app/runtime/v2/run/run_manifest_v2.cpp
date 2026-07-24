@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <initializer_list>
+#include <limits>
 
 namespace {
 
@@ -74,6 +75,34 @@ bool safeRelative(const QString& path, bool allowDirectory, QString* error) {
     return true;
 }
 
+bool containedExistingFile(const QString& root, const QString& relative, QString* error) {
+    const QString canonicalRoot =
+        QDir::fromNativeSeparators(QFileInfo(root).canonicalFilePath());
+    const QFileInfo candidate(QDir(root).filePath(relative));
+    const QString canonicalCandidate =
+        QDir::fromNativeSeparators(candidate.canonicalFilePath());
+    if (canonicalRoot.isEmpty() || canonicalCandidate.isEmpty() || !candidate.isFile())
+        return fail(error, QString("Missing artifact '%1'.").arg(relative));
+#ifdef Q_OS_WIN
+    const Qt::CaseSensitivity sensitivity = Qt::CaseInsensitive;
+#else
+    const Qt::CaseSensitivity sensitivity = Qt::CaseSensitive;
+#endif
+    const QString prefix = canonicalRoot + '/';
+    if (!canonicalCandidate.startsWith(prefix, sensitivity))
+        return fail(error, QString("Artifact '%1' escapes the Run folder.").arg(relative));
+
+    QString current = root;
+    const QStringList parts = relative.split('/', Qt::SkipEmptyParts);
+    for (const QString& part : parts) {
+        current = QDir(current).filePath(part);
+        const QFileInfo info(current);
+        if (info.isSymLink())
+            return fail(error, QString("Artifact '%1' traverses a link.").arg(relative));
+    }
+    return true;
+}
+
 QString operationText(RunOperation value) {
     return value == RunOperation::SequenceTest ? "sequence_test" : "live_sorting";
 }
@@ -87,8 +116,8 @@ QString statusText(RunStatus value) {
 QString triggerText(TriggerMode value) {
     return value == TriggerMode::ClassBased ? "class_based" : "every_droplet";
 }
-QString directionText(OutletDirection value) {
-    return value == OutletDirection::PositiveY ? "positive_y" : "negative_y";
+QString hitSideText(HitSide value) {
+    return value == HitSide::PositiveY ? "positive_y" : "negative_y";
 }
 template <typename T>
 bool parseEnum(const QString& text, std::initializer_list<std::pair<const char*, T>> values,
@@ -220,9 +249,19 @@ bool validateEvent(const RunManifestData& data, const RunEvent& event, QString* 
         }
         if (!known)
             return fail(error, "Predicted Class ID is not in the model snapshot.");
+        int bestIndex = 0;
+        for (int i = 1; i < event.scores.size(); ++i) {
+            if (event.scores.at(i) > event.scores.at(bestIndex))
+                bestIndex = i;
+        }
+        if (*event.predictedClassId != data.model->classes.at(bestIndex).id)
+            return fail(error, "Predicted Class ID must be the first argmax Class Score.");
     }
-    if (event.decision == Route::Unresolved)
+    if (event.decision != Route::Hit && event.decision != Route::Waste)
         return fail(error, "Decision must be Hit or Waste.");
+    if (event.observedRoute != Route::Hit && event.observedRoute != Route::Waste &&
+        event.observedRoute != Route::Unresolved)
+        return fail(error, "Observed Route is invalid.");
     if (data.routing.triggerMode == TriggerMode::EveryDroplet &&
         event.decision != Route::Hit) {
         return fail(error, "Trigger Every Droplet events must have a Hit decision.");
@@ -234,14 +273,19 @@ bool validateEvent(const RunManifestData& data, const RunEvent& event, QString* 
         if (event.decision != expected)
             return fail(error, "Class-Based decision does not match the Hit Class.");
     }
-    if (!data.routing.physicalDaqOutputEnabled &&
-        event.daqPulseStatus != DaqPulseStatus::NotRequested) {
-        return fail(error, "DAQ-disabled events must use not_requested.");
-    }
-    if (data.routing.physicalDaqOutputEnabled &&
-        event.daqPulseStatus == DaqPulseStatus::NotRequested) {
-        return fail(error, "DAQ-enabled events require a factual pulse status.");
-    }
+    if (event.daqPulseStatus == DaqPulseStatus::Requested)
+        return fail(error, "Finalized events cannot retain requested DAQ status.");
+    if (event.decision == Route::Waste &&
+        event.daqPulseStatus != DaqPulseStatus::NotRequested)
+        return fail(error, "Waste decisions must use not_requested DAQ status.");
+    if (event.decision == Route::Hit && !data.routing.physicalDaqOutputEnabled &&
+        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
+        return fail(error, "DAQ-disabled Hit decisions must use suppressed_not_issued.");
+    if (event.decision == Route::Hit && data.routing.physicalDaqOutputEnabled &&
+        event.daqPulseStatus != DaqPulseStatus::Issued &&
+        event.daqPulseStatus != DaqPulseStatus::Failed &&
+        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
+        return fail(error, "DAQ-enabled Hit decisions require a final factual pulse status.");
     return true;
 }
 
@@ -290,6 +334,9 @@ bool validateData(const RunManifestData& data, QString* error) {
     }
     if (data.operation != RunOperation::SequenceTest)
         return fail(error, "live_sorting is not supported by the Sequence Test contract gate.");
+    if (data.status != RunStatus::Completed && data.status != RunStatus::Interrupted &&
+        data.status != RunStatus::Failed)
+        return fail(error, "Run status is invalid.");
     const auto start = QDateTime::fromString(data.startedAt, Qt::ISODate);
     const auto end = QDateTime::fromString(data.endedAt, Qt::ISODate);
     if (!start.isValid() || !end.isValid() || end < start)
@@ -306,6 +353,9 @@ bool validateData(const RunManifestData& data, QString* error) {
     }
     if (!validateModel(data.model, error))
         return false;
+    if (data.routing.triggerMode != TriggerMode::ClassBased &&
+        data.routing.triggerMode != TriggerMode::EveryDroplet)
+        return fail(error, "Routing trigger mode is invalid.");
     if (data.routing.triggerMode == TriggerMode::ClassBased) {
         if (!data.model || !data.routing.hitClassId)
             return fail(error, "Class-Based Sorting requires a model and Hit Class.");
@@ -319,9 +369,15 @@ bool validateData(const RunManifestData& data, QString* error) {
         return fail(error, "Trigger Every Droplet must not contain a Hit Class.");
     }
     if (!std::isfinite(data.requestedProcessingFps) || data.requestedProcessingFps <= 0.0 ||
-        !std::isfinite(data.achievedProcessingFps) || data.achievedProcessingFps <= 0.0) {
-        return fail(error, "Sequence Test processing FPS values must be finite and positive.");
+        !std::isfinite(data.achievedProcessingFps) || data.achievedProcessingFps < 0.0 ||
+        (data.status == RunStatus::Completed && data.achievedProcessingFps <= 0.0)) {
+        return fail(error, "Sequence Test processing FPS values are invalid for Run status.");
     }
+    if (!std::isfinite(data.hitBoundary.boundaryY) ||
+        data.hitBoundary.imageWidth <= 0 || data.hitBoundary.imageHeight <= 0 ||
+        (data.hitBoundary.hitSide != HitSide::PositiveY &&
+         data.hitBoundary.hitSide != HitSide::NegativeY))
+        return fail(error, "Hit boundary snapshot is invalid.");
     if (data.files.eventsCsv != "events.csv" || data.files.cropsPath != "crops")
         return fail(error, "Run files must use events.csv and crops.");
     if (data.files.sequencePath &&
@@ -479,7 +535,7 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
                      "experiment_type", "notes", "status", "started_at", "ended_at",
                      "requested_duration_seconds", "stop_reason", "opendss_version",
                      "source_sequence", "model", "routing", "settings", "processing",
-                     "counts", "decision_vs_observed", "files"},
+                     "hit_boundary", "counts", "decision_vs_observed", "files"},
               "Run root", error)) {
         if (error && error->isEmpty())
             *error = "Unsupported Run schema_version.";
@@ -571,17 +627,13 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
         return std::nullopt;
     }
     const auto routing = root.value("routing").toObject();
-    if (!only(routing, {"trigger_mode", "hit_class_id", "hit_outlet_direction",
+    if (!only(routing, {"trigger_mode", "hit_class_id",
                         "physical_daq_output_enabled"},
               "routing", error) ||
         !parseEnum(routing.value("trigger_mode").toString(),
                    {{"class_based", TriggerMode::ClassBased},
                     {"every_droplet", TriggerMode::EveryDroplet}},
                    data.routing.triggerMode) ||
-        !parseEnum(routing.value("hit_outlet_direction").toString(),
-                   {{"positive_y", OutletDirection::PositiveY},
-                    {"negative_y", OutletDirection::NegativeY}},
-                   data.routing.hitOutletDirection) ||
         !routing.value("physical_daq_output_enabled").isBool()) {
         fail(error, "routing contains invalid values.");
         return std::nullopt;
@@ -602,18 +654,51 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
         return std::nullopt;
     }
     const auto settings = root.value("settings").toObject();
-    if (!only(settings, {"detector", "crop", "daq", "timing"}, "settings", error))
+    if (!only(settings, {"camera", "detector", "crop", "daq", "timing"}, "settings", error))
         return std::nullopt;
-    for (const auto key : {"detector", "crop", "daq", "timing"}) {
+    for (const auto key : {"camera", "detector", "crop", "daq", "timing"}) {
         if (!settings.value(key).isObject()) {
             fail(error, QString("settings.%1 must be an object.").arg(key));
             return std::nullopt;
         }
     }
+    data.cameraSettings = settings.value("camera").toObject();
     data.detectorSettings = settings.value("detector").toObject();
     data.cropSettings = settings.value("crop").toObject();
     data.daqSettings = settings.value("daq").toObject();
     data.timingSettings = settings.value("timing").toObject();
+
+    if (!root.value("hit_boundary").isObject()) {
+        fail(error, "hit_boundary must be an object.");
+        return std::nullopt;
+    }
+    const auto boundary = root.value("hit_boundary").toObject();
+    qint64 imageWidth = 0;
+    qint64 imageHeight = 0;
+    if (!only(boundary, {"boundary_y", "hit_side", "image_width", "image_height"},
+              "hit_boundary", error) ||
+        !boundary.value("boundary_y").isDouble() ||
+        !std::isfinite(boundary.value("boundary_y").toDouble()) ||
+        !parseEnum(boundary.value("hit_side").toString(),
+                   {{"positive_y", HitSide::PositiveY},
+                    {"negative_y", HitSide::NegativeY}},
+                   data.hitBoundary.hitSide) ||
+        !boundary.value("image_width").isDouble() ||
+        !boundary.value("image_height").isDouble()) {
+        fail(error, "hit_boundary contains invalid values.");
+        return std::nullopt;
+    }
+    imageWidth = boundary.value("image_width").toInteger(-1);
+    imageHeight = boundary.value("image_height").toInteger(-1);
+    if (imageWidth <= 0 || imageHeight <= 0 ||
+        imageWidth > (std::numeric_limits<int>::max)() ||
+        imageHeight > (std::numeric_limits<int>::max)()) {
+        fail(error, "hit_boundary image dimensions must be positive integers.");
+        return std::nullopt;
+    }
+    data.hitBoundary.boundaryY = boundary.value("boundary_y").toDouble();
+    data.hitBoundary.imageWidth = static_cast<int>(imageWidth);
+    data.hitBoundary.imageHeight = static_cast<int>(imageHeight);
 
     if (!root.value("processing").isObject()) {
         fail(error, "processing must be an object.");
@@ -623,10 +708,14 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
     if (!only(processing, {"requested_fps", "achieved_fps"}, "processing", error) ||
         !finitePositive(processing.value("requested_fps"), data.requestedProcessingFps,
                         "requested_fps", error) ||
-        !finitePositive(processing.value("achieved_fps"), data.achievedProcessingFps,
-                        "achieved_fps", error)) {
+        !processing.value("achieved_fps").isDouble() ||
+        !std::isfinite(processing.value("achieved_fps").toDouble()) ||
+        processing.value("achieved_fps").toDouble() < 0.0) {
+        if (error && error->isEmpty())
+            *error = "achieved_fps must be finite and nonnegative.";
         return std::nullopt;
     }
+    data.achievedProcessingFps = processing.value("achieved_fps").toDouble();
 
     if (!root.value("files").isObject()) {
         fail(error, "files must be an object.");
@@ -648,16 +737,17 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
     }
 
     const QString runRoot = QFileInfo(path).absolutePath();
-    if (!loadEvents(QDir(runRoot).filePath(data.files.eventsCsv), data.events, error) ||
+    const bool partialSummary =
+        QFileInfo(path).fileName() == QStringLiteral("run_summary.partial.json");
+    const QString eventFile = partialSummary ? QStringLiteral("events.partial.csv")
+                                             : data.files.eventsCsv;
+    if (!loadEvents(QDir(runRoot).filePath(eventFile), data.events, error) ||
         !validateData(data, error)) {
         return std::nullopt;
     }
     for (const auto& event : data.events) {
-        const QFileInfo crop(QDir(runRoot).filePath(event.cropPath));
-        if (!crop.isFile()) {
-            fail(error, QString("Missing Droplet Crop '%1'.").arg(event.cropPath));
+        if (!containedExistingFile(runRoot, event.cropPath, error))
             return std::nullopt;
-        }
     }
     manifest.derived_ = derive(data);
     if (!root.value("counts").isObject() ||
@@ -677,8 +767,12 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
     if (!validateData(data, error))
         return false;
     const QString runRoot = QFileInfo(path).absolutePath();
+    const bool partialSummary =
+        QFileInfo(path).fileName() == QStringLiteral("run_summary.partial.json");
+    const QString eventFile = partialSummary ? QStringLiteral("events.partial.csv")
+                                             : data.files.eventsCsv;
     QVector<RunEvent> persistedEvents;
-    if (!loadEvents(QDir(runRoot).filePath(data.files.eventsCsv), persistedEvents, error))
+    if (!loadEvents(QDir(runRoot).filePath(eventFile), persistedEvents, error))
         return false;
     RunManifestData persisted = data;
     persisted.events = persistedEvents;
@@ -699,8 +793,8 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
             a.inferenceTimeMs != b.inferenceTimeMs) {
             return fail(error, "events.csv does not match the Run event set.");
         }
-        if (!QFileInfo(QDir(runRoot).filePath(data.events.at(i).cropPath)).isFile())
-            return fail(error, "A referenced Droplet Crop is missing.");
+        if (!containedExistingFile(runRoot, data.events.at(i).cropPath, error))
+            return false;
     }
 
     QJsonValue model = QJsonValue(QJsonValue::Null);
@@ -739,15 +833,19 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
                      {"hit_class_id", data.routing.hitClassId
                                           ? QJsonValue(*data.routing.hitClassId)
                                           : QJsonValue(QJsonValue::Null)},
-                     {"hit_outlet_direction",
-                      directionText(data.routing.hitOutletDirection)},
                      {"physical_daq_output_enabled",
                       data.routing.physicalDaqOutputEnabled}}},
         {"settings",
-         QJsonObject{{"detector", data.detectorSettings},
+         QJsonObject{{"camera", data.cameraSettings},
+                     {"detector", data.detectorSettings},
                      {"crop", data.cropSettings},
                      {"daq", data.daqSettings},
                      {"timing", data.timingSettings}}},
+        {"hit_boundary",
+         QJsonObject{{"boundary_y", data.hitBoundary.boundaryY},
+                     {"hit_side", hitSideText(data.hitBoundary.hitSide)},
+                     {"image_width", data.hitBoundary.imageWidth},
+                     {"image_height", data.hitBoundary.imageHeight}}},
         {"processing",
          QJsonObject{{"requested_fps", data.requestedProcessingFps},
                      {"achieved_fps", data.achievedProcessingFps}}},
@@ -763,6 +861,13 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
     if (!desktop_app::writeJsonObjectAtomically(path, root, error))
         return false;
     return load(path, error).has_value();
+}
+
+bool RunManifestV2::savePartial(const QString& path, const RunManifestData& data,
+                                QString* error) {
+    if (QFileInfo(path).fileName() != QStringLiteral("run_summary.partial.json"))
+        return fail(error, "Partial Run Summary must be named run_summary.partial.json.");
+    return save(path, data, error);
 }
 
 const RunManifestData& RunManifestV2::data() const noexcept {

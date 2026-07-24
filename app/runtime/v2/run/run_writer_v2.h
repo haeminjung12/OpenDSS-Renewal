@@ -10,6 +10,8 @@
 
 namespace desktop_app::v2::run {
 
+struct RunWriterV2TestAccess;
+
 class RunWriterV2 {
   public:
     static std::optional<RunWriterV2> start(const QString& runFolder,
@@ -32,12 +34,15 @@ class RunWriterV2 {
     const RunManifestData& data() const noexcept;
 
   private:
+    friend struct RunWriterV2TestAccess;
+
     RunWriterV2(QString runFolder, RunManifestData data, std::unique_ptr<QFile> partialFile);
 
     QString runFolder_;
     RunManifestData data_;
     std::unique_ptr<QFile> partialFile_;
     bool finalized_ = false;
+    bool failNextCsvAppendForTest_ = false;
 };
 
 } // namespace desktop_app::v2::run

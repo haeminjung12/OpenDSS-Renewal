@@ -93,6 +93,36 @@ bool safeRelativePath(const QString& path) {
            QDir::cleanPath(path) == path && path != ".." && !path.startsWith("../");
 }
 
+bool safeOutputPath(const QString& root, const QString& relative, QString* error) {
+    const QString canonicalRoot =
+        QDir::fromNativeSeparators(QFileInfo(root).canonicalFilePath());
+    if (canonicalRoot.isEmpty())
+        return fail(error, "Run folder is not canonical.");
+#ifdef Q_OS_WIN
+    const Qt::CaseSensitivity sensitivity = Qt::CaseInsensitive;
+#else
+    const Qt::CaseSensitivity sensitivity = Qt::CaseSensitive;
+#endif
+    QString current = root;
+    const QStringList parts = relative.split('/', Qt::SkipEmptyParts);
+    for (int i = 0; i + 1 < parts.size(); ++i) {
+        current = QDir(current).filePath(parts.at(i));
+        const QFileInfo info(current);
+        if (!info.exists() || !info.isDir() || info.isSymLink())
+            return fail(error, "Droplet Crop path traverses an invalid directory.");
+        const QString canonical =
+            QDir::fromNativeSeparators(info.canonicalFilePath());
+        if (canonical != canonicalRoot &&
+            !canonical.startsWith(canonicalRoot + '/', sensitivity)) {
+            return fail(error, "Droplet Crop path escapes the Run folder.");
+        }
+    }
+    const QFileInfo target(QDir(root).filePath(relative));
+    if (target.exists() || target.isSymLink())
+        return fail(error, "Droplet Crop path already exists or is linked.");
+    return true;
+}
+
 bool validateInitial(const RunManifestData& data, QString* error) {
     if (data.operation != RunOperation::SequenceTest ||
         data.runId.trimmed().isEmpty() || data.runName.trimmed().isEmpty() ||
@@ -103,10 +133,17 @@ bool validateInitial(const RunManifestData& data, QString* error) {
         !safeRelativePath(data.sourceSequence.manifestPath) ||
         !std::isfinite(data.requestedProcessingFps) ||
         data.requestedProcessingFps <= 0.0 ||
+        !std::isfinite(data.hitBoundary.boundaryY) ||
+        data.hitBoundary.imageWidth <= 0 || data.hitBoundary.imageHeight <= 0 ||
+        (data.hitBoundary.hitSide != HitSide::PositiveY &&
+         data.hitBoundary.hitSide != HitSide::NegativeY) ||
         data.files.eventsCsv != "events.csv" || data.files.cropsPath != "crops" ||
         (data.files.sequencePath && !safeRelativePath(*data.files.sequencePath))) {
         return fail(error, "Initial Sequence Test Run metadata is invalid.");
     }
+    if (data.routing.triggerMode != TriggerMode::ClassBased &&
+        data.routing.triggerMode != TriggerMode::EveryDroplet)
+        return fail(error, "Initial routing trigger mode is invalid.");
     if (data.requestedDurationSeconds &&
         (!std::isfinite(*data.requestedDurationSeconds) ||
          *data.requestedDurationSeconds <= 0.0)) {
@@ -146,7 +183,10 @@ bool validateEventForAppend(const RunManifestData& data, const RunEvent& event,
     if (event.eventId.trimmed().isEmpty() ||
         !QDateTime::fromString(event.detectionTimestamp, Qt::ISODate).isValid() ||
         event.sourceFrameIndex <= 0 || event.effectiveConfigurationId != "initial" ||
-        !safeCropPath(event.cropPath) || event.decision == Route::Unresolved) {
+        !safeCropPath(event.cropPath) ||
+        (event.decision != Route::Hit && event.decision != Route::Waste) ||
+        (event.observedRoute != Route::Hit && event.observedRoute != Route::Waste &&
+         event.observedRoute != Route::Unresolved)) {
         return fail(error, "Run event identity, timestamp, frame, crop, decision, or configuration is invalid.");
     }
     if (std::any_of(data.events.begin(), data.events.end(), [&](const RunEvent& old) {
@@ -171,6 +211,13 @@ bool validateEventForAppend(const RunManifestData& data, const RunEvent& event,
             *event.inferenceTimeMs < 0.0) {
             return fail(error, "Modeled events require a valid prediction, scores, and inference time.");
         }
+        int bestIndex = 0;
+        for (int i = 1; i < event.scores.size(); ++i) {
+            if (event.scores.at(i) > event.scores.at(bestIndex))
+                bestIndex = i;
+        }
+        if (*event.predictedClassId != data.model->classes.at(bestIndex).id)
+            return fail(error, "Predicted Class ID must be the first argmax Class Score.");
     }
     if (data.routing.triggerMode == TriggerMode::EveryDroplet &&
         event.decision != Route::Hit) {
@@ -183,12 +230,19 @@ bool validateEventForAppend(const RunManifestData& data, const RunEvent& event,
         if (event.decision != expected)
             return fail(error, "Class-Based decision does not match the Hit Class.");
     }
-    if ((!data.routing.physicalDaqOutputEnabled &&
-         event.daqPulseStatus != DaqPulseStatus::NotRequested) ||
-        (data.routing.physicalDaqOutputEnabled &&
-         event.daqPulseStatus == DaqPulseStatus::NotRequested)) {
-        return fail(error, "DAQ pulse status does not match physical output configuration.");
-    }
+    if (event.daqPulseStatus == DaqPulseStatus::Requested)
+        return fail(error, "Finalized events cannot retain requested DAQ status.");
+    if (event.decision == Route::Waste &&
+        event.daqPulseStatus != DaqPulseStatus::NotRequested)
+        return fail(error, "Waste decisions must use not_requested DAQ status.");
+    if (event.decision == Route::Hit && !data.routing.physicalDaqOutputEnabled &&
+        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
+        return fail(error, "DAQ-disabled Hit decisions must use suppressed_not_issued.");
+    if (event.decision == Route::Hit && data.routing.physicalDaqOutputEnabled &&
+        event.daqPulseStatus != DaqPulseStatus::Issued &&
+        event.daqPulseStatus != DaqPulseStatus::Failed &&
+        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
+        return fail(error, "DAQ-enabled Hit decisions require a final factual pulse status.");
     return true;
 }
 
@@ -219,8 +273,10 @@ std::optional<RunWriterV2> RunWriterV2::start(const QString& runFolder,
     if (!validateInitial(initialData, error))
         return std::nullopt;
     initialData.events.clear();
+    initialData.status = RunStatus::Interrupted;
     initialData.endedAt.clear();
     initialData.achievedProcessingFps = 0.0;
+    initialData.stopReason = QStringLiteral("operation_in_progress");
     QDir directory;
     if (!directory.mkpath(QDir(runFolder).filePath("crops")))
         return fail(error, "Could not create the Run folder."), std::nullopt;
@@ -232,6 +288,12 @@ std::optional<RunWriterV2> RunWriterV2::start(const QString& runFolder,
     }
     if (partial->write(CsvHeader) != CsvHeader.size() || !partial->flush()) {
         fail(error, "Could not initialize events.partial.csv.");
+        return std::nullopt;
+    }
+    initialData.endedAt = initialData.startedAt;
+    if (!RunManifestV2::savePartial(
+            QDir(runFolder).filePath(QStringLiteral("run_summary.partial.json")),
+            initialData, error)) {
         return std::nullopt;
     }
     return RunWriterV2(runFolder, std::move(initialData), std::move(partial));
@@ -257,18 +319,45 @@ bool RunWriterV2::appendEvent(const RunEvent& event, const QByteArray& cropBytes
     if (!validateEventForAppend(data_, event, error))
         return false;
     const QString cropFile = QDir(runFolder_).filePath(event.cropPath);
-    if (QFileInfo::exists(cropFile))
-        return fail(error, "Droplet Crop path already exists.");
+    if (!safeOutputPath(runFolder_, event.cropPath, error))
+        return false;
     if (!QDir().mkpath(QFileInfo(cropFile).absolutePath()) ||
         !atomicWrite(cropFile, cropBytes, error)) {
         return false;
     }
+    const qint64 priorOffset = partialFile_->pos();
     const QByteArray row = csvRow(event);
-    if (partialFile_->write(row) != row.size() || !partialFile_->flush()) {
+    bool rowWritten = false;
+    if (failNextCsvAppendForTest_) {
+        failNextCsvAppendForTest_ = false;
+        partialFile_->write(row.left(row.size() / 2));
+        partialFile_->flush();
+    } else {
+        rowWritten = partialFile_->write(row) == row.size() && partialFile_->flush();
+    }
+    if (!rowWritten) {
+        const bool rolledBack = partialFile_->resize(priorOffset) &&
+                                partialFile_->seek(priorOffset) &&
+                                partialFile_->flush();
         QFile::remove(cropFile);
-        return fail(error, "Could not append the finalized event.");
+        return fail(error, rolledBack ? "Could not append the finalized event."
+                                      : "CSV append and rollback both failed.");
     }
     data_.events.push_back(event);
+    if (!RunManifestV2::savePartial(
+            QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json")),
+            data_, error)) {
+        const QString summaryError =
+            error && !error->isEmpty() ? *error : QStringLiteral("unknown validation error");
+        data_.events.removeLast();
+        const bool rolledBack = partialFile_->resize(priorOffset) &&
+                                partialFile_->seek(priorOffset) &&
+                                partialFile_->flush();
+        QFile::remove(cropFile);
+        if (!rolledBack)
+            return fail(error, "Partial summary update and CSV rollback both failed.");
+        return fail(error, "Could not update recoverable Run Summary: " + summaryError);
+    }
     return true;
 }
 
@@ -279,7 +368,9 @@ bool RunWriterV2::flush(QString* error) {
         return true;
     if (!partialFile_ || !partialFile_->isOpen() || !partialFile_->flush())
         return fail(error, "Could not flush events.partial.csv.");
-    return true;
+    return RunManifestV2::savePartial(
+        QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json")),
+        data_, error);
 }
 
 bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
@@ -289,10 +380,14 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
         error->clear();
     if (finalized_)
         return fail(error, "Run has already been finalized.");
+    if (status != RunStatus::Completed && status != RunStatus::Interrupted &&
+        status != RunStatus::Failed)
+        return fail(error, "Final Run status is invalid.");
     const auto ended = QDateTime::fromString(endedAt, Qt::ISODate);
     const auto started = QDateTime::fromString(data_.startedAt, Qt::ISODate);
     if (!ended.isValid() || ended < started || stopReason.trimmed().isEmpty() ||
-        !std::isfinite(achievedProcessingFps) || achievedProcessingFps <= 0.0) {
+        !std::isfinite(achievedProcessingFps) || achievedProcessingFps < 0.0 ||
+        (status == RunStatus::Completed && achievedProcessingFps <= 0.0)) {
         return fail(error, "Final Run timing, stop reason, or achieved FPS is invalid.");
     }
     if (!flush(error))
@@ -319,12 +414,21 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
     data_.endedAt = endedAt;
     data_.stopReason = stopReason;
     data_.achievedProcessingFps = achievedProcessingFps;
+    if (!RunManifestV2::savePartial(
+            QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json")),
+            data_, error)) {
+        return false;
+    }
     if (!RunManifestV2::save(
             QDir(runFolder_).filePath(QStringLiteral("run_summary.json")), data_, error)) {
         return false;
     }
-    if (status == RunStatus::Completed && !QFile::remove(partialPath))
-        return fail(error, "Run summary was saved, but the completed partial log could not be removed.");
+    if (status == RunStatus::Completed) {
+        const QString partialSummary =
+            QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json"));
+        if (!QFile::remove(partialPath) || !QFile::remove(partialSummary))
+            return fail(error, "Completed Run could not remove recoverable partial files.");
+    }
     finalized_ = true;
     return true;
 }

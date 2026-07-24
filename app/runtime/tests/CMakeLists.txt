@@ -169,3 +169,25 @@ add_test(
     $<TARGET_FILE:dataset_manifest_v2_test>
 )
 set_tests_properties(dataset_manifest_v2_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(training_service_protocol_test
+  training_service_protocol_test.cpp
+  ../v2/training/training_service.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+)
+target_compile_definitions(training_service_protocol_test PRIVATE
+  OPENDSS_TEST_REPOSITORY_ROOT="${CMAKE_SOURCE_DIR}/../.."
+)
+target_include_directories(training_service_protocol_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(training_service_protocol_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME training_service_protocol_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:training_service_protocol_test>
+)
+set_tests_properties(training_service_protocol_test PROPERTIES TIMEOUT 30)

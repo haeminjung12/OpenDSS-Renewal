@@ -23,9 +23,10 @@ int fail(int code, const char *message)
 
 bool writeDocument(const QString &path, const QJsonObject &document)
 {
+    const QByteArray bytes = QJsonDocument(document).toJson();
     QFile file(path);
     return file.open(QIODevice::WriteOnly | QIODevice::Truncate)
-        && file.write(QJsonDocument(document).toJson()) >= 0;
+        && file.write(bytes) == bytes.size();
 }
 
 QJsonObject validDocument(const QString &root, int textSizePercent = 100)

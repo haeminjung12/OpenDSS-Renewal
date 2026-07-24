@@ -154,6 +154,127 @@ bool restoreRegistrySnapshot(const QString& path, const RegistrySnapshot& snapsh
     return true;
 }
 
+std::unique_ptr<OnnxInferenceAdapter>
+prepareRegistryEntry(const QJsonObject& entry, const QString& requestedDevice,
+                     QString* warning, QString* error) {
+    const ModelPackageInspection inspection = inspectModelPackage(entry);
+    if (!inspection.canActivate) {
+        if (error)
+            *error = inspection.message.isEmpty()
+                         ? "Selected model package is not loadable."
+                         : inspection.message;
+        return {};
+    }
+
+    QString metadataError;
+    const QJsonObject metadataJson =
+        readJsonObject(inspection.metadataPath, &metadataError);
+    if (metadataJson.isEmpty()) {
+        if (error)
+            *error = metadataError;
+        return {};
+    }
+
+    Metadata metadata;
+    std::string loadError;
+    if (!LoadMetadata(inspection.metadataPath.toStdString(), metadata,
+                      loadError)) {
+        if (error)
+            *error = QString::fromStdString(loadError);
+        return {};
+    }
+
+    const QJsonArray declaredClasses = metadataJson.value("classes").toArray();
+    if (declaredClasses.size() != static_cast<int>(metadata.classes.size())) {
+        if (error)
+            *error =
+                "Declared metadata classes do not match the supported metadata projection.";
+        return {};
+    }
+    for (int index = 0; index < declaredClasses.size(); ++index) {
+        if (!declaredClasses.at(index).isString() ||
+            declaredClasses.at(index).toString().toStdString() !=
+                metadata.classes[static_cast<std::size_t>(index)]) {
+            if (error)
+                *error = "Declared metadata class order is invalid.";
+            return {};
+        }
+    }
+
+    const QFileInfo onnxInfo(inspection.onnxPath);
+    if (!onnxInfo.isFile() || onnxInfo.size() <= 0) {
+        if (error)
+            *error =
+                "Declared ONNX model is missing or empty: " + inspection.onnxPath;
+        return {};
+    }
+    const QDir packageDir(inspection.packagePath);
+    const QJsonObject metadataArtifact =
+        metadataJson.value("artifact").toObject();
+    if (!validateExternalFiles(
+            metadataArtifact.value("external_data_files").toArray(),
+            packageDir, error)) {
+        return {};
+    }
+
+    const QString expectedHash =
+        metadataArtifact.value("onnx_sha256").toString().trimmed();
+    if (expectedHash.isEmpty()) {
+        if (error)
+            *error = "Selected package has no trusted declared ONNX SHA-256.";
+        return {};
+    }
+    if (sha256File(inspection.onnxPath)
+            .compare(expectedHash, Qt::CaseInsensitive) != 0) {
+        if (error)
+            *error = "Declared ONNX SHA-256 does not match the model file.";
+        return {};
+    }
+    const QString metadataHash = sha256File(inspection.metadataPath);
+    if (metadataHash.isEmpty()) {
+        if (error)
+            *error = "Could not hash the validated metadata file.";
+        return {};
+    }
+
+    auto candidate = std::make_unique<OnnxInferenceAdapter>();
+    std::string adapterMessage;
+    if (!candidate->load(
+            registryString(entry, "registry_entry_id").toStdString(),
+            inspection.onnxPath.toStdString(),
+            inspection.metadataPath.toStdString(), metadata,
+            requestedDevice.toStdString(), adapterMessage)) {
+        if (error)
+            *error = QString::fromStdString(adapterMessage);
+        return {};
+    }
+    const QJsonObject sortingPolicy =
+        metadataJson.value("sorting_policy").toObject();
+    if (!candidate->setSortingPolicy(
+            sortingPolicy.value("target_class_id")
+                .toString()
+                .trimmed()
+                .toStdString(),
+            sortingPolicy.value("target_display_label")
+                .toString()
+                .trimmed()
+                .toStdString(),
+            sortingPolicy.value("trigger_rule")
+                .toString()
+                .trimmed()
+                .toStdString(),
+            adapterMessage)) {
+        if (error)
+            *error = QString::fromStdString(adapterMessage);
+        return {};
+    }
+    candidate->setArtifactIdentity(expectedHash.toStdString(),
+                                   metadataHash.toStdString());
+    if (warning)
+        *warning = QString::fromStdString(adapterMessage);
+    return candidate;
+}
+
 } // namespace
 
 namespace desktop_app::v2 {
@@ -184,101 +305,23 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::prepare(const QString& r
         return {};
     }
 
-    const ModelPackageInspection inspection = inspectModelPackage(entry);
-    if (!inspection.canActivate) {
-        if (error)
-            *error = inspection.message.isEmpty() ? "Selected model package is not loadable." : inspection.message;
-        return {};
-    }
+    return prepareRegistryEntry(entry, requestedDevice, warning, error);
+}
 
-    QString metadataError;
-    const QJsonObject metadataJson = readJsonObject(inspection.metadataPath, &metadataError);
-    if (metadataJson.isEmpty()) {
-        if (error)
-            *error = metadataError;
-        return {};
-    }
-
-    Metadata metadata;
-    std::string loadError;
-    if (!LoadMetadata(inspection.metadataPath.toStdString(), metadata, loadError)) {
-        if (error)
-            *error = QString::fromStdString(loadError);
-        return {};
-    }
-
-    const QJsonArray declaredClasses = metadataJson.value("classes").toArray();
-    if (declaredClasses.size() != static_cast<int>(metadata.classes.size())) {
-        if (error)
-            *error = "Declared metadata classes do not match the supported metadata projection.";
-        return {};
-    }
-    for (int index = 0; index < declaredClasses.size(); ++index) {
-        if (!declaredClasses.at(index).isString() ||
-            declaredClasses.at(index).toString().toStdString() != metadata.classes[static_cast<std::size_t>(index)]) {
-            if (error)
-                *error = "Declared metadata class order is invalid.";
-            return {};
-        }
-    }
-
-    const QFileInfo onnxInfo(inspection.onnxPath);
-    if (!onnxInfo.isFile() || onnxInfo.size() <= 0) {
-        if (error)
-            *error = "Declared ONNX model is missing or empty: " + inspection.onnxPath;
-        return {};
-    }
-    const QDir packageDir(inspection.packagePath);
-    const QJsonObject metadataArtifact = metadataJson.value("artifact").toObject();
-    if (!validateExternalFiles(metadataArtifact.value("external_data_files").toArray(), packageDir, error))
-        return {};
-
-    const QString expectedHash = metadataArtifact.value("onnx_sha256").toString().trimmed();
-    if (expectedHash.isEmpty()) {
-        if (error)
-            *error = "Selected package has no trusted declared ONNX SHA-256.";
-        return {};
-    }
-    if (sha256File(inspection.onnxPath).compare(expectedHash, Qt::CaseInsensitive) != 0) {
-        if (error)
-            *error = "Declared ONNX SHA-256 does not match the model file.";
-        return {};
-    }
-    const QString metadataHash = sha256File(inspection.metadataPath);
-    if (metadataHash.isEmpty()) {
-        if (error)
-            *error = "Could not hash the validated metadata file.";
-        return {};
-    }
-
-    auto candidate = std::make_unique<OnnxInferenceAdapter>();
-    std::string adapterMessage;
-    if (!candidate->load(registryString(entry, "registry_entry_id").toStdString(),
-                         inspection.onnxPath.toStdString(), inspection.metadataPath.toStdString(),
-                         metadata, requestedDevice.toStdString(), adapterMessage)) {
-        if (error)
-            *error = QString::fromStdString(adapterMessage);
-        return {};
-    }
-    const QJsonObject sortingPolicy = metadataJson.value("sorting_policy").toObject();
-    if (!candidate->setSortingPolicy(sortingPolicy.value("target_class_id").toString().trimmed().toStdString(),
-                                     sortingPolicy.value("target_display_label").toString().trimmed().toStdString(),
-                                     sortingPolicy.value("trigger_rule").toString().trimmed().toStdString(),
-                                     adapterMessage)) {
-        if (error)
-            *error = QString::fromStdString(adapterMessage);
-        return {};
-    }
-    candidate->setArtifactIdentity(expectedHash.toStdString(), metadataHash.toStdString());
-    if (warning)
-        *warning = QString::fromStdString(adapterMessage);
-    return candidate;
+std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(const QString& requestedDevice,
+                                                                               QString* warning,
+                                                                               QString* error) const {
+    return preparePersistedActive(requestedDevice, warning, error, nullptr);
 }
 
 std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(const QString& requestedDevice,
                                                                                QString* warning,
                                                                                QString* error,
                                                                                QString* activeDisplayName) const {
+    if (warning)
+        warning->clear();
+    if (error)
+        error->clear();
     if (activeDisplayName)
         activeDisplayName->clear();
     QString readError;
@@ -288,14 +331,12 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(c
             *error = readError;
         return {};
     }
-    QString activeId;
-    QString displayName;
+    QJsonObject activeEntry;
     int activeCount = 0;
     for (const QJsonValue& value : registry.value("entries").toArray()) {
         const QJsonObject entry = value.toObject();
         if (entry.value("active").toBool(false)) {
-            activeId = registryString(entry, "registry_entry_id");
-            displayName = registryString(entry, "display_name");
+            activeEntry = entry;
             ++activeCount;
         }
     }
@@ -304,9 +345,10 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(c
             *error = QString("Model registry must contain exactly one active entry; found %1.").arg(activeCount);
         return {};
     }
-    auto candidate = prepare(activeId, requestedDevice, warning, error);
+    auto candidate =
+        prepareRegistryEntry(activeEntry, requestedDevice, warning, error);
     if (candidate && activeDisplayName)
-        *activeDisplayName = displayName;
+        *activeDisplayName = registryString(activeEntry, "display_name");
     return candidate;
 }
 

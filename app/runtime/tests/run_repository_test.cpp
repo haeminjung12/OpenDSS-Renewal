@@ -1,5 +1,6 @@
 #include "../v2/results/run_repository.h"
 #include "../v2/run/run_writer_v2.h"
+#include "../v2/sequence/sequence_manifest_v2.h"
 #include "../v2/state/application_state_store.h"
 
 #include <QCoreApplication>
@@ -51,7 +52,7 @@ RunManifestData data(const QString& id, const QString& startedAt) {
     value.timingSettings = {{"delay_us", 10}};
     value.hitBoundary = {20.0, HitSide::PositiveY, 100, 100};
     value.requestedProcessingFps = 20.0;
-    value.files.sequencePath = QStringLiteral("source.json");
+    value.files.sequencePath = QStringLiteral("sequence");
     return value;
 }
 
@@ -66,6 +67,8 @@ RunEvent event(const QString& id, const QString& startedAt) {
     value.daqPulseStatus = DaqPulseStatus::SuppressedNotIssued;
     return value;
 }
+
+void createSavedSequence(const QString& folder);
 
 QString createRun(const QString& folder, const QString& id,
                   const QString& startedAt,
@@ -82,9 +85,7 @@ QString createRun(const QString& folder, const QString& id,
                                  : 0.0,
                              &error),
             qPrintable(error));
-    QFile source(QDir(folder).filePath("source.json"));
-    require(source.open(QIODevice::WriteOnly), "open source");
-    require(source.write("source-content") == 14, "write source");
+    createSavedSequence(folder);
     return QDir(folder).filePath("run_summary.json");
 }
 
@@ -96,9 +97,7 @@ QString createPartialRun(const QString& folder, const QString& id,
     require(writer->appendEvent(event(id, startedAt), "crop-content", &error),
             qPrintable(error));
     require(writer->flush(&error), qPrintable(error));
-    QFile source(QDir(folder).filePath("source.json"));
-    require(source.open(QIODevice::WriteOnly), "open partial source");
-    require(source.write("source-content") == 14, "write partial source");
+    createSavedSequence(folder);
     return QDir(folder).filePath("run_summary.partial.json");
 }
 
@@ -108,7 +107,35 @@ QByteArray bytes(const QString& path) {
     return file.readAll();
 }
 
-const RunEntry& entry(const RunRepository& repository, const QString& id) {
+void createSavedSequence(const QString& folder) {
+    const QString sequenceFolder = QDir(folder).filePath("sequence");
+    require(QDir().mkpath(sequenceFolder), "create saved Sequence folder");
+    sequence::SequenceManifestData manifest{
+        "sequence-001",
+        "Saved sequence",
+        "assay",
+        {},
+        "completed",
+        "2026-07-24T10:00:00Z",
+        "2026-07-24T10:00:00Z",
+        "2026-07-24T10:00:01Z",
+        1.0,
+        "duration",
+        "2.0",
+        1,
+        QJsonObject{{"exposure_us", 100}},
+        100,
+        100,
+        16,
+        1.0,
+    };
+    QString error;
+    require(sequence::SequenceManifestV2::save(
+                QDir(sequenceFolder).filePath("sequence.json"), manifest, &error),
+            qPrintable(error));
+}
+
+RunEntry entry(const RunRepository& repository, const QString& id) {
     for (const RunEntry& candidate : repository.entries()) {
         if (candidate.id == id)
             return candidate;
@@ -175,8 +202,16 @@ void testDiscoveryAndRecoverableLoad() {
     require(entry(repository, "partial").recoverable &&
                 entry(repository, "partial").loadable &&
                 QFileInfo(entry(repository, "partial").eventsPath).fileName() ==
-                    "events.partial.csv",
-            "partial-only Run is recoverable through events.partial.csv");
+                    "events.partial.csv" &&
+                QFileInfo(entry(repository, "partial").sequencePath.value())
+                        .fileName() == "sequence.json",
+            "partial-only Run resolves events and saved Sequence manifests");
+    require(!entry(repository, "failed").recoverable &&
+                QFileInfo(entry(repository, "failed").summaryPath).fileName() ==
+                    "run_summary.json" &&
+                QFileInfo(entry(repository, "failed").eventsPath).fileName() ==
+                    "events.csv",
+            "finalized summary is preferred when final and partial coexist");
 
     bool sawInvalid = false;
     bool sawEmpty = false;
@@ -219,6 +254,9 @@ void testDiscoveryAndRecoverableLoad() {
                 repository.loadedRun()->manifest.data().events.size() == 1 &&
                 stateStore.snapshot().results.loadedRunId == "partial",
             "recoverable selected Run loads");
+    require(!repository.updateLoadedNotes("must fail", &error) &&
+                error.contains("finalized"),
+            "recoverable partial Run denies Notes");
 }
 
 void testConcurrentNotesUpdatesSerializeOrDeny() {
@@ -300,29 +338,94 @@ void testSelectionAndFailedLoadPreservePriorDetail() {
                 stateStore.snapshot().results.loadedRunId == "b" &&
                 !stateStore.snapshot().results.loadError.isEmpty(),
             "failed load preserves B and publishes direct reason");
+
+    const QString aFolder = QFileInfo(aSummary).absolutePath();
+    const QString vanished = QDir(temporary.path()).filePath("vanished-a");
+    require(QDir().rename(aFolder, vanished), "move selected Run out of discovery");
+    require(repository.refresh(temporary.path(), &error), qPrintable(error));
+    require(repository.selectedRunId().isEmpty() &&
+                repository.loadedRun()->entry.id == "b" &&
+                stateStore.snapshot().results.selectedRunId.isEmpty() &&
+                stateStore.snapshot().results.loadedRunId == "b",
+            "refresh clears vanished selection and preserves loaded detail");
+
+    require(!repository.loadSelected(&error) &&
+                error == "No Run is selected." &&
+                stateStore.snapshot().results.loadError ==
+                    "No Run is selected." &&
+                repository.loadedRun()->entry.id == "b",
+            "no-selection load publishes error and preserves loaded detail");
+
+    const QVector<RunEntry> beforeFailedRefresh = repository.entries();
+    require(!repository.refresh(QDir(temporary.path()).filePath("missing-root"),
+                                &error),
+            "invalid refresh fails");
+    require(repository.entries().size() == beforeFailedRefresh.size() &&
+                repository.entries().first().id ==
+                    beforeFailedRefresh.first().id &&
+                repository.selectedRunId().isEmpty() &&
+                repository.loadedRun()->entry.id == "b",
+            "failed refresh preserves prior repository state");
 }
 
 void testMissingOptionalSequenceStillLoads() {
     stage = "optional sequence";
     QTemporaryDir temporary;
     const QString runs = QDir(temporary.path()).filePath("Runs");
-    const QString summary =
-        createRun(QDir(runs).filePath("run"), "optional",
+    const QString missingSummary =
+        createRun(QDir(runs).filePath("missing"), "missing",
                   "2026-07-24T10:00:00Z");
+    const QString missingFolder = QFileInfo(missingSummary).absolutePath();
     require(QFile::remove(
-                QDir(QFileInfo(summary).absolutePath()).filePath("source.json")),
-            "remove optional sequence");
+                QDir(missingFolder).filePath("sequence/sequence.json")) &&
+                QDir(missingFolder).rmdir("sequence"),
+            "remove optional saved Sequence");
+
+    const QString wrongSummary =
+        createRun(QDir(runs).filePath("wrong-shape"), "wrong-shape",
+                  "2026-07-24T11:00:00Z");
+    const QString wrongFolder = QFileInfo(wrongSummary).absolutePath();
+    require(QFile::remove(
+                QDir(wrongFolder).filePath("sequence/sequence.json")) &&
+                QDir(wrongFolder).rmdir("sequence"),
+            "remove valid saved Sequence");
+    QFile wrongShape(QDir(wrongFolder).filePath("sequence"));
+    require(wrongShape.open(QIODevice::WriteOnly) &&
+                wrongShape.write("not-a-directory") > 0,
+            "write arbitrary file in place of saved Sequence directory");
+    wrongShape.close();
+
+    const QString invalidSummary =
+        createRun(QDir(runs).filePath("invalid-manifest"), "invalid-manifest",
+                  "2026-07-24T12:00:00Z");
+    QFile invalidManifest(
+        QDir(QFileInfo(invalidSummary).absolutePath())
+            .filePath("sequence/sequence.json"));
+    require(invalidManifest.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                invalidManifest.write("{}") == 2,
+            "write invalid saved Sequence manifest");
+    invalidManifest.close();
 
     ApplicationStateStore stateStore;
     RunRepository repository(stateStore);
     QString error;
     require(repository.refresh(temporary.path(), &error), qPrintable(error));
-    const RunEntry& discovered = entry(repository, "optional");
-    require(discovered.loadable && !discovered.sequencePath &&
-                discovered.sequenceReason ==
+    const RunEntry missing = entry(repository, "missing");
+    const RunEntry wrong = entry(repository, "wrong-shape");
+    const RunEntry invalid = entry(repository, "invalid-manifest");
+    require(missing.loadable && !missing.sequencePath &&
+                missing.sequenceReason ==
                     "No saved Image Sequence for this Run",
             "missing optional sequence has direct nonfatal reason");
-    require(repository.selectRun("optional") && repository.loadSelected(&error),
+    require(wrong.loadable && !wrong.sequencePath &&
+                wrong.sequenceReason ==
+                    "No saved Image Sequence for this Run",
+            "arbitrary file is not accepted as a saved Sequence");
+    require(invalid.loadable && !invalid.sequencePath &&
+                invalid.sequenceReason ==
+                    "No saved Image Sequence for this Run",
+            "invalid sequence.json is nonfatal and unavailable");
+    require(repository.selectRun("missing") && repository.loadSelected(&error),
             qPrintable(error));
 }
 
@@ -336,7 +439,8 @@ void testNotesGuardAndNotesOnlyReload() {
     const QString runFolder = QFileInfo(summary).absolutePath();
     const QString events = QDir(runFolder).filePath("events.csv");
     const QString crop = QDir(runFolder).filePath("crops/event.bin");
-    const QString source = QDir(runFolder).filePath("source.json");
+    const QString source =
+        QDir(runFolder).filePath("sequence/sequence.json");
     const QByteArray eventsBefore = bytes(events);
     const QByteArray cropBefore = bytes(crop);
     const QByteArray sourceBefore = bytes(source);

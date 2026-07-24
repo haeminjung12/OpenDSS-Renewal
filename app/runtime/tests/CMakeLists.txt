@@ -527,6 +527,7 @@ qt_add_executable(run_repository_test
   ../v2/results/run_repository.cpp
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
   ../v2/state/application_state_store.cpp
 )
 target_include_directories(run_repository_test PRIVATE

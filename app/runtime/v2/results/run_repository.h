@@ -50,9 +50,9 @@ class RunRepository {
     bool loadSelected(QString* error = nullptr);
     bool updateLoadedNotes(const QString& notes, QString* error = nullptr);
 
-    const QVector<RunEntry>& entries() const noexcept;
-    const QString& selectedRunId() const noexcept;
-    const std::optional<LoadedRun>& loadedRun() const noexcept;
+    QVector<RunEntry> entries() const;
+    QString selectedRunId() const;
+    std::optional<LoadedRun> loadedRun() const;
 
   private:
     void publish(const QString& loadError = {});

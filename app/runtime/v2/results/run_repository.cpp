@@ -1,5 +1,6 @@
 #include "run_repository.h"
 
+#include "../sequence/sequence_manifest_v2.h"
 #include "../state/application_state_store.h"
 
 #include <QDateTime>
@@ -142,11 +143,17 @@ bool populatePaths(const QString& summaryPath, bool recoverable,
     entry.sequencePath.reset();
     entry.sequenceReason.clear();
     if (data.files.sequencePath) {
-        QString resolved;
+        QString sequenceFolder;
+        QString sequenceManifest;
         QString sequenceError;
-        if (resolveContained(runFolder, *data.files.sequencePath, false, resolved,
-                             &sequenceError)) {
-            entry.sequencePath = resolved;
+        const QString manifestRelative =
+            QDir(*data.files.sequencePath).filePath(QStringLiteral("sequence.json"));
+        if (resolveContained(runFolder, *data.files.sequencePath, true,
+                             sequenceFolder, &sequenceError) &&
+            resolveContained(runFolder, manifestRelative, false, sequenceManifest,
+                             &sequenceError) &&
+            sequence::SequenceManifestV2::load(sequenceManifest, &sequenceError)) {
+            entry.sequencePath = sequenceManifest;
         } else {
             entry.sequenceReason = MissingSequenceReason;
         }
@@ -315,8 +322,11 @@ bool RunRepository::loadSelected(QString* error) {
     const auto selected = std::find_if(
         entries_.cbegin(), entries_.cend(),
         [this](const RunEntry& entry) { return entry.id == selectedRunId_; });
-    if (selected == entries_.cend())
-        return fail(error, "No Run is selected.");
+    if (selected == entries_.cend()) {
+        const QString reason = QStringLiteral("No Run is selected.");
+        publish(reason);
+        return fail(error, reason);
+    }
     if (!selected->loadable) {
         publish(selected->reason);
         return fail(error, selected->reason);
@@ -374,15 +384,15 @@ bool RunRepository::updateLoadedNotes(const QString& notes, QString* error) {
     return true;
 }
 
-const QVector<RunEntry>& RunRepository::entries() const noexcept {
+QVector<RunEntry> RunRepository::entries() const {
     return entries_;
 }
 
-const QString& RunRepository::selectedRunId() const noexcept {
+QString RunRepository::selectedRunId() const {
     return selectedRunId_;
 }
 
-const std::optional<LoadedRun>& RunRepository::loadedRun() const noexcept {
+std::optional<LoadedRun> RunRepository::loadedRun() const {
     return loadedRun_;
 }
 

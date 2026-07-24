@@ -71,11 +71,14 @@ ModelTestSummaryData data(QTemporaryDir& temporary, int classCount,
     value.activeModel.onnxSha256 = QString(64, 'c');
     value.activeModel.metadataSha256 = QString(64, 'd');
     for (int index = 0; index < classCount; ++index)
-        value.activeModel.classes.push_back({index, QString("Class %1").arg(index)});
+        value.activeModel.classes.push_back(
+            {QString("model-%1").arg(index), QString("Model %1").arg(index)});
     value.dataset.id = "dataset";
     value.dataset.sourcePath =
         QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(dataset).canonicalFilePath()));
-    value.dataset.classes = value.activeModel.classes;
+    for (int index = 0; index < classCount; ++index)
+        value.dataset.classes.push_back(
+            {QString("dataset-%1").arg(index), QString("Dataset %1").arg(index)});
     value.effectiveDevice = EffectiveDevice::Cuda;
     value.eligibleImages = eligible;
     return value;
@@ -97,10 +100,12 @@ void testCompletedEscapingRecoveryAndSourceUntouched() {
         QDir(root).filePath("model_test_summary.partial.json");
     const QByteArray staleSummary = readFile(partialSummary);
     require(writer->appendPrediction(
-                {"crops/a.png", 0, 0, {0.9, 0.05, 0.05}}, &error),
+                {"crops/a.png", "dataset-0", "model-0",
+                 {0.9, 0.05, 0.05}}, &error),
             qPrintable(error));
     require(writer->appendPrediction(
-                {"crops/b,comma.png", 1, 2, {0.1, 0.2, 0.7}}, &error),
+                {"crops/b,comma.png", "dataset-1", "model-2",
+                 {0.1, 0.2, 0.7}}, &error),
             qPrintable(error));
     writeFile(partialSummary, staleSummary);
     auto recovered = ModelTestSummaryV2::load(partialSummary, &error);
@@ -162,13 +167,15 @@ void testRollbackAndFailedRecovery() {
         readFile(QDir(root).filePath("predictions.partial.csv"));
     ModelTestWriterTestAccess::failNextAppend(*writer);
     require(!writer->appendPrediction(
-                {"crops/a.png", 0, 0, {0.6, 0.4}}, &error),
+                {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}},
+                &error),
             "injected partial append failure");
     require(readFile(QDir(root).filePath("predictions.partial.csv")) == initialCsv &&
                 writer->predictions().isEmpty(),
             "partial append rolls back exactly");
     require(writer->appendPrediction(
-                {"crops/a.png", 0, 0, {0.6, 0.4}}, &error),
+                {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}},
+                &error),
             qPrintable(error));
     require(writer->finalize(ModelTestStatus::Failed,
                              "2026-07-24T12:00:10Z",
@@ -191,7 +198,8 @@ void testFinalSummaryLastAndRetry() {
     auto writer = ModelTestWriter::start(root, data(temporary, 2, 1), &error);
     require(writer.has_value(), qPrintable(error));
     require(writer->appendPrediction(
-                {"crops/a.png", 0, 0, {1.0, 0.0}}, &error),
+                {"crops/a.png", "dataset-0", "model-0", {1.0, 0.0}},
+                &error),
             qPrintable(error));
     ModelTestWriterTestAccess::failNextFinalSummary(*writer);
     require(!writer->finalize(ModelTestStatus::Completed,
@@ -238,7 +246,8 @@ void testCanonicalSuccessSurvivesCleanupFailure() {
     auto writer = ModelTestWriter::start(root, data(temporary, 2, 1), &error);
     require(writer.has_value(), qPrintable(error));
     require(writer->appendPrediction(
-                {"crops/a.png", 0, 0, {0.8, 0.2}}, &error),
+                {"crops/a.png", "dataset-0", "model-0", {0.8, 0.2}},
+                &error),
             qPrintable(error));
     ModelTestWriterTestAccess::failPartialCsvCleanup(*writer);
     require(writer->finalize(ModelTestStatus::Completed,

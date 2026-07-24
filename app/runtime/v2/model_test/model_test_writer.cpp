@@ -38,13 +38,16 @@ QByteArray csvHeader(int classCount) {
     return header;
 }
 
-QByteArray csvRow(const ModelTestPrediction& prediction) {
-    QStringList fields{prediction.imagePath,
-                       QString::number(prediction.trueClassId),
-                       QString::number(prediction.predictedClassId)};
+QByteArray csvRow(const ModelTestSummaryData& data,
+                  const ModelTestPrediction& prediction) {
+    QStringList fields{prediction.imagePath, prediction.trueClassId,
+                       prediction.predictedClassId};
     for (double score : prediction.scores)
         fields.push_back(QString::number(score, 'g', 17));
-    fields.push_back(prediction.correct() ? "true" : "false");
+    fields.push_back(
+        ModelTestSummaryV2::predictionCorrect(data, prediction).value_or(false)
+            ? "true"
+            : "false");
     std::transform(fields.begin(), fields.end(), fields.begin(), csvField);
     return (fields.join(',') + '\n').toUtf8();
 }
@@ -151,7 +154,7 @@ bool ModelTestWriter::appendPrediction(const ModelTestPrediction& prediction,
     }
 
     const qint64 priorOffset = partialCsv_->pos();
-    const QByteArray row = csvRow(prediction);
+    const QByteArray row = csvRow(data_, prediction);
     bool written = false;
     if (failNextAppendForTest_) {
         failNextAppendForTest_ = false;

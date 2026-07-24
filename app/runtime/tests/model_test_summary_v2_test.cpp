@@ -32,20 +32,23 @@ QString csvField(QString value) {
     return value;
 }
 
-QByteArray csv(const QVector<ModelTestPrediction>& predictions, int classCount) {
+QByteArray csv(const ModelTestSummaryData& summary,
+               const QVector<ModelTestPrediction>& predictions) {
     QStringList lines;
     QStringList header{"image_path", "true_class_id", "predicted_class_id"};
-    for (int index = 0; index < classCount; ++index)
+    for (int index = 0; index < summary.activeModel.classes.size(); ++index)
         header.push_back(QString("score_class_%1").arg(index));
     header.push_back("correct");
     lines.push_back(header.join(','));
     for (const auto& prediction : predictions) {
-        QStringList fields{prediction.imagePath,
-                           QString::number(prediction.trueClassId),
-                           QString::number(prediction.predictedClassId)};
+        QStringList fields{prediction.imagePath, prediction.trueClassId,
+                           prediction.predictedClassId};
         for (double score : prediction.scores)
             fields.push_back(QString::number(score, 'g', 17));
-        fields.push_back(prediction.correct() ? "true" : "false");
+        fields.push_back(
+            ModelTestSummaryV2::predictionCorrect(summary, prediction).value()
+                ? "true"
+                : "false");
         for (QString& field : fields)
             field = csvField(field);
         lines.push_back(fields.join(','));
@@ -79,11 +82,14 @@ ModelTestSummaryData data(QTemporaryDir& temporary, int classCount,
     value.activeModel.onnxSha256 = QString(64, 'a');
     value.activeModel.metadataSha256 = QString(64, 'b');
     for (int index = 0; index < classCount; ++index)
-        value.activeModel.classes.push_back({index, QString("Class %1").arg(index)});
+        value.activeModel.classes.push_back(
+            {QString("model-%1").arg(index), QString("Model %1").arg(index)});
     value.dataset.id = "dataset-1";
     value.dataset.sourcePath =
         QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(dataset).canonicalFilePath()));
-    value.dataset.classes = value.activeModel.classes;
+    for (int index = 0; index < classCount; ++index)
+        value.dataset.classes.push_back(
+            {QString("dataset-%1").arg(index), QString("Dataset %1").arg(index)});
     value.effectiveDevice = EffectiveDevice::Cpu;
     value.fallbackWarning = QStringLiteral("CUDA unavailable; CPU used.");
     value.eligibleImages = eligible;
@@ -96,8 +102,8 @@ void testThreeClassMetricsAndStrictRoundTrip() {
     QString error;
     auto summary = data(temporary, 3, 2);
     QVector<ModelTestPrediction> predictions{
-        {"crops/a.png", 0, 0, {0.8, 0.1, 0.1}},
-        {"crops/b,quoted.png", 1, 2, {0.1, 0.2, 0.7}},
+        {"crops/a.png", "dataset-0", "model-0", {0.8, 0.1, 0.1}},
+        {"crops/b,quoted.png", "dataset-1", "model-2", {0.1, 0.2, 0.7}},
     };
     auto derived = ModelTestSummaryV2::derive(summary, predictions, &error);
     require(derived.has_value(), qPrintable(error));
@@ -118,7 +124,7 @@ void testThreeClassMetricsAndStrictRoundTrip() {
     require(ModelTestSummaryV2::save(jsonPath, summary, predictions, &error),
             qPrintable(error));
     writeFile(QDir(temporary.path()).filePath("predictions.csv"),
-              csv(predictions, 3));
+              csv(summary, predictions));
     auto loaded = ModelTestSummaryV2::load(jsonPath, &error);
     require(loaded.has_value(), qPrintable(error));
     require(loaded->predictions().at(1).imagePath == "crops/b,quoted.png" &&
@@ -155,7 +161,7 @@ void testThreeClassMetricsAndStrictRoundTrip() {
     require(ModelTestSummaryV2::save(cudaJson, summary, predictions, &error),
             qPrintable(error));
     writeFile(QDir(cudaFolder).filePath("predictions.csv"),
-              csv(predictions, 3));
+              csv(summary, predictions));
     require(ModelTestSummaryV2::load(cudaJson, &error).has_value(),
             qPrintable(error));
 }
@@ -165,13 +171,14 @@ void testTwoClassArgmaxAndMismatch() {
     QTemporaryDir temporary;
     QString error;
     auto summary = data(temporary, 2, 1);
-    ModelTestPrediction tie{"crops/a.png", 0, 0, {0.5, 0.5}};
+    ModelTestPrediction tie{"crops/a.png", "dataset-0", "model-0",
+                            {0.5, 0.5}};
     require(ModelTestSummaryV2::validatePrediction(summary, tie, true, &error),
             qPrintable(error));
-    tie.predictedClassId = 1;
+    tie.predictedClassId = "model-1";
     require(!ModelTestSummaryV2::validatePrediction(summary, tie, true, &error),
             "first argmax wins ties");
-    tie.predictedClassId = 0;
+    tie.predictedClassId = "model-0";
     tie.scores = {0.5};
     require(!ModelTestSummaryV2::validatePrediction(summary, tie, true, &error),
             "exact score count required");
@@ -179,11 +186,22 @@ void testTwoClassArgmaxAndMismatch() {
     require(!ModelTestSummaryV2::validatePrediction(summary, tie, true, &error),
             "finite scores required");
 
-    summary.dataset.classes[1].name = "Different";
-    require(!ModelTestSummaryV2::validateInitial(summary, &error),
-            "Dataset class snapshot must exactly match Active Model");
+    require(ModelTestSummaryV2::validateInitial(summary, &error),
+            "different Dataset and model IDs/names accepted by count");
+    const auto ordinalCorrect =
+        ModelTestSummaryV2::predictionCorrect(summary, tie, &error);
+    require(ordinalCorrect && *ordinalCorrect,
+            "correctness compares ordered class position");
+    tie.trueClassId = "dataset-1";
+    require(ModelTestSummaryV2::predictionCorrect(summary, tie, &error) ==
+                std::optional<bool>(false),
+            "different ordered positions are incorrect");
+    tie.trueClassId = "dataset-0";
 
-    summary.dataset.classes = summary.activeModel.classes;
+    summary.dataset.classes.removeLast();
+    require(!ModelTestSummaryV2::validateInitial(summary, &error),
+            "class-count mismatch rejected");
+    summary.dataset.classes.push_back({"dataset-1", "Dataset 1"});
     summary.fallbackWarning.reset();
     require(!ModelTestSummaryV2::validateInitial(summary, &error),
             "CPU requires a factual fallback warning");
@@ -207,7 +225,8 @@ void testPathContainmentAndLinks() {
     QTemporaryDir temporary;
     QString error;
     auto summary = data(temporary, 2, 1);
-    ModelTestPrediction prediction{"../outside.png", 0, 0, {1.0, 0.0}};
+    ModelTestPrediction prediction{"../outside.png", "dataset-0", "model-0",
+                                   {1.0, 0.0}};
     require(!ModelTestSummaryV2::validatePrediction(summary, prediction, true, &error),
             "parent traversal rejected");
     prediction.imagePath = QDir(summary.dataset.sourcePath).filePath("crops/a.png");

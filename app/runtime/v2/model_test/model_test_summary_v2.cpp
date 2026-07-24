@@ -86,23 +86,28 @@ bool validSha(const QString& value) {
 bool validClasses(const QVector<ModelTestClassSnapshot>& classes) {
     if (classes.size() != 2 && classes.size() != 3)
         return false;
-    for (int index = 0; index < classes.size(); ++index) {
-        if (classes.at(index).id != index || classes.at(index).name.trimmed().isEmpty())
+    QSet<QString> ids;
+    QSet<QString> names;
+    for (const auto& cls : classes) {
+        const QString id = cls.id.trimmed();
+        const QString name = cls.name.trimmed();
+        if (id.isEmpty() || name.isEmpty() || ids.contains(id) ||
+            names.contains(name.toCaseFolded())) {
             return false;
+        }
+        ids.insert(id);
+        names.insert(name.toCaseFolded());
     }
     return true;
 }
 
-bool sameClasses(const QVector<ModelTestClassSnapshot>& left,
-                 const QVector<ModelTestClassSnapshot>& right) {
-    if (left.size() != right.size())
-        return false;
-    for (int index = 0; index < left.size(); ++index) {
-        if (left.at(index).id != right.at(index).id ||
-            left.at(index).name != right.at(index).name)
-            return false;
+int classIndex(const QVector<ModelTestClassSnapshot>& classes,
+               const QString& id) {
+    for (int index = 0; index < classes.size(); ++index) {
+        if (classes.at(index).id == id)
+            return index;
     }
-    return true;
+    return -1;
 }
 
 bool safeRelativePath(const QString& path) {
@@ -124,7 +129,8 @@ bool validateData(const ModelTestSummaryData& data, bool requireDataset,
         !validSha(data.activeModel.metadataSha256) ||
         !validClasses(data.activeModel.classes) ||
         data.dataset.id.trimmed().isEmpty() ||
-        !sameClasses(data.activeModel.classes, data.dataset.classes) ||
+        !validClasses(data.dataset.classes) ||
+        data.activeModel.classes.size() != data.dataset.classes.size() ||
         deviceText(data.effectiveDevice).isEmpty() || data.eligibleImages < 0 ||
         data.predictionsCsv != "predictions.csv" ||
         (data.effectiveDevice == EffectiveDevice::Cuda &&
@@ -182,13 +188,14 @@ parseClasses(const QJsonValue& value, QString* error) {
         if (!exactKeys(object, {"id", "name"}) || !object.value("name").isString()) {
             return failed<QVector<ModelTestClassSnapshot>>(error, "Class entry is invalid.");
         }
-        qint64 id = 0;
-        if (!requireInteger(object.value("id"), &id) || id > 2)
+        if (!object.value("id").isString())
             return failed<QVector<ModelTestClassSnapshot>>(error, "Class ID is invalid.");
-        classes.push_back({static_cast<int>(id), object.value("name").toString()});
+        classes.push_back({object.value("id").toString(),
+                           object.value("name").toString()});
     }
     if (!validClasses(classes))
-        return failed<QVector<ModelTestClassSnapshot>>(error, "Classes must be ordered IDs 0..N-1.");
+        return failed<QVector<ModelTestClassSnapshot>>(
+            error, "Classes require unique nonempty IDs and names.");
     return classes;
 }
 
@@ -336,14 +343,10 @@ loadPredictions(const QString& path, const ModelTestSummaryData& data,
     for (const auto& fields : *records) {
         if (fields.size() != expected.size())
             return failed<QVector<ModelTestPrediction>>(error, "Predictions CSV row width is invalid.");
-        bool trueOk = false;
-        bool predictedOk = false;
         ModelTestPrediction prediction;
         prediction.imagePath = fields.at(0);
-        prediction.trueClassId = fields.at(1).toInt(&trueOk);
-        prediction.predictedClassId = fields.at(2).toInt(&predictedOk);
-        if (!trueOk || !predictedOk)
-            return failed<QVector<ModelTestPrediction>>(error, "Prediction class ID is invalid.");
+        prediction.trueClassId = fields.at(1);
+        prediction.predictedClassId = fields.at(2);
         for (int index = 0; index < data.activeModel.classes.size(); ++index) {
             bool scoreOk = false;
             const double score = fields.at(3 + index).toDouble(&scoreOk);
@@ -352,8 +355,10 @@ loadPredictions(const QString& path, const ModelTestSummaryData& data,
             prediction.scores.push_back(score);
         }
         const QString correct = fields.constLast();
+        const auto expectedCorrect =
+            ModelTestSummaryV2::predictionCorrect(data, prediction, error);
         if ((correct != "true" && correct != "false") ||
-            (correct == "true") != prediction.correct() ||
+            !expectedCorrect || (correct == "true") != *expectedCorrect ||
             !ModelTestSummaryV2::validatePrediction(data, prediction, false, error)) {
             return std::nullopt;
         }
@@ -393,9 +398,12 @@ bool ModelTestSummaryV2::validatePrediction(
     if (error)
         error->clear();
     const int count = data.activeModel.classes.size();
+    const int trueIndex = classIndex(data.dataset.classes,
+                                     prediction.trueClassId);
+    const int predictedIndex = classIndex(data.activeModel.classes,
+                                          prediction.predictedClassId);
     if (!safeRelativePath(prediction.imagePath) ||
-        prediction.trueClassId < 0 || prediction.trueClassId >= count ||
-        prediction.predictedClassId < 0 || prediction.predictedClassId >= count ||
+        trueIndex < 0 || predictedIndex < 0 ||
         prediction.scores.size() != count) {
         return fail(error, "Prediction path, class IDs, or score count is invalid.");
     }
@@ -406,7 +414,7 @@ bool ModelTestSummaryV2::validatePrediction(
         if (prediction.scores.at(index) > prediction.scores.at(argmax))
             argmax = index;
     }
-    if (prediction.predictedClassId != argmax)
+    if (predictedIndex != argmax)
         return fail(error, "predicted_class_id must be the first argmax Class Score.");
     if (!requireReadableSource)
         return true;
@@ -438,6 +446,20 @@ bool ModelTestSummaryV2::validatePrediction(
     return true;
 }
 
+std::optional<bool> ModelTestSummaryV2::predictionCorrect(
+    const ModelTestSummaryData& data, const ModelTestPrediction& prediction,
+    QString* error) {
+    if (error)
+        error->clear();
+    const int trueIndex = classIndex(data.dataset.classes,
+                                     prediction.trueClassId);
+    const int predictedIndex = classIndex(data.activeModel.classes,
+                                          prediction.predictedClassId);
+    if (trueIndex < 0 || predictedIndex < 0)
+        return failed<bool>(error, "Prediction class ID is not present in its snapshot.");
+    return trueIndex == predictedIndex;
+}
+
 std::optional<ModelTestDerivedResults>
 ModelTestSummaryV2::derive(const ModelTestSummaryData& data,
                            const QVector<ModelTestPrediction>& predictions,
@@ -459,7 +481,7 @@ ModelTestSummaryV2::derive(const ModelTestSummaryData& data,
     result.perClass.resize(count);
     result.confusionMatrix.resize(count);
     for (int index = 0; index < count; ++index) {
-        result.perClass[index].classId = index;
+        result.perClass[index].classId = data.dataset.classes.at(index).id;
         result.confusionMatrix[index].fill(0, count);
     }
     QSet<QString> paths;
@@ -470,10 +492,17 @@ ModelTestSummaryV2::derive(const ModelTestSummaryData& data,
             return failed<ModelTestDerivedResults>(error, "Prediction image paths must be unique.");
         paths.insert(prediction.imagePath);
         ++result.processedImages;
-        auto& metrics = result.perClass[prediction.trueClassId];
+        const int trueIndex = classIndex(data.dataset.classes,
+                                         prediction.trueClassId);
+        const int predictedIndex = classIndex(data.activeModel.classes,
+                                              prediction.predictedClassId);
+        auto& metrics = result.perClass[trueIndex];
         ++metrics.support;
-        ++result.confusionMatrix[prediction.trueClassId][prediction.predictedClassId];
-        if (prediction.correct()) {
+        ++result.confusionMatrix[trueIndex][predictedIndex];
+        const auto correct = predictionCorrect(data, prediction, error);
+        if (!correct)
+            return std::nullopt;
+        if (*correct) {
             ++result.correctPredictions;
             ++metrics.correct;
         }
@@ -660,15 +689,15 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
         if (!perClass.at(index).isObject())
             return failed<ModelTestSummaryV2>(error, "Per-class metric is invalid.");
         const QJsonObject item = perClass.at(index).toObject();
-        qint64 id = 0;
         qint64 support = 0;
         qint64 correct = 0;
         const auto& expected = derived->perClass.at(index);
         if (!exactKeys(item, {"class_id", "support", "correct", "accuracy"}) ||
-            !requireInteger(item.value("class_id"), &id) ||
+            !item.value("class_id").isString() ||
             !requireInteger(item.value("support"), &support) ||
             !requireInteger(item.value("correct"), &correct) ||
-            id != expected.classId || correct > support ||
+            item.value("class_id").toString() != expected.classId ||
+            correct > support ||
             !validStoredAccuracy(item.value("accuracy"), support > 0) ||
             (!partial && (support != expected.support ||
                           correct != expected.correct ||

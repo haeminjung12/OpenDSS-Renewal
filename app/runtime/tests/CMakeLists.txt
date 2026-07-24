@@ -578,3 +578,39 @@ add_test(
     $<TARGET_FILE:model_test_writer_test>
 )
 set_tests_properties(model_test_writer_test PROPERTIES TIMEOUT 30)
+
+qt_add_executable(model_test_service_test
+  model_test_service_test.cpp
+  ../desktop_app/app_utils.cpp
+  ../desktop_app/json_persistence.cpp
+  ../desktop_app/model_registry_service.cpp
+  ../inference/onnx_inference_adapter.cpp
+  ../metadata_loader.cpp
+  ../onnx_classifier.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/model/model_load_service.cpp
+  ../v2/model_test/model_test_service.cpp
+  ../v2/model_test/model_test_summary_v2.cpp
+  ../v2/model_test/model_test_writer.cpp
+  ../v2/operation/operation_coordinator.cpp
+)
+target_include_directories(model_test_service_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(model_test_service_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  Qt6::Widgets
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME model_test_service_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:model_test_service_test>
+)
+set_tests_properties(model_test_service_test PROPERTIES TIMEOUT 30)

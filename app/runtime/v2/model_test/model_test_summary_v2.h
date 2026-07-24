@@ -11,7 +11,7 @@ enum class ModelTestStatus { Completed, Stopped, Failed };
 enum class EffectiveDevice { Cpu, Cuda };
 
 struct ModelTestClassSnapshot {
-    int id = -1;
+    QString id;
     QString name;
 };
 
@@ -31,11 +31,9 @@ struct ModelTestDatasetSnapshot {
 
 struct ModelTestPrediction {
     QString imagePath;
-    int trueClassId = -1;
-    int predictedClassId = -1;
+    QString trueClassId;
+    QString predictedClassId;
     QVector<double> scores;
-
-    bool correct() const noexcept { return trueClassId == predictedClassId; }
 };
 
 struct ModelTestSummaryData {
@@ -54,7 +52,7 @@ struct ModelTestSummaryData {
 };
 
 struct ModelTestClassMetrics {
-    int classId = -1;
+    QString classId;
     qint64 support = 0;
     qint64 correct = 0;
     std::optional<double> accuracy;
@@ -88,6 +86,10 @@ class ModelTestSummaryV2 {
                                    const ModelTestPrediction& prediction,
                                    bool requireReadableSource,
                                    QString* error = nullptr);
+    static std::optional<bool>
+    predictionCorrect(const ModelTestSummaryData& data,
+                      const ModelTestPrediction& prediction,
+                      QString* error = nullptr);
     static std::optional<ModelTestDerivedResults>
     derive(const ModelTestSummaryData& data,
            const QVector<ModelTestPrediction>& predictions,

@@ -8,12 +8,17 @@
 #include <QDebug>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstring>
-#include <limits>
 #include <iostream>
+#include <limits>
+#include <mutex>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace desktop_app::v2;
@@ -278,10 +283,66 @@ int main(int argc, char **argv)
     ok &= check(daq.applySettings(defaults, &error) && daq.ready(),
                 "A successful reapply must recover readiness.");
 
-    daq.shutdown();
+    std::mutex publicationMutex;
+    std::condition_variable publicationChanged;
+    bool readyPublicationEntered = false;
+    bool releaseReadyPublication = false;
+    const QMetaObject::Connection orderingConnection =
+        QObject::connect(&store, &ApplicationStateStore::changed, [&] {
+            if (store.snapshot().daq.status != DaqStatus::Ready)
+                return;
+            std::unique_lock publicationLock(publicationMutex);
+            if (readyPublicationEntered)
+                return;
+            readyPublicationEntered = true;
+            publicationChanged.notify_all();
+            publicationChanged.wait(publicationLock,
+                                    [&] { return releaseReadyPublication; });
+        });
+
+    std::atomic_bool applyReturned{false};
+    std::atomic_bool shutdownStarted{false};
+    std::atomic_bool shutdownReturned{false};
+    std::thread concurrentApply([&] {
+        QString applyError;
+        daq.applySettings(defaults, &applyError);
+        applyReturned.store(true);
+    });
+    {
+        std::unique_lock publicationLock(publicationMutex);
+        ok &= check(publicationChanged.wait_for(
+                        publicationLock, std::chrono::seconds(2),
+                        [&] { return readyPublicationEntered; }),
+                    "Ready publication must enter the deterministic ordering gate.");
+    }
+    std::thread concurrentShutdown([&] {
+        shutdownStarted.store(true);
+        daq.shutdown();
+        shutdownReturned.store(true);
+    });
+    const auto shutdownDeadline =
+        std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!shutdownStarted.load()
+           && std::chrono::steady_clock::now() < shutdownDeadline) {
+        std::this_thread::yield();
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    ok &= check(shutdownStarted.load() && !shutdownReturned.load()
+                    && !applyReturned.load()
+                    && store.snapshot().daq.status == DaqStatus::Ready,
+                "Shutdown must wait until the earlier Ready publication completes.");
+    {
+        std::lock_guard publicationLock(publicationMutex);
+        releaseReadyPublication = true;
+    }
+    publicationChanged.notify_all();
+    concurrentApply.join();
+    concurrentShutdown.join();
+    QObject::disconnect(orderingConnection);
     ok &= check(!daq.ready()
-                    && store.snapshot().daq.status == DaqStatus::Disabled,
-                "Shutdown must publish Disabled.");
+                    && store.snapshot().daq.status == DaqStatus::Disabled
+                    && applyReturned.load() && shutdownReturned.load(),
+                "Shutdown must publish Disabled after the earlier apply publication.");
 
     QObject::disconnect(observerConnection);
     return ok ? 0 : 1;

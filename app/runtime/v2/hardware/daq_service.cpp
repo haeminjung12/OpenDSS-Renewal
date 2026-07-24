@@ -68,7 +68,8 @@ DaqService::~DaqService()
 
 bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *error)
 {
-    std::unique_lock lock(mutex_);
+    std::lock_guard operationOrderLock(operationOrderMutex_);
+    std::unique_lock stateLock(stateMutex_);
     const QString invalid = validationError(settings);
     if (!invalid.isEmpty()) {
         setError(error, invalid);
@@ -103,7 +104,7 @@ bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *erro
                                   : DaqStatus::Faulted,
                               message);
         setError(error, message);
-        lock.unlock();
+        stateLock.unlock();
         stateStore_.publishDaq(published);
         return false;
     }
@@ -112,20 +113,20 @@ bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *erro
     state_.appliedSettings = settings;
     const DaqState published = updateStateLocked(DaqStatus::Ready);
     setError(error, {});
-    lock.unlock();
+    stateLock.unlock();
     stateStore_.publishDaq(published);
     return true;
 }
 
 bool DaqService::ready() const
 {
-    std::lock_guard lock(mutex_);
+    std::lock_guard stateLock(stateMutex_);
     return state_.status == DaqStatus::Ready && trigger_ && trigger_->isReady();
 }
 
 QJsonObject DaqService::settingsSnapshot() const
 {
-    std::lock_guard lock(mutex_);
+    std::lock_guard stateLock(stateMutex_);
     const DaqAppliedSettings &settings = state_.appliedSettings;
     return {
         {QStringLiteral("channel"), settings.outputChannel},
@@ -138,7 +139,8 @@ QJsonObject DaqService::settingsSnapshot() const
 
 run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
 {
-    std::unique_lock lock(mutex_);
+    std::lock_guard operationOrderLock(operationOrderMutex_);
+    std::unique_lock stateLock(stateMutex_);
     if (!outputEnabled) {
         setError(error, {});
         return run::DaqPulseStatus::SuppressedNotIssued;
@@ -149,7 +151,7 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
             trigger_->shutdown();
         const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
         setError(error, message);
-        lock.unlock();
+        stateLock.unlock();
         stateStore_.publishDaq(published);
         return run::DaqPulseStatus::Failed;
     }
@@ -161,7 +163,7 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
         trigger_->shutdown();
         const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
         setError(error, message);
-        lock.unlock();
+        stateLock.unlock();
         stateStore_.publishDaq(published);
         return run::DaqPulseStatus::Failed;
     }
@@ -172,12 +174,13 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
 
 void DaqService::shutdown()
 {
-    std::unique_lock lock(mutex_);
+    std::lock_guard operationOrderLock(operationOrderMutex_);
+    std::unique_lock stateLock(stateMutex_);
     if (trigger_)
         trigger_->shutdown();
     trigger_.reset();
     const DaqState published = updateStateLocked(DaqStatus::Disabled);
-    lock.unlock();
+    stateLock.unlock();
     stateStore_.publishDaq(published);
 }
 

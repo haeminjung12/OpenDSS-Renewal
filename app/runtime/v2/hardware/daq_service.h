@@ -35,7 +35,8 @@ private:
 
     OperationCoordinator &operations_;
     ApplicationStateStore &stateStore_;
-    mutable std::mutex mutex_;
+    std::mutex operationOrderMutex_;
+    mutable std::mutex stateMutex_;
     std::unique_ptr<DaqTrigger> trigger_;
     DaqState state_;
 };

@@ -343,5 +343,154 @@ int main(int argc, char **argv)
     }
     captureWrite.lease.release();
 
+    const QString modelFolderA =
+        QDir(datasets.path()).filePath(QStringLiteral("models/a/package"));
+    const QString modelFolderB =
+        QDir(datasets.path()).filePath(QStringLiteral("models/b/package"));
+    if (!QDir().mkpath(modelFolderA) || !QDir().mkpath(modelFolderB))
+        return fail(29, "Could not create Model package lock fixtures.");
+
+    auto modelReadA1 = coordinator.acquireModel(modelFolderA, ModelAccess::Read);
+    auto modelReadA2 = coordinator.acquireModel(modelFolderA, ModelAccess::Read);
+    auto modelWriteAConflict = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    auto modelWriteB = coordinator.acquireModel(modelFolderB, ModelAccess::Write);
+    if (!modelReadA1.acquired() || !modelReadA2.acquired()
+        || modelWriteAConflict.acquired() || !modelWriteAConflict.fault
+        || !modelWriteB.acquired()) {
+        return fail(30, "Model package read/write identity matrix was not enforced.");
+    }
+    modelWriteB.lease.release();
+    modelReadA1.lease.release();
+    modelReadA2.lease.release();
+
+    const QString modelAliasA =
+        QDir(modelFolderA).filePath(QStringLiteral("nested/.."));
+    if (!QDir().mkpath(QDir(modelFolderA).filePath(QStringLiteral("nested"))))
+        return fail(31, "Could not create Model package alias fixture.");
+    auto modelAliasRead = coordinator.acquireModel(modelAliasA, ModelAccess::Read);
+    auto modelAliasWrite = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    if (!modelAliasRead.acquired() || modelAliasWrite.acquired())
+        return fail(32, "A lexical Model package alias did not resolve to the same identity.");
+    modelAliasRead.lease.release();
+
+#ifdef Q_OS_WIN
+    auto modelCaseRead =
+        coordinator.acquireModel(modelFolderA.toUpper(), ModelAccess::Read);
+    auto modelCaseWrite = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    if (!modelCaseRead.acquired() || modelCaseWrite.acquired())
+        return fail(33, "Windows Model package identity was not case-folded.");
+    modelCaseRead.lease.release();
+#endif
+
+    auto modelTestRead = coordinator.acquireWithModel(
+        OperationKind::ModelTest, ResourceLock::Model, modelFolderA, ModelAccess::Read);
+    auto modelLibraryWriteA = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    auto modelLibraryWriteB = coordinator.acquireModel(modelFolderB, ModelAccess::Write);
+    if (!modelTestRead.acquired() || modelLibraryWriteA.acquired()
+        || !modelLibraryWriteA.fault
+        || modelLibraryWriteA.fault->currentKind != OperationKind::ModelTest
+        || !modelLibraryWriteB.acquired()) {
+        return fail(34, "A combined operation did not retain only its keyed Model package hold.");
+    }
+    modelLibraryWriteB.lease.release();
+    modelTestRead.lease.release();
+    auto modelWriteAfter = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    if (!modelWriteAfter.acquired())
+        return fail(35, "Combined operation release did not release its Model package hold.");
+    modelWriteAfter.lease.release();
+
+    auto heldModelWrite = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    auto failedModelCombined = coordinator.acquireWithModel(
+        OperationKind::SequenceTest, ResourceLock::Model, modelFolderA, ModelAccess::Read);
+    auto operationAfterFailedModelCombined =
+        coordinator.acquire(OperationKind::ImageSequence, ResourceLock::Camera);
+    if (!heldModelWrite.acquired() || failedModelCombined.acquired()
+        || !failedModelCombined.fault || !operationAfterFailedModelCombined.acquired()) {
+        return fail(36, "Failed combined Model acquisition retained partial operation ownership.");
+    }
+    operationAfterFailedModelCombined.lease.release();
+    heldModelWrite.lease.release();
+
+    auto activeModelOperation =
+        coordinator.acquire(OperationKind::ModelTest, ResourceLock::Model);
+    const bool activeModelOperationAcquired = activeModelOperation.acquired();
+    auto blockedModelCombined = coordinator.acquireWithModel(
+        OperationKind::SequenceTest, ResourceLock::Sequence, modelFolderA, ModelAccess::Read);
+    activeModelOperation.lease.release();
+    auto modelAfterBlockedCombined =
+        coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    if (!activeModelOperationAcquired || blockedModelCombined.acquired()
+        || !modelAfterBlockedCombined.acquired()) {
+        return fail(37, "Operation conflict during combined Model acquisition retained a lease.");
+    }
+    modelAfterBlockedCombined.lease.release();
+
+    auto movedModelSource = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    ModelLease movedModel = std::move(movedModelSource.lease);
+    if (movedModelSource.lease.isValid() || !movedModel.isValid())
+        return fail(38, "Moving a Model lease did not transfer ownership.");
+    movedModel.release();
+    auto replacementModel = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    ModelLease staleModel = std::move(movedModel);
+    movedModel.release();
+    staleModel.release();
+    auto replacementModelConflict =
+        coordinator.acquireModel(modelFolderA, ModelAccess::Read);
+    if (!replacementModel.acquired() || replacementModelConflict.acquired())
+        return fail(39, "A stale Model lease affected a newer reservation.");
+    replacementModel.lease.release();
+
+    auto assignedModelA = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    auto assignedModelB = coordinator.acquireModel(modelFolderB, ModelAccess::Write);
+    ModelLease assignedModel = std::move(assignedModelA.lease);
+    assignedModel = std::move(assignedModelB.lease);
+    auto modelAAfterAssignment = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    auto modelBWhileAssigned = coordinator.acquireModel(modelFolderB, ModelAccess::Read);
+    if (assignedModelA.lease.isValid() || assignedModelB.lease.isValid()
+        || !assignedModel.isValid() || !modelAAfterAssignment.acquired()
+        || modelBWhileAssigned.acquired()) {
+        return fail(40, "Model move assignment did not transfer the exact reservation.");
+    }
+    assignedModel.release();
+    assignedModel.release();
+    modelAAfterAssignment.lease.release();
+
+    {
+        auto scopedModel =
+            coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+        if (!scopedModel.acquired())
+            return fail(41, "Could not acquire the scoped Model lease.");
+    }
+    auto modelAfterDestruction =
+        coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    if (!modelAfterDestruction.acquired())
+        return fail(42, "Model lease destruction did not release its reservation.");
+    modelAfterDestruction.lease.release();
+
+    ModelLease expiredModel;
+    {
+        OperationCoordinator scopedCoordinator;
+        auto scoped =
+            scopedCoordinator.acquireModel(modelFolderA, ModelAccess::Read);
+        expiredModel = std::move(scoped.lease);
+    }
+    if (expiredModel.isValid())
+        return fail(43, "Model lease did not expire with its coordinator.");
+    expiredModel.release();
+
+    const QString regularFile =
+        QDir(datasets.path()).filePath(QStringLiteral("not-a-model-package"));
+    if (!writeFile(regularFile))
+        return fail(44, "Could not create invalid Model package fixture.");
+    auto emptyModel = coordinator.acquireModel(QString(), ModelAccess::Read);
+    auto missingModel = coordinator.acquireModel(
+        QDir(datasets.path()).filePath(QStringLiteral("missing-model")),
+        ModelAccess::Read);
+    auto fileModel = coordinator.acquireModel(regularFile, ModelAccess::Read);
+    if (emptyModel.acquired() || missingModel.acquired() || fileModel.acquired()
+        || !emptyModel.fault || !missingModel.fault || !fileModel.fault) {
+        return fail(45, "Invalid Model package identities were accepted.");
+    }
+
     return 0;
 }

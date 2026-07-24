@@ -20,6 +20,11 @@ namespace desktop_app::v2 {
 class OperationControl final
 {
 public:
+    struct ModelReservation {
+        QString key;
+        ModelAccess access = ModelAccess::Read;
+    };
+
     struct DatasetReservation {
         QString key;
         DatasetAccess access = DatasetAccess::Read;
@@ -31,12 +36,14 @@ public:
         ResourceLocks locks;
         quint64 generation = 0;
         bool hasDataset = false;
+        bool hasModel = false;
     };
 
     QMutex mutex;
     std::optional<ActiveOperation> active;
     QHash<quint64, ResourceLocks> momentary;
     QHash<quint64, DatasetReservation> datasets;
+    QHash<quint64, ModelReservation> models;
     quint64 nextGeneration = 1;
 };
 
@@ -76,7 +83,7 @@ bool pathContainsLinkOrReparse(QString path)
     }
 }
 
-QString normalizedDatasetKey(QString path)
+QString normalizedPathKey(QString path)
 {
     path = QDir::cleanPath(QDir::fromNativeSeparators(path));
 #ifdef Q_OS_WIN
@@ -98,7 +105,7 @@ std::optional<QString> datasetKey(const QString &path, bool allowMissingCaptureT
                 *error = QStringLiteral("Dataset path must identify an existing regular file.");
             return std::nullopt;
         }
-        return normalizedDatasetKey(canonical);
+        return normalizedPathKey(canonical);
     }
 
     if (!allowMissingCaptureTarget) {
@@ -124,7 +131,7 @@ std::optional<QString> datasetKey(const QString &path, bool allowMissingCaptureT
             *error = QStringLiteral("Could not resolve the Dataset Capture target parent.");
         return std::nullopt;
     }
-    return normalizedDatasetKey(QDir(canonicalParent).filePath(requested.fileName()));
+    return normalizedPathKey(QDir(canonicalParent).filePath(requested.fileName()));
 }
 
 bool datasetConflicts(const OperationControl::DatasetReservation &held,
@@ -132,6 +139,26 @@ bool datasetConflicts(const OperationControl::DatasetReservation &held,
 {
     return held.key == key
         && (held.access == DatasetAccess::Write || requested == DatasetAccess::Write);
+}
+
+std::optional<QString> modelKey(const QString &path, QString *error)
+{
+    const QFileInfo requested(path);
+    const QString canonical = requested.canonicalFilePath();
+    const QFileInfo resolved(canonical);
+    if (path.trimmed().isEmpty() || canonical.isEmpty() || !resolved.isDir()) {
+        if (error)
+            *error = QStringLiteral("Model package path must identify an existing directory.");
+        return std::nullopt;
+    }
+    return normalizedPathKey(canonical);
+}
+
+bool modelConflicts(const OperationControl::ModelReservation &held,
+                    const QString &key, ModelAccess requested)
+{
+    return held.key == key
+        && (held.access == ModelAccess::Write || requested == ModelAccess::Write);
 }
 
 QString operationName(OperationKind kind)
@@ -215,6 +242,16 @@ OperationFault datasetConflictFault(const OperationControl &control, quint64 gen
     return fault;
 }
 
+OperationFault modelConflictFault(const OperationControl &control, quint64 generation)
+{
+    if (control.active && control.active->generation == generation)
+        return conflictFault(control, control.active->locks);
+    OperationFault fault;
+    fault.reason = QStringLiteral("This Model package is in use.");
+    fault.recovery = QStringLiteral("Wait for the current Model package action to finish.");
+    return fault;
+}
+
 OperationFault expiredCoordinatorFault()
 {
     OperationFault fault;
@@ -224,6 +261,53 @@ OperationFault expiredCoordinatorFault()
 }
 
 } // namespace
+
+ModelLease::ModelLease(std::weak_ptr<OperationControl> control, quint64 generation)
+    : control_(std::move(control))
+    , generation_(generation)
+{
+}
+
+ModelLease::~ModelLease()
+{
+    release();
+}
+
+ModelLease::ModelLease(ModelLease &&other) noexcept
+    : control_(std::move(other.control_))
+    , generation_(std::exchange(other.generation_, 0))
+{
+    other.control_.reset();
+}
+
+ModelLease &ModelLease::operator=(ModelLease &&other) noexcept
+{
+    if (this != &other) {
+        release();
+        control_ = std::move(other.control_);
+        generation_ = std::exchange(other.generation_, 0);
+        other.control_.reset();
+    }
+    return *this;
+}
+
+bool ModelLease::isValid() const
+{
+    return generation_ != 0 && !control_.expired();
+}
+
+void ModelLease::release()
+{
+    if (generation_ == 0)
+        return;
+    const quint64 generation = std::exchange(generation_, 0);
+    const auto control = control_.lock();
+    control_.reset();
+    if (!control)
+        return;
+    QMutexLocker locker(&control->mutex);
+    control->models.remove(generation);
+}
 
 DatasetLease::DatasetLease(std::weak_ptr<OperationControl> control, quint64 generation)
     : control_(std::move(control))
@@ -343,6 +427,8 @@ void OperationLease::release()
     if (control->active && control->active->generation == generation) {
         if (control->active->hasDataset)
             control->datasets.remove(generation);
+        if (control->active->hasModel)
+            control->models.remove(generation);
         control->active.reset();
     }
 }
@@ -409,6 +495,11 @@ bool DatasetAcquireResult::acquired() const
     return lease.isValid();
 }
 
+bool ModelAcquireResult::acquired() const
+{
+    return lease.isValid();
+}
+
 OperationCoordinator::OperationCoordinator()
     : control_(std::make_shared<OperationControl>())
 {
@@ -429,7 +520,7 @@ OperationAcquireResult OperationCoordinator::acquire(OperationKind kind, Resourc
     const quint64 generation = control_->nextGeneration++;
     control_->active =
         OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
-                                          false};
+                                          false, false};
     return {OperationLease(control_, generation), std::nullopt};
 }
 
@@ -462,8 +553,40 @@ OperationAcquireResult OperationCoordinator::acquireWithDataset(
     const quint64 generation = control_->nextGeneration++;
     control_->active =
         OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
-                                          true};
+                                          true, false};
     control_->datasets.insert(generation, {*key, access});
+    return {OperationLease(control_, generation), std::nullopt};
+}
+
+OperationAcquireResult OperationCoordinator::acquireWithModel(
+    OperationKind kind, ResourceLocks locks, const QString &modelPackagePath,
+    ModelAccess access)
+{
+    QString pathError;
+    const auto key = modelKey(modelPackagePath, &pathError);
+    if (!key) {
+        OperationFault fault;
+        fault.reason = pathError;
+        fault.recovery = QStringLiteral("Choose an existing Model package.");
+        return {{}, fault};
+    }
+
+    QMutexLocker locker(&control_->mutex);
+    if (control_->active)
+        return {{}, conflictFault(*control_, control_->active->locks)};
+    const ResourceLocks heldMomentaryLocks = momentaryLocks(*control_);
+    if (overlaps(locks, heldMomentaryLocks))
+        return {{}, conflictFault(*control_, locks & heldMomentaryLocks)};
+    for (auto it = control_->models.cbegin(); it != control_->models.cend(); ++it) {
+        if (modelConflicts(it.value(), *key, access))
+            return {{}, modelConflictFault(*control_, it.key())};
+    }
+
+    const quint64 generation = control_->nextGeneration++;
+    control_->active =
+        OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
+                                          false, true};
+    control_->models.insert(generation, {*key, access});
     return {OperationLease(control_, generation), std::nullopt};
 }
 
@@ -501,6 +624,28 @@ DatasetAcquireResult OperationCoordinator::acquireDataset(const QString &dataset
     const quint64 generation = control_->nextGeneration++;
     control_->datasets.insert(generation, {*key, access});
     return {DatasetLease(control_, generation), std::nullopt};
+}
+
+ModelAcquireResult OperationCoordinator::acquireModel(const QString &modelPackagePath,
+                                                      ModelAccess access)
+{
+    QString pathError;
+    const auto key = modelKey(modelPackagePath, &pathError);
+    if (!key) {
+        OperationFault fault;
+        fault.reason = pathError;
+        fault.recovery = QStringLiteral("Choose an existing Model package.");
+        return {{}, fault};
+    }
+
+    QMutexLocker locker(&control_->mutex);
+    for (auto it = control_->models.cbegin(); it != control_->models.cend(); ++it) {
+        if (modelConflicts(it.value(), *key, access))
+            return {{}, modelConflictFault(*control_, it.key())};
+    }
+    const quint64 generation = control_->nextGeneration++;
+    control_->models.insert(generation, {*key, access});
+    return {ModelLease(control_, generation), std::nullopt};
 }
 
 OperationSnapshot OperationCoordinator::snapshot() const

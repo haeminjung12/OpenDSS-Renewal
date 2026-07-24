@@ -44,6 +44,11 @@ enum class DatasetAccess {
     Write,
 };
 
+enum class ModelAccess {
+    Read,
+    Write,
+};
+
 struct OperationSnapshot {
     std::optional<OperationKind> kind;
     OperationLifecycle lifecycle = OperationLifecycle::Idle;
@@ -60,6 +65,27 @@ struct OperationFault {
 
 class OperationCoordinator;
 class OperationControl;
+
+class ModelLease final
+{
+public:
+    ModelLease() = default;
+    ~ModelLease();
+    ModelLease(ModelLease &&other) noexcept;
+    ModelLease &operator=(ModelLease &&other) noexcept;
+    ModelLease(const ModelLease &) = delete;
+    ModelLease &operator=(const ModelLease &) = delete;
+
+    bool isValid() const;
+    void release();
+
+private:
+    friend class OperationCoordinator;
+    ModelLease(std::weak_ptr<OperationControl> control, quint64 generation);
+
+    std::weak_ptr<OperationControl> control_;
+    quint64 generation_ = 0;
+};
 
 class DatasetLease final
 {
@@ -146,6 +172,13 @@ struct DatasetAcquireResult {
     bool acquired() const;
 };
 
+struct ModelAcquireResult {
+    ModelLease lease;
+    std::optional<OperationFault> fault;
+
+    bool acquired() const;
+};
+
 class OperationCoordinator final
 {
 public:
@@ -158,8 +191,12 @@ public:
     OperationAcquireResult acquireWithDataset(OperationKind kind, ResourceLocks locks,
                                               const QString &datasetJsonPath,
                                               DatasetAccess access);
+    OperationAcquireResult acquireWithModel(OperationKind kind, ResourceLocks locks,
+                                            const QString &modelPackagePath,
+                                            ModelAccess access);
     MomentaryAcquireResult acquireMomentary(ResourceLocks locks);
     DatasetAcquireResult acquireDataset(const QString &datasetJsonPath, DatasetAccess access);
+    ModelAcquireResult acquireModel(const QString &modelPackagePath, ModelAccess access);
     OperationSnapshot snapshot() const;
 
 private:

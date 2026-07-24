@@ -366,6 +366,46 @@ add_test(
 )
 set_tests_properties(operation_coordinator_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(run_manifest_v2_test
+  run_manifest_v2_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/run/run_manifest_v2.cpp
+  ../v2/run/run_writer_v2.cpp
+)
+target_include_directories(run_manifest_v2_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(run_manifest_v2_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME run_manifest_v2_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:run_manifest_v2_test>
+)
+set_tests_properties(run_manifest_v2_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(run_writer_v2_test
+  run_writer_v2_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/run/run_manifest_v2.cpp
+  ../v2/run/run_writer_v2.cpp
+)
+target_include_directories(run_writer_v2_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(run_writer_v2_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME run_writer_v2_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:run_writer_v2_test>
+)
+set_tests_properties(run_writer_v2_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(camera_service_contract_test
   camera_service_contract_test.cpp
   ../v2/camera/camera_service.cpp

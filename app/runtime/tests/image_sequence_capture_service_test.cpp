@@ -16,6 +16,7 @@
 #include <QThread>
 
 #include <cstdio>
+#include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
@@ -27,10 +28,24 @@ using namespace desktop_app::v2::sequence;
 namespace {
 
 QStringList warnings;
+std::mutex warningGateMutex;
+std::condition_variable warningGate;
+bool blockInitiatingWarning = false;
+bool initiatingWarningEntered = false;
+bool releaseInitiatingWarning = false;
 
 void messageHandler(QtMsgType type, const QMessageLogContext&, const QString& message) {
-    if (type == QtWarningMsg)
+    if (type == QtWarningMsg) {
         warnings.push_back(message);
+        if (message.contains("consumer failure initiating handoff")) {
+            std::unique_lock lock(warningGateMutex);
+            if (blockInitiatingWarning) {
+                initiatingWarningEntered = true;
+                warningGate.notify_all();
+                warningGate.wait(lock, [] { return releaseInitiatingWarning; });
+            }
+        }
+    }
 }
 
 bool check(bool condition, const char* message) {
@@ -364,6 +379,72 @@ bool writeFailure() {
                  "Write failure must release its operation lock.");
 }
 
+bool queuedWriteFailureRange() {
+    warnings.clear();
+    {
+        std::lock_guard lock(warningGateMutex);
+        blockInitiatingWarning = true;
+        initiatingWarningEntered = false;
+        releaseInitiatingWarning = false;
+    }
+    QTemporaryDir root;
+    Fixture fixture;
+    ImageSequenceCaptureService service(
+        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+    QString error;
+    if (!service.start(request(root.path()), &error))
+        return check(false, "Queued-failure sequence must start.");
+    const QString folder = service.snapshot().folder;
+    QFile collision(QDir(folder).filePath("frames/frame_00000001.tif"));
+    if (!collision.open(QIODevice::WriteOnly) || collision.write("collision") < 0)
+        return check(false, "Queued-failure collision must be created.");
+    collision.close();
+    if (!service.offerFrame(frame(1), 25.0, &error))
+        return check(false, "Initiating failed frame must be accepted.");
+    {
+        std::unique_lock lock(warningGateMutex);
+        if (!warningGate.wait_for(lock, std::chrono::seconds(2),
+                                  [] { return initiatingWarningEntered; })) {
+            releaseInitiatingWarning = true;
+            warningGate.notify_all();
+            return check(false, "Consumer must reach the deterministic warning gate.");
+        }
+    }
+    bool offersAccepted = true;
+    for (quint64 delivery = 2; delivery <= 4; ++delivery)
+        offersAccepted &= service.offerFrame(frame(delivery), 25.0, &error);
+    {
+        std::lock_guard lock(warningGateMutex);
+        releaseInitiatingWarning = true;
+    }
+    warningGate.notify_all();
+    if (!offersAccepted ||
+        !waitForLifecycle(service, OperationLifecycle::Failed)) {
+        return check(false, "Queued frames must be accepted then discarded by the failure.");
+    }
+    {
+        std::lock_guard lock(warningGateMutex);
+        blockInitiatingWarning = false;
+    }
+
+    const QJsonObject recovery =
+        readJsonObject(QDir(folder).filePath("sequence.partial.json"));
+    const QJsonObject consumer =
+        recovery.value("integrity").toObject().value("consumer_failures").toObject();
+    const QJsonArray ranges = consumer.value("ranges").toArray();
+    bool aggregateLogged = false;
+    for (const QString& warning : warnings) {
+        aggregateLogged |= warning.contains("aggregate consumer failures") &&
+                           warning.contains("count 4") && warning.contains("1-4");
+    }
+    return check(consumer.value("count").toInteger(-1) == 4 && ranges.size() == 1 &&
+                     ranges.at(0).toObject().value("first").toInteger(-1) == 1 &&
+                     ranges.at(0).toObject().value("last").toInteger(-1) == 4,
+                 "Failed recovery metadata must contain the full discarded range 1-4.") &&
+           check(aggregateLogged,
+                 "Aggregate diagnostics must match the full metadata range 1-4.");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -371,7 +452,7 @@ int main(int argc, char** argv) {
     const auto previousHandler = qInstallMessageHandler(messageHandler);
     const bool ok = manualCompletion() && timedPauseCompletion() &&
                     sourceGapCompletion() && pauseOfferRace() && zeroFrameFailure() &&
-                    startConflicts() && writeFailure();
+                    startConflicts() && writeFailure() && queuedWriteFailureRange();
     qInstallMessageHandler(previousHandler);
     return ok ? 0 : 1;
 }

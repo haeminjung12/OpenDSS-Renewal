@@ -410,20 +410,26 @@ void ImageSequenceCaptureService::consumeFrame(const QImage& image, const FrameM
             (meta.width != imageWidth_ || meta.height != imageHeight_ ||
              meta.bits != bitDepth_ || fps != nominalFps_)) {
             error_ = QStringLiteral("Image Sequence frame format changed during capture.");
-            qWarning().noquote() << error_ << "Failed handoff" << handoffId << "-"
-                                 << handoffId;
-            throw std::runtime_error("frame format mismatch");
+            target.clear();
+        } else {
+            target = QDir(framesFolder_)
+                         .filePath(QStringLiteral("frame_%1.tif")
+                                       .arg(savedFrameCount_ + 1, 8, 10, QLatin1Char('0')));
         }
-        target = QDir(framesFolder_)
-                     .filePath(QStringLiteral("frame_%1.tif")
-                                   .arg(savedFrameCount_ + 1, 8, 10, QLatin1Char('0')));
+    }
+    if (target.isEmpty()) {
+        qWarning().noquote() << "Image Sequence frame format changed. Failed handoff"
+                             << handoffId << "-" << handoffId;
+        throw std::runtime_error("frame format mismatch");
     }
     QString writeError;
     if (!writeTiffWithoutReplace(image, target, &writeError)) {
-        std::lock_guard lock(mutex_);
-        error_ = writeError;
-        qWarning().noquote() << "Image Sequence consumer failure at handoff" << handoffId
-                             << "-" << handoffId << ":" << error_;
+        {
+            std::lock_guard lock(mutex_);
+            error_ = writeError;
+        }
+        qWarning().noquote() << "Image Sequence consumer failure initiating handoff"
+                             << handoffId << "-" << handoffId << ":" << writeError;
         throw std::runtime_error("frame write failure");
     }
     std::lock_guard lock(mutex_);
@@ -555,6 +561,14 @@ void ImageSequenceCaptureService::updateFailedRecovery(const QString& stopReason
     }
     if (partialPath.isEmpty())
         return;
+    if (integrity.consumerFailures.count > 0) {
+        QStringList ranges;
+        for (const auto& range : integrity.consumerFailures.ranges)
+            ranges.push_back(QStringLiteral("%1-%2").arg(range.first).arg(range.last));
+        qWarning().noquote()
+            << "Image Sequence aggregate consumer failures: count"
+            << integrity.consumerFailures.count << "ranges" << ranges.join(',');
+    }
     QString recoveryError;
     if (!desktop_app::writeJsonObjectAtomically(
             partialPath,

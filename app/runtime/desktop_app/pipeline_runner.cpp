@@ -106,11 +106,12 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::unique_ptr<OnnxInferen
         return true;
     }
 
-    if (!candidate) {
-        err = "no prepared inference candidate is available";
+    OnnxInferenceAdapter* inference = candidate ? candidate.get() : classifier_.get();
+    if (!inference) {
+        err = "no installed model is available";
         return false;
     }
-    const Metadata& metadata = candidate->metadata();
+    const Metadata& metadata = inference->metadata();
     if (!ResolveTargetClassId(metadata, cfg_.targetClassId, cfg_.targetLabel, resolvedTargetClassId_,
                               resolvedTargetDisplayLabel_, err)) {
         return false;
@@ -129,9 +130,27 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::unique_ptr<OnnxInferen
         }
     }
 
-    installInference(std::move(candidate));
+    if (candidate)
+        installInference(std::move(candidate));
     ready_ = true;
     return true;
+}
+
+bool PipelineRunner::configureInstalled(const PipelineConfig& cfg, std::string& err) {
+    if (!classifier_) {
+        err = "no installed model is available";
+        return false;
+    }
+    if (classifier_->sortingTargetClassId().empty() ||
+        classifier_->sortingTriggerRule() != "trigger_on_target_class") {
+        err = "installed model sorting_policy is unavailable or unsupported";
+        return false;
+    }
+
+    PipelineConfig effective = cfg;
+    effective.onnxPath = classifier_->modelPath();
+    effective.metadataPath = classifier_->metadataPath();
+    return init(effective, nullptr, err);
 }
 
 void PipelineRunner::installInference(std::unique_ptr<OnnxInferenceAdapter> candidate) noexcept {
@@ -202,6 +221,22 @@ std::string PipelineRunner::executionProvider() const {
 
 std::string PipelineRunner::loadedModelId() const {
     return classifier_ ? classifier_->modelId() : std::string();
+}
+
+std::string PipelineRunner::loadedModelPath() const {
+    return classifier_ ? classifier_->modelPath() : std::string();
+}
+
+std::string PipelineRunner::loadedMetadataPath() const {
+    return classifier_ ? classifier_->metadataPath() : std::string();
+}
+
+std::string PipelineRunner::loadedModelSha256() const {
+    return classifier_ ? classifier_->declaredOnnxSha256() : std::string();
+}
+
+std::string PipelineRunner::loadedMetadataSha256() const {
+    return classifier_ ? classifier_->metadataSha256() : std::string();
 }
 
 bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {

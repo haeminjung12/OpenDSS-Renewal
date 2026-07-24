@@ -1,5 +1,6 @@
 #include "onnx_inference_adapter.h"
 
+#include <algorithm>
 #include <cmath>
 #include <exception>
 #include <unordered_set>
@@ -85,6 +86,35 @@ bool OnnxInferenceAdapter::load(const std::string& modelId, const std::string& m
     return true;
 }
 
+bool OnnxInferenceAdapter::setSortingPolicy(const std::string& targetClassId,
+                                            const std::string& targetDisplayLabel,
+                                            const std::string& triggerRule,
+                                            std::string& message) {
+    if (targetClassId.empty() ||
+        std::find(metadata_.classes.begin(), metadata_.classes.end(), targetClassId) == metadata_.classes.end()) {
+        message = "sorting_policy target_class_id is not present in metadata classes";
+        return false;
+    }
+    if (triggerRule != "trigger_on_target_class") {
+        message = "sorting_policy trigger_rule is not supported";
+        return false;
+    }
+    const std::string metadataDisplayLabel = DisplayLabelForClassId(metadata_, targetClassId);
+    if (targetDisplayLabel.empty() || targetDisplayLabel != metadataDisplayLabel) {
+        message = "sorting_policy target_display_label does not match metadata display_labels";
+        return false;
+    }
+    sortingTargetClassId_ = targetClassId;
+    sortingTargetDisplayLabel_ = targetDisplayLabel;
+    sortingTriggerRule_ = triggerRule;
+    return true;
+}
+
+void OnnxInferenceAdapter::setArtifactIdentity(std::string declaredOnnxSha256, std::string metadataSha256) {
+    declaredOnnxSha256_ = std::move(declaredOnnxSha256);
+    metadataSha256_ = std::move(metadataSha256);
+}
+
 ClassificationResult OnnxInferenceAdapter::classify(const cv::Mat& input) const {
     return classifier_.classify(input);
 }
@@ -103,6 +133,26 @@ const std::string& OnnxInferenceAdapter::modelPath() const noexcept {
 
 const std::string& OnnxInferenceAdapter::metadataPath() const noexcept {
     return metadataPath_;
+}
+
+const std::string& OnnxInferenceAdapter::declaredOnnxSha256() const noexcept {
+    return declaredOnnxSha256_;
+}
+
+const std::string& OnnxInferenceAdapter::metadataSha256() const noexcept {
+    return metadataSha256_;
+}
+
+const std::string& OnnxInferenceAdapter::sortingTargetClassId() const noexcept {
+    return sortingTargetClassId_;
+}
+
+const std::string& OnnxInferenceAdapter::sortingTargetDisplayLabel() const noexcept {
+    return sortingTargetDisplayLabel_;
+}
+
+const std::string& OnnxInferenceAdapter::sortingTriggerRule() const noexcept {
+    return sortingTriggerRule_;
 }
 
 std::string OnnxInferenceAdapter::executionProvider() const {

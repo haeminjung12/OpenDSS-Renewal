@@ -5785,19 +5785,55 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         root["run_mode"] = runMode;
         root["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
 
+        QString installedId;
+        QString installedModelPath;
+        QString installedMetadataPath;
+        QString installedModelSha256;
+        QString installedMetadataSha256;
+        {
+            QMutexLocker lock(&pipelineMutex);
+            installedId = QString::fromStdString(pipeline.loadedModelId());
+            installedModelPath = QString::fromStdString(pipeline.loadedModelPath());
+            installedMetadataPath = QString::fromStdString(pipeline.loadedMetadataPath());
+            installedModelSha256 = QString::fromStdString(pipeline.loadedModelSha256());
+            installedMetadataSha256 = QString::fromStdString(pipeline.loadedMetadataSha256());
+        }
+        int installedRow = -1;
+        for (int row = 0; row < liveModelCombo->count(); ++row) {
+            if (liveModelCombo->itemData(row, kLiveModelIdRole).toString().compare(
+                    installedId, Qt::CaseInsensitive) == 0) {
+                installedRow = row;
+                break;
+            }
+        }
+        const bool hasInstalledModel = !installedId.isEmpty();
+
         QJsonObject model;
-        model["registry_entry_id"] = liveModelCombo->currentData(kLiveModelIdRole).toString();
-        model["model_state_at_start"] = liveModelCombo->currentData(kLiveModelStateRole).toString();
-        model["live_use_mode"] = liveModelCombo->currentData(kLiveModelModeRole).toString();
-        model["path"] = onnxEdit->text().trimmed();
-        model["metadata_path"] = metaEdit->text().trimmed();
-        model["model_sha256"] = liveModelCombo->currentData(kLiveModelOnnxHashRole).toString();
-        model["metadata_sha256"] = liveModelCombo->currentData(kLiveModelMetadataHashRole).toString();
+        model["registry_entry_id"] =
+            hasInstalledModel ? installedId : liveModelCombo->currentData(kLiveModelIdRole).toString();
+        model["model_state_at_start"] =
+            installedRow >= 0
+                ? liveModelCombo->itemData(installedRow, kLiveModelStateRole).toString()
+                : (hasInstalledModel ? QString() : liveModelCombo->currentData(kLiveModelStateRole).toString());
+        model["live_use_mode"] =
+            installedRow >= 0
+                ? liveModelCombo->itemData(installedRow, kLiveModelModeRole).toString()
+                : (hasInstalledModel ? QString() : liveModelCombo->currentData(kLiveModelModeRole).toString());
+        model["path"] = hasInstalledModel ? installedModelPath : onnxEdit->text().trimmed();
+        model["metadata_path"] = hasInstalledModel ? installedMetadataPath : metaEdit->text().trimmed();
+        model["model_sha256"] =
+            hasInstalledModel ? installedModelSha256 : liveModelCombo->currentData(kLiveModelOnnxHashRole).toString();
+        model["metadata_sha256"] = hasInstalledModel
+                                        ? installedMetadataSha256
+                                        : liveModelCombo->currentData(kLiveModelMetadataHashRole).toString();
         model["target_class_id"] = selectedTargetClassId();
         model["target_display_label"] = targetClassCombo->currentText().trimmed();
         model["sort_non_target"] = sortNonTargetEnabled();
         model["trigger_policy"] = currentTriggerPolicyText();
-        model["selection_summary"] = liveModelCombo->currentData(kLiveModelSummaryRole).toString();
+        model["selection_summary"] =
+            installedRow >= 0
+                ? liveModelCombo->itemData(installedRow, kLiveModelSummaryRole).toString()
+                : (hasInstalledModel ? QString() : liveModelCombo->currentData(kLiveModelSummaryRole).toString());
         root["model"] = model;
 
         QJsonObject output;
@@ -6031,6 +6067,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QMutex liveLogMutex;
     std::vector<LiveLogRecord> liveLog;
     std::atomic<bool> liveLogging(false);
+    std::atomic<bool> liveSortingActive(false);
     QDateTime liveLogStart;
     std::function<void()> startLiveLogging;
     std::function<void()> stopLiveLogging;
@@ -6367,32 +6404,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         logMessage("DAQ startup state: " + stateText);
     };
 
-    auto loadPipeline = [&](bool enableAfter, bool forceNoDaq) {
-        if (collectionActive.load()) {
-            pipelineStatusLabel->setText("Data collection active: sorting pipeline disabled.");
-            logMessage("Sorting pipeline init skipped because data collection is active.");
-            return;
-        }
-        logMessage("Pipeline init requested");
-        settingsController->refreshDaqDeviceOptions(true);
-        if (liveModelCombo->currentData(kLiveModelModeRole).toString() == "blocked") {
-            pipelineStatusLabel->setText(
-                "Live sorting blocked: selected model is not live-use eligible. Open Model Manager for gate evidence.");
-            logMessage("Pipeline init blocked by live model selection gate: " + liveModelCombo->currentText());
-            return;
-        }
+    auto buildPipelineConfig = [&](bool forceNoDaq) {
         PipelineConfig cfg;
-        QString onnxResolved = resolveAppRelative(onnxEdit->text());
-        QString metaResolved = resolveAppRelative(metaEdit->text());
-        cfg.onnxPath = onnxResolved.toStdString();
-        cfg.metadataPath = metaResolved.toStdString();
-        // Live sorting uses the qualified CPU inference path. The shared device
-        // selector continues to control training and Model Testing.
-        cfg.computeDevice = "cpu";
-        appState.targetClassId = selectedTargetClassId();
-        appState.sortNonTarget = sortNonTargetEnabled();
-        cfg.targetClassId = appState.targetClassId.toStdString();
-        cfg.sortNonTarget = appState.sortNonTarget;
         cfg.outputDir = outputEdit->text().toStdString();
         cfg.saveCrop = saveCropCheck->isChecked();
         cfg.saveOverlay = saveOverlayCheck->isChecked();
@@ -6419,9 +6432,42 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         cfg.daq.frequencyHz = freqSpin->value() * 1000.0;
         cfg.daq.durationMs = durationSpin->value();
         cfg.daq.delayMs = delaySpin->value();
-        if (forceNoDaq) {
+        if (forceNoDaq)
             cfg.daq = DaqConfig{};
+        return cfg;
+    };
+
+    auto loadPipeline = [&](bool enableAfter, bool forceNoDaq) {
+        if (liveSortingActive.load()) {
+            pipelineStatusLabel->setText("Live sorting active: model reload blocked.");
+            logMessage("Pipeline reload rejected while Live sorting is active.");
+            return;
         }
+        if (collectionActive.load()) {
+            pipelineStatusLabel->setText("Data collection active: sorting pipeline disabled.");
+            logMessage("Sorting pipeline init skipped because data collection is active.");
+            return;
+        }
+        logMessage("Pipeline init requested");
+        settingsController->refreshDaqDeviceOptions(true);
+        if (liveModelCombo->currentData(kLiveModelModeRole).toString() == "blocked") {
+            pipelineStatusLabel->setText(
+                "Live sorting blocked: selected model is not live-use eligible. Open Model Manager for gate evidence.");
+            logMessage("Pipeline init blocked by live model selection gate: " + liveModelCombo->currentText());
+            return;
+        }
+        PipelineConfig cfg = buildPipelineConfig(forceNoDaq);
+        QString onnxResolved = resolveAppRelative(onnxEdit->text());
+        QString metaResolved = resolveAppRelative(metaEdit->text());
+        cfg.onnxPath = onnxResolved.toStdString();
+        cfg.metadataPath = metaResolved.toStdString();
+        // Live sorting uses the qualified CPU inference path. The shared device
+        // selector continues to control training and Model Testing.
+        cfg.computeDevice = "cpu";
+        appState.targetClassId = selectedTargetClassId();
+        appState.sortNonTarget = sortNonTargetEnabled();
+        cfg.targetClassId = appState.targetClassId.toStdString();
+        cfg.sortNonTarget = appState.sortNonTarget;
 
         logMessage(QString("Pipeline init paths: onnx=%1 meta=%2").arg(onnxEdit->text(), metaEdit->text()));
         logMessage(QString("Pipeline init resolved paths: onnx=%1 meta=%2").arg(onnxResolved, metaResolved));
@@ -6589,30 +6635,26 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QObject::connect(pipelineStartBtn, &QPushButton::clicked, [&]() {
         if (sequenceRunning.load())
             return;
+        if (liveSortingActive.load())
+            return;
+        liveSortingActive.store(false);
         if (collectionActive.load()) {
             statusLabel->setText("Start Sorting blocked: data collection is active.");
             this->statusBar()->showMessage("Stop Data Collection before sorting");
             logMessage("Start Sorting blocked because data collection is active.");
             return;
         }
-        bool ready = false;
+        std::string installedModelId;
         {
             QMutexLocker lock(&pipelineMutex);
-            ready = pipeline.isReady();
+            installedModelId = pipeline.loadedModelId();
         }
-        if (!ready) {
-            loadPipeline(false, false);
-            {
-                QMutexLocker lock(&pipelineMutex);
-                ready = pipeline.isReady();
-            }
-        }
-        if (!ready) {
+        if (installedModelId.empty()) {
             pipelineEnableCheck->setChecked(false);
-            statusLabel->setText("Start Sorting blocked: load a valid pipeline first.");
+            statusLabel->setText("Start Sorting blocked: no Active Model is loaded.");
             runStatusItem->setText("Run: idle");
-            this->statusBar()->showMessage("Start Sorting blocked: pipeline not loaded");
-            logMessage("Start Sorting blocked because pipeline is not ready.");
+            this->statusBar()->showMessage("Start Sorting blocked: no Active Model");
+            logMessage("Start Sorting blocked because no Active Model is installed.");
             reportsWorkspaceController.refreshOpenRunAvailability();
             return;
         }
@@ -6625,21 +6667,49 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             return;
         }
         outputEdit->setText(runDir);
-        writeRuntimeSettingsSnapshot(runDir, "live");
-        loadPipeline(true, false);
+        PipelineConfig cfg = buildPipelineConfig(false);
+        cfg.targetClassId = selectedTargetClassId().toStdString();
+        cfg.targetLabel = targetClassCombo->currentText().trimmed().toStdString();
+        cfg.sortNonTarget = sortNonTargetEnabled();
+        std::string configureError;
+        bool ready = false;
+        bool triggerReady = false;
+        std::string targetDisplayLabel;
+        std::string executionProvider;
         {
             QMutexLocker lock(&pipelineMutex);
+            try {
+                if (pipeline.configureInstalled(cfg, configureError))
+                    pipeline.reset();
+            } catch (const std::exception& exception) {
+                configureError = exception.what();
+            } catch (...) {
+                configureError = "unknown pipeline configuration exception";
+            }
             ready = pipeline.isReady();
+            triggerReady = pipeline.isTriggerReady();
+            targetDisplayLabel = pipeline.targetDisplayLabel();
+            executionProvider = pipeline.executionProvider();
         }
         if (!ready) {
+            liveSortingActive.store(false);
             pipelineEnableCheck->setChecked(false);
-            statusLabel->setText("Start Sorting blocked: pipeline failed after run setup.");
+            statusLabel->setText("Start Sorting blocked: " + QString::fromStdString(configureError));
             runStatusItem->setText("Run: idle");
-            this->statusBar()->showMessage("Start Sorting blocked: pipeline not loaded");
-            logMessage("Start Sorting blocked after run setup because pipeline is not ready.");
+            this->statusBar()->showMessage("Start Sorting blocked: pipeline configuration failed");
+            logMessage("Start Sorting configuration failed: " + QString::fromStdString(configureError));
             reportsWorkspaceController.refreshOpenRunAvailability();
             return;
         }
+        liveSortingActive.store(true);
+        labviewTriggerReady = triggerReady;
+        writeRuntimeSettingsSnapshot(runDir, "live");
+        modelStatusItem->setText("Model: loaded");
+        pipelineStatusLabel->setText(
+            QString("Pipeline ready, target %1, model provider %2")
+                .arg(QString::fromStdString(targetDisplayLabel), QString::fromStdString(executionProvider)));
+        pipelineEnabled.store(true);
+        pipelineEnableCheck->setChecked(true);
         reportsWorkspaceController.setCurrentRunDir(runDir);
         statusLabel->setText("Pipeline started.");
         updateForceTriggerState();
@@ -6650,7 +6720,15 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QObject::connect(pipelineStopBtn, &QPushButton::clicked, [&]() {
         if (sequenceRunning.load())
             return;
+        liveSortingActive.store(false);
         pipelineEnableCheck->setChecked(false);
+        {
+            QMutexLocker lock(&pipelineMutex);
+            pipeline.clear();
+            labviewTriggerReady = pipeline.isTriggerReady();
+        }
+        pipelineStartBtn->setEnabled(true);
+        pipelineStopBtn->setEnabled(false);
         updateForceTriggerState();
         statusLabel->setText("Pipeline stopped.");
         runStatusItem->setText("Run: idle");
@@ -7726,11 +7804,30 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto currentModelLogFields = [&]() -> RuntimeModelLogFields {
         RuntimeModelLogFields fields;
-        fields.registryEntryId = liveModelCombo->currentData(kLiveModelIdRole).toString();
-        fields.modelStateAtStart = liveModelCombo->currentData(kLiveModelStateRole).toString();
-        fields.liveUseMode = liveModelCombo->currentData(kLiveModelModeRole).toString();
-        fields.modelSha256 = liveModelCombo->currentData(kLiveModelOnnxHashRole).toString();
-        fields.metadataSha256 = liveModelCombo->currentData(kLiveModelMetadataHashRole).toString();
+        QString installedId;
+        {
+            QMutexLocker lock(&pipelineMutex);
+            installedId = QString::fromStdString(pipeline.loadedModelId());
+            fields.modelSha256 = QString::fromStdString(pipeline.loadedModelSha256());
+            fields.metadataSha256 = QString::fromStdString(pipeline.loadedMetadataSha256());
+        }
+        if (installedId.isEmpty()) {
+            fields.registryEntryId = liveModelCombo->currentData(kLiveModelIdRole).toString();
+            fields.modelStateAtStart = liveModelCombo->currentData(kLiveModelStateRole).toString();
+            fields.liveUseMode = liveModelCombo->currentData(kLiveModelModeRole).toString();
+            fields.modelSha256 = liveModelCombo->currentData(kLiveModelOnnxHashRole).toString();
+            fields.metadataSha256 = liveModelCombo->currentData(kLiveModelMetadataHashRole).toString();
+            return fields;
+        }
+        fields.registryEntryId = installedId;
+        for (int row = 0; row < liveModelCombo->count(); ++row) {
+            if (liveModelCombo->itemData(row, kLiveModelIdRole).toString().compare(
+                    installedId, Qt::CaseInsensitive) != 0)
+                continue;
+            fields.modelStateAtStart = liveModelCombo->itemData(row, kLiveModelStateRole).toString();
+            fields.liveUseMode = liveModelCombo->itemData(row, kLiveModelModeRole).toString();
+            break;
+        }
         return fields;
     };
 
@@ -8544,12 +8641,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         cameraController->initializeCamera();
     }
     verifierTrace(QStringLiteral("startup: scheduling final verifiers"));
-    if (!options.verifyDirectDaqManualTrigger && !options.verifyLiveViewManualTrigger && !options.verifyLiveViewSortPolicy &&
-        !options.verifyValidationWorkspace && !verifyTrainerLaunch && !verifyTrainerSetupStatus && !verifyDefaultPaths &&
-        !verifyDatasetWorkspace && !verifyWorkspaceSplitters && !verifyResetLayout && !verifyNavigationInfo &&
-        !verifyModelsWorkspaceConsolidation && !verifyProductionModelStatus) {
-        QTimer::singleShot(0, [&]() { loadPipeline(false, false); });
-    }
     if (verifyProductionModelStatus) {
         QTimer::singleShot(0, this, [&, verifierTrace]() {
             QStringList failures;

@@ -212,6 +212,12 @@ int main(int argc, char** argv) {
         pipeline.classLabels().size() != 3 || pipeline.isReady()) {
         return fail(8, "Persisted startup did not produce Model Ready without Pipeline Ready.");
     }
+    if (pipeline.loadedModelPath() != modelPath.toStdString() ||
+        pipeline.loadedMetadataPath() != metadataPath.toStdString() ||
+        pipeline.loadedModelSha256() != validArtifact.value("onnx_sha256").toString().toStdString() ||
+        pipeline.loadedMetadataSha256() != sha256File(metadataPath).toStdString()) {
+        return fail(52, "Installed-model provenance does not match the validated package identity.");
+    }
 
     QString failure;
     if (!expectPrepareFailure(service, "unknown", registryPath, pipeline, &failure))
@@ -304,14 +310,77 @@ int main(int argc, char** argv) {
     if (!writeBytes(modelPath, validModelBytes) || !writeBytes(metadataPath, validMetadataBytes))
         return fail(25, "Could not restore package after invalid-ONNX case.");
 
+    metadata = validMetadata;
+    QJsonObject sortingPolicy = metadata.value("sorting_policy").toObject();
+    sortingPolicy["target_class_id"] = "missing";
+    metadata["sorting_policy"] = sortingPolicy;
+    if (!writeJsonObject(metadataPath, metadata) ||
+        !expectPrepareFailure(service, kCandidateId, registryPath, pipeline, &failure)) {
+        return fail(43, "Invalid sorting-policy target case: " + failure);
+    }
+    if (!writeBytes(metadataPath, validMetadataBytes))
+        return fail(44, "Could not restore metadata after invalid sorting-policy target case.");
+
+    metadata = validMetadata;
+    sortingPolicy = metadata.value("sorting_policy").toObject();
+    sortingPolicy["target_display_label"] = "Wrong";
+    metadata["sorting_policy"] = sortingPolicy;
+    if (!writeJsonObject(metadataPath, metadata) ||
+        !expectPrepareFailure(service, kCandidateId, registryPath, pipeline, &failure)) {
+        return fail(45, "Invalid sorting-policy display case: " + failure);
+    }
+    if (!writeBytes(metadataPath, validMetadataBytes))
+        return fail(46, "Could not restore metadata after invalid sorting-policy display case.");
+
+    metadata = validMetadata;
+    sortingPolicy = metadata.value("sorting_policy").toObject();
+    sortingPolicy["trigger_rule"] = "unsupported_rule";
+    metadata["sorting_policy"] = sortingPolicy;
+    if (!writeJsonObject(metadataPath, metadata) ||
+        !expectPrepareFailure(service, kCandidateId, registryPath, pipeline, &failure)) {
+        return fail(47, "Invalid sorting-policy trigger case: " + failure);
+    }
+    if (!writeBytes(metadataPath, validMetadataBytes))
+        return fail(48, "Could not restore metadata after invalid sorting-policy trigger case.");
+
+    PipelineRunner emptyPipeline;
+    PipelineConfig liveConfig;
+    liveConfig.targetClassId = "2";
+    liveConfig.targetLabel = "MoreThanOne";
+    liveConfig.sortNonTarget = true;
+    liveConfig.onnxPath = "selected-row-model.onnx";
+    liveConfig.metadataPath = "selected-row-metadata.json";
+    liveConfig.outputDir = temp.path().toStdString();
+    liveConfig.daq = DaqConfig{};
+    std::string pipelineError;
+    if (emptyPipeline.configureInstalled(liveConfig, pipelineError) ||
+        emptyPipeline.isReady() || !emptyPipeline.loadedModelId().empty()) {
+        return fail(49, "configureInstalled accepted a runner without an installed model.");
+    }
+
     auto readyBlockedCandidate = service.prepare(kCandidateId, "cpu", nullptr, &error);
     if (!readyBlockedCandidate)
         return fail(26, "Ready-pipeline candidate preparation failed: " + error);
-    PipelineConfig detectorOnlyConfig;
-    detectorOnlyConfig.detectorOnly = true;
-    std::string pipelineError;
-    if (!pipeline.init(detectorOnlyConfig, pipelineError))
-        return fail(27, "Could not make the pipeline Ready for activation guard coverage.");
+    const std::string modelBeforeConfigure = pipeline.loadedModelId();
+    const std::string modelPathBeforeConfigure = pipeline.loadedModelPath();
+    const std::string metadataPathBeforeConfigure = pipeline.loadedMetadataPath();
+    const std::string modelHashBeforeConfigure = pipeline.loadedModelSha256();
+    const std::string metadataHashBeforeConfigure = pipeline.loadedMetadataSha256();
+    const std::string providerBeforeConfigure = pipeline.executionProvider();
+    const std::vector<std::string> classesBeforeConfigure = pipeline.classLabels();
+    if (!pipeline.configureInstalled(liveConfig, pipelineError))
+        return fail(27, "Installed-model pipeline configuration failed: " + QString::fromStdString(pipelineError));
+    if (!pipeline.isReady() || pipeline.isTriggerReady() ||
+        pipeline.targetClassId() != "2" || pipeline.targetDisplayLabel() != "MoreThanOne" ||
+        pipeline.loadedModelId() != modelBeforeConfigure ||
+        pipeline.loadedModelPath() != modelPathBeforeConfigure ||
+        pipeline.loadedMetadataPath() != metadataPathBeforeConfigure ||
+        pipeline.loadedModelSha256() != modelHashBeforeConfigure ||
+        pipeline.loadedMetadataSha256() != metadataHashBeforeConfigure ||
+        pipeline.executionProvider() != providerBeforeConfigure ||
+        pipeline.classLabels() != classesBeforeConfigure) {
+        return fail(50, "configureInstalled did not preserve the user target and installed-model identity.");
+    }
     const QByteArray beforeReadyRejection = readBytes(registryPath);
     if (service.activateAndInstall(std::move(readyBlockedCandidate), pipeline, &error))
         return fail(28, "Ready pipeline unexpectedly accepted model activation.");
@@ -320,6 +389,16 @@ int main(int argc, char** argv) {
         return fail(29, "Ready-pipeline rejection changed registry bytes or prior runtime.");
     }
     pipeline.clear();
+    if (pipeline.isReady() || pipeline.isTriggerReady() ||
+        pipeline.loadedModelId() != modelBeforeConfigure ||
+        pipeline.loadedModelPath() != modelPathBeforeConfigure ||
+        pipeline.loadedMetadataPath() != metadataPathBeforeConfigure ||
+        pipeline.loadedModelSha256() != modelHashBeforeConfigure ||
+        pipeline.loadedMetadataSha256() != metadataHashBeforeConfigure ||
+        pipeline.executionProvider() != providerBeforeConfigure ||
+        pipeline.classLabels() != classesBeforeConfigure) {
+        return fail(51, "Pipeline clear did not release Pipeline Ready while preserving Model Ready.");
+    }
 
     auto changedPathCandidate = service.prepare(kCandidateId, "cpu", nullptr, &error);
     if (!changedPathCandidate)

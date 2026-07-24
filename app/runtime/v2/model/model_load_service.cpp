@@ -194,6 +194,12 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::prepare(const QString& r
             *error = "Declared ONNX SHA-256 does not match the model file.";
         return {};
     }
+    const QString metadataHash = sha256File(inspection.metadataPath);
+    if (metadataHash.isEmpty()) {
+        if (error)
+            *error = "Could not hash the validated metadata file.";
+        return {};
+    }
 
     auto candidate = std::make_unique<OnnxInferenceAdapter>();
     std::string adapterMessage;
@@ -204,6 +210,16 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::prepare(const QString& r
             *error = QString::fromStdString(adapterMessage);
         return {};
     }
+    const QJsonObject sortingPolicy = metadataJson.value("sorting_policy").toObject();
+    if (!candidate->setSortingPolicy(sortingPolicy.value("target_class_id").toString().trimmed().toStdString(),
+                                     sortingPolicy.value("target_display_label").toString().trimmed().toStdString(),
+                                     sortingPolicy.value("trigger_rule").toString().trimmed().toStdString(),
+                                     adapterMessage)) {
+        if (error)
+            *error = QString::fromStdString(adapterMessage);
+        return {};
+    }
+    candidate->setArtifactIdentity(expectedHash.toStdString(), metadataHash.toStdString());
     if (warning)
         *warning = QString::fromStdString(adapterMessage);
     return candidate;

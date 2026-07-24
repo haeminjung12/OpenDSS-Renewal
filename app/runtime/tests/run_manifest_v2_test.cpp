@@ -277,6 +277,50 @@ void testValidationEdges() {
             "Waste remains not_requested with physical output enabled");
 }
 
+void testLiveStoppedIntegrityRoundTrip() {
+    stage = "live";
+    QTemporaryDir temporary;
+    RunManifestData data = baseData();
+    data.runId = "live";
+    data.runName = "Live";
+    data.operation = RunOperation::LiveSorting;
+    data.sourceSequence = {};
+    data.routing.physicalDaqOutputEnabled = true;
+    data.requestedProcessingFps = 0.0;
+    data.achievedProcessingFps = 0.0;
+    data.integrity.sourceFrameGaps = {2, {{4, 5}}};
+    data.integrity.queueRejections = {1, {{8, 8}}};
+    data.integrity.consumerFailures = {1, {{12, 12}}};
+
+    QString error;
+    const QString root = QDir(temporary.path()).filePath("live");
+    auto writer = RunWriterV2::start(root, data, &error);
+    require(writer.has_value(), qPrintable(error));
+    RunEvent value = event("live-event", 1, Route::Unresolved);
+    value.daqPulseStatus = DaqPulseStatus::Issued;
+    require(writer->appendEvent(value, "crop", &error), qPrintable(error));
+    require(writer->finalize(RunStatus::Stopped, "2026-07-24T10:00:02Z",
+                             "user", 0.0, &error),
+            qPrintable(error));
+    const QString summary = QDir(root).filePath("run_summary.json");
+    auto loaded = RunManifestV2::load(summary, &error);
+    require(loaded.has_value(), qPrintable(error));
+    require(loaded->data().operation == RunOperation::LiveSorting &&
+                loaded->data().status == RunStatus::Stopped &&
+                loaded->data().sourceSequence.id.isEmpty() &&
+                loaded->data().requestedProcessingFps == 0.0 &&
+                loaded->data().integrity.sourceFrameGaps.count == 2 &&
+                loaded->data().integrity.queueRejections.ranges.first().first == 8 &&
+                loaded->data().integrity.consumerFailures.ranges.first().last == 12,
+            "Live/Stopped/integrity round-trip");
+    QFile file(summary);
+    require(file.open(QIODevice::ReadOnly), "read Live summary");
+    const QJsonObject object = QJsonDocument::fromJson(file.readAll()).object();
+    require(!object.contains("source_sequence") && !object.contains("processing") &&
+                object.value("integrity").isObject(),
+            "Live omits Sequence Test-only fields");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -284,5 +328,6 @@ int main(int argc, char** argv) {
     testNoModelRoundTripAndStrictness();
     testTwoAndThreeClassHistory();
     testValidationEdges();
+    testLiveStoppedIntegrityRoundTrip();
     return 0;
 }

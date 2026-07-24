@@ -109,6 +109,8 @@ QString operationText(RunOperation value) {
 QString statusText(RunStatus value) {
     if (value == RunStatus::Completed)
         return "completed";
+    if (value == RunStatus::Stopped)
+        return "stopped";
     if (value == RunStatus::Interrupted)
         return "interrupted";
     return "failed";
@@ -332,10 +334,11 @@ bool validateData(const RunManifestData& data, QString* error) {
         data.stopReason.trimmed().isEmpty() || data.opendssVersion.trimmed().isEmpty()) {
         return fail(error, "Run identity, name, stop reason, and OpenDSS version are required.");
     }
-    if (data.operation != RunOperation::SequenceTest)
-        return fail(error, "live_sorting is not supported by the Sequence Test contract gate.");
-    if (data.status != RunStatus::Completed && data.status != RunStatus::Interrupted &&
-        data.status != RunStatus::Failed)
+    if (data.operation != RunOperation::SequenceTest &&
+        data.operation != RunOperation::LiveSorting)
+        return fail(error, "Run operation is invalid.");
+    if (data.status != RunStatus::Completed && data.status != RunStatus::Stopped &&
+        data.status != RunStatus::Interrupted && data.status != RunStatus::Failed)
         return fail(error, "Run status is invalid.");
     const auto start = QDateTime::fromString(data.startedAt, Qt::ISODate);
     const auto end = QDateTime::fromString(data.endedAt, Qt::ISODate);
@@ -346,16 +349,24 @@ bool validateData(const RunManifestData& data, QString* error) {
          *data.requestedDurationSeconds <= 0.0)) {
         return fail(error, "Requested duration must be null or finite and positive.");
     }
-    if (data.sourceSequence.id.trimmed().isEmpty() ||
-        data.sourceSequence.name.trimmed().isEmpty() ||
-        !safeRelative(data.sourceSequence.manifestPath, false, error)) {
+    if (data.operation == RunOperation::SequenceTest &&
+        (data.sourceSequence.id.trimmed().isEmpty() ||
+         data.sourceSequence.name.trimmed().isEmpty() ||
+         !safeRelative(data.sourceSequence.manifestPath, false, error))) {
         return fail(error, "Sequence Test requires source Sequence identity and a contained manifest path.");
     }
+    if (data.operation == RunOperation::LiveSorting &&
+        (!data.sourceSequence.id.isEmpty() || !data.sourceSequence.name.isEmpty() ||
+         !data.sourceSequence.manifestPath.isEmpty()))
+        return fail(error, "Live Sorting must not contain a source Sequence.");
     if (!validateModel(data.model, error))
         return false;
     if (data.routing.triggerMode != TriggerMode::ClassBased &&
         data.routing.triggerMode != TriggerMode::EveryDroplet)
         return fail(error, "Routing trigger mode is invalid.");
+    if (data.operation == RunOperation::LiveSorting &&
+        !data.routing.physicalDaqOutputEnabled)
+        return fail(error, "Live Sorting requires physical DAQ output.");
     if (data.routing.triggerMode == TriggerMode::ClassBased) {
         if (!data.model || !data.routing.hitClassId)
             return fail(error, "Class-Based Sorting requires a model and Hit Class.");
@@ -368,11 +379,15 @@ bool validateData(const RunManifestData& data, QString* error) {
     } else if (data.routing.hitClassId) {
         return fail(error, "Trigger Every Droplet must not contain a Hit Class.");
     }
-    if (!std::isfinite(data.requestedProcessingFps) || data.requestedProcessingFps <= 0.0 ||
-        !std::isfinite(data.achievedProcessingFps) || data.achievedProcessingFps < 0.0 ||
-        (data.status == RunStatus::Completed && data.achievedProcessingFps <= 0.0)) {
+    if (data.operation == RunOperation::SequenceTest &&
+        (!std::isfinite(data.requestedProcessingFps) || data.requestedProcessingFps <= 0.0 ||
+         !std::isfinite(data.achievedProcessingFps) || data.achievedProcessingFps < 0.0 ||
+         (data.status == RunStatus::Completed && data.achievedProcessingFps <= 0.0))) {
         return fail(error, "Sequence Test processing FPS values are invalid for Run status.");
     }
+    if (data.operation == RunOperation::LiveSorting &&
+        (data.requestedProcessingFps != 0.0 || data.achievedProcessingFps != 0.0))
+        return fail(error, "Live Sorting must not contain Sequence Test processing FPS.");
     if (!std::isfinite(data.hitBoundary.boundaryY) ||
         data.hitBoundary.boundaryY < 0.0 ||
         data.hitBoundary.imageWidth <= 0 || data.hitBoundary.imageHeight <= 0 ||
@@ -384,6 +399,24 @@ bool validateData(const RunManifestData& data, QString* error) {
         return fail(error, "Run files must use events.csv and crops.");
     if (data.files.sequencePath &&
         !safeRelative(*data.files.sequencePath, true, error))
+        return false;
+    const auto validIntegrity = [&](const RunIntegritySeries& series,
+                                    const QString& name) {
+        qint64 total = 0;
+        qint64 previousLast = 0;
+        for (const auto& range : series.ranges) {
+            if (range.first <= 0 || range.last < range.first ||
+                (previousLast > 0 && range.first <= previousLast + 1))
+                return fail(error, name + " integrity ranges are invalid.");
+            total += range.last - range.first + 1;
+            previousLast = range.last;
+        }
+        return total == series.count ||
+               fail(error, name + " integrity count does not match its ranges.");
+    };
+    if (!validIntegrity(data.integrity.sourceFrameGaps, "source_frame_gaps") ||
+        !validIntegrity(data.integrity.queueRejections, "queue_rejections") ||
+        !validIntegrity(data.integrity.consumerFailures, "consumer_failures"))
         return false;
     QSet<QString> ids;
     QSet<QString> crops;
@@ -430,6 +463,50 @@ QJsonObject matrixJson(const RunDerivedCounts& value) {
 bool exactObject(const QJsonObject& actual, const QJsonObject& expected,
                  const QString& name, QString* error) {
     return actual == expected || fail(error, name + " does not match finalized events.");
+}
+
+QJsonObject integritySeriesJson(const RunIntegritySeries& series) {
+    QJsonArray ranges;
+    for (const auto& range : series.ranges)
+        ranges.push_back(QJsonObject{{"first", range.first}, {"last", range.last}});
+    return QJsonObject{{"count", series.count}, {"ranges", ranges}};
+}
+
+QJsonObject integrityJson(const RunIntegrity& integrity) {
+    return QJsonObject{
+        {"source_frame_gaps", integritySeriesJson(integrity.sourceFrameGaps)},
+        {"queue_rejections", integritySeriesJson(integrity.queueRejections)},
+        {"consumer_failures", integritySeriesJson(integrity.consumerFailures)},
+    };
+}
+
+bool parseIntegritySeries(const QJsonValue& value, RunIntegritySeries& output,
+                          const QString& name, QString* error) {
+    if (!value.isObject())
+        return fail(error, name + " must be an object.");
+    const auto object = value.toObject();
+    if (!only(object, {"count", "ranges"}, name, error) ||
+        !object.value("count").isDouble() ||
+        object.value("count").toInteger(-1) < 0 ||
+        !object.value("ranges").isArray()) {
+        return fail(error, name + " must contain a nonnegative count and ranges array.");
+    }
+    output.count = object.value("count").toInteger();
+    for (const auto& item : object.value("ranges").toArray()) {
+        if (!item.isObject())
+            return fail(error, name + " ranges must be objects.");
+        const auto range = item.toObject();
+        if (!only(range, {"first", "last"}, name + " range", error) ||
+            !range.value("first").isDouble() || !range.value("last").isDouble()) {
+            return fail(error, name + " ranges require integer first and last values.");
+        }
+        const qint64 first = range.value("first").toInteger(-1);
+        const qint64 last = range.value("last").toInteger(-1);
+        if (first <= 0 || last < first)
+            return fail(error, name + " range is invalid.");
+        output.ranges.push_back({first, last});
+    }
+    return true;
 }
 
 std::optional<RunEvent> eventFromRow(const QStringList& row, QString* error) {
@@ -537,7 +614,8 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
                      "experiment_type", "notes", "status", "started_at", "ended_at",
                      "requested_duration_seconds", "stop_reason", "opendss_version",
                      "source_sequence", "model", "routing", "settings", "processing",
-                     "hit_boundary", "counts", "decision_vs_observed", "files"},
+                     "hit_boundary", "integrity", "counts",
+                     "decision_vs_observed", "files"},
               "Run root", error)) {
         if (error && error->isEmpty())
             *error = "Unsupported Run schema_version.";
@@ -562,6 +640,7 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
                    data.operation) ||
         !parseEnum(root.value("status").toString(),
                    {{"completed", RunStatus::Completed},
+                    {"stopped", RunStatus::Stopped},
                     {"interrupted", RunStatus::Interrupted},
                     {"failed", RunStatus::Failed}},
                    data.status)) {
@@ -578,16 +657,21 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
         data.requestedDurationSeconds = value;
     }
 
-    if (!root.value("source_sequence").isObject()) {
-        fail(error, "source_sequence must be an object.");
-        return std::nullopt;
-    }
-    const auto source = root.value("source_sequence").toObject();
-    if (!only(source, {"sequence_id", "sequence_name", "manifest_path"},
-              "source_sequence", error) ||
-        !string(source, "sequence_id", data.sourceSequence.id, false, error) ||
-        !string(source, "sequence_name", data.sourceSequence.name, false, error) ||
-        !string(source, "manifest_path", data.sourceSequence.manifestPath, false, error)) {
+    if (data.operation == RunOperation::SequenceTest) {
+        if (!root.value("source_sequence").isObject()) {
+            fail(error, "Sequence Test source_sequence must be an object.");
+            return std::nullopt;
+        }
+        const auto source = root.value("source_sequence").toObject();
+        if (!only(source, {"sequence_id", "sequence_name", "manifest_path"},
+                  "source_sequence", error) ||
+            !string(source, "sequence_id", data.sourceSequence.id, false, error) ||
+            !string(source, "sequence_name", data.sourceSequence.name, false, error) ||
+            !string(source, "manifest_path", data.sourceSequence.manifestPath, false, error)) {
+            return std::nullopt;
+        }
+    } else if (root.contains("source_sequence")) {
+        fail(error, "Live Sorting must not contain source_sequence.");
         return std::nullopt;
     }
 
@@ -702,22 +786,47 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
     data.hitBoundary.imageWidth = static_cast<int>(imageWidth);
     data.hitBoundary.imageHeight = static_cast<int>(imageHeight);
 
-    if (!root.value("processing").isObject()) {
-        fail(error, "processing must be an object.");
+    if (data.operation == RunOperation::SequenceTest) {
+        if (!root.value("processing").isObject()) {
+            fail(error, "Sequence Test processing must be an object.");
+            return std::nullopt;
+        }
+        const auto processing = root.value("processing").toObject();
+        if (!only(processing, {"requested_fps", "achieved_fps"}, "processing", error) ||
+            !finitePositive(processing.value("requested_fps"),
+                            data.requestedProcessingFps, "requested_fps", error) ||
+            !processing.value("achieved_fps").isDouble() ||
+            !std::isfinite(processing.value("achieved_fps").toDouble()) ||
+            processing.value("achieved_fps").toDouble() < 0.0) {
+            if (error && error->isEmpty())
+                *error = "achieved_fps must be finite and nonnegative.";
+            return std::nullopt;
+        }
+        data.achievedProcessingFps = processing.value("achieved_fps").toDouble();
+    } else if (root.contains("processing")) {
+        fail(error, "Live Sorting must not contain Sequence Test processing FPS.");
         return std::nullopt;
     }
-    const auto processing = root.value("processing").toObject();
-    if (!only(processing, {"requested_fps", "achieved_fps"}, "processing", error) ||
-        !finitePositive(processing.value("requested_fps"), data.requestedProcessingFps,
-                        "requested_fps", error) ||
-        !processing.value("achieved_fps").isDouble() ||
-        !std::isfinite(processing.value("achieved_fps").toDouble()) ||
-        processing.value("achieved_fps").toDouble() < 0.0) {
-        if (error && error->isEmpty())
-            *error = "achieved_fps must be finite and nonnegative.";
+
+    if (!root.value("integrity").isObject()) {
+        fail(error, "integrity must be an object.");
         return std::nullopt;
     }
-    data.achievedProcessingFps = processing.value("achieved_fps").toDouble();
+    const auto integrity = root.value("integrity").toObject();
+    if (!only(integrity,
+              {"source_frame_gaps", "queue_rejections", "consumer_failures"},
+              "integrity", error) ||
+        !parseIntegritySeries(integrity.value("source_frame_gaps"),
+                              data.integrity.sourceFrameGaps,
+                              "source_frame_gaps", error) ||
+        !parseIntegritySeries(integrity.value("queue_rejections"),
+                              data.integrity.queueRejections,
+                              "queue_rejections", error) ||
+        !parseIntegritySeries(integrity.value("consumer_failures"),
+                              data.integrity.consumerFailures,
+                              "consumer_failures", error)) {
+        return std::nullopt;
+    }
 
     if (!root.value("files").isObject()) {
         fail(error, "files must be an object.");
@@ -814,7 +923,7 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
                             {"classes", classes}};
     }
     const auto counts = derive(data);
-    const QJsonObject root{
+    QJsonObject root{
         {"schema_version", SchemaVersion},
         {"run_id", data.runId},
         {"run_name", data.runName},
@@ -829,10 +938,6 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
                                        : QJsonValue(QJsonValue::Null)},
         {"stop_reason", data.stopReason},
         {"opendss_version", data.opendssVersion},
-        {"source_sequence",
-         QJsonObject{{"sequence_id", data.sourceSequence.id},
-                     {"sequence_name", data.sourceSequence.name},
-                     {"manifest_path", data.sourceSequence.manifestPath}}},
         {"model", model},
         {"routing",
          QJsonObject{{"trigger_mode", triggerText(data.routing.triggerMode)},
@@ -852,9 +957,7 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
                      {"hit_side", hitSideText(data.hitBoundary.hitSide)},
                      {"image_width", data.hitBoundary.imageWidth},
                      {"image_height", data.hitBoundary.imageHeight}}},
-        {"processing",
-         QJsonObject{{"requested_fps", data.requestedProcessingFps},
-                     {"achieved_fps", data.achievedProcessingFps}}},
+        {"integrity", integrityJson(data.integrity)},
         {"counts", derivedJson(data, counts)},
         {"decision_vs_observed", matrixJson(counts)},
         {"files",
@@ -864,6 +967,15 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
                                            ? QJsonValue(*data.files.sequencePath)
                                            : QJsonValue(QJsonValue::Null)}}},
     };
+    if (data.operation == RunOperation::SequenceTest) {
+        root.insert("source_sequence",
+                    QJsonObject{{"sequence_id", data.sourceSequence.id},
+                                {"sequence_name", data.sourceSequence.name},
+                                {"manifest_path", data.sourceSequence.manifestPath}});
+        root.insert("processing",
+                    QJsonObject{{"requested_fps", data.requestedProcessingFps},
+                                {"achieved_fps", data.achievedProcessingFps}});
+    }
     if (!desktop_app::writeJsonObjectAtomically(path, root, error))
         return false;
     return load(path, error).has_value();

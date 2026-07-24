@@ -124,15 +124,22 @@ bool safeOutputPath(const QString& root, const QString& relative, QString* error
 }
 
 bool validateInitial(const RunManifestData& data, QString* error) {
-    if (data.operation != RunOperation::SequenceTest ||
+    const bool sequenceTest = data.operation == RunOperation::SequenceTest;
+    const bool liveSorting = data.operation == RunOperation::LiveSorting;
+    if ((!sequenceTest && !liveSorting) ||
         data.runId.trimmed().isEmpty() || data.runName.trimmed().isEmpty() ||
         data.opendssVersion.trimmed().isEmpty() ||
         !QDateTime::fromString(data.startedAt, Qt::ISODate).isValid() ||
-        data.sourceSequence.id.trimmed().isEmpty() ||
-        data.sourceSequence.name.trimmed().isEmpty() ||
-        !safeRelativePath(data.sourceSequence.manifestPath) ||
-        !std::isfinite(data.requestedProcessingFps) ||
-        data.requestedProcessingFps <= 0.0 ||
+        (sequenceTest &&
+         (data.sourceSequence.id.trimmed().isEmpty() ||
+          data.sourceSequence.name.trimmed().isEmpty() ||
+          !safeRelativePath(data.sourceSequence.manifestPath))) ||
+        (liveSorting &&
+         (!data.sourceSequence.id.isEmpty() || !data.sourceSequence.name.isEmpty() ||
+          !data.sourceSequence.manifestPath.isEmpty())) ||
+        (sequenceTest && (!std::isfinite(data.requestedProcessingFps) ||
+                          data.requestedProcessingFps <= 0.0)) ||
+        (liveSorting && data.requestedProcessingFps != 0.0) ||
         !std::isfinite(data.hitBoundary.boundaryY) ||
         data.hitBoundary.boundaryY < 0.0 ||
         data.hitBoundary.imageWidth <= 0 || data.hitBoundary.imageHeight <= 0 ||
@@ -141,11 +148,13 @@ bool validateInitial(const RunManifestData& data, QString* error) {
          data.hitBoundary.hitSide != HitSide::NegativeY) ||
         data.files.eventsCsv != "events.csv" || data.files.cropsPath != "crops" ||
         (data.files.sequencePath && !safeRelativePath(*data.files.sequencePath))) {
-        return fail(error, "Initial Sequence Test Run metadata is invalid.");
+        return fail(error, "Initial Run metadata is invalid.");
     }
     if (data.routing.triggerMode != TriggerMode::ClassBased &&
         data.routing.triggerMode != TriggerMode::EveryDroplet)
         return fail(error, "Initial routing trigger mode is invalid.");
+    if (liveSorting && !data.routing.physicalDaqOutputEnabled)
+        return fail(error, "Live Sorting requires physical DAQ output.");
     if (data.requestedDurationSeconds &&
         (!std::isfinite(*data.requestedDurationSeconds) ||
          *data.requestedDurationSeconds <= 0.0)) {
@@ -382,14 +391,17 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
         error->clear();
     if (finalized_)
         return fail(error, "Run has already been finalized.");
-    if (status != RunStatus::Completed && status != RunStatus::Interrupted &&
-        status != RunStatus::Failed)
+    if (status != RunStatus::Completed && status != RunStatus::Stopped &&
+        status != RunStatus::Interrupted && status != RunStatus::Failed)
         return fail(error, "Final Run status is invalid.");
     const auto ended = QDateTime::fromString(endedAt, Qt::ISODate);
     const auto started = QDateTime::fromString(data_.startedAt, Qt::ISODate);
     if (!ended.isValid() || ended < started || stopReason.trimmed().isEmpty() ||
         !std::isfinite(achievedProcessingFps) || achievedProcessingFps < 0.0 ||
-        (status == RunStatus::Completed && achievedProcessingFps <= 0.0)) {
+        (data_.operation == RunOperation::SequenceTest &&
+         status == RunStatus::Completed && achievedProcessingFps <= 0.0) ||
+        (data_.operation == RunOperation::LiveSorting &&
+         achievedProcessingFps != 0.0)) {
         return fail(error, "Final Run timing, stop reason, or achieved FPS is invalid.");
     }
     if (!flush(error))
@@ -425,11 +437,11 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
             QDir(runFolder_).filePath(QStringLiteral("run_summary.json")), data_, error)) {
         return false;
     }
-    if (status == RunStatus::Completed) {
+    if (status == RunStatus::Completed || status == RunStatus::Stopped) {
         const QString partialSummary =
             QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json"));
         if (!QFile::remove(partialPath) || !QFile::remove(partialSummary))
-            return fail(error, "Completed Run could not remove recoverable partial files.");
+            return fail(error, "Cleanly finalized Run could not remove recoverable partial files.");
     }
     finalized_ = true;
     return true;

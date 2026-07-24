@@ -203,6 +203,27 @@ void testLinkedCropDirectoryRejectedWhenSupported() {
                 "linked crops directory rejected");
 }
 
+void testStoppedCleanup() {
+    stage = "stopped";
+    QTemporaryDir temporary;
+    QString error;
+    const QString root = QDir(temporary.path()).filePath("stopped");
+    auto writer = RunWriterV2::start(root, data(), &error);
+    require(writer.has_value(), qPrintable(error));
+    require(writer->appendEvent(event(), "crop", &error), qPrintable(error));
+    require(writer->finalize(RunStatus::Stopped, "2026-07-24T12:00:01Z",
+                             "user", 10.0, &error),
+            qPrintable(error));
+    require(!QFileInfo::exists(QDir(root).filePath("events.partial.csv")) &&
+                !QFileInfo::exists(
+                    QDir(root).filePath("run_summary.partial.json")),
+            "Stopped Run removes clean partials");
+    auto loaded = RunManifestV2::load(
+        QDir(root).filePath("run_summary.json"), &error);
+    require(loaded.has_value() && loaded->data().status == RunStatus::Stopped,
+            qPrintable(error));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -212,5 +233,6 @@ int main(int argc, char** argv) {
     testActivePartialSurvivesDestruction();
     testCsvRollbackAndEarlyFailure();
     testLinkedCropDirectoryRejectedWhenSupported();
+    testStoppedCleanup();
     return 0;
 }

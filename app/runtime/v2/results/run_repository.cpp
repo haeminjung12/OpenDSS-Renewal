@@ -180,12 +180,6 @@ std::optional<LoadedRun> loadEntry(const RunEntry& source, QString* error) {
     auto manifest = run::RunManifestV2::load(canonical, error);
     if (!manifest)
         return std::nullopt;
-    if (manifest->data().operation != run::RunOperation::SequenceTest) {
-        fail(error,
-             "Live Sorting Run discovery is unavailable until the Live Run contract is implemented.");
-        return std::nullopt;
-    }
-
     RunEntry entry = source;
     const auto& data = manifest->data();
     entry.id = data.runId.isEmpty() ? canonical : data.runId;

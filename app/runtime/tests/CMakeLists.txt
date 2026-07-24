@@ -521,6 +521,47 @@ add_test(
 )
 set_tests_properties(sequence_test_service_test PROPERTIES TIMEOUT 30)
 
+qt_add_executable(live_sorting_service_test
+  live_sorting_service_test.cpp
+  ../crops/crop_service.cpp
+  ../desktop_app/app_utils.cpp
+  ../desktop_app/json_persistence.cpp
+  ../desktop_app/model_registry_service.cpp
+  ../desktop_app/pipeline_runner.cpp
+  ../inference/onnx_inference_adapter.cpp
+  ../metadata_loader.cpp
+  ../onnx_classifier.cpp
+  ../v2/decision/decision_service.cpp
+  ../v2/live/live_sorting_service.cpp
+  ../v2/model/model_load_service.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/run_manifest_v2.cpp
+  ../v2/run/run_writer_v2.cpp
+)
+target_include_directories(live_sorting_service_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${DCAM_SDK_DIR}/inc
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(live_sorting_service_test PRIVATE
+  opendss_runtime
+  Qt6::Core
+  Qt6::Gui
+  Qt6::Widgets
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME live_sorting_service_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:live_sorting_service_test>
+)
+set_tests_properties(live_sorting_service_test PROPERTIES TIMEOUT 30)
+
 qt_add_executable(run_repository_test
   run_repository_test.cpp
   ../desktop_app/json_persistence.cpp

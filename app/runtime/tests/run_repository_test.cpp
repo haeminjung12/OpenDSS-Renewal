@@ -259,6 +259,45 @@ void testDiscoveryAndRecoverableLoad() {
             "recoverable partial Run denies Notes");
 }
 
+void testLiveStoppedDiscovery() {
+    stage = "live discovery";
+    QTemporaryDir temporary;
+    const QString runs = QDir(temporary.path()).filePath("Runs");
+    RunManifestData live = data("live", "2026-07-24T10:00:00Z");
+    live.operation = RunOperation::LiveSorting;
+    live.sourceSequence = {};
+    live.files.sequencePath.reset();
+    live.routing.physicalDaqOutputEnabled = true;
+    live.requestedProcessingFps = 0.0;
+    QString error;
+    const QString folder = QDir(runs).filePath("live");
+    auto writer = RunWriterV2::start(folder, live, &error);
+    require(writer.has_value(), qPrintable(error));
+    RunEvent value = event("live", "2026-07-24T10:00:00Z");
+    value.daqPulseStatus = DaqPulseStatus::Issued;
+    require(writer->appendEvent(value, "crop-content", &error),
+            qPrintable(error));
+    require(writer->finalize(desktop_app::v2::run::RunStatus::Stopped,
+                             "2026-07-24T10:00:01Z",
+                             "user", 0.0, &error),
+            qPrintable(error));
+
+    ApplicationStateStore stateStore;
+    RunRepository repository(stateStore);
+    require(repository.refresh(temporary.path(), &error), qPrintable(error));
+    require(repository.entries().size() == 1 &&
+                repository.entries().first().loadable &&
+                repository.entries().first().operation ==
+                    RunOperation::LiveSorting &&
+                repository.entries().first().status ==
+                    desktop_app::v2::run::RunStatus::Stopped,
+            "Live Stopped Run discovered");
+    require(repository.selectRun("live") && repository.loadSelected(&error) &&
+                repository.loadedRun()->manifest.data().operation ==
+                    RunOperation::LiveSorting,
+            qPrintable(error));
+}
+
 void testConcurrentNotesUpdatesSerializeOrDeny() {
     stage = "concurrent notes";
     QTemporaryDir temporary;
@@ -558,6 +597,7 @@ void testJunctionRunIsRetainedButNotTraversed() {
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testDiscoveryAndRecoverableLoad();
+    testLiveStoppedDiscovery();
     testSelectionAndFailedLoadPreservePriorDetail();
     testMissingOptionalSequenceStillLoads();
     testNotesGuardAndNotesOnlyReload();

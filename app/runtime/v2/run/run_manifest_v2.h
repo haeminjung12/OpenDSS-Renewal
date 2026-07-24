@@ -9,7 +9,7 @@
 namespace desktop_app::v2::run {
 
 enum class RunOperation { SequenceTest, LiveSorting };
-enum class RunStatus { Completed, Interrupted, Failed };
+enum class RunStatus { Completed, Stopped, Interrupted, Failed };
 enum class TriggerMode { ClassBased, EveryDroplet };
 enum class HitSide { PositiveY, NegativeY };
 enum class Route { Hit, Waste, Unresolved };
@@ -66,6 +66,22 @@ struct RunFiles {
     std::optional<QString> sequencePath;
 };
 
+struct RunIntegrityRange {
+    qint64 first = 0;
+    qint64 last = 0;
+};
+
+struct RunIntegritySeries {
+    qint64 count = 0;
+    QVector<RunIntegrityRange> ranges;
+};
+
+struct RunIntegrity {
+    RunIntegritySeries sourceFrameGaps;
+    RunIntegritySeries queueRejections;
+    RunIntegritySeries consumerFailures;
+};
+
 struct RunManifestData {
     QString runId;
     QString runName;
@@ -89,6 +105,7 @@ struct RunManifestData {
     HitBoundarySnapshot hitBoundary;
     double requestedProcessingFps = 0.0;
     double achievedProcessingFps = 0.0;
+    RunIntegrity integrity;
     RunFiles files;
     QVector<RunEvent> events;
 };

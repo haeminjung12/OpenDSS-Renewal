@@ -1589,7 +1589,7 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
     QJsonObject artifact = metadata.value("artifact").toObject();
     artifact["onnx_file"] = "model.onnx";
     artifact["checkpoint_file"] = "checkpoint.pth";
-    artifact.remove("onnx_sha256");
+    artifact["onnx_sha256"] = sha256FileHex(promotedModelPath);
     artifact["format"] = "onnx";
     QJsonArray externalDataFiles;
     for (const QString& sidecarName : sidecarNames) {

@@ -75,6 +75,23 @@ cv::Rect PipelineRunner::makeSquareRect(const cv::Rect& bbox, const cv::Size& si
 }
 
 bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
+    if (cfg.detectorOnly)
+        return init(cfg, nullptr, err);
+
+    Metadata metadata;
+    if (!LoadMetadata(cfg.metadataPath, metadata, err))
+        return false;
+    auto candidate = std::make_unique<OnnxInferenceAdapter>();
+    const std::string requestedDevice = cfg.computeDevice.empty()
+                                            ? (cfg.useCuda ? std::string("cuda") : std::string("auto"))
+                                            : cfg.computeDevice;
+    if (!candidate->load({}, cfg.onnxPath, cfg.metadataPath, metadata, requestedDevice, err))
+        return false;
+    return init(cfg, std::move(candidate), err);
+}
+
+bool PipelineRunner::init(const PipelineConfig& cfg, std::unique_ptr<OnnxInferenceAdapter> candidate,
+                          std::string& err) {
     cfg_ = cfg;
     ready_ = false;
     triggerReady_ = false;
@@ -89,26 +106,17 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
         return true;
     }
 
-    if (!LoadMetadata(cfg_.metadataPath, meta_, err)) {
+    if (!candidate) {
+        err = "no prepared inference candidate is available";
         return false;
     }
-    if (!ResolveTargetClassId(meta_, cfg_.targetClassId, cfg_.targetLabel, resolvedTargetClassId_,
+    const Metadata& metadata = candidate->metadata();
+    if (!ResolveTargetClassId(metadata, cfg_.targetClassId, cfg_.targetLabel, resolvedTargetClassId_,
                               resolvedTargetDisplayLabel_, err)) {
         return false;
     }
     cfg_.targetClassId = resolvedTargetClassId_;
     cfg_.targetLabel = resolvedTargetDisplayLabel_;
-
-    const std::string requestedDevice = cfg_.computeDevice.empty()
-                                            ? (cfg_.useCuda ? std::string("cuda") : std::string("auto"))
-                                            : cfg_.computeDevice;
-    std::string classifierWarning;
-    if (!classifier_.init(cfg_.onnxPath, meta_, requestedDevice, classifierWarning)) {
-        err = classifierWarning;
-        return false;
-    }
-    if (!classifierWarning.empty())
-        err = classifierWarning;
 
     if (!cfg_.daq.channel.empty()) {
         std::string trigErr;
@@ -121,8 +129,13 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
         }
     }
 
+    installInference(std::move(candidate));
     ready_ = true;
     return true;
+}
+
+void PipelineRunner::installInference(std::unique_ptr<OnnxInferenceAdapter> candidate) noexcept {
+    classifier_.swap(candidate);
 }
 
 void PipelineRunner::reset() {
@@ -167,7 +180,8 @@ bool PipelineRunner::fireTrigger(std::string& err) {
 }
 
 const std::vector<std::string>& PipelineRunner::classLabels() const {
-    return meta_.classes;
+    static const std::vector<std::string> empty;
+    return classifier_ ? classifier_->metadata().classes : empty;
 }
 
 std::string PipelineRunner::targetClassId() const {
@@ -183,7 +197,11 @@ std::string PipelineRunner::targetDisplayText() const {
 }
 
 std::string PipelineRunner::executionProvider() const {
-    return classifier_.executionProvider();
+    return classifier_ ? classifier_->executionProvider() : std::string();
+}
+
+std::string PipelineRunner::loadedModelId() const {
+    return classifier_ ? classifier_->modelId() : std::string();
 }
 
 bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
@@ -231,7 +249,7 @@ bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
     out.cropRect = squareRect;
 
     cv::Mat crop = gray8(squareRect);
-    ClassificationResult cls = classifier_.classify(crop);
+    ClassificationResult cls = classifier_ ? classifier_->classify(crop) : ClassificationResult{};
     out.label = cls.label;
     out.predictedIndex = cls.index;
     out.scores = cls.scores;

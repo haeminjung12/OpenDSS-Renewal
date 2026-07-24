@@ -26,6 +26,7 @@ struct ModelWorkspaceControls {
     QStackedWidget* workspaceStack = nullptr;
     QWidget* validatorWorkspace = nullptr;
     desktop_app::AppState* appState = nullptr;
+    std::function<bool(const QString&, QString*)> activateModelCallback;
     std::function<void()> registryChangedCallback;
 };
 

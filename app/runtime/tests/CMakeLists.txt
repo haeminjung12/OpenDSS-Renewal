@@ -119,3 +119,35 @@ add_test(
 )
 
 set_tests_properties(opendss_p0_2a_characterization_test PROPERTIES TIMEOUT 15)
+
+add_executable(model_load_activation_test
+  model_load_activation_test.cpp
+  ../desktop_app/model_registry_service.cpp
+  ../desktop_app/app_utils.cpp
+  ../desktop_app/json_persistence.cpp
+  ../desktop_app/pipeline_runner.cpp
+  ../inference/onnx_inference_adapter.cpp
+  ../v2/model/model_load_service.cpp
+)
+target_compile_definitions(model_load_activation_test PRIVATE
+  OPENDSS_TEST_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_include_directories(model_load_activation_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(model_load_activation_test PRIVATE
+  opendss_runtime
+  Qt6::Core
+  Qt6::Widgets
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME model_load_activation_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:model_load_activation_test>
+)

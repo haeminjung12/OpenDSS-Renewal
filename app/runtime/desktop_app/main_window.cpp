@@ -62,6 +62,7 @@
 #include "live_frame_dispatcher.h"
 #include "live_log_writer.h"
 #include "model_registry_service.h"
+#include "../v2/model/model_load_service.h"
 #include "sequence_summary_writer.h"
 #include "camera_workspace_controller.h"
 #include "dataset_workspace_controller.h"
@@ -3334,6 +3335,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         }
     };
 
+    PipelineRunner pipeline;
+    QMutex pipelineMutex;
     DatasetWorkspaceController* datasetController = nullptr;
     desktop_app::workspace::ModelWorkspaceControls modelWorkspaceControls;
     modelWorkspaceControls.registryEntries = registryEntries;
@@ -3343,6 +3346,14 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     modelWorkspaceControls.imageValidationAction = imageValidationAction;
     modelWorkspaceControls.validatorWorkspace = validatorWorkspacePage;
     modelWorkspaceControls.appState = &appState;
+    modelWorkspaceControls.activateModelCallback = [&pipeline, &pipelineMutex, registryFilePath, selectedComputeDevice](const QString& id, QString* error) {
+        desktop_app::v2::ModelLoadService service(registryFilePath);
+        auto candidate = service.prepare(id, selectedComputeDevice(), nullptr, error);
+        if (!candidate)
+            return false;
+        QMutexLocker lock(&pipelineMutex);
+        return service.activateAndInstall(std::move(candidate), pipeline, error);
+    };
     modelWorkspaceControls.registryChangedCallback = [&datasetController, registryFilePath, validatorWorkspaceImageWidget]() {
         if (datasetController)
             datasetController->refreshTrainerUi();
@@ -3354,6 +3365,17 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     };
     verifierTrace(QStringLiteral("startup: building model library"));
     auto* modelLibraryPage = desktop_app::workspace::buildModelWorkspace(modelWorkspaceControls);
+    {
+        desktop_app::v2::ModelLoadService service(registryFilePath);
+        QString restoreError;
+        auto candidate = service.preparePersistedActive(selectedComputeDevice(), nullptr, &restoreError);
+        if (candidate) {
+            QMutexLocker lock(&pipelineMutex);
+            service.installPersisted(std::move(candidate), pipeline);
+        } else if (!restoreError.isEmpty()) {
+            logMessage("Active model restore skipped: " + restoreError);
+        }
+    }
     verifierTrace(QStringLiteral("startup: model library built"));
     modelLibraryPage->setObjectName("ModelLibraryPage");
     auto* modelWorkspaceTabs = new QTabWidget;
@@ -4841,11 +4863,24 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         if (savedTrainerModelEntryId.isEmpty())
             return;
             QString activationError;
-            if (!activateModelRegistryEntry(registryFilePath, savedTrainerModelEntryId, &activationError)) {
+            desktop_app::v2::ModelLoadService modelLoadService(registryFilePath);
+            auto candidate = modelLoadService.prepare(savedTrainerModelEntryId, selectedComputeDevice(), nullptr, &activationError);
+            if (!candidate) {
                 appendTrainerLog("Model active selection failed: " + activationError + "\n");
                 QMessageBox::warning(this, "Use trained model", activationError);
                 setTrainerSummary("The saved model could not be activated.", activationError);
-            } else {
+                return;
+            }
+            {
+                QMutexLocker pipelineLock(&pipelineMutex);
+                if (!modelLoadService.activateAndInstall(std::move(candidate), pipeline, &activationError)) {
+                appendTrainerLog("Model active selection failed: " + activationError + "\n");
+                QMessageBox::warning(this, "Use trained model", activationError);
+                setTrainerSummary("The saved model could not be activated.", activationError);
+                return;
+                }
+            }
+            {
                 appendTrainerLog(QString("Using trained model for sorting now: %1\n").arg(savedTrainerModelEntryId));
                 refreshModelWorkspaceAndTrainer(savedTrainerModelEntryId);
                 if (refreshLiveModelsFromRegistry)
@@ -6024,8 +6059,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     cameraThread.setObjectName("CameraWorkerThread");
     auto* cameraWorker = new CameraWorker();
     bool cameraOpened = false;
-    PipelineRunner pipeline;
-    QMutex pipelineMutex;
     std::atomic<bool> pipelineEnabled(false);
     ValidatorWorkspaceController::Dependencies validatorWorkspaceControllerDeps;
     validatorWorkspaceControllerDeps.parentWindow = this;

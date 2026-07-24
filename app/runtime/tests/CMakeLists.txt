@@ -227,3 +227,64 @@ add_test(
     $<TARGET_FILE:operation_coordinator_test>
 )
 set_tests_properties(operation_coordinator_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(camera_service_contract_test
+  camera_service_contract_test.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(camera_service_contract_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(camera_service_contract_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME camera_service_contract_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:camera_service_contract_test>
+)
+set_tests_properties(camera_service_contract_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(frame_conversion_golden_test
+  frame_conversion_golden_test.cpp
+  ../v2/camera/frame_conversion.cpp
+)
+target_include_directories(frame_conversion_golden_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(frame_conversion_golden_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+add_test(
+  NAME frame_conversion_golden_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:frame_conversion_golden_test>
+)
+set_tests_properties(frame_conversion_golden_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(single_image_capture_test
+  single_image_capture_test.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/camera/frame_conversion.cpp
+  ../v2/camera/single_image_capture_service.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(single_image_capture_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(single_image_capture_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+add_test(
+  NAME single_image_capture_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:single_image_capture_test>
+)
+set_tests_properties(single_image_capture_test PROPERTIES TIMEOUT 15)

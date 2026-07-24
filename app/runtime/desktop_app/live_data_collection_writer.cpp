@@ -3,6 +3,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QStandardPaths>
@@ -119,6 +120,10 @@ bool LiveDataCollectionWriter::finish(const QString& stopReason, std::string& er
     return writeMetadata(stopReason, err);
 }
 
+void LiveDataCollectionWriter::setIntegrity(Integrity integrity) {
+    integrity_ = std::move(integrity);
+}
+
 bool LiveDataCollectionWriter::isActive() const {
     return active_;
 }
@@ -156,6 +161,24 @@ bool LiveDataCollectionWriter::writeMetadata(const QString& stopReason, std::str
     root["detection_rows"] = QString::number(static_cast<qulonglong>(rowsLogged_));
     root["stream_dir"] = "stream";
     root["detections_csv"] = "detections.csv";
+
+    QJsonObject integrity;
+    integrity["handoff_accepted_count"] = QString::number(static_cast<qulonglong>(integrity_.handoffAccepted));
+    integrity["source_gap_count"] = QString::number(static_cast<qulonglong>(integrity_.sourceGapCount));
+    integrity["queue_rejection_count"] = QString::number(static_cast<qulonglong>(integrity_.queueRejectedCount));
+    integrity["consumer_failure_count"] = QString::number(static_cast<qulonglong>(integrity_.consumerFailureCount));
+    auto ranges = [](const std::vector<IntegrityRange>& values) {
+        QJsonArray array;
+        for (const auto& value : values) {
+            array.append(QJsonArray{QString::number(static_cast<qulonglong>(value.first)),
+                                    QString::number(static_cast<qulonglong>(value.last))});
+        }
+        return array;
+    };
+    integrity["source_gaps"] = ranges(integrity_.sourceGaps);
+    integrity["queue_rejections"] = ranges(integrity_.queueRejected);
+    integrity["consumer_failures"] = ranges(integrity_.consumerFailures);
+    root["integrity"] = integrity;
 
     QString writeError;
     if (!desktop_app::writeJsonObjectAtomically(QDir(sessionDir_).filePath("collection_metadata.json"), root, &writeError)) {
@@ -198,4 +221,5 @@ void LiveDataCollectionWriter::reset() {
     framesSaved_ = 0;
     rowsLogged_ = 0;
     active_ = false;
+    integrity_ = {};
 }

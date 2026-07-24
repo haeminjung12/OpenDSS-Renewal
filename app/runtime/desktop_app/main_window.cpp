@@ -59,6 +59,7 @@
 #include "collection_postprocessor.h"
 #include "json_persistence.h"
 #include "live_data_collection_writer.h"
+#include "live_frame_dispatcher.h"
 #include "live_log_writer.h"
 #include "model_registry_service.h"
 #include "sequence_summary_writer.h"
@@ -6000,6 +6001,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     std::function<void()> stopLiveLogging;
     QMutex collectionMutex;
     LiveDataCollectionWriter collectionWriter;
+    std::shared_ptr<LiveFrameDispatcher> recordDispatcher;
     QString collectionPreviousDaqStatusText;
     QString collectionPreviousDaqFaultText;
     bool collectionPreviousDaqAvailable = false;
@@ -6008,6 +6010,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
     QMutex datasetCaptureMutex;
     DatasetCaptureSession datasetCaptureSession;
     std::atomic<bool> datasetCaptureActive(false);
+    std::atomic<bool> datasetBatchPromptPending(false);
     QString datasetCaptureDir;
     QString datasetCaptureManifestPath;
 
@@ -6749,6 +6752,48 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         if (!collectionActive.exchange(false))
             return;
 
+        if (recordDispatcher) {
+            const std::uint64_t checkpoint = recordDispatcher->closeCollectionBoundary();
+            recordDispatcher->waitThrough(checkpoint);
+            const auto snapshot = recordDispatcher->integrity();
+            LiveDataCollectionWriter::Integrity integrity;
+            integrity.handoffAccepted = snapshot.handoffAccepted;
+            integrity.sourceGapCount = snapshot.sourceGapCount;
+            integrity.queueRejectedCount = snapshot.queueRejectedCount;
+            integrity.consumerFailureCount = snapshot.consumerFailureCount;
+            for (const auto& range : snapshot.sourceGaps)
+                integrity.sourceGaps.push_back({range.first, range.last});
+            for (const auto& range : snapshot.queueRejected)
+                integrity.queueRejected.push_back({range.first, range.last});
+            for (const auto& range : snapshot.consumerFailures)
+                integrity.consumerFailures.push_back({range.first, range.last});
+            {
+                QMutexLocker collectionLock(&collectionMutex);
+                collectionWriter.setIntegrity(std::move(integrity));
+            }
+            auto rangesText = [](const auto& ranges) {
+                QStringList values;
+                for (const auto& range : ranges)
+                    values.append(QString("%1-%2").arg(range.first).arg(range.last));
+                return values.join(";");
+            };
+            if (snapshot.sourceGapCount > 0) {
+                logMessage(QString("Record source gaps: count=%1 ranges=%2")
+                               .arg(snapshot.sourceGapCount)
+                               .arg(rangesText(snapshot.sourceGaps)));
+            }
+            if (snapshot.queueRejectedCount > 0) {
+                logMessage(QString("Record queue rejections: count=%1 ranges=%2")
+                               .arg(snapshot.queueRejectedCount)
+                               .arg(rangesText(snapshot.queueRejected)));
+            }
+            if (snapshot.consumerFailureCount > 0) {
+                logMessage(QString("Record consumer failures: count=%1 ranges=%2")
+                               .arg(snapshot.consumerFailureCount)
+                               .arg(rangesText(snapshot.consumerFailures)));
+            }
+        }
+
         QString sessionDir;
         std::string finishErr;
         {
@@ -6869,6 +6914,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         appState.daqStatusText = "DAQ: disabled for data collection";
         daqStatusItem->setText(appState.daqStatusText);
 
+        if (recordDispatcher)
+            recordDispatcher->openCollectionBoundary();
         collectionActive.store(true);
         pipelineEnabled.store(true);
         collectionToggleBtn->setText("Stop Data Collection");
@@ -6888,19 +6935,67 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     QObject::connect(collectionToggleBtn, &QPushButton::clicked, startDataCollection);
 
+    auto datasetIntegritySnapshot = [&]() {
+        DatasetCaptureIntegrity integrity;
+        if (!recordDispatcher)
+            return integrity;
+        const auto snapshot = recordDispatcher->datasetIntegrity();
+        integrity.handoffAccepted = snapshot.handoffAccepted;
+        integrity.sourceGapCount = snapshot.sourceGapCount;
+        integrity.queueRejectedCount = snapshot.queueRejectedCount;
+        integrity.consumerFailureCount = snapshot.consumerFailureCount;
+        for (const auto& range : snapshot.sourceGaps)
+            integrity.sourceGaps.push_back({range.first, range.last});
+        for (const auto& range : snapshot.queueRejected)
+            integrity.queueRejected.push_back({range.first, range.last});
+        for (const auto& range : snapshot.consumerFailures)
+            integrity.consumerFailures.push_back({range.first, range.last});
+        return integrity;
+    };
+    auto logDatasetIntegrity = [&](const DatasetCaptureIntegrity& integrity) {
+        auto rangesText = [](const auto& ranges) {
+            QStringList values;
+            for (const auto& range : ranges)
+                values.append(QString("%1-%2").arg(range.first).arg(range.last));
+            return values.join(";");
+        };
+        if (integrity.sourceGapCount > 0) {
+            logMessage(QString("Dataset source gaps: count=%1 ranges=%2")
+                           .arg(integrity.sourceGapCount)
+                           .arg(rangesText(integrity.sourceGaps)));
+        }
+        if (integrity.queueRejectedCount > 0) {
+            logMessage(QString("Dataset queue rejections: count=%1 ranges=%2")
+                           .arg(integrity.queueRejectedCount)
+                           .arg(rangesText(integrity.queueRejected)));
+        }
+        if (integrity.consumerFailureCount > 0) {
+            logMessage(QString("Dataset consumer failures: count=%1 ranges=%2")
+                           .arg(integrity.consumerFailureCount)
+                           .arg(rangesText(integrity.consumerFailures)));
+        }
+    };
+
     auto stopDatasetCapture = [&](const QString& reason, bool openReview) {
+        if (!datasetCaptureActive.exchange(false))
+            return;
+        datasetBatchPromptPending.store(false);
+        if (recordDispatcher) {
+            const std::uint64_t checkpoint = recordDispatcher->closeDatasetBoundary();
+            recordDispatcher->waitThrough(checkpoint);
+        }
+        DatasetCaptureIntegrity integrity = datasetIntegritySnapshot();
+        logDatasetIntegrity(integrity);
         QString reviewPath;
         std::string err;
         {
             QMutexLocker lock(&datasetCaptureMutex);
-            if (!datasetCaptureActive.load())
-                return;
+            datasetCaptureSession.setIntegrity(std::move(integrity));
             datasetCaptureSession.setStopReason(reason.toStdString());
             if (!datasetCaptureSession.finalize(err)) {
                 logMessage(QString("Image Set capture finalize failed: %1").arg(QString::fromStdString(err)));
             }
             reviewPath = datasetCaptureManifestPath;
-            datasetCaptureActive.store(false);
         }
         datasetStartCaptureBtn->setEnabled(true);
         datasetStopCaptureBtn->setEnabled(false);
@@ -6954,6 +7049,9 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             }
             datasetCaptureDir = sessionDir;
             datasetCaptureManifestPath = QDir(sessionDir).filePath("metadata/dataset_manifest.json");
+            datasetBatchPromptPending.store(false);
+            if (recordDispatcher)
+                recordDispatcher->openDatasetBoundary();
             datasetCaptureActive.store(true);
         }
         saveCropCheck->setChecked(true);
@@ -7565,7 +7663,7 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                                     double* procMsOut) -> bool {
         bgRemaining = 0;
         pipelineReady = false;
-        if (!pipelineEnabled.load() || img.isNull())
+        if (img.isNull())
             return false;
 
         QImage lutImg = cameraController->applyLutToImage(img);
@@ -8056,30 +8154,46 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         });
     });
 
-    cameraWorker->setRecordHook([saveMutex, saveBuffer, &recording, &recordedFrames, &pipelineEnabled, &sequenceRunning,
+    auto recordConsumer = [saveMutex, saveBuffer, &recording, &recordedFrames, &pipelineEnabled, &sequenceRunning,
                                  &processPipelineFrame, &liveLogging, &liveLogMutex, &liveLog, &getStatsSnapshot,
-                                 &liveLogStart, &datasetCaptureActive, &datasetCaptureMutex, &datasetCaptureSession,
+                                 &liveLogStart, &datasetCaptureActive, &datasetBatchPromptPending, &datasetCaptureMutex,
+                                 &datasetCaptureSession, &recordDispatcher,
                                  &datasetCaptureDir, &datasetCaptureManifestPath, datasetStartCaptureBtn,
                                  datasetStopCaptureBtn, datasetCaptureStatusLabel, statusLabel, trainerDatasetEdit,
-                                 &openDatasetLabelerPath, &collectionActive, &collectionMutex, &collectionWriter,
+                                 &openDatasetLabelerPath, &datasetIntegritySnapshot, &logDatasetIntegrity,
+                                 &collectionActive,
+                                 &collectionMutex, &collectionWriter,
                                  &stopDataCollection, collectionStatusLabel,
-                                 this](const QImage& img, const FrameMeta& meta, double fps) {
-        if (recording.load()) {
+                                 this](const QImage& img, const FrameMeta& meta, double fps, std::uint64_t, LiveFrameDispatcher::Membership membership) {
+        if (membership.recording) {
             QMutexLocker lk(saveMutex.get());
             saveBuffer->push_back(img.copy());
             recordedFrames++;
         }
 
-        if (sequenceRunning.load())
+        if (membership.sequenceRunning)
             return;
 
         PipelineEvent evt;
         int bgRemaining = 0;
         bool pipelineReady = false;
         double procMs = 0.0;
-        bool processed = processPipelineFrame(img, evt, bgRemaining, pipelineReady, &procMs);
+        bool processed = membership.pipelineEnabled && processPipelineFrame(img, evt, bgRemaining, pipelineReady, &procMs);
 
-        if (collectionActive.load()) {
+        int currentEventId = 0;
+        QString lastEventDir;
+        int lastDecisionFrame = -1;
+        int lastDecisionEventId = 0;
+        if (membership.datasetCapture || membership.liveLogging) {
+            QMutexLocker eventLock(&liveEventMutex);
+            liveEventTracker.update(evt, processed);
+            currentEventId = liveEventTracker.currentEventId;
+            lastEventDir = liveEventTracker.lastEventDir;
+            lastDecisionFrame = liveEventTracker.lastDecisionFrame;
+            lastDecisionEventId = liveEventTracker.lastDecisionEventId;
+        }
+
+        if (membership.collection) {
             std::string writeErr;
             bool writeOk = false;
             std::uint64_t framesSavedNow = 0;
@@ -8091,28 +8205,34 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 rowsLoggedNow = collectionWriter.rowsLogged();
             }
             if (!writeOk) {
-                logMessage(QString("Data Collection write failed: %1").arg(QString::fromStdString(writeErr)));
-                stopDataCollection("write_error");
+                QMetaObject::invokeMethod(this, [&, writeErr]() {
+                    logMessage(QString("Data Collection write failed: %1").arg(QString::fromStdString(writeErr)));
+                    stopDataCollection("write_error");
+                }, Qt::QueuedConnection);
+                throw std::runtime_error(writeErr);
             } else if (framesSavedNow % 25 == 0 || evt.detected) {
-                collectionStatusLabel->setText(QString("Collection: %1 frames, %2 rows")
-                                                   .arg(static_cast<qulonglong>(framesSavedNow))
-                                                   .arg(static_cast<qulonglong>(rowsLoggedNow)));
+                QMetaObject::invokeMethod(collectionStatusLabel, [collectionStatusLabel, framesSavedNow, rowsLoggedNow]() {
+                    collectionStatusLabel->setText(QString("Collection: %1 frames, %2 rows")
+                                                       .arg(static_cast<qulonglong>(framesSavedNow))
+                                                       .arg(static_cast<qulonglong>(rowsLoggedNow)));
+                }, Qt::QueuedConnection);
             }
         }
 
-        if (datasetCaptureActive.load() && processed && evt.fired && evt.classified && !evt.cropPath.empty()) {
+        if (membership.datasetCapture && processed && evt.fired && evt.classified && !evt.cropPath.empty()) {
             bool reachedTarget = false;
+            bool scheduleBatchPrompt = false;
             std::size_t collected = 0;
             std::size_t target = 0;
             QString addError;
             {
                 QMutexLocker captureLock(&datasetCaptureMutex);
-                if (datasetCaptureActive.load()) {
+                {
                     DatasetCropCandidate candidate;
                     candidate.sourceType = "live_stream";
                     candidate.sourceSequenceId = "live_camera";
                     candidate.sourceFrameIndex = static_cast<int>(meta.frameIndex);
-                    candidate.eventId = liveEventTracker.currentEventId;
+                    candidate.eventId = currentEventId;
                     candidate.classificationFrame = static_cast<int>(evt.frameNumber);
                     candidate.cropX = evt.cropRect.x;
                     candidate.cropY = evt.cropRect.y;
@@ -8130,25 +8250,41 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     if (!datasetCaptureSession.addCrop(candidate, err)) {
                         addError = QString::fromStdString(err);
                         datasetCaptureSession.setStopReason("error");
-                        datasetCaptureSession.finalize(err);
                         datasetCaptureActive.store(false);
                     } else {
                         reachedTarget = datasetCaptureSession.targetReached();
                         collected = datasetCaptureSession.collectedCount();
                         target = datasetCaptureSession.currentBatchTarget();
+                        if (reachedTarget && datasetCaptureActive.load() &&
+                            !datasetBatchPromptPending.exchange(true)) {
+                            datasetCaptureActive.store(false);
+                            scheduleBatchPrompt = true;
+                        }
                     }
                 }
             }
             if (!addError.isEmpty()) {
+                const std::uint64_t checkpoint = recordDispatcher ? recordDispatcher->closeDatasetBoundary() : 0;
                 QMetaObject::invokeMethod(
                     this,
-                    [&, addError]() {
+                    [&, addError, checkpoint]() {
+                        if (recordDispatcher)
+                            recordDispatcher->waitThrough(checkpoint);
+                        std::string finalizeError;
+                        {
+                            QMutexLocker captureLock(&datasetCaptureMutex);
+                            DatasetCaptureIntegrity integrity = datasetIntegritySnapshot();
+                            logDatasetIntegrity(integrity);
+                            datasetCaptureSession.setIntegrity(std::move(integrity));
+                            datasetCaptureSession.finalize(finalizeError);
+                        }
                         datasetStartCaptureBtn->setEnabled(true);
                         datasetStopCaptureBtn->setEnabled(false);
                         datasetCaptureStatusLabel->setText("Image Set capture stopped after an error: " + addError);
                         statusLabel->setText("Image Set capture stopped after an error.");
                     },
                     Qt::QueuedConnection);
+                throw std::runtime_error(addError.toStdString());
             } else {
                 QMetaObject::invokeMethod(
                     this,
@@ -8160,39 +8296,56 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                     },
                     Qt::QueuedConnection);
             }
-            if (reachedTarget) {
+            if (scheduleBatchPrompt) {
+                const std::uint64_t checkpoint = recordDispatcher ? recordDispatcher->closeDatasetBoundary() : 0;
                 QMetaObject::invokeMethod(
                     this,
-                    [&, collected]() {
+                    [&, checkpoint]() {
+                        if (recordDispatcher)
+                            recordDispatcher->waitThrough(checkpoint);
+                        if (!datasetBatchPromptPending.load())
+                            return;
+                        DatasetCaptureIntegrity integrity = datasetIntegritySnapshot();
+                        logDatasetIntegrity(integrity);
+                        std::size_t collectedNow = 0;
+                        {
+                            QMutexLocker captureLock(&datasetCaptureMutex);
+                            collectedNow = datasetCaptureSession.collectedCount();
+                        }
                         QMessageBox prompt(this);
                         prompt.setWindowTitle("Image Set Batch Target Reached");
                         prompt.setText(
                             QString("The image set collected %1 images. Continue collecting or stop and review?")
-                                .arg(static_cast<qulonglong>(collected)));
+                                .arg(static_cast<qulonglong>(collectedNow)));
                         QPushButton* continueButton = prompt.addButton("Continue Collecting", QMessageBox::AcceptRole);
                         QPushButton* reviewButton = prompt.addButton("Stop and Review", QMessageBox::RejectRole);
                         prompt.exec();
                         bool continueCollecting = (prompt.clickedButton() == continueButton);
+                        std::size_t nextTarget = 0;
                         {
                             QMutexLocker captureLock(&datasetCaptureMutex);
-                            if (datasetCaptureActive.load()) {
-                                if (continueCollecting) {
-                                    datasetCaptureSession.extendBatchTarget();
-                                } else {
-                                    datasetCaptureSession.recordBatchPrompt("stop_for_review");
-                                    datasetCaptureSession.setStopReason("user_stop_after_batch_prompt");
-                                    std::string err;
-                                    datasetCaptureSession.finalize(err);
-                                    datasetCaptureActive.store(false);
-                                }
+                            if (continueCollecting) {
+                                datasetCaptureSession.extendBatchTarget();
+                                nextTarget = datasetCaptureSession.currentBatchTarget();
+                            } else {
+                                datasetCaptureSession.setIntegrity(std::move(integrity));
+                                datasetCaptureSession.recordBatchPrompt("stop_for_review");
+                                datasetCaptureSession.setStopReason("user_stop_after_batch_prompt");
+                                std::string err;
+                                datasetCaptureSession.finalize(err);
                             }
                         }
                         if (continueCollecting) {
+                            datasetBatchPromptPending.store(false);
+                            if (recordDispatcher)
+                                recordDispatcher->resumeDatasetBoundary();
+                            datasetCaptureActive.store(true);
                             datasetCaptureStatusLabel->setText(
                                 QString("Image Set capture continuing to %1 images\n%2")
-                                    .arg(static_cast<qulonglong>(datasetCaptureSession.currentBatchTarget()))
+                                    .arg(static_cast<qulonglong>(nextTarget))
                                     .arg(datasetCaptureDir));
                         } else {
+                            datasetBatchPromptPending.store(false);
                             datasetStartCaptureBtn->setEnabled(true);
                             datasetStopCaptureBtn->setEnabled(false);
                             datasetCaptureStatusLabel->setText(
@@ -8203,22 +8356,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                             }
                         }
                     },
-                    Qt::BlockingQueuedConnection);
+                    Qt::QueuedConnection);
             }
         }
 
-        if (liveLogging.load()) {
-            QString lastEventDir;
-            int lastDecisionFrame = -1;
-            int lastDecisionEventId = 0;
-            {
-                QMutexLocker eventLock(&liveEventMutex);
-                liveEventTracker.update(evt, processed);
-                lastEventDir = liveEventTracker.lastEventDir;
-                lastDecisionFrame = liveEventTracker.lastDecisionFrame;
-                lastDecisionEventId = liveEventTracker.lastDecisionEventId;
-            }
-            bool enabledNow = pipelineEnabled.load();
+        if (membership.liveLogging) {
+            const bool enabledNow = membership.pipelineEnabled;
             QString skipReason;
             if (!enabledNow) {
                 skipReason = "pipeline_disabled";
@@ -8271,6 +8414,27 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
             QMutexLocker lk(&liveLogMutex);
             liveLog.push_back(rec);
         }
+    };
+    recordDispatcher = std::make_shared<LiveFrameDispatcher>(std::move(recordConsumer));
+    cameraWorker->setRecordHook([&recording, &sequenceRunning, &pipelineEnabled, &collectionActive, &datasetCaptureActive, &liveLogging, recordDispatcher, this](const QImage& img, const FrameMeta& meta, double fps) {
+        LiveFrameDispatcher::Membership membership{recording.load(), sequenceRunning.load(), pipelineEnabled.load(), collectionActive.load(), datasetCaptureActive.load(), liveLogging.load()};
+        const auto result = recordDispatcher->offer(img, meta, fps, membership);
+        if (result.delta.sourceGapCount || result.delta.queueRejectedCount) {
+            QMetaObject::invokeMethod(this, [this, result]() {
+                for (const auto& range : result.delta.sourceGaps) {
+                    logMessage(QString("Record source gap: count=%1 range=%2-%3")
+                                   .arg(range.last - range.first + 1)
+                                   .arg(range.first)
+                                   .arg(range.last));
+                }
+                for (const auto& range : result.delta.queueRejected) {
+                    logMessage(QString("Record queue rejection: count=%1 range=%2-%3")
+                                   .arg(range.last - range.first + 1)
+                                   .arg(range.first)
+                                   .arg(range.last));
+                }
+            }, Qt::QueuedConnection);
+        }
     });
 
     QObject::connect(
@@ -8281,18 +8445,25 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
         Qt::QueuedConnection);
 
     QObject::connect(&app, &QApplication::aboutToQuit, [&]() {
+        QMetaObject::invokeMethod(cameraWorker, "stopCapture", Qt::BlockingQueuedConnection);
+        if (recordDispatcher)
+            recordDispatcher->stopAndDrain();
         backgroundTasks.requestStop();
         sequenceStop.store(true);
         recording.store(false);
         if (collectionActive.load()) {
             stopDataCollection("application_exit");
         }
-        if (datasetCaptureActive.load()) {
+        const bool datasetWasActive = datasetCaptureActive.exchange(false);
+        const bool datasetPromptWasPending = datasetBatchPromptPending.exchange(false);
+        if (datasetWasActive || datasetPromptWasPending) {
+            DatasetCaptureIntegrity integrity = datasetIntegritySnapshot();
+            logDatasetIntegrity(integrity);
             QMutexLocker lock(&datasetCaptureMutex);
+            datasetCaptureSession.setIntegrity(std::move(integrity));
             datasetCaptureSession.setStopReason("cancelled");
             std::string err;
             datasetCaptureSession.finalize(err);
-            datasetCaptureActive.store(false);
         }
         if (trainerProcess && trainerProcess->state() != QProcess::NotRunning) {
             trainerProcess->terminate();

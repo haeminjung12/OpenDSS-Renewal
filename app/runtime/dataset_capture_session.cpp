@@ -185,6 +185,7 @@ bool DatasetCaptureSession::start(const DatasetCaptureConfig& config, std::strin
     collectedCount_ = 0;
     batchPromptAudit_.clear();
     items_.clear();
+    integrity_ = {};
     started_ = true;
     return writeSessionArtifacts(err);
 }
@@ -297,6 +298,10 @@ void DatasetCaptureSession::recordBatchPrompt(const std::string& decision) {
 
 void DatasetCaptureSession::setStopReason(const std::string& reason) {
     batchStopReason_ = reason;
+}
+
+void DatasetCaptureSession::setIntegrity(DatasetCaptureIntegrity integrity) {
+    integrity_ = std::move(integrity);
 }
 
 bool DatasetCaptureSession::finalize(std::string& err) {
@@ -487,6 +492,28 @@ bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
         return false;
     if (!writeClassBalanceCsv(err))
         return false;
+    auto integrityJson = [&]() {
+        auto rangesJson = [](const std::vector<DatasetCaptureIntegrityRange>& ranges) {
+            std::ostringstream rangesOut;
+            rangesOut << "[";
+            for (std::size_t i = 0; i < ranges.size(); ++i) {
+                if (i > 0)
+                    rangesOut << ",";
+                rangesOut << "[" << ranges[i].first << "," << ranges[i].last << "]";
+            }
+            rangesOut << "]";
+            return rangesOut.str();
+        };
+        std::ostringstream integrityOut;
+        integrityOut << "{\"handoff_accepted_count\":" << integrity_.handoffAccepted
+                     << ",\"source_gap_count\":" << integrity_.sourceGapCount
+                     << ",\"source_gaps\":" << rangesJson(integrity_.sourceGaps)
+                     << ",\"queue_rejection_count\":" << integrity_.queueRejectedCount
+                     << ",\"queue_rejections\":" << rangesJson(integrity_.queueRejected)
+                     << ",\"consumer_failure_count\":" << integrity_.consumerFailureCount
+                     << ",\"consumer_failures\":" << rangesJson(integrity_.consumerFailures) << "}";
+        return integrityOut.str();
+    }();
 
     fs::path sessionPath = metadataDir_ / "collection_session.json";
     fs::path sessionTempPath = metadataDir_ / "collection_session.json.tmp";
@@ -513,6 +540,7 @@ bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
         session << batchPromptAudit_[i];
     }
     session << "],\n";
+    session << "  \"integrity\": " << integrityJson << ",\n";
     session << "  \"labels\": [\"hit\", \"waste\", \"exclude\"],\n";
     session << "  \"review_required\": true,\n";
     session << "  \"trainer_ready\": false\n";
@@ -546,6 +574,7 @@ bool DatasetCaptureSession::writeSessionArtifacts(std::string& err) const {
     out << "    \"batches_completed\": " << (collectedCount_ / config_.batchTarget) << ",\n";
     out << "    \"stopped_reason\": " << jsonQuote(normalizedStopReason(batchStopReason_)) << "\n";
     out << "  },\n";
+    out << "  \"integrity\": " << integrityJson << ",\n";
     out << "  \"class_schema\": {\n";
     out << "    \"kind\": \"binary\",\n";
     out << "    \"classes\": [\n";

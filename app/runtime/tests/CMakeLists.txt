@@ -84,3 +84,38 @@ add_test(
   NAME opendss_trainer_plot_math_test
   COMMAND opendss_trainer_plot_math_test
 )
+
+add_executable(opendss_p0_2a_characterization_test
+  p0_2a_characterization_test.cpp
+  ../daq_trigger.cpp
+  ../dataset_capture_session.cpp
+  ../desktop_app/background_task_registry.cpp
+  ../desktop_app/json_persistence.cpp
+  ../desktop_app/live_data_collection_writer.cpp
+  ../desktop_app/live_log_writer.cpp
+  ../desktop_app/sequence_summary_writer.cpp
+)
+
+target_compile_definitions(opendss_p0_2a_characterization_test PRIVATE HAVE_NIDAQMX)
+
+target_include_directories(opendss_p0_2a_characterization_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/fakes
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
+)
+
+target_link_libraries(opendss_p0_2a_characterization_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
+)
+
+add_test(
+  NAME opendss_p0_2a_characterization_test
+  COMMAND opendss_p0_2a_characterization_test
+)
+
+set_tests_properties(opendss_p0_2a_characterization_test PROPERTIES TIMEOUT 15)

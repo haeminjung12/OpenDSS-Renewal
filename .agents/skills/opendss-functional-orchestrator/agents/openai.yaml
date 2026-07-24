@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenDSS Functional Orchestrator"
+  short_description: "Locks functional integration ownership"
+  default_prompt: "Use $opendss-functional-orchestrator to enforce functional ownership in this primary OpenDSS thread."

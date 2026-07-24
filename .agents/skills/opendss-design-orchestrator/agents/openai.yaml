@@ -1,0 +1,4 @@
+interface:
+  display_name: "OpenDSS Design Orchestrator"
+  short_description: "Locks visual design and graphics ownership"
+  default_prompt: "Use $opendss-design-orchestrator to enforce design ownership in this primary OpenDSS thread."

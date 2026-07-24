@@ -344,6 +344,14 @@ For v2 implementation work:
 5. Report a conflict instead of silently resolving it.
 6. Work on one approved slice at a time.
 
+## Role-locked primary orchestrators
+
+- A primary OpenDSS thread explicitly assigned functional or integration ownership must load the repository-local `opendss-orchestrator` skill first, then `opendss-functional-orchestrator`.
+- A primary OpenDSS thread explicitly assigned visual, design, or graphics ownership must load the repository-local `opendss-orchestrator` skill first, then `opendss-design-orchestrator`, plus the Qt skills required by **Qt skill routing**.
+- Declare one role lock and retain it for the thread lifetime. Change it only when the user explicitly reassigns the role.
+- These role skills do not apply to `opendss-worker` or `opendss-reviewer` agents.
+- Base orchestrator rules and canonical authority always win.
+
 ## Lean implementation rules
 
 - Make the smallest coherent change that satisfies the current slice. Prefer direct, conventional code over generalized frameworks, and do not add code for hypothetical future requirements.

@@ -190,6 +190,33 @@ add_test(
 )
 set_tests_properties(sequence_manifest_v2_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(image_sequence_capture_service_test
+  image_sequence_capture_service_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/camera/frame_conversion.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/sequence/image_sequence_capture_service.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(image_sequence_capture_service_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${DCAM_SDK_DIR}/inc
+)
+target_link_libraries(image_sequence_capture_service_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+add_test(
+  NAME image_sequence_capture_service_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:image_sequence_capture_service_test>
+)
+set_tests_properties(image_sequence_capture_service_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(training_service_protocol_test
   training_service_protocol_test.cpp
   ../v2/training/training_service.cpp

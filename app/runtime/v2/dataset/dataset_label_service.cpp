@@ -1,6 +1,7 @@
 #include "dataset_label_service.h"
 
 #include <QDir>
+#include <QDateTime>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
@@ -27,6 +28,13 @@ bool fail(QString* error, const QString& message) {
     if (error)
         *error = message;
     return false;
+}
+
+QString nextUpdatedAt(const QString& previous) {
+    const QDateTime now = QDateTime::currentDateTime();
+    const QDateTime prior = QDateTime::fromString(previous, Qt::ISODate);
+    return (prior.isValid() && now <= prior ? prior.addMSecs(1) : now)
+        .toString(Qt::ISODateWithMs);
 }
 
 bool samePath(const QString& first, const QString& second) {
@@ -152,10 +160,7 @@ bool DatasetLabelService::open(const QString& manifestPath, QString* error) {
     }
 
     manifestPath_ = absolutePath;
-    datasetId_ = manifest->datasetId();
-    classes_ = manifest->classes();
-    records_ = manifest->records();
-    labels_ = manifest->labels();
+    data_ = manifest->data();
     undo_.reset();
     return true;
 }
@@ -168,12 +173,15 @@ bool DatasetLabelService::isOpen(QString* error) const {
 
 bool DatasetLabelService::saveMutation(const QVector<DatasetClass>& classes,
                                        const QVector<UserLabelRecord>& labels, QString* error) {
-    if (!DatasetManifestV2::save(manifestPath_, datasetId_, classes, records_, labels, error))
+    DatasetManifestData next = data_;
+    next.classes = classes;
+    next.labels = labels;
+    next.provenance.updatedAt = nextUpdatedAt(data_.provenance.updatedAt);
+    if (!DatasetManifestV2::save(manifestPath_, next, error))
         return false;
 
-    undo_ = UndoState{classes_, labels_};
-    classes_ = classes;
-    labels_ = labels;
+    undo_ = UndoState{data_.classes, data_.labels};
+    data_ = std::move(next);
     return true;
 }
 
@@ -184,19 +192,19 @@ bool DatasetLabelService::configureClassCount(int classCount, QString* error) {
         return false;
     if (classCount != 2 && classCount != 3)
         return fail(error, "A Dataset must configure two or three classes.");
-    if (classes_.size() == classCount)
+    if (data_.classes.size() == classCount)
         return true;
-    if (!classes_.isEmpty() && classes_.size() != 2 && classes_.size() != 3)
+    if (!data_.classes.isEmpty() && data_.classes.size() != 2 && data_.classes.size() != 3)
         return fail(error, "The current Dataset class schema is invalid.");
 
-    QVector<DatasetClass> next = classes_;
+    QVector<DatasetClass> next = data_.classes;
     if (next.isEmpty()) {
         for (int index = 0; index < classCount; ++index)
             next.push_back(DatasetClass{QString::number(index), "Class " + QString::number(index)});
     } else if (next.size() == 2 && classCount == 3) {
         next.push_back(DatasetClass{"2", "Class 2"});
     } else if (next.size() == 3 && classCount == 2) {
-        const bool hasClassTwo = std::any_of(labels_.cbegin(), labels_.cend(), [](const UserLabelRecord& label) {
+        const bool hasClassTwo = std::any_of(data_.labels.cbegin(), data_.labels.cend(), [](const UserLabelRecord& label) {
             return !label.excluded && label.classId == "2";
         });
         if (hasClassTwo) {
@@ -205,7 +213,7 @@ bool DatasetLabelService::configureClassCount(int classCount, QString* error) {
         }
         next.removeLast();
     }
-    return saveMutation(next, labels_, error);
+    return saveMutation(next, data_.labels, error);
 }
 
 bool DatasetLabelService::renameClass(const QString& classId, const QString& name, QString* error) {
@@ -217,7 +225,7 @@ bool DatasetLabelService::renameClass(const QString& classId, const QString& nam
     if (trimmedName.isEmpty())
         return fail(error, "Class name must not be blank.");
 
-    QVector<DatasetClass> next = classes_;
+    QVector<DatasetClass> next = data_.classes;
     const auto current = std::find_if(next.begin(), next.end(), [&](const DatasetClass& value) {
         return value.id == classId;
     });
@@ -231,7 +239,7 @@ bool DatasetLabelService::renameClass(const QString& classId, const QString& nam
     if (current->name == trimmedName)
         return true;
     current->name = trimmedName;
-    return saveMutation(next, labels_, error);
+    return saveMutation(next, data_.labels, error);
 }
 
 bool DatasetLabelService::assignClass(const QString& recordId, const QString& classId,
@@ -240,18 +248,18 @@ bool DatasetLabelService::assignClass(const QString& recordId, const QString& cl
         error->clear();
     if (!isOpen(error))
         return false;
-    const bool recordExists = std::any_of(records_.cbegin(), records_.cend(), [&](const DatasetRecord& record) {
+    const bool recordExists = std::any_of(data_.records.cbegin(), data_.records.cend(), [&](const DatasetRecord& record) {
         return record.recordId == recordId;
     });
     if (!recordExists)
         return fail(error, "Unknown record ID: " + recordId);
-    const bool classExists = std::any_of(classes_.cbegin(), classes_.cend(), [&](const DatasetClass& value) {
+    const bool classExists = std::any_of(data_.classes.cbegin(), data_.classes.cend(), [&](const DatasetClass& value) {
         return value.id == classId;
     });
     if (!classExists)
         return fail(error, "Class ID is not configured: " + classId);
 
-    QVector<UserLabelRecord> next = labels_;
+    QVector<UserLabelRecord> next = data_.labels;
     const auto current = std::find_if(next.begin(), next.end(), [&](const UserLabelRecord& label) {
         return label.recordId == recordId;
     });
@@ -264,7 +272,7 @@ bool DatasetLabelService::assignClass(const QString& recordId, const QString& cl
         current->classId = classId;
         current->excluded = false;
     }
-    return saveMutation(classes_, next, error);
+    return saveMutation(data_.classes, next, error);
 }
 
 bool DatasetLabelService::exclude(const QString& recordId, QString* error) {
@@ -272,13 +280,13 @@ bool DatasetLabelService::exclude(const QString& recordId, QString* error) {
         error->clear();
     if (!isOpen(error))
         return false;
-    const bool recordExists = std::any_of(records_.cbegin(), records_.cend(), [&](const DatasetRecord& record) {
+    const bool recordExists = std::any_of(data_.records.cbegin(), data_.records.cend(), [&](const DatasetRecord& record) {
         return record.recordId == recordId;
     });
     if (!recordExists)
         return fail(error, "Unknown record ID: " + recordId);
 
-    QVector<UserLabelRecord> next = labels_;
+    QVector<UserLabelRecord> next = data_.labels;
     const auto current = std::find_if(next.begin(), next.end(), [&](const UserLabelRecord& label) {
         return label.recordId == recordId;
     });
@@ -291,7 +299,7 @@ bool DatasetLabelService::exclude(const QString& recordId, QString* error) {
         current->classId.clear();
         current->excluded = true;
     }
-    return saveMutation(classes_, next, error);
+    return saveMutation(data_.classes, next, error);
 }
 
 bool DatasetLabelService::undo(QString* error) {
@@ -303,12 +311,14 @@ bool DatasetLabelService::undo(QString* error) {
         return fail(error, "There is no label change to undo.");
 
     const UndoState previous = *undo_;
-    if (!DatasetManifestV2::save(manifestPath_, datasetId_, previous.classes, records_,
-                                 previous.labels, error)) {
+    DatasetManifestData next = data_;
+    next.classes = previous.classes;
+    next.labels = previous.labels;
+    next.provenance.updatedAt = nextUpdatedAt(data_.provenance.updatedAt);
+    if (!DatasetManifestV2::save(manifestPath_, next, error)) {
         return false;
     }
-    classes_ = previous.classes;
-    labels_ = previous.labels;
+    data_ = std::move(next);
     undo_.reset();
     return true;
 }
@@ -360,7 +370,10 @@ bool DatasetLabelService::saveAs(const QString& destinationFolder, QString* erro
 
     const QString newDatasetId = QUuid::createUuid().toString(QUuid::WithoutBraces);
     const QString stagedManifest = QDir(staging).filePath("dataset.json");
-    if (!DatasetManifestV2::save(stagedManifest, newDatasetId, classes_, records_, labels_, error)) {
+    DatasetManifestData copiedData = data_;
+    copiedData.datasetId = newDatasetId;
+    copiedData.provenance.updatedAt = nextUpdatedAt(data_.provenance.updatedAt);
+    if (!DatasetManifestV2::save(stagedManifest, copiedData, error)) {
         cleanup();
         return false;
     }
@@ -372,7 +385,7 @@ bool DatasetLabelService::saveAs(const QString& destinationFolder, QString* erro
     }
 
     manifestPath_ = QDir(canonicalDestination).filePath("dataset.json");
-    datasetId_ = newDatasetId;
+    data_ = std::move(copiedData);
     undo_.reset();
     return true;
 }
@@ -380,16 +393,16 @@ bool DatasetLabelService::saveAs(const QString& destinationFolder, QString* erro
 DatasetLabelSnapshot DatasetLabelService::snapshot() const {
     DatasetLabelSnapshot value;
     value.manifestPath = manifestPath_;
-    value.datasetId = datasetId_;
-    value.classes = classes_;
-    value.counts.classCounts.fill(0, classes_.size());
+    value.datasetId = data_.datasetId;
+    value.classes = data_.classes;
+    value.counts.classCounts.fill(0, data_.classes.size());
     value.canUndo = undo_.has_value();
 
-    for (const DatasetRecord& record : records_) {
-        const auto label = std::find_if(labels_.cbegin(), labels_.cend(), [&](const UserLabelRecord& candidate) {
+    for (const DatasetRecord& record : data_.records) {
+        const auto label = std::find_if(data_.labels.cbegin(), data_.labels.cend(), [&](const UserLabelRecord& candidate) {
             return candidate.recordId == record.recordId;
         });
-        const UserLabelRecord* labelPointer = label == labels_.cend() ? nullptr : &*label;
+        const UserLabelRecord* labelPointer = label == data_.labels.cend() ? nullptr : &*label;
         const DatasetLabelState state = stateForLabel(labelPointer);
         value.records.push_back(DatasetLabelRecordState{record.recordId, record.cropPath, state});
         if (state == DatasetLabelState::Unlabeled) {

@@ -62,10 +62,7 @@ class DatasetLabelService {
     bool isOpen(QString* error) const;
 
     QString manifestPath_;
-    QString datasetId_;
-    QVector<DatasetClass> classes_;
-    QVector<DatasetRecord> records_;
-    QVector<UserLabelRecord> labels_;
+    DatasetManifestData data_;
     std::optional<UndoState> undo_;
 };
 

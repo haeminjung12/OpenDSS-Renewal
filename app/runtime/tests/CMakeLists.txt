@@ -238,6 +238,52 @@ add_test(
 )
 set_tests_properties(dataset_label_service_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(crop_golden_test
+  crop_golden_test.cpp
+  ../crops/crop_service.cpp
+)
+target_include_directories(crop_golden_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(crop_golden_test PRIVATE
+  Qt6::Core
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME crop_golden_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:crop_golden_test>
+)
+set_tests_properties(crop_golden_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(dataset_capture_recovery_test
+  dataset_capture_recovery_test.cpp
+  ../crops/crop_service.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/dataset/dataset_capture_service.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(dataset_capture_recovery_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${DCAM_SDK_DIR}/inc
+)
+target_link_libraries(dataset_capture_recovery_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME dataset_capture_recovery_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:dataset_capture_recovery_test>
+)
+set_tests_properties(dataset_capture_recovery_test PROPERTIES TIMEOUT 30)
+
 qt_add_executable(sequence_viewer_model_test
   sequence_viewer_model_test.cpp
   ../desktop_app/json_persistence.cpp

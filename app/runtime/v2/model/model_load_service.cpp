@@ -277,7 +277,10 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::prepare(const QString& r
 
 std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(const QString& requestedDevice,
                                                                                QString* warning,
-                                                                               QString* error) const {
+                                                                               QString* error,
+                                                                               QString* activeDisplayName) const {
+    if (activeDisplayName)
+        activeDisplayName->clear();
     QString readError;
     const QJsonObject registry = registryObject(registryFilePath_, &readError);
     if (registry.isEmpty()) {
@@ -286,11 +289,13 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(c
         return {};
     }
     QString activeId;
+    QString displayName;
     int activeCount = 0;
     for (const QJsonValue& value : registry.value("entries").toArray()) {
         const QJsonObject entry = value.toObject();
         if (entry.value("active").toBool(false)) {
             activeId = registryString(entry, "registry_entry_id");
+            displayName = registryString(entry, "display_name");
             ++activeCount;
         }
     }
@@ -299,7 +304,10 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(c
             *error = QString("Model registry must contain exactly one active entry; found %1.").arg(activeCount);
         return {};
     }
-    return prepare(activeId, requestedDevice, warning, error);
+    auto candidate = prepare(activeId, requestedDevice, warning, error);
+    if (candidate && activeDisplayName)
+        *activeDisplayName = displayName;
+    return candidate;
 }
 
 bool ModelLoadService::activateAndInstall(std::unique_ptr<OnnxInferenceAdapter> candidate,

@@ -20,7 +20,8 @@ public:
                                                   QString* error = nullptr) const;
     std::unique_ptr<OnnxInferenceAdapter> preparePersistedActive(const QString& requestedDevice,
                                                                  QString* warning = nullptr,
-                                                                 QString* error = nullptr) const;
+                                                                 QString* error = nullptr,
+                                                                 QString* activeDisplayName = nullptr) const;
     bool activateAndInstall(std::unique_ptr<OnnxInferenceAdapter> candidate,
                             PipelineRunner& pipeline,
                             QString* error = nullptr) const;

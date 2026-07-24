@@ -7,12 +7,9 @@
 
 #include <QDateTime>
 #include <QDir>
-#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QRegularExpression>
 #include <QUuid>
 
@@ -35,34 +32,19 @@ QString now() {
     return QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 }
 
-std::optional<QString> modelName(const QString& metadataPath, QString* error) {
-    QFile file(metadataPath);
-    if (!file.open(QIODevice::ReadOnly)) {
-        setError(error, QStringLiteral("Could not read verified model metadata."));
-        return std::nullopt;
-    }
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll());
-    const QString name =
-        document.object().value(QStringLiteral("model_name")).toString().trimmed();
-    if (!document.isObject() || name.isEmpty()) {
-        setError(error,
-                 QStringLiteral("Verified model metadata has no valid model_name."));
-        return std::nullopt;
-    }
-    return name;
-}
-
 std::optional<PreparedModelTestModel>
 prepareProductionModel(ModelLoadService& loader, QString* error) {
     QString warning;
-    auto adapter =
-        loader.preparePersistedActive(QStringLiteral("auto"), &warning, error);
+    QString displayName;
+    auto adapter = loader.preparePersistedActive(
+        QStringLiteral("auto"), &warning, error, &displayName);
     if (!adapter)
         return std::nullopt;
-    const auto name =
-        modelName(QString::fromStdString(adapter->metadataPath()), error);
-    if (!name)
+    if (displayName.trimmed().isEmpty()) {
+        setError(error,
+                 QStringLiteral("The Active Model registry display name is invalid."));
         return std::nullopt;
+    }
 
     const Metadata& metadata = adapter->metadata();
     if ((metadata.classes.size() != 2 && metadata.classes.size() != 3) ||
@@ -74,7 +56,7 @@ prepareProductionModel(ModelLoadService& loader, QString* error) {
 
     PreparedModelTestModel prepared;
     prepared.snapshot.id = QString::fromStdString(adapter->modelId());
-    prepared.snapshot.name = *name;
+    prepared.snapshot.name = displayName;
     prepared.snapshot.onnxSha256 =
         QString::fromStdString(adapter->declaredOnnxSha256()).toLower();
     prepared.snapshot.metadataSha256 =

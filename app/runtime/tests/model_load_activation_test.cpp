@@ -204,8 +204,10 @@ int main(int argc, char** argv) {
     PipelineRunner pipeline;
     QString error;
 
-    auto persisted = service.preparePersistedActive("cpu", nullptr, &error);
-    if (!persisted)
+    QString activeDisplayName;
+    auto persisted = service.preparePersistedActive(
+        "cpu", nullptr, &error, &activeDisplayName);
+    if (!persisted || activeDisplayName != kInitialId)
         return fail(7, "Persisted active model preparation failed: " + error);
     service.installPersisted(std::move(persisted), pipeline);
     if (pipeline.loadedModelId() != kInitialId || pipeline.executionProvider().empty() ||

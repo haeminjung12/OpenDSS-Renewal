@@ -594,6 +594,9 @@ qt_add_executable(model_test_service_test
   ../v2/model_test/model_test_writer.cpp
   ../v2/operation/operation_coordinator.cpp
 )
+target_compile_definitions(model_test_service_test PRIVATE
+  OPENDSS_TEST_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
 target_include_directories(model_test_service_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app

@@ -1,4 +1,5 @@
 #include "../v2/dataset/dataset_manifest_v2.h"
+#include "../v2/model/model_load_service.h"
 #include "../v2/model_test/model_test_service.h"
 #include "../v2/model_test/model_test_summary_v2.h"
 #include "../v2/operation/operation_coordinator.h"
@@ -10,6 +11,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include <atomic>
@@ -65,7 +69,7 @@ struct DatasetFixture {
 };
 
 DatasetFixture makeDataset(const QString& parent, bool labels = true,
-                           bool corruptFirst = false) {
+                           bool corruptFirst = false, int classCount = 2) {
     DatasetFixture fixture;
     fixture.root = QDir(parent).filePath("dataset");
     fixture.datasetJson = QDir(fixture.root).filePath("dataset.json");
@@ -109,6 +113,8 @@ DatasetFixture makeDataset(const QString& parent, bool labels = true,
     p.sequence.bitDepth = 8;
     p.sequence.nominalFps = 100.0;
     data.classes = {{"0", "Dataset Alpha"}, {"1", "Dataset Beta"}};
+    if (classCount == 3)
+        data.classes.push_back({"2", "Dataset Gamma"});
     const auto record = [&](const QString& id, const QString& path,
                             qint64 frame) {
         return DatasetRecord{id,
@@ -134,6 +140,30 @@ DatasetFixture makeDataset(const QString& parent, bool labels = true,
     require(DatasetManifestV2::save(fixture.datasetJson, data, &error),
             qPrintable(error));
     return fixture;
+}
+
+void writeJson(const QString& path, const QJsonObject& object) {
+    QDir().mkpath(QFileInfo(path).absolutePath());
+    QFile file(path);
+    require(file.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "open JSON fixture");
+    const QByteArray data = QJsonDocument(object).toJson();
+    require(file.write(data) == data.size(), "write JSON fixture");
+}
+
+QString copyBundledModelPackage(const QString& parent) {
+    const QDir source(
+        QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR))
+            .filePath("models/templates/pretrained/mobilenet_v3_small"));
+    const QString packagePath = QDir(parent).filePath("model-package");
+    require(QDir().mkpath(packagePath), "create model package");
+    const QDir destination(packagePath);
+    require(QFile::copy(source.filePath("metadata.json"),
+                        destination.filePath("metadata.json")) &&
+                QFile::copy(source.filePath("model.onnx"),
+                            destination.filePath("model.onnx")),
+            "copy bundled model package");
+    return packagePath;
 }
 
 PreparedModelTestModel prepared(
@@ -191,6 +221,67 @@ void testCompletedAndClassCountOnly() {
             "progress reports initial and each completed crop");
     require(bytes(fixture.datasetJson) == datasetBefore,
             "source Dataset unchanged");
+}
+
+void testProductionActiveModelLoader() {
+    stage = "production-loader";
+    QTemporaryDir temporary;
+    const auto fixture =
+        makeDataset(temporary.path(), true, false, 3);
+    const QString packagePath = copyBundledModelPackage(temporary.path());
+    const QString registryPath =
+        QDir(temporary.path()).filePath("registry/model_registry.json");
+    const QString registryName = "Registry Display Name";
+    const QString metadataName =
+        QJsonDocument::fromJson(
+            bytes(QDir(packagePath).filePath("metadata.json")))
+            .object()
+            .value("model_name")
+            .toString();
+    require(!metadataName.isEmpty() && metadataName != registryName,
+            "registry and metadata names differ for stale-name regression");
+    writeJson(
+        registryPath,
+        QJsonObject{
+            {"schema_version", "model-registry-v3-simple"},
+            {"entries",
+             QJsonArray{QJsonObject{{"registry_entry_id", "real-active"},
+                                    {"display_name", registryName},
+                                    {"package_path",
+                                     QDir::cleanPath(packagePath)},
+                                    {"active", true}}}}});
+
+    OperationCoordinator operations;
+    ModelLoadService loader(registryPath);
+    ModelTestService service(operations, &loader);
+    const QString output = QDir(temporary.path()).filePath("real-result");
+    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
+            "set deterministic CUDA override");
+    QString error;
+    const bool ran =
+        service.run({fixture.datasetJson, output, "2.0"}, &error);
+    qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
+    require(ran, qPrintable(error));
+
+    auto summary = ModelTestSummaryV2::load(
+        QDir(output).filePath("model_test_summary.json"), &error);
+    require(summary && summary->data().status == ModelTestStatus::Completed,
+            qPrintable(error));
+    const auto& model = summary->data().activeModel;
+    require(model.id == "real-active" && model.name == registryName &&
+                model.classes.size() == 3 &&
+                model.onnxSha256 ==
+                    sha(QDir(packagePath).filePath("model.onnx")) &&
+                model.metadataSha256 ==
+                    sha(QDir(packagePath).filePath("metadata.json")),
+            "production snapshot uses registry identity and verified artifacts");
+    require(summary->data().effectiveDevice == EffectiveDevice::Cpu &&
+                summary->data().fallbackWarning &&
+                summary->data().fallbackWarning->contains(
+                    "CUDA", Qt::CaseInsensitive) &&
+                summary->predictions().size() == 2 &&
+                summary->predictions().at(0).scores.size() == 3,
+            "Auto fallback and real adapter inference are factual");
 }
 
 void testConflictsAndSetupFailures() {
@@ -396,6 +487,7 @@ void testConcurrentRunRejected() {
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testCompletedAndClassCountOnly();
+    testProductionActiveModelLoader();
     testConflictsAndSetupFailures();
     testRuntimeFailuresAndStop();
     testConcurrentRunRejected();

@@ -151,3 +151,21 @@ add_test(
     "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
     $<TARGET_FILE:model_load_activation_test>
 )
+
+qt_add_executable(dataset_manifest_v2_test
+  dataset_manifest_v2_test.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+)
+target_include_directories(dataset_manifest_v2_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(dataset_manifest_v2_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME dataset_manifest_v2_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:dataset_manifest_v2_test>
+)
+set_tests_properties(dataset_manifest_v2_test PROPERTIES TIMEOUT 15)

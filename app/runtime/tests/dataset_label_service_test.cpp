@@ -4,9 +4,20 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
+#include <QImage>
 #include <QTemporaryDir>
 
+#include <algorithm>
 #include <iostream>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#else
+#include <unistd.h>
+#endif
 
 using namespace desktop_app::v2::dataset;
 
@@ -25,6 +36,43 @@ QString hash(const QByteArray& bytes) {
 bool writeFile(const QString& path, const QByteArray& bytes) {
     QFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write(bytes) == bytes.size();
+}
+
+QByteArray readFile(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return file.readAll();
+}
+
+bool createSymbolicLink(const QString& linkPath, const QString& targetPath, bool directory) {
+#ifdef Q_OS_WIN
+    constexpr DWORD allowUnprivilegedCreate = 0x2;
+    const DWORD flags = (directory ? SYMBOLIC_LINK_FLAG_DIRECTORY : 0) | allowUnprivilegedCreate;
+    return CreateSymbolicLinkW(
+               reinterpret_cast<LPCWSTR>(QDir::toNativeSeparators(linkPath).utf16()),
+               reinterpret_cast<LPCWSTR>(QDir::toNativeSeparators(targetPath).utf16()), flags) != 0;
+#else
+    const QByteArray link = QFile::encodeName(linkPath);
+    const QByteArray target = QFile::encodeName(targetPath);
+    return ::symlink(target.constData(), link.constData()) == 0;
+#endif
+}
+
+void removeSymbolicLink(const QString& path, bool directory) {
+    if (!QFile::remove(path) && directory)
+        QDir().rmdir(path);
+}
+
+bool noStagingFor(const QString& destination) {
+    const QFileInfo info(destination);
+    const QString prefix = "." + info.fileName() + ".staging-";
+    const QFileInfoList entries =
+        QDir(info.absolutePath()).entryInfoList(QDir::AllEntries | QDir::Hidden |
+                                                QDir::System | QDir::NoDotAndDotDot);
+    return std::none_of(entries.cbegin(), entries.cend(), [&](const QFileInfo& entry) {
+        return entry.fileName().startsWith(prefix);
+    });
 }
 
 DatasetLabelRecordState record(const DatasetLabelSnapshot& snapshot, const QString& id) {
@@ -60,12 +108,17 @@ bool run() {
     const QString crops = QDir(source).filePath("crops");
     if (!check(QDir().mkpath(crops), "create crop directory"))
         return false;
-    const QByteArray firstBytes("png-one");
-    const QByteArray secondBytes("png-two");
     const QString firstPath = QDir(crops).filePath("one.png");
     const QString secondPath = QDir(crops).filePath("two.png");
-    if (!check(writeFile(firstPath, firstBytes) && writeFile(secondPath, secondBytes), "write crops"))
+    QImage firstImage(4, 4, QImage::Format_Grayscale8);
+    QImage secondImage(4, 4, QImage::Format_Grayscale8);
+    firstImage.fill(40);
+    secondImage.fill(180);
+    if (!check(firstImage.save(firstPath, "PNG") && secondImage.save(secondPath, "PNG"),
+               "write crops"))
         return false;
+    const QByteArray firstBytes = readFile(firstPath);
+    const QByteArray secondBytes = readFile(secondPath);
     if (!check(writeFile(QDir(source).filePath("source.tiff"), "source-tiff"), "write source"))
         return false;
 
@@ -89,6 +142,63 @@ bool run() {
                    view.counts.unreviewed == 2 && !view.canUndo,
                "initial snapshot"))
         return false;
+
+    const auto invalidOpen = [&](const QString& name, const QString& cropPath,
+                                 const QString& cropHash) {
+        const QString root = QDir(temporary.path()).filePath(name);
+        QDir().mkpath(root);
+        const QVector<DatasetRecord> invalidRecords{
+            {"invalid", cropPath, cropHash, "frame", "event", "2026-07-24T12:00:00Z",
+             QRect(0, 0, 4, 4)},
+        };
+        const QString path = QDir(root).filePath("dataset.json");
+        if (!DatasetManifestV2::save(path, name, {}, invalidRecords, {}, &error))
+            return false;
+        DatasetLabelService invalidService;
+        return !invalidService.open(path, &error);
+    };
+
+    if (!check(invalidOpen("missing-dataset", "missing.png", QString(64, '0')),
+               "missing display crop rejected"))
+        return false;
+
+    const QString corruptRoot = QDir(temporary.path()).filePath("corrupt-dataset");
+    QDir().mkpath(corruptRoot);
+    const QByteArray corruptBytes("not-an-image");
+    if (!check(writeFile(QDir(corruptRoot).filePath("corrupt.png"), corruptBytes),
+               "write corrupt image") ||
+        !check(invalidOpen("corrupt-dataset", "corrupt.png", hash(corruptBytes)),
+               "corrupt display crop rejected"))
+        return false;
+
+    const QString unreadableRoot = QDir(temporary.path()).filePath("unreadable-dataset");
+    QDir().mkpath(unreadableRoot);
+    const QString unreadablePath = QDir(unreadableRoot).filePath("unreadable.png");
+    if (!check(firstImage.save(unreadablePath, "PNG"), "write unreadable fixture"))
+        return false;
+    const QByteArray unreadableBytes = readFile(unreadablePath);
+    const QFileDevice::Permissions originalPermissions = QFile::permissions(unreadablePath);
+    QFile::setPermissions(unreadablePath, {});
+    QFile unreadableProbe(unreadablePath);
+    if (!unreadableProbe.open(QIODevice::ReadOnly)) {
+        if (!check(invalidOpen("unreadable-dataset", "unreadable.png", hash(unreadableBytes)),
+                   "unreadable display crop rejected"))
+            return false;
+    }
+    QFile::setPermissions(unreadablePath, originalPermissions);
+
+    const QString externalImage = QDir(temporary.path()).filePath("external.png");
+    if (!check(firstImage.save(externalImage, "PNG"), "write external image"))
+        return false;
+    const QString linkedRoot = QDir(temporary.path()).filePath("linked-crop-dataset");
+    QDir().mkpath(linkedRoot);
+    const QString linkedCrop = QDir(linkedRoot).filePath("linked.png");
+    if (createSymbolicLink(linkedCrop, externalImage, false)) {
+        if (!check(invalidOpen("linked-crop-dataset", "linked.png", hash(readFile(externalImage))),
+                   "external linked crop rejected"))
+            return false;
+        removeSymbolicLink(linkedCrop, false);
+    }
 
     if (!check(service.configureClassCount(2, &error), qPrintable(error)))
         return false;
@@ -153,6 +263,46 @@ bool run() {
     if (!check(QDir(manifestPath).removeRecursively() && QFile::rename(backupPath, manifestPath),
                "restore manifest"))
         return false;
+
+    const QString aliasPath = QDir(temporary.path()).filePath("source-alias");
+    if (createSymbolicLink(aliasPath, source, true)) {
+        const QString aliasedDestination = QDir(aliasPath).filePath("nested-copy");
+        if (!check(!service.saveAs(aliasedDestination, &error),
+                   "Save As parent alias into source rejected") ||
+            !check(!QFileInfo::exists(aliasedDestination) &&
+                       noStagingFor(aliasedDestination),
+                   "aliased Save As leaves no output or staging"))
+            return false;
+        removeSymbolicLink(aliasPath, true);
+    }
+
+    const QString externalFile = QDir(temporary.path()).filePath("external.bin");
+    const QString fileLink = QDir(source).filePath("external-file-link");
+    if (!check(writeFile(externalFile, "external"), "write external file"))
+        return false;
+    if (createSymbolicLink(fileLink, externalFile, false)) {
+        const QString linkedCopy = QDir(temporary.path()).filePath("linked-file-copy");
+        if (!check(!service.saveAs(linkedCopy, &error), "external file link rejected") ||
+            !check(!QFileInfo::exists(linkedCopy) && noStagingFor(linkedCopy),
+                   "file-link failure cleans staging"))
+            return false;
+        removeSymbolicLink(fileLink, false);
+    }
+
+    const QString externalDirectory = QDir(temporary.path()).filePath("external-directory");
+    const QString directoryLink = QDir(source).filePath("external-directory-link");
+    QDir().mkpath(externalDirectory);
+    if (!check(writeFile(QDir(externalDirectory).filePath("outside.bin"), "outside"),
+               "write external directory fixture"))
+        return false;
+    if (createSymbolicLink(directoryLink, externalDirectory, true)) {
+        const QString linkedCopy = QDir(temporary.path()).filePath("linked-directory-copy");
+        if (!check(!service.saveAs(linkedCopy, &error), "external directory link rejected") ||
+            !check(!QFileInfo::exists(linkedCopy) && noStagingFor(linkedCopy),
+                   "directory-link failure cleans staging"))
+            return false;
+        removeSymbolicLink(directoryLink, true);
+    }
 
     const QString copy = QDir(temporary.path()).filePath("copy");
     if (!check(service.saveAs(copy, &error), qPrintable(error)))

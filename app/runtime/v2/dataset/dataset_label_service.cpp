@@ -3,10 +3,18 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QImageReader>
 #include <QSet>
 #include <QUuid>
 
 #include <algorithm>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -36,7 +44,59 @@ bool pathIsWithin(const QString& parent, const QString& candidate) {
     return relative != ".." && !relative.startsWith("../") && !QFileInfo(relative).isAbsolute();
 }
 
-bool copyFolder(const QString& source, const QString& destination, QString* error) {
+bool isLinkOrReparse(const QFileInfo& entry) {
+    if (entry.isSymLink())
+        return true;
+#ifdef Q_OS_WIN
+    const QString nativePath = QDir::toNativeSeparators(entry.absoluteFilePath());
+    const DWORD attributes = GetFileAttributesW(
+        reinterpret_cast<LPCWSTR>(nativePath.utf16()));
+    return attributes != INVALID_FILE_ATTRIBUTES &&
+           (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+    return false;
+#endif
+}
+
+bool canonicalContained(const QString& canonicalRoot, const QFileInfo& entry,
+                        QString& canonicalPath, QString* error) {
+    if (isLinkOrReparse(entry))
+        return fail(error, "Dataset folders must not contain symbolic links or reparse points.");
+    canonicalPath = QDir::cleanPath(QDir::fromNativeSeparators(entry.canonicalFilePath()));
+    if (canonicalPath.isEmpty() || !pathIsWithin(canonicalRoot, canonicalPath))
+        return fail(error, "Dataset entry resolves outside the Dataset folder.");
+    return true;
+}
+
+bool resolveCropForDisplay(const QString& datasetRoot, const DatasetRecord& record,
+                           QString* error) {
+    QString relative = QDir::fromNativeSeparators(record.cropPath);
+    if (QFileInfo(relative).isAbsolute() || relative.contains(':'))
+        return fail(error, "Crop path must be relative to dataset.json.");
+    relative = QDir::cleanPath(relative);
+    if (relative.isEmpty() || relative == "." || relative == ".." || relative.startsWith("../"))
+        return fail(error, "Crop path escapes the Dataset folder.");
+
+    const QString canonicalRoot =
+        QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(datasetRoot).canonicalFilePath()));
+    if (canonicalRoot.isEmpty())
+        return fail(error, "Could not resolve the Dataset folder.");
+
+    const QFileInfo crop(QDir(datasetRoot).absoluteFilePath(relative));
+    if (!crop.exists() || !crop.isFile() || !crop.isReadable())
+        return fail(error, "Dataset crop is missing or unreadable: " + record.recordId);
+    QString canonicalCrop;
+    if (!canonicalContained(canonicalRoot, crop, canonicalCrop, error))
+        return false;
+
+    QImageReader reader(canonicalCrop);
+    if (!reader.canRead() || reader.read().isNull())
+        return fail(error, "Dataset crop is not a decodable image: " + record.recordId);
+    return true;
+}
+
+bool copyFolder(const QString& canonicalSourceRoot, const QString& source,
+                const QString& destination, QString* error) {
     if (!QDir().mkpath(destination))
         return fail(error, "Could not create Dataset staging folder.");
 
@@ -44,11 +104,17 @@ bool copyFolder(const QString& source, const QString& destination, QString* erro
     const QFileInfoList entries =
         sourceDir.entryInfoList(QDir::AllEntries | QDir::Hidden | QDir::System | QDir::NoDotAndDotDot);
     for (const QFileInfo& entry : entries) {
+        QString canonicalEntry;
+        if (!canonicalContained(canonicalSourceRoot, entry, canonicalEntry, error))
+            return false;
         const QString destinationPath = QDir(destination).filePath(entry.fileName());
-        if (entry.isDir() && !entry.isSymLink()) {
-            if (!copyFolder(entry.absoluteFilePath(), destinationPath, error))
+        if (entry.isDir()) {
+            if (!copyFolder(canonicalSourceRoot, canonicalEntry, destinationPath, error))
                 return false;
-        } else if (!QFile::copy(entry.absoluteFilePath(), destinationPath)) {
+        } else if (!entry.isFile()) {
+            return fail(error, "Dataset contains an unsupported filesystem entry: " +
+                                   entry.fileName());
+        } else if (!QFile::copy(canonicalEntry, destinationPath)) {
             return fail(error, "Could not copy Dataset file: " + entry.fileName());
         }
     }
@@ -78,6 +144,12 @@ bool DatasetLabelService::open(const QString& manifestPath, QString* error) {
     const auto manifest = DatasetManifestV2::load(absolutePath, error);
     if (!manifest)
         return false;
+
+    const QString datasetRoot = QFileInfo(absolutePath).absolutePath();
+    for (const DatasetRecord& record : manifest->records()) {
+        if (!resolveCropForDisplay(datasetRoot, record, error))
+            return false;
+    }
 
     manifestPath_ = absolutePath;
     datasetId_ = manifest->datasetId();
@@ -252,6 +324,13 @@ bool DatasetLabelService::saveAs(const QString& destinationFolder, QString* erro
         return fail(error, "Save As destination already exists.");
 
     const QString source = QFileInfo(manifestPath_).absolutePath();
+    const QString canonicalSource =
+        QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(source).canonicalFilePath()));
+    if (canonicalSource.isEmpty())
+        return fail(error, "Could not resolve the current Dataset folder.");
+    if (isLinkOrReparse(QFileInfo(source)))
+        return fail(error, "The current Dataset folder must not be a symbolic link or reparse point.");
+
     if (samePath(source, destination) || pathIsWithin(source, destination))
         return fail(error, "Save As destination must not be inside the current Dataset folder.");
 
@@ -259,14 +338,22 @@ bool DatasetLabelService::saveAs(const QString& destinationFolder, QString* erro
     const QString parent = destinationInfo.absolutePath();
     if (!QDir().mkpath(parent))
         return fail(error, "Could not create Save As parent folder.");
+    const QString canonicalParent =
+        QDir::cleanPath(QDir::fromNativeSeparators(QFileInfo(parent).canonicalFilePath()));
+    if (canonicalParent.isEmpty())
+        return fail(error, "Could not resolve the Save As parent folder.");
+    if (samePath(canonicalSource, canonicalParent) ||
+        pathIsWithin(canonicalSource, canonicalParent)) {
+        return fail(error, "Save As destination must not resolve inside the current Dataset folder.");
+    }
 
     const QString staging =
-        QDir(parent).filePath("." + destinationInfo.fileName() + ".staging-" +
-                              QUuid::createUuid().toString(QUuid::WithoutBraces));
+        QDir(canonicalParent).filePath("." + destinationInfo.fileName() + ".staging-" +
+                                       QUuid::createUuid().toString(QUuid::WithoutBraces));
     QDir stagingDir(staging);
     auto cleanup = [&] { stagingDir.removeRecursively(); };
 
-    if (!copyFolder(source, staging, error)) {
+    if (!copyFolder(canonicalSource, canonicalSource, staging, error)) {
         cleanup();
         return false;
     }
@@ -277,12 +364,14 @@ bool DatasetLabelService::saveAs(const QString& destinationFolder, QString* erro
         cleanup();
         return false;
     }
-    if (!QDir(parent).rename(staging, destination)) {
+    const QString canonicalDestination =
+        QDir(canonicalParent).filePath(destinationInfo.fileName());
+    if (!QDir().rename(staging, canonicalDestination)) {
         cleanup();
         return fail(error, "Could not publish the new Dataset folder.");
     }
 
-    manifestPath_ = QDir(destination).filePath("dataset.json");
+    manifestPath_ = QDir(canonicalDestination).filePath("dataset.json");
     datasetId_ = newDatasetId;
     undo_.reset();
     return true;

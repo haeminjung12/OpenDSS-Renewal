@@ -153,8 +153,6 @@ bool validateInitial(const RunManifestData& data, QString* error) {
     if (data.routing.triggerMode != TriggerMode::ClassBased &&
         data.routing.triggerMode != TriggerMode::EveryDroplet)
         return fail(error, "Initial routing trigger mode is invalid.");
-    if (liveSorting && !data.routing.physicalDaqOutputEnabled)
-        return fail(error, "Live Sorting requires physical DAQ output.");
     if (data.requestedDurationSeconds &&
         (!std::isfinite(*data.requestedDurationSeconds) ||
          *data.requestedDurationSeconds <= 0.0)) {

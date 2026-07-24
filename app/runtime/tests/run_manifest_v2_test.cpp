@@ -372,6 +372,39 @@ void testLiveStoppedIntegrityRoundTrip() {
             qPrintable(error));
 }
 
+void testLivePhysicalOutputRoundTrip() {
+    stage = "Live physical output round-trip";
+    QTemporaryDir temporary;
+    QString error;
+    for (const bool enabled : {false, true}) {
+        RunManifestData data = baseData();
+        data.runId = enabled ? QStringLiteral("live-on")
+                             : QStringLiteral("live-off");
+        data.runName = enabled ? QStringLiteral("Live On")
+                               : QStringLiteral("Live Off");
+        data.operation = RunOperation::LiveSorting;
+        data.sourceSequence = {};
+        data.routing.physicalDaqOutputEnabled = enabled;
+        data.requestedProcessingFps = 0.0;
+        data.achievedProcessingFps = 0.0;
+        const QString root = QDir(temporary.path()).filePath(
+            enabled ? QStringLiteral("on") : QStringLiteral("off"));
+        auto writer = RunWriterV2::start(root, data, &error);
+        require(writer.has_value(), qPrintable(error));
+        require(writer->finalize(RunStatus::Completed,
+                                 QStringLiteral("2026-07-24T10:00:02Z"),
+                                 QStringLiteral("duration"), 0.0, &error),
+                qPrintable(error));
+        const QString path =
+            QDir(root).filePath(QStringLiteral("run_summary.json"));
+        auto loaded = RunManifestV2::load(path, &error);
+        require(loaded.has_value()
+                    && loaded->data().routing.physicalDaqOutputEnabled
+                        == enabled,
+                "Live manifest preserves the selected physical-output state");
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -380,5 +413,6 @@ int main(int argc, char** argv) {
     testTwoAndThreeClassHistory();
     testValidationEdges();
     testLiveStoppedIntegrityRoundTrip();
+    testLivePhysicalOutputRoundTrip();
     return 0;
 }

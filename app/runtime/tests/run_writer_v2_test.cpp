@@ -59,6 +59,35 @@ RunEvent event() {
     return value;
 }
 
+void testLivePhysicalOutputStartModes() {
+    stage = "Live physical output modes";
+    QTemporaryDir temporary;
+    QString error;
+    for (const bool enabled : {false, true}) {
+        RunManifestData value = data();
+        value.runId = enabled ? QStringLiteral("live-on")
+                              : QStringLiteral("live-off");
+        value.runName = enabled ? QStringLiteral("Live On")
+                                : QStringLiteral("Live Off");
+        value.operation = RunOperation::LiveSorting;
+        value.sourceSequence = {};
+        value.requestedProcessingFps = 0.0;
+        value.achievedProcessingFps = 0.0;
+        value.routing.physicalDaqOutputEnabled = enabled;
+        const QString root = QDir(temporary.path()).filePath(
+            enabled ? QStringLiteral("on") : QStringLiteral("off"));
+        auto writer = RunWriterV2::start(root, value, &error);
+        require(writer.has_value(), qPrintable(error));
+        auto loaded = RunManifestV2::load(
+            QDir(root).filePath(QStringLiteral("run_summary.partial.json")),
+            &error);
+        require(loaded.has_value()
+                    && loaded->data().routing.physicalDaqOutputEnabled
+                        == enabled,
+                "Live writer starts with the selected physical-output state");
+    }
+}
+
 void testCompletedAndEscaping() {
     stage = "completed";
     QTemporaryDir temporary;
@@ -261,6 +290,7 @@ void testIntegrityStatusBoundary() {
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
+    testLivePhysicalOutputStartModes();
     testCompletedAndEscaping();
     testInterruptedAndFailedRecovery();
     testActivePartialSurvivesDestruction();

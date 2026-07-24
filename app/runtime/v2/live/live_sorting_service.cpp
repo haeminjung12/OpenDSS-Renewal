@@ -193,14 +193,16 @@ public:
     Impl(OperationCoordinator& operations, IDropletDetector& detector,
          ModelLoadService* modelLoader, HitPulseCallback pulse,
          LiveModelProvider modelProvider, PersistenceGate persistenceGate,
-         DispatcherStartGate dispatcherStartGate)
+         DispatcherStartGate dispatcherStartGate,
+         DaqReadinessGate daqReadinessGate)
         : operations(operations),
           detector(detector),
           modelLoader(modelLoader),
           pulse(std::move(pulse)),
           modelProvider(std::move(modelProvider)),
           persistenceGate(std::move(persistenceGate)),
-          dispatcherStartGate(std::move(dispatcherStartGate)) {}
+          dispatcherStartGate(std::move(dispatcherStartGate)),
+          daqReadinessGate(std::move(daqReadinessGate)) {}
 
     ~Impl() {
         QString ignored;
@@ -275,6 +277,26 @@ public:
         lease = std::move(acquired.lease);
 
         QString localError;
+        if (value.daqOutputEnabled) {
+            bool daqReady = false;
+            try {
+                daqReady = daqReadinessGate && daqReadinessGate(&localError);
+            } catch (const std::exception& exception) {
+                localError =
+                    QStringLiteral("DAQ readiness check failed: %1")
+                        .arg(exception.what());
+            } catch (...) {
+                localError = QStringLiteral("DAQ readiness check failed.");
+            }
+            if (!daqReady) {
+                lease.transition(OperationLifecycle::Failed);
+                lease.release();
+                setError(error, localError.isEmpty()
+                                    ? QStringLiteral("DAQ is not ready.")
+                                    : localError);
+                return false;
+            }
+        }
         std::optional<PreparedLiveModel> prepared;
         if (useModel) {
             try {
@@ -327,7 +349,8 @@ public:
         data.requestedDurationSeconds = value.requestedDurationSeconds;
         if (prepared)
             data.model = prepared->snapshot;
-        data.routing = {value.triggerMode, value.hitClassId, true};
+        data.routing = {value.triggerMode, value.hitClassId,
+                        value.daqOutputEnabled};
         data.cameraSettings = value.cameraSettings;
         data.detectorSettings = value.detectorSettings;
         data.cropSettings = value.cropSettings;
@@ -709,7 +732,7 @@ private:
                     pending.reset();
                     return;
                 }
-                pulseStatus = pulse(&localError);
+                pulseStatus = pulse(request.daqOutputEnabled, &localError);
                 if (pulseStatus != run::DaqPulseStatus::Issued &&
                     pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
                     pulseStatus != run::DaqPulseStatus::Failed) {
@@ -1034,6 +1057,7 @@ private:
     LiveModelProvider modelProvider;
     PersistenceGate persistenceGate;
     DispatcherStartGate dispatcherStartGate;
+    DaqReadinessGate daqReadinessGate;
 
     mutable std::mutex stateMutex;
     std::condition_variable finishFinished;
@@ -1079,11 +1103,13 @@ LiveSortingService::LiveSortingService(OperationCoordinator& operations,
                                        HitPulseCallback pulse,
                                        LiveModelProvider modelProvider,
                                        PersistenceGate persistenceGate,
-                                       DispatcherStartGate dispatcherStartGate)
+                                       DispatcherStartGate dispatcherStartGate,
+                                       DaqReadinessGate daqReadinessGate)
     : impl_(std::make_unique<Impl>(operations, detector, modelLoader,
                                   std::move(pulse), std::move(modelProvider),
                                   std::move(persistenceGate),
-                                  std::move(dispatcherStartGate))) {}
+                                  std::move(dispatcherStartGate),
+                                  std::move(daqReadinessGate))) {}
 
 LiveSortingService::~LiveSortingService() = default;
 

@@ -72,6 +72,11 @@ DropletDetectionFrame detection(bool detected, bool entered, float y) {
     return value;
 }
 
+run::DaqPulseStatus pulseStatus(bool outputEnabled) {
+    return outputEnabled ? run::DaqPulseStatus::Issued
+                         : run::DaqPulseStatus::SuppressedNotIssued;
+}
+
 live::LiveSortingRequest request(const QString& output) {
     live::LiveSortingRequest value;
     value.outputRoot = output;
@@ -159,6 +164,104 @@ void offerAndWait(live::LiveSortingService& service, FakeDetector& detector,
             "frame consumed");
 }
 
+void testDaqOutputReadinessAndPersistence() {
+    stage = "DAQ output readiness";
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 2.0f),
+                            detection(false, false, 0.0f)};
+        OperationCoordinator operations;
+        int readinessChecks = 0;
+        int pulses = 0;
+        bool pulseOutputEnabled = true;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [&](bool outputEnabled, QString*) {
+                ++pulses;
+                pulseOutputEnabled = outputEnabled;
+                return outputEnabled
+                    ? run::DaqPulseStatus::Issued
+                    : run::DaqPulseStatus::SuppressedNotIssued;
+            },
+            {}, {}, {},
+            [&](QString*) {
+                ++readinessChecks;
+                return false;
+            });
+        QString error;
+        require(service.start(request(temporary.path()), &error),
+                qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        require(service.stop(&error), qPrintable(error));
+        const auto data = loadRun(temporary.path());
+        require(readinessChecks == 0 && pulses == 1 && !pulseOutputEnabled
+                    && !data.routing.physicalDaqOutputEnabled
+                    && data.events.first().daqPulseStatus
+                        == run::DaqPulseStatus::SuppressedNotIssued,
+                "DAQ Output OFF skips readiness and persists suppressed Hit");
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        OperationCoordinator operations;
+        int providers = 0;
+        live::LiveSortingRequest value = request(temporary.path());
+        value.daqOutputEnabled = true;
+        value.triggerMode = run::TriggerMode::ClassBased;
+        value.useActiveModel = true;
+        value.hitClassId = QStringLiteral("c1");
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](bool, QString*) { return run::DaqPulseStatus::Issued; },
+            [&](QString*) -> std::optional<live::PreparedLiveModel> {
+                ++providers;
+                return model(2, {0.1, 0.9});
+            },
+            {}, {},
+            [](QString* error) {
+                *error = QStringLiteral("DAQ unavailable");
+                return false;
+            });
+        QString error;
+        require(!service.start(value, &error)
+                    && error == QStringLiteral("DAQ unavailable")
+                    && providers == 0
+                    && !QFileInfo::exists(
+                        QDir(temporary.path()).filePath(QStringLiteral("Live")))
+                    && !operations.snapshot().kind,
+                "DAQ Output ON readiness failure blocks before model and Run");
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 2.0f),
+                            detection(false, false, 0.0f)};
+        OperationCoordinator operations;
+        bool pulseOutputEnabled = false;
+        live::LiveSortingRequest value = request(temporary.path());
+        value.daqOutputEnabled = true;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [&](bool outputEnabled, QString*) {
+                pulseOutputEnabled = outputEnabled;
+                return run::DaqPulseStatus::Issued;
+            },
+            {}, {}, {}, [](QString*) { return true; });
+        QString error;
+        require(service.start(value, &error), qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        require(service.stop(&error), qPrintable(error));
+        const auto data = loadRun(temporary.path());
+        require(pulseOutputEnabled && data.routing.physicalDaqOutputEnabled
+                    && data.events.first().daqPulseStatus
+                        == run::DaqPulseStatus::Issued,
+                "DAQ Output ON issues and persists the physical-output fact");
+    }
+}
+
 void testEveryDropletPulseRouteAndStopped() {
     stage = "every droplet";
     QTemporaryDir temporary;
@@ -170,9 +273,10 @@ void testEveryDropletPulseRouteAndStopped() {
     int pulses = 0;
     live::LiveSortingService service(
         operations, detector, nullptr,
-        [&](QString*) {
+        [&](bool outputEnabled, QString*) {
             ++pulses;
-            return run::DaqPulseStatus::Issued;
+            return outputEnabled ? run::DaqPulseStatus::Issued
+                                 : run::DaqPulseStatus::SuppressedNotIssued;
         });
     QString error;
     require(service.start(request(temporary.path()), &error), qPrintable(error));
@@ -191,7 +295,8 @@ void testEveryDropletPulseRouteAndStopped() {
     require(data.status == run::RunStatus::Stopped && data.events.size() == 1 &&
                 data.events.first().decision == run::Route::Hit &&
                 data.events.first().observedRoute == run::Route::Hit &&
-                data.events.first().daqPulseStatus == run::DaqPulseStatus::Issued &&
+                data.events.first().daqPulseStatus ==
+                    run::DaqPulseStatus::SuppressedNotIssued &&
                 pulses == 1,
             "Every Droplet facts persisted");
     require(!operations.snapshot().kind, "locks released");
@@ -220,7 +325,7 @@ void testClassBasedTwoAndThreeClass() {
                                         : QStringLiteral("c2");
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [&](QString*) {
+            [&](bool, QString*) {
                 ++pulses;
                 return run::DaqPulseStatus::SuppressedNotIssued;
             },
@@ -257,9 +362,10 @@ void testClassBasedTwoAndThreeClass() {
         value.hitClassId = QStringLiteral("c1");
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [&](QString*) {
+            [&](bool outputEnabled, QString*) {
                 ++pulses;
-                return run::DaqPulseStatus::Issued;
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
             },
             [prepared = model(2, {0.9, 0.1})](QString*) mutable {
                 return std::optional<live::PreparedLiveModel>(std::move(prepared));
@@ -287,7 +393,10 @@ void testPauseResumeSourceGapAndDuration() {
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; });
+            [](bool outputEnabled, QString*) {
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
+            });
         QString error;
         require(service.start(request(temporary.path()), &error), qPrintable(error));
         offerAndWait(service, detector, 1, 1);
@@ -309,7 +418,10 @@ void testPauseResumeSourceGapAndDuration() {
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; });
+            [](bool outputEnabled, QString*) {
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
+            });
         QString error;
         require(service.start(request(temporary.path()), &error), qPrintable(error));
         require(service.offerFrame(image(), meta(10, 1), 100.0),
@@ -342,7 +454,10 @@ void testPauseResumeSourceGapAndDuration() {
         value.requestedDurationSeconds = 0.001;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; });
+            [](bool outputEnabled, QString*) {
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
+            });
         QString error;
         require(service.start(value, &error), qPrintable(error));
         std::this_thread::sleep_for(std::chrono::milliseconds(3));
@@ -375,9 +490,10 @@ void testBacklogCancellationAtPauseAndStop() {
         std::atomic_int pulses{0};
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [&](QString*) {
+            [&](bool outputEnabled, QString*) {
                 pulses.fetch_add(1);
-                return run::DaqPulseStatus::Issued;
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
             });
         QString error;
         require(service.start(request(temporary.path()), &error), qPrintable(error));
@@ -454,7 +570,10 @@ void testExternalCallbackQuiescence() {
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [](bool outputEnabled, QString*) {
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
+            },
             [prepared](QString*) { return std::optional(prepared); });
         QString error;
         require(service.start(value, &error), qPrintable(error));
@@ -510,7 +629,10 @@ void testExternalCallbackQuiescence() {
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [](bool outputEnabled, QString*) {
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
+            },
             [prepared](QString*) { return std::optional(prepared); });
         QString error;
         require(service.start(value, &error), qPrintable(error));
@@ -557,13 +679,14 @@ void testExternalCallbackQuiescence() {
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [&](QString*) {
+            [&](bool outputEnabled, QString*) {
                 pulses.fetch_add(1);
                 std::unique_lock lock(callbackMutex);
                 callbackEntered = true;
                 callbackReady.notify_all();
                 callbackReady.wait(lock, [&] { return releaseCallback; });
-                return run::DaqPulseStatus::Issued;
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
             });
         QString error;
         require(service.start(request(temporary.path()), &error), qPrintable(error));
@@ -609,7 +732,10 @@ void testSingleFinishOwnerAndRepeatedStop() {
     value.requestedDurationSeconds = 0.001;
     live::LiveSortingService service(
         operations, detector, nullptr,
-        [](QString*) { return run::DaqPulseStatus::Issued; });
+        [](bool outputEnabled, QString*) {
+            return outputEnabled ? run::DaqPulseStatus::Issued
+                                 : run::DaqPulseStatus::SuppressedNotIssued;
+        });
     QString error;
     require(service.start(value, &error), qPrintable(error));
     std::this_thread::sleep_for(std::chrono::milliseconds(3));
@@ -648,9 +774,10 @@ void testReentrantCallbacksFailPromptly() {
         std::atomic_bool reentrantResult{true};
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [&](QString*) {
+            [&](bool outputEnabled, QString*) {
                 reentrantResult.store(servicePointer->stop());
-                return run::DaqPulseStatus::Issued;
+                return outputEnabled ? run::DaqPulseStatus::Issued
+                                     : run::DaqPulseStatus::SuppressedNotIssued;
             });
         servicePointer = &service;
         QString error;
@@ -671,7 +798,7 @@ void testReentrantCallbacksFailPromptly() {
         std::atomic_bool reentrantResult{true};
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; }, {},
+            [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); }, {},
             [&](QString*) {
                 reentrantResult.store(servicePointer->stop());
                 return true;
@@ -701,7 +828,7 @@ void testInitializationExceptionsReleaseLocks() {
         value.hitClassId = QStringLiteral("c1");
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); },
             [&](QString*) -> std::optional<live::PreparedLiveModel> {
                 if (throwProvider) {
                     throwProvider = false;
@@ -722,7 +849,7 @@ void testInitializationExceptionsReleaseLocks() {
         bool failDispatcher = true;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; }, {}, {},
+            [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); }, {}, {},
             [&] {
                 if (failDispatcher) {
                     failDispatcher = false;
@@ -748,7 +875,7 @@ void testPeriodicCheckpoint() {
     OperationCoordinator operations;
     live::LiveSortingService service(
         operations, detector, nullptr,
-        [](QString*) { return run::DaqPulseStatus::Issued; });
+        [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); });
     QString error;
     require(service.start(request(temporary.path()), &error), qPrintable(error));
     const QString partial =
@@ -777,7 +904,7 @@ void testThrowingPersistenceAndPromptFatalOffer() {
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; }, {},
+            [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); }, {},
             [](QString*) -> bool {
                 throw std::runtime_error("injected gate exception");
             });
@@ -822,7 +949,7 @@ void testThrowingPersistenceAndPromptFatalOffer() {
         value.hitClassId = QStringLiteral("c1");
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); },
             [prepared](QString*) { return std::optional(prepared); },
             [&](QString*) {
                 std::unique_lock lock(gateMutex);
@@ -878,7 +1005,7 @@ void testBoundedPersistenceLossAndContinuation() {
     bool entered = false;
     live::LiveSortingService service(
         operations, detector, nullptr,
-        [](QString*) { return run::DaqPulseStatus::Issued; }, {},
+        [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); }, {},
         [&](QString*) {
             std::unique_lock lock(gateMutex);
             entered = true;
@@ -926,12 +1053,15 @@ void testPersistenceAndClassificationFailures() {
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString* error) {
+            [](bool, QString* error) {
                 *error = QStringLiteral("injected pulse failure");
                 return run::DaqPulseStatus::Failed;
-            });
+            },
+            {}, {}, {}, [](QString*) { return true; });
         QString error;
-        require(service.start(request(temporary.path()), &error), qPrintable(error));
+        auto value = request(temporary.path());
+        value.daqOutputEnabled = true;
+        require(service.start(value, &error), qPrintable(error));
         offerAndWait(service, detector, 1, 1);
         require(waitFor([&] {
                     return service.snapshot().diagnostic.contains(
@@ -955,7 +1085,7 @@ void testPersistenceAndClassificationFailures() {
         bool first = true;
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; }, {},
+            [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); }, {},
             [&](QString* error) {
                 if (!first)
                     return true;
@@ -992,7 +1122,7 @@ void testPersistenceAndClassificationFailures() {
         value.hitClassId = QStringLiteral("c1");
         live::LiveSortingService service(
             operations, detector, nullptr,
-            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [](bool outputEnabled, QString*) { return pulseStatus(outputEnabled); },
             [broken = std::move(broken)](QString*) mutable {
                 return std::optional<live::PreparedLiveModel>(std::move(broken));
             });
@@ -1013,6 +1143,7 @@ void testPersistenceAndClassificationFailures() {
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
+    testDaqOutputReadinessAndPersistence();
     testEveryDropletPulseRouteAndStopped();
     testClassBasedTwoAndThreeClass();
     testPauseResumeSourceGapAndDuration();

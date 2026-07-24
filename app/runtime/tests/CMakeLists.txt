@@ -366,6 +366,31 @@ add_test(
 )
 set_tests_properties(operation_coordinator_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(daq_service_test
+  daq_service_test.cpp
+  ../daq_trigger.cpp
+  ../v2/hardware/daq_service.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_compile_definitions(daq_service_test PRIVATE
+  HAVE_NIDAQMX=1
+)
+target_include_directories(daq_service_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/fakes
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(daq_service_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME daq_service_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:daq_service_test>
+)
+set_tests_properties(daq_service_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(run_manifest_v2_test
   run_manifest_v2_test.cpp
   ../desktop_app/json_persistence.cpp

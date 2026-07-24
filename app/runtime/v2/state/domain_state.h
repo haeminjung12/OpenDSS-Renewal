@@ -24,10 +24,18 @@ enum class DaqStatus {
     Faulted,
 };
 
+struct DaqAppliedSettings {
+    QString outputChannel = QStringLiteral("Dev1/ao0");
+    double frequencyHz = 1000.0;
+    double durationMs = 5.0;
+    double delayMs = 0.0;
+};
+
 struct DaqState {
     DaqStatus status = DaqStatus::Disabled;
     QString deviceId;
     QString fault;
+    DaqAppliedSettings appliedSettings;
 };
 
 struct ActiveModelState {

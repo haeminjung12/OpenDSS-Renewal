@@ -1,0 +1,46 @@
+#pragma once
+
+#include "../run/run_manifest_v2.h"
+#include "../state/domain_state.h"
+
+#include <QJsonObject>
+
+#include <memory>
+#include <mutex>
+#include <optional>
+
+class DaqTrigger;
+
+namespace desktop_app::v2 {
+
+class ApplicationStateStore;
+class OperationCoordinator;
+
+class DaqService final
+{
+public:
+    DaqService(OperationCoordinator &operations, ApplicationStateStore &stateStore);
+    ~DaqService();
+
+    DaqService(const DaqService &) = delete;
+    DaqService &operator=(const DaqService &) = delete;
+
+    bool applySettings(const DaqAppliedSettings &settings, QString *error = nullptr);
+    bool ready() const;
+    std::optional<DaqAppliedSettings> appliedSettings() const;
+    QJsonObject settingsSnapshot() const;
+    run::DaqPulseStatus issueLiveHit(bool outputEnabled, QString *error = nullptr);
+    void shutdown();
+
+private:
+    void publishLocked(DaqStatus status, const QString &fault = {});
+
+    OperationCoordinator &operations_;
+    ApplicationStateStore &stateStore_;
+    mutable std::mutex mutex_;
+    std::unique_ptr<DaqTrigger> trigger_;
+    std::optional<DaqAppliedSettings> appliedSettings_;
+    DaqState state_;
+};
+
+} // namespace desktop_app::v2

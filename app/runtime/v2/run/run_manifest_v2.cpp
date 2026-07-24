@@ -364,9 +364,6 @@ bool validateData(const RunManifestData& data, QString* error) {
     if (data.routing.triggerMode != TriggerMode::ClassBased &&
         data.routing.triggerMode != TriggerMode::EveryDroplet)
         return fail(error, "Routing trigger mode is invalid.");
-    if (data.operation == RunOperation::LiveSorting &&
-        !data.routing.physicalDaqOutputEnabled)
-        return fail(error, "Live Sorting requires physical DAQ output.");
     if (data.routing.triggerMode == TriggerMode::ClassBased) {
         if (!data.model || !data.routing.hitClassId)
             return fail(error, "Class-Based Sorting requires a model and Hit Class.");

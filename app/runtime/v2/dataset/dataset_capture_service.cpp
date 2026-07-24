@@ -116,6 +116,24 @@ sequence::SequenceLossCategory loss(const std::vector<LiveFrameDispatcher::Range
                                 static_cast<qint64>(range.last)});
     return value;
 }
+
+QString rangesText(const sequence::SequenceLossCategory& value) {
+    QStringList ranges;
+    for (const auto& range : value.ranges)
+        ranges.push_back(QString("%1-%2").arg(range.first).arg(range.last));
+    return ranges.isEmpty() ? QStringLiteral("none") : ranges.join(',');
+}
+
+void logFinalIntegrity(const sequence::SequenceIntegrity& value) {
+    qWarning().noquote()
+        << "Dataset Capture final integrity:"
+        << "source_frame_gaps count" << value.sourceFrameGaps.count
+        << "ranges" << rangesText(value.sourceFrameGaps)
+        << "queue_rejections count" << value.queueRejections.count
+        << "ranges" << rangesText(value.queueRejections)
+        << "consumer_failures count" << value.consumerFailures.count
+        << "ranges" << rangesText(value.consumerFailures);
+}
 } // namespace
 
 DatasetCaptureService::DatasetCaptureService(OperationCoordinator& operations,
@@ -129,7 +147,30 @@ DatasetCaptureService::DatasetCaptureService(OperationCoordinator& operations,
           consumeFrame(image, meta, fps, handoffId, membership);
       }) {}
 
-DatasetCaptureService::~DatasetCaptureService() = default;
+DatasetCaptureService::~DatasetCaptureService() noexcept {
+    try {
+        bool active = false;
+        {
+            std::lock_guard lock(mutex_);
+            active = lifecycle_ == OperationLifecycle::Starting ||
+                     lifecycle_ == OperationLifecycle::Running ||
+                     lifecycle_ == OperationLifecycle::Paused ||
+                     lifecycle_ == OperationLifecycle::Stopping;
+        }
+        if (active) {
+            qWarning().noquote()
+                << "Dataset Capture scope exit requires interrupted recovery.";
+            failAndRelease("scope_exit", "Dataset Capture ended before finalization.", nullptr);
+        }
+    } catch (const std::exception& exception) {
+        qWarning().noquote() << "Dataset Capture scope-exit recovery failed:"
+                             << exception.what();
+        lease_.release();
+    } catch (...) {
+        qWarning().noquote() << "Dataset Capture scope-exit recovery failed.";
+        lease_.release();
+    }
+}
 
 bool DatasetCaptureService::start(const DatasetCaptureRequest& request, QString* error) {
     setError(error, {});
@@ -286,8 +327,8 @@ void DatasetCaptureService::consumeFrame(const QImage& image, const FrameMeta& m
         }
         const QString eventId = QString::number(cropIndex);
         const QString cropPath = QDir(cropsFolder_)
-                                     .filePath(QString("crop_%1.png")
-                                                   .arg(cropIndex, 8, 10,
+                                     .filePath(QString("droplet_%1.png")
+                                                   .arg(cropIndex, 6, 10,
                                                         QLatin1Char('0')));
         const QImage cropImage(crop.image.data, crop.image.cols, crop.image.rows,
                                crop.image.step,
@@ -430,7 +471,10 @@ bool DatasetCaptureService::saveManifest(const QString& status, const QString& r
         data.provenance.programSettings = request_.programSettings;
         data.records = records_;
     }
-    return DatasetManifestV2::save(QDir(folder_).filePath("dataset.json"), data, error);
+    if (!DatasetManifestV2::save(QDir(folder_).filePath("dataset.json"), data, error))
+        return false;
+    logFinalIntegrity(data.provenance.sequence.integrity);
+    return true;
 }
 
 bool DatasetCaptureService::failAndRelease(const QString& reason, const QString& message,
@@ -449,23 +493,26 @@ bool DatasetCaptureService::failAndRelease(const QString& reason, const QString&
         }
     }
     QString recoveryError;
+    bool recoverySaved = false;
     if (hasFrames)
-        saveManifest("interrupted", reason, &recoveryError);
+        recoverySaved = saveManifest("interrupted", reason, &recoveryError);
     else if (!partialPath_.isEmpty())
         desktop_app::writeJsonObjectAtomically(
             partialPath_, QJsonObject{{"schema_version", "opendss.dataset.partial.v1"},
                                       {"status", "failed"}, {"stop_reason", reason},
                                       {"error", message}, {"saved_frame_count", 0}},
             &recoveryError);
-    const auto integrity = dispatcher_.datasetIntegrity();
-    if (integrity.consumerFailureCount > 0) {
-        QStringList ranges;
-        for (const auto& range : integrity.consumerFailures)
-            ranges.push_back(QString("%1-%2").arg(range.first).arg(range.last));
-        qWarning().noquote() << "Dataset Capture aggregate consumer failures: count"
-                             << integrity.consumerFailureCount << "ranges"
-                             << ranges.join(',');
+    if (!recoverySaved) {
+        sequence::SequenceIntegrity integrity;
+        {
+            std::lock_guard lock(mutex_);
+            integrity = integrityLocked();
+        }
+        logFinalIntegrity(integrity);
     }
+    if (!recoveryError.isEmpty())
+        qWarning().noquote() << "Dataset Capture recovery persistence failed:"
+                             << recoveryError;
     {
         std::lock_guard lock(mutex_);
         if (lease_.isValid()) {

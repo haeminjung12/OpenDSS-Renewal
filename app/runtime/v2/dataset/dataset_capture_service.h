@@ -43,7 +43,7 @@ class DatasetCaptureService final {
 
     DatasetCaptureService(OperationCoordinator& operations, IDropletDetector& detector,
                           MonotonicNow monotonicNow);
-    ~DatasetCaptureService();
+    ~DatasetCaptureService() noexcept;
 
     bool start(const DatasetCaptureRequest& request, QString* error = nullptr);
     bool offerFrame(const QImage& image, const FrameMeta& meta, double nominalFps,

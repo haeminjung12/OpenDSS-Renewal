@@ -77,9 +77,18 @@ void testCompletedAndEscaping() {
     oldPartialFile.close();
     const QByteArray cropBytes("preserved-source-bytes\0tail", 27);
     require(writer->appendEvent(event(), cropBytes, &error), qPrintable(error));
+    require(oldPartialFile.open(QIODevice::ReadOnly) &&
+                oldPartialFile.readAll() == oldPartialSummary,
+            "append does not rewrite partial summary");
+    oldPartialFile.close();
     auto afterAppend = RunManifestV2::load(partialSummary, &error);
     require(afterAppend.has_value() && afterAppend->data().events.size() == 1,
             qPrintable(error));
+    require(writer->checkpoint({}, &error), qPrintable(error));
+    require(oldPartialFile.open(QIODevice::ReadOnly) &&
+                oldPartialFile.readAll() != oldPartialSummary,
+            "checkpoint rewrites recoverable partial summary");
+    oldPartialFile.close();
     require(oldPartialFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
             "restore stale partial summary");
     require(oldPartialFile.write(oldPartialSummary) == oldPartialSummary.size(),
@@ -224,6 +233,30 @@ void testStoppedCleanup() {
             qPrintable(error));
 }
 
+void testIntegrityStatusBoundary() {
+    stage = "integrity status";
+    QTemporaryDir temporary;
+    QString error;
+    const QString root = QDir(temporary.path()).filePath("integrity");
+    auto writer = RunWriterV2::start(root, data(), &error);
+    require(writer.has_value(), qPrintable(error));
+    const RunIntegrity eventLoss{{}, {1, {{7, 7}}}, {}};
+    require(writer->checkpoint(eventLoss, &error), qPrintable(error));
+    require(!writer->finalize(RunStatus::Stopped,
+                              "2026-07-24T12:00:01Z",
+                              "user", 10.0, &error),
+            "Stopped rejects queue loss");
+    require(writer->finalize(RunStatus::Failed,
+                             "2026-07-24T12:00:01Z",
+                             "event_integrity_loss", 10.0, &error),
+            qPrintable(error));
+    auto loaded = RunManifestV2::load(
+        QDir(root).filePath("run_summary.json"), &error);
+    require(loaded.has_value() && loaded->data().status == RunStatus::Failed &&
+                loaded->data().integrity.queueRejections.count == 1,
+            qPrintable(error));
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -234,5 +267,6 @@ int main(int argc, char** argv) {
     testCsvRollbackAndEarlyFailure();
     testLinkedCropDirectoryRejectedWhenSupported();
     testStoppedCleanup();
+    testIntegrityStatusBoundary();
     return 0;
 }

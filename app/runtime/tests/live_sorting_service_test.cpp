@@ -5,6 +5,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QTemporaryDir>
@@ -15,6 +16,7 @@
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 
 using namespace desktop_app::v2;
@@ -40,6 +42,7 @@ class FakeDetector final : public IDropletDetector {
 public:
     QVector<DropletDetectionFrame> results;
     std::atomic_int processed{0};
+    std::function<void(int)> onProcess;
 
     void reset() override {
         index_ = 0;
@@ -48,6 +51,8 @@ public:
     int backgroundFramesRemaining() const override { return 0; }
     DropletDetectionFrame processFrame(const cv::Mat&) override {
         const int index = index_++;
+        if (onProcess)
+            onProcess(index);
         DropletDetectionFrame result =
             index < results.size() ? results.at(index) : DropletDetectionFrame{};
         processed.fetch_add(1);
@@ -105,10 +110,31 @@ bool waitFor(const std::function<bool()>& condition, int milliseconds = 3000) {
     return condition();
 }
 
+QByteArray bytes(const QString& path) {
+    QFile file(path);
+    require(file.open(QIODevice::ReadOnly), "read file bytes");
+    return file.readAll();
+}
+
+QByteArray availableBytes(const QString& path) {
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+}
+
 run::RunManifestData loadRun(const QString& output) {
     QString error;
     auto loaded = run::RunManifestV2::load(
         QDir(output).filePath(QStringLiteral("Live/run_summary.json")), &error);
+    require(loaded.has_value(), qPrintable(error));
+    return loaded->data();
+}
+
+run::RunManifestData loadPartialRun(const QString& output) {
+    QString error;
+    auto loaded = run::RunManifestV2::load(
+        QDir(output).filePath(
+            QStringLiteral("Live/run_summary.partial.json")),
+        &error);
     require(loaded.has_value(), qPrintable(error));
     return loaded->data();
 }
@@ -294,6 +320,10 @@ void testPauseResumeSourceGapAndDuration() {
                 "offer gapped source frame");
         require(waitFor([&] { return detector.processed.load() == 2; }),
                 "gapped frame consumed");
+        require(service.pause(&error), qPrintable(error));
+        const auto partial = loadPartialRun(temporary.path());
+        require(partial.integrity.sourceFrameGaps.count == 1,
+                "Pause checkpoints integrity after drain");
         require(service.stop(&error), qPrintable(error));
         const auto data = loadRun(temporary.path());
         require(data.status == run::RunStatus::Interrupted &&
@@ -317,6 +347,338 @@ void testPauseResumeSourceGapAndDuration() {
         require(service.pollDuration(&error), qPrintable(error));
         require(loadRun(temporary.path()).status == run::RunStatus::Completed,
                 "duration completes Run");
+    }
+}
+
+void testBacklogCancellationAtPauseAndStop() {
+    stage = "backlog cancellation";
+    for (bool pauseFirst : {true, false}) {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        for (int index = 0; index < 12; ++index)
+            detector.results.push_back(detection(true, true, 6.0f));
+        std::mutex blockMutex;
+        std::condition_variable blockReady;
+        bool entered = false;
+        bool release = false;
+        detector.onProcess = [&](int index) {
+            if (index != 0)
+                return;
+            std::unique_lock lock(blockMutex);
+            entered = true;
+            blockReady.notify_all();
+            blockReady.wait(lock, [&] { return release; });
+        };
+        OperationCoordinator operations;
+        std::atomic_int pulses{0};
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [&](QString*) {
+                pulses.fetch_add(1);
+                return run::DaqPulseStatus::Issued;
+            });
+        QString error;
+        require(service.start(request(temporary.path()), &error), qPrintable(error));
+        require(service.offerFrame(image(), meta(1), 100.0), "offer blocked frame");
+        {
+            std::unique_lock lock(blockMutex);
+            require(blockReady.wait_for(lock, std::chrono::seconds(2),
+                                        [&] { return entered; }),
+                    "detector entered");
+        }
+        for (int frame = 2; frame <= 8; ++frame)
+            require(service.offerFrame(image(), meta(frame), 100.0),
+                    "offer backlog frame");
+
+        bool controlResult = false;
+        QString controlError;
+        std::thread control([&] {
+            controlResult = pauseFirst ? service.pause(&controlError)
+                                       : service.stop(&controlError);
+        });
+        qint64 probe = 9;
+        require(waitFor([&] {
+                    return !service.offerFrame(image(), meta(probe++), 100.0);
+                }),
+                "lifecycle stops accepting before quiesce");
+        {
+            std::lock_guard lock(blockMutex);
+            release = true;
+        }
+        blockReady.notify_all();
+        control.join();
+        require(controlResult, qPrintable(controlError));
+        require(detector.processed.load() == 1 && pulses.load() == 0 &&
+                    service.snapshot().persistedEvents == 0,
+                "queued frames cancelled before detector, pulse, and event");
+        if (pauseFirst) {
+            require(service.snapshot().lifecycle == OperationLifecycle::Paused,
+                    "Pause published after quiesce");
+            require(service.stop(&error), qPrintable(error));
+        }
+        require(loadRun(temporary.path()).events.isEmpty(),
+                "cancelled backlog produced no persisted events");
+    }
+}
+
+void testSingleFinishOwnerAndRepeatedStop() {
+    stage = "single finish";
+    QTemporaryDir temporary;
+    FakeDetector detector;
+    OperationCoordinator operations;
+    live::LiveSortingRequest value = request(temporary.path());
+    value.requestedDurationSeconds = 0.001;
+    live::LiveSortingService service(
+        operations, detector, nullptr,
+        [](QString*) { return run::DaqPulseStatus::Issued; });
+    QString error;
+    require(service.start(value, &error), qPrintable(error));
+    std::this_thread::sleep_for(std::chrono::milliseconds(3));
+    std::atomic_bool go{false};
+    bool stopped = false;
+    bool duration = false;
+    std::thread first([&] {
+        while (!go.load())
+            std::this_thread::yield();
+        stopped = service.stop();
+    });
+    std::thread second([&] {
+        while (!go.load())
+            std::this_thread::yield();
+        duration = service.pollDuration();
+    });
+    go.store(true);
+    first.join();
+    second.join();
+    require(stopped && duration, "concurrent finish callers share one result");
+    require(!service.stop(), "repeated Stop does not finalize twice");
+    require(QFileInfo::exists(
+                QDir(temporary.path()).filePath("Live/run_summary.json")),
+            "single canonical Run summary");
+}
+
+void testReentrantCallbacksFailPromptly() {
+    stage = "reentrant callbacks";
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
+        OperationCoordinator operations;
+        live::LiveSortingService* servicePointer = nullptr;
+        std::atomic_bool reentrantResult{true};
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [&](QString*) {
+                reentrantResult.store(servicePointer->stop());
+                return run::DaqPulseStatus::Issued;
+            });
+        servicePointer = &service;
+        QString error;
+        require(service.start(request(temporary.path()), &error), qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        require(waitFor([&] { return !reentrantResult.load(); }),
+                "pulse callback lifecycle call rejected");
+        require(service.stop(&error), qPrintable(error));
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
+        OperationCoordinator operations;
+        live::LiveSortingService* servicePointer = nullptr;
+        std::atomic_bool reentrantResult{true};
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](QString*) { return run::DaqPulseStatus::Issued; }, {},
+            [&](QString*) {
+                reentrantResult.store(servicePointer->stop());
+                return true;
+            });
+        servicePointer = &service;
+        QString error;
+        require(service.start(request(temporary.path()), &error), qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        require(waitFor([&] { return !reentrantResult.load(); }),
+                "persistence callback lifecycle call rejected");
+        require(service.stop(&error), qPrintable(error));
+    }
+}
+
+void testInitializationExceptionsReleaseLocks() {
+    stage = "initialization exceptions";
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        OperationCoordinator operations;
+        bool throwProvider = true;
+        const auto prepared = model(2, {0.1, 0.9});
+        live::LiveSortingRequest value = request(temporary.path());
+        value.triggerMode = run::TriggerMode::ClassBased;
+        value.useActiveModel = true;
+        value.hitClassId = QStringLiteral("c1");
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [&](QString*) -> std::optional<live::PreparedLiveModel> {
+                if (throwProvider) {
+                    throwProvider = false;
+                    throw std::runtime_error("injected provider failure");
+                }
+                return prepared;
+            });
+        QString error;
+        require(!service.start(value, &error) && !operations.snapshot().kind,
+                "throwing provider releases operation lease");
+        require(service.start(value, &error), qPrintable(error));
+        require(service.stop(&error), qPrintable(error));
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        OperationCoordinator operations;
+        bool failDispatcher = true;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](QString*) { return run::DaqPulseStatus::Issued; }, {}, {},
+            [&] {
+                if (failDispatcher) {
+                    failDispatcher = false;
+                    return false;
+                }
+                return true;
+            });
+        QString error;
+        require(!service.start(request(temporary.path()), &error) &&
+                    !operations.snapshot().kind,
+                "dispatcher start failure releases operation lease");
+        require(service.start(request(temporary.path()), &error), qPrintable(error));
+        require(service.stop(&error), qPrintable(error));
+    }
+}
+
+void testPeriodicCheckpoint() {
+    stage = "periodic checkpoint";
+    QTemporaryDir temporary;
+    FakeDetector detector;
+    detector.results = {detection(true, true, 6.0f),
+                        detection(false, false, 0.0f)};
+    OperationCoordinator operations;
+    live::LiveSortingService service(
+        operations, detector, nullptr,
+        [](QString*) { return run::DaqPulseStatus::Issued; });
+    QString error;
+    require(service.start(request(temporary.path()), &error), qPrintable(error));
+    const QString partial =
+        QDir(temporary.path()).filePath("Live/run_summary.partial.json");
+    const QByteArray initial = bytes(partial);
+    offerAndWait(service, detector, 1, 1);
+    offerAndWait(service, detector, 2, 2);
+    require(waitFor([&] { return service.snapshot().persistedEvents == 1; }),
+            "event persisted");
+    require(waitFor([&] {
+                const QByteArray current = availableBytes(partial);
+                return !current.isEmpty() && current != initial;
+            },
+            2000),
+            "500 ms checkpoint updates partial summary");
+    require(service.stop(&error), qPrintable(error));
+}
+
+void testThrowingPersistenceAndPromptFatalOffer() {
+    stage = "throwing persistence";
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
+        OperationCoordinator operations;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](QString*) { return run::DaqPulseStatus::Issued; }, {},
+            [](QString*) -> bool {
+                throw std::runtime_error("injected gate exception");
+            });
+        QString error;
+        require(service.start(request(temporary.path()), &error), qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        require(waitFor([&] {
+                    return service.snapshot().integrity.consumerFailures.count == 1;
+                }),
+                "throwing gate records exact consumer failure");
+        require(service.stop(&error), qPrintable(error));
+        require(loadRun(temporary.path()).status == run::RunStatus::Failed,
+                "throwing gate finalizes Failed");
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f),
+                            detection(true, true, 6.0f)};
+        OperationCoordinator operations;
+        std::mutex gateMutex;
+        std::condition_variable gateReady;
+        bool entered = false;
+        bool release = false;
+        int classifications = 0;
+        auto prepared = model(2, {0.1, 0.9});
+        prepared.classify =
+            [&](const cv::Mat&, QString* error)
+                -> std::optional<live::LiveInferenceResult> {
+            ++classifications;
+            if (classifications == 2) {
+                *error = QStringLiteral("injected second inference failure");
+                return std::nullopt;
+            }
+            return live::LiveInferenceResult{{0.1, 0.9}};
+        };
+        live::LiveSortingRequest value = request(temporary.path());
+        value.triggerMode = run::TriggerMode::ClassBased;
+        value.useActiveModel = true;
+        value.hitClassId = QStringLiteral("c1");
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [prepared](QString*) { return std::optional(prepared); },
+            [&](QString*) {
+                std::unique_lock lock(gateMutex);
+                entered = true;
+                gateReady.notify_all();
+                gateReady.wait(lock, [&] { return release; });
+                return true;
+            });
+        QString error;
+        require(service.start(value, &error), qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        {
+            std::unique_lock lock(gateMutex);
+            require(gateReady.wait_for(lock, std::chrono::seconds(2),
+                                       [&] { return entered; }),
+                    "persistence blocked");
+        }
+        offerAndWait(service, detector, 3, 3);
+        require(waitFor([&] {
+                    return service.snapshot().integrity.consumerFailures.count == 1;
+                }),
+                "fatal inference failure observed");
+        const auto before = std::chrono::steady_clock::now();
+        require(!service.offerFrame(image(), meta(4), 100.0),
+                "post-fault frame rejected");
+        require(std::chrono::steady_clock::now() - before <
+                    std::chrono::milliseconds(100),
+                "post-fault offer does not drain blocked persistence");
+        {
+            std::lock_guard lock(gateMutex);
+            release = true;
+        }
+        gateReady.notify_all();
+        require(service.stop(&error), qPrintable(error));
     }
 }
 
@@ -475,6 +837,12 @@ int main(int argc, char** argv) {
     testEveryDropletPulseRouteAndStopped();
     testClassBasedTwoAndThreeClass();
     testPauseResumeSourceGapAndDuration();
+    testBacklogCancellationAtPauseAndStop();
+    testSingleFinishOwnerAndRepeatedStop();
+    testReentrantCallbacksFailPromptly();
+    testInitializationExceptionsReleaseLocks();
+    testPeriodicCheckpoint();
+    testThrowingPersistenceAndPromptFatalOffer();
     testBoundedPersistenceLossAndContinuation();
     testPersistenceAndClassificationFailures();
     return 0;

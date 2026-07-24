@@ -418,6 +418,14 @@ bool validateData(const RunManifestData& data, QString* error) {
         !validIntegrity(data.integrity.queueRejections, "queue_rejections") ||
         !validIntegrity(data.integrity.consumerFailures, "consumer_failures"))
         return false;
+    const bool sourceLoss = data.integrity.sourceFrameGaps.count > 0;
+    const bool eventLoss = data.integrity.queueRejections.count > 0 ||
+                           data.integrity.consumerFailures.count > 0;
+    if ((eventLoss && data.status != RunStatus::Failed) ||
+        (sourceLoss && data.status != RunStatus::Interrupted &&
+         data.status != RunStatus::Failed)) {
+        return fail(error, "Run status does not match recorded integrity loss.");
+    }
     QSet<QString> ids;
     QSet<QString> crops;
     for (const auto& event : data.events) {
@@ -808,24 +816,26 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
         return std::nullopt;
     }
 
-    if (!root.value("integrity").isObject()) {
-        fail(error, "integrity must be an object.");
-        return std::nullopt;
-    }
-    const auto integrity = root.value("integrity").toObject();
-    if (!only(integrity,
-              {"source_frame_gaps", "queue_rejections", "consumer_failures"},
-              "integrity", error) ||
-        !parseIntegritySeries(integrity.value("source_frame_gaps"),
-                              data.integrity.sourceFrameGaps,
-                              "source_frame_gaps", error) ||
-        !parseIntegritySeries(integrity.value("queue_rejections"),
-                              data.integrity.queueRejections,
-                              "queue_rejections", error) ||
-        !parseIntegritySeries(integrity.value("consumer_failures"),
-                              data.integrity.consumerFailures,
-                              "consumer_failures", error)) {
-        return std::nullopt;
+    if (root.contains("integrity")) {
+        if (!root.value("integrity").isObject()) {
+            fail(error, "integrity must be an object.");
+            return std::nullopt;
+        }
+        const auto integrity = root.value("integrity").toObject();
+        if (!only(integrity,
+                  {"source_frame_gaps", "queue_rejections", "consumer_failures"},
+                  "integrity", error) ||
+            !parseIntegritySeries(integrity.value("source_frame_gaps"),
+                                  data.integrity.sourceFrameGaps,
+                                  "source_frame_gaps", error) ||
+            !parseIntegritySeries(integrity.value("queue_rejections"),
+                                  data.integrity.queueRejections,
+                                  "queue_rejections", error) ||
+            !parseIntegritySeries(integrity.value("consumer_failures"),
+                                  data.integrity.consumerFailures,
+                                  "consumer_failures", error)) {
+            return std::nullopt;
+        }
     }
 
     if (!root.value("files").isObject()) {

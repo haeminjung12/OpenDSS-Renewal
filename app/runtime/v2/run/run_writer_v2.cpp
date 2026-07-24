@@ -355,21 +355,31 @@ bool RunWriterV2::appendEvent(const RunEvent& event, const QByteArray& cropBytes
                                       : "CSV append and rollback both failed.");
     }
     data_.events.push_back(event);
-    if (!RunManifestV2::savePartial(
+    return true;
+}
+
+bool RunWriterV2::checkpoint(const RunIntegrity& integrity, QString* error) {
+    if (error)
+        error->clear();
+    if (finalized_ || !partialFile_ || !partialFile_->isOpen())
+        return fail(error, "Run writer is not active.");
+    if (!partialFile_->flush())
+        return fail(error, "Could not flush events.partial.csv.");
+    const RunIntegrity previous = data_.integrity;
+    const RunStatus previousStatus = data_.status;
+    data_.integrity = integrity;
+    if (integrity.queueRejections.count > 0 ||
+        integrity.consumerFailures.count > 0) {
+        data_.status = RunStatus::Failed;
+    }
+    if (RunManifestV2::savePartial(
             QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json")),
             data_, error)) {
-        const QString summaryError =
-            error && !error->isEmpty() ? *error : QStringLiteral("unknown validation error");
-        data_.events.removeLast();
-        const bool rolledBack = partialFile_->resize(priorOffset) &&
-                                partialFile_->seek(priorOffset) &&
-                                partialFile_->flush();
-        QFile::remove(cropFile);
-        if (!rolledBack)
-            return fail(error, "Partial summary update and CSV rollback both failed.");
-        return fail(error, "Could not update recoverable Run Summary: " + summaryError);
+        return true;
     }
-    return true;
+    data_.integrity = previous;
+    data_.status = previousStatus;
+    return false;
 }
 
 bool RunWriterV2::flush(QString* error) {
@@ -379,9 +389,7 @@ bool RunWriterV2::flush(QString* error) {
         return true;
     if (!partialFile_ || !partialFile_->isOpen() || !partialFile_->flush())
         return fail(error, "Could not flush events.partial.csv.");
-    return RunManifestV2::savePartial(
-        QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json")),
-        data_, error);
+    return true;
 }
 
 bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
@@ -394,6 +402,14 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
     if (status != RunStatus::Completed && status != RunStatus::Stopped &&
         status != RunStatus::Interrupted && status != RunStatus::Failed)
         return fail(error, "Final Run status is invalid.");
+    const bool sourceLoss = data_.integrity.sourceFrameGaps.count > 0;
+    const bool eventLoss = data_.integrity.queueRejections.count > 0 ||
+                           data_.integrity.consumerFailures.count > 0;
+    if ((eventLoss && status != RunStatus::Failed) ||
+        (sourceLoss && status != RunStatus::Interrupted &&
+         status != RunStatus::Failed)) {
+        return fail(error, "Final Run status does not match recorded integrity loss.");
+    }
     const auto ended = QDateTime::fromString(endedAt, Qt::ISODate);
     const auto started = QDateTime::fromString(data_.startedAt, Qt::ISODate);
     if (!ended.isValid() || ended < started || stopReason.trimmed().isEmpty() ||
@@ -404,7 +420,7 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
          achievedProcessingFps != 0.0)) {
         return fail(error, "Final Run timing, stop reason, or achieved FPS is invalid.");
     }
-    if (!flush(error))
+    if (!checkpoint(data_.integrity, error))
         return false;
     partialFile_->close();
 

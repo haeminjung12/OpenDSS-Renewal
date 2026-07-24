@@ -27,6 +27,7 @@ class RunWriterV2 {
 
     bool appendEvent(const RunEvent& event, const QByteArray& cropBytes,
                      QString* error = nullptr);
+    bool checkpoint(const RunIntegrity& integrity, QString* error = nullptr);
     bool flush(QString* error = nullptr);
     bool finalize(RunStatus status, const QString& endedAt, const QString& stopReason,
                   double achievedProcessingFps, QString* error = nullptr);

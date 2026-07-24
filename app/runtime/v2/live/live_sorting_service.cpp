@@ -28,6 +28,7 @@
 #include <deque>
 #include <exception>
 #include <mutex>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 
@@ -44,7 +45,8 @@ QString cleanName(QString value) {
     value.replace(QRegularExpression(R"([^\p{L}\p{N} _.-])"), "_");
     value.remove(QRegularExpression(R"(^[ ._]+|[ ._]+$)"));
     return value.isEmpty()
-               ? QDateTime::currentDateTime().toString(QStringLiteral("yyyy-MM-dd_HH-mm-ss"))
+               ? QDateTime::currentDateTimeUtc().toString(
+                     QStringLiteral("yyyy-MM-dd_HH-mm-ss"))
                : value;
 }
 
@@ -190,13 +192,15 @@ class LiveSortingService::Impl final {
 public:
     Impl(OperationCoordinator& operations, IDropletDetector& detector,
          ModelLoadService* modelLoader, HitPulseCallback pulse,
-         LiveModelProvider modelProvider, PersistenceGate persistenceGate)
+         LiveModelProvider modelProvider, PersistenceGate persistenceGate,
+         DispatcherStartGate dispatcherStartGate)
         : operations(operations),
           detector(detector),
           modelLoader(modelLoader),
           pulse(std::move(pulse)),
           modelProvider(std::move(modelProvider)),
-          persistenceGate(std::move(persistenceGate)) {}
+          persistenceGate(std::move(persistenceGate)),
+          dispatcherStartGate(std::move(dispatcherStartGate)) {}
 
     ~Impl() {
         QString ignored;
@@ -215,6 +219,10 @@ public:
                 return false;
             }
             lifecycle = OperationLifecycle::Idle;
+            lastFinishResult = false;
+            lastFinishError.clear();
+            dispatcherWorkerId = {};
+            persistenceWorkerId = {};
         }
         if (!pulse) {
             setError(error, QStringLiteral("Live Sorting requires a Hit pulse callback."));
@@ -269,10 +277,20 @@ public:
         QString localError;
         std::optional<PreparedLiveModel> prepared;
         if (useModel) {
-            prepared = modelProvider
-                           ? modelProvider(&localError)
-                           : (modelLoader ? prepareProductionModel(*modelLoader, &localError)
-                                          : std::nullopt);
+            try {
+                prepared =
+                    modelProvider
+                        ? modelProvider(&localError)
+                        : (modelLoader
+                               ? prepareProductionModel(*modelLoader, &localError)
+                               : std::nullopt);
+            } catch (const std::exception& exception) {
+                localError =
+                    QStringLiteral("Active Model preparation failed: %1")
+                        .arg(exception.what());
+            } catch (...) {
+                localError = QStringLiteral("Active Model preparation failed.");
+            }
             if (!prepared || !validModel(*prepared)) {
                 lease.transition(OperationLifecycle::Failed);
                 lease.release();
@@ -332,6 +350,9 @@ public:
         eventNumber = 0;
         persistedEvents.store(0);
         fatal.store(false);
+        acceptingOffers.store(true);
+        processingAllowed.store(true);
+        pulseAllowed.store(true);
         persistenceStopping = false;
         persistenceWriting = false;
         integrity = {};
@@ -341,13 +362,18 @@ public:
         activeElapsed.start();
         try {
             persistenceWorker = std::thread([this] { persistenceLoop(); });
+            if (dispatcherStartGate && !dispatcherStartGate())
+                throw std::runtime_error("injected dispatcher start failure");
             createDispatcher();
         } catch (...) {
-            persistenceStopping = true;
-            persistenceReady.notify_all();
+            {
+                std::lock_guard lock(persistenceMutex);
+                persistenceStopping = true;
+                persistenceReady.notify_all();
+            }
             if (persistenceWorker.joinable())
                 persistenceWorker.join();
-            syncWriterIntegrity();
+            writer->checkpoint(integrity, nullptr);
             writer->finalize(run::RunStatus::Failed,
                              QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
                              QStringLiteral("worker_start_failed"), 0.0, nullptr);
@@ -370,8 +396,8 @@ public:
     }
 
     bool offerFrame(const QImage& image, const FrameMeta& meta, double fps) {
-        if (fatal.load(std::memory_order_acquire)) {
-            finish(run::RunStatus::Failed, QStringLiteral("processing_fault"), nullptr);
+        if (fatal.load(std::memory_order_acquire) ||
+            !acceptingOffers.load(std::memory_order_acquire)) {
             return false;
         }
         std::lock_guard lock(stateMutex);
@@ -412,34 +438,48 @@ public:
 
     bool pause(QString* error) {
         setError(error, {});
+        if (workerCall(error))
+            return false;
         std::unique_ptr<LiveFrameDispatcher> toDrain;
         {
             std::lock_guard lock(stateMutex);
-            if (lifecycle != OperationLifecycle::Running) {
+            if (lifecycle != OperationLifecycle::Running || finishInProgress) {
                 setError(error, QStringLiteral("Live Sorting is not running."));
                 return false;
             }
-            lifecycle = OperationLifecycle::Paused;
+            acceptingOffers.store(false, std::memory_order_release);
+            processingAllowed.store(false, std::memory_order_release);
+            pulseAllowed.store(false, std::memory_order_release);
             elapsedBeforeCurrentRun +=
                 static_cast<double>(activeElapsed.nsecsElapsed()) / 1'000'000'000.0;
             toDrain = std::move(dispatcher);
+        }
+        toDrain->stopAndDrain();
+        {
+            std::lock_guard lock(stateMutex);
+            dispatcherWorkerId = {};
+        }
+        finalizePending();
+        drainPersistence();
+        QString localError;
+        if (!checkpointWriter(&localError)) {
+            recordConsumerFailure(positiveFrameIndex());
+            fatal.store(true, std::memory_order_release);
+            {
+                std::lock_guard lock(stateMutex);
+                diagnostic = localError;
+            }
+            qWarning().noquote() << "Live Sorting pause checkpoint failed:" << localError;
         }
         if (!lease.transition(OperationLifecycle::Paused)) {
             setError(error, QStringLiteral("Live Sorting could not enter Paused state."));
             return false;
         }
-        toDrain->stopAndDrain();
-        finalizePending();
-        drainPersistence();
-        syncWriterIntegrity();
-        QString localError;
-        if (!writer->flush(&localError)) {
-            recordConsumerFailure(positiveFrameIndex());
-            diagnostic = localError;
-            qWarning().noquote() << "Live Sorting pause flush failed:" << localError;
+        {
+            std::lock_guard lock(stateMutex);
+            lifecycle = OperationLifecycle::Paused;
         }
         if (fatal.load(std::memory_order_acquire)) {
-            setError(error, diagnostic);
             return finish(run::RunStatus::Failed,
                           QStringLiteral("processing_fault"), error);
         }
@@ -448,6 +488,8 @@ public:
 
     bool resume(QString* error) {
         setError(error, {});
+        if (workerCall(error))
+            return false;
         {
             std::lock_guard lock(stateMutex);
             if (lifecycle != OperationLifecycle::Paused) {
@@ -457,12 +499,18 @@ public:
             createDispatcher();
             activeElapsed.restart();
             haveDelivered = false;
-            lifecycle = OperationLifecycle::Running;
         }
         if (!lease.transition(OperationLifecycle::Running)) {
             setError(error, QStringLiteral("Live Sorting could not resume."));
             return false;
         }
+        {
+            std::lock_guard lock(stateMutex);
+            lifecycle = OperationLifecycle::Running;
+        }
+        pulseAllowed.store(true, std::memory_order_release);
+        processingAllowed.store(true, std::memory_order_release);
+        acceptingOffers.store(true, std::memory_order_release);
         return true;
     }
 
@@ -519,6 +567,12 @@ private:
         dispatcher = std::make_unique<LiveFrameDispatcher>(
             [this](const QImage& image, const FrameMeta& meta, double,
                    std::uint64_t, LiveFrameDispatcher::Membership) {
+                {
+                    std::lock_guard lock(stateMutex);
+                    dispatcherWorkerId = std::this_thread::get_id();
+                }
+                if (!processingAllowed.load(std::memory_order_acquire))
+                    return;
                 try {
                     consumeFrame(image, meta);
                 } catch (const ConsumerFault&) {
@@ -546,8 +600,9 @@ private:
     }
 
     void consumeFrame(const QImage& supplied, const FrameMeta& meta) {
-        if (fatal.load(std::memory_order_acquire))
-            throw ConsumerFault{};
+        if (fatal.load(std::memory_order_acquire) ||
+            !processingAllowed.load(std::memory_order_acquire))
+            return;
         if (supplied.isNull())
             consumerFault(frameIndex(meta), QStringLiteral("Live frame is empty."));
         QImage image = supplied.convertToFormat(QImage::Format_Grayscale8);
@@ -559,6 +614,8 @@ private:
         cv::Mat frame(image.height(), image.width(), CV_8UC1, image.bits(),
                       image.bytesPerLine());
         const DropletDetectionFrame detection = detector.processFrame(frame);
+        if (!processingAllowed.load(std::memory_order_acquire))
+            return;
         QString localError;
 
         if (detection.eventEntered) {
@@ -581,6 +638,10 @@ private:
             pending->cropBytes = pngBytes(crop.image, &localError);
             if (pending->cropBytes.isEmpty())
                 consumerFault(frameIndex(meta), localError);
+            if (!processingAllowed.load(std::memory_order_acquire)) {
+                pending.reset();
+                return;
+            }
 
             if (model) {
                 QElapsedTimer inferenceTimer;
@@ -608,6 +669,10 @@ private:
                     model->snapshot.classes.at(bestIndex).id;
                 pending->event.scores = result->scores;
                 pending->event.inferenceTimeMs = inferenceMs;
+                if (!processingAllowed.load(std::memory_order_acquire)) {
+                    pending.reset();
+                    return;
+                }
             }
             const auto decision = decision::DecisionService::decide(
                 request.triggerMode, pending->event.predictedClassId,
@@ -620,6 +685,10 @@ private:
             if (*decision == run::Route::Waste) {
                 pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
             } else {
+                if (!pulseAllowed.load(std::memory_order_acquire)) {
+                    pending.reset();
+                    return;
+                }
                 const auto pulseStatus = pulse(&localError);
                 if (pulseStatus != run::DaqPulseStatus::Issued &&
                     pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
@@ -683,49 +752,120 @@ private:
         addRange(integrity.consumerFailures, sourceIndex, sourceIndex);
     }
 
-    void syncWriterIntegrity() {
+    bool checkpointWriter(QString* error) {
+        std::lock_guard writerLock(writerMutex);
         if (!writer)
-            return;
-        std::lock_guard lock(stateMutex);
-        const_cast<run::RunManifestData&>(writer->data()).integrity = integrity;
+            return false;
+        run::RunIntegrity snapshot;
+        {
+            std::lock_guard lock(stateMutex);
+            snapshot = integrity;
+        }
+        return writer->checkpoint(snapshot, error);
+    }
+
+    void persistenceFailure(qint64 sourceIndex, const QString& error) {
+        recordConsumerFailure(sourceIndex > 0 ? sourceIndex : 1);
+        fatal.store(true, std::memory_order_release);
+        {
+            std::lock_guard lock(stateMutex);
+            diagnostic =
+                error.isEmpty()
+                    ? QStringLiteral("A completed Live event could not be persisted.")
+                    : error;
+        }
+        qWarning().noquote()
+            << "Live Sorting event persistence loss at source frame"
+            << sourceIndex << ":" << error;
     }
 
     void persistenceLoop() {
+        {
+            std::lock_guard lock(stateMutex);
+            persistenceWorkerId = std::this_thread::get_id();
+        }
+        int eventsSinceCheckpoint = 0;
+        qint64 lastSourceIndex = 1;
+        auto lastCheckpoint = std::chrono::steady_clock::now();
         for (;;) {
             PersistenceItem item;
+            bool haveItem = false;
             {
                 std::unique_lock lock(persistenceMutex);
-                persistenceReady.wait(lock, [this] {
-                    return persistenceStopping || !persistenceQueue.empty();
-                });
+                if (persistenceQueue.empty() && !persistenceStopping &&
+                    eventsSinceCheckpoint > 0) {
+                    const auto deadline =
+                        lastCheckpoint + std::chrono::milliseconds(500);
+                    if (!persistenceReady.wait_until(
+                            lock, deadline, [this] {
+                                return persistenceStopping ||
+                                       !persistenceQueue.empty();
+                            })) {
+                        persistenceWriting = true;
+                    }
+                } else {
+                    persistenceReady.wait(lock, [this] {
+                        return persistenceStopping || !persistenceQueue.empty();
+                    });
+                }
                 if (persistenceQueue.empty() && persistenceStopping)
                     break;
-                item = std::move(persistenceQueue.front());
-                persistenceQueue.pop_front();
-                persistenceWriting = true;
+                if (persistenceWriting && persistenceQueue.empty() &&
+                    !persistenceStopping) {
+                    // Timed checkpoint below.
+                } else if (!persistenceQueue.empty()) {
+                    item = std::move(persistenceQueue.front());
+                    persistenceQueue.pop_front();
+                    persistenceWriting = true;
+                    haveItem = true;
+                }
             }
 
             QString localError;
-            bool accepted = !persistenceGate || persistenceGate(&localError);
-            if (accepted) {
-                syncWriterIntegrity();
-                accepted =
-                    writer->appendEvent(item.event, item.cropBytes, &localError);
-            }
-            if (!accepted) {
-                recordConsumerFailure(item.event.sourceFrameIndex);
-                {
-                    std::lock_guard lock(stateMutex);
-                    diagnostic =
-                        localError.isEmpty()
-                            ? QStringLiteral("A completed Live event could not be persisted.")
-                            : localError;
+            try {
+                if (!haveItem) {
+                    if (!checkpointWriter(&localError))
+                        persistenceFailure(lastSourceIndex, localError);
+                    else {
+                        eventsSinceCheckpoint = 0;
+                        lastCheckpoint = std::chrono::steady_clock::now();
+                    }
+                } else {
+                    bool accepted =
+                        !persistenceGate || persistenceGate(&localError);
+                    if (accepted) {
+                        accepted = writer->appendEvent(
+                            item.event, item.cropBytes, &localError);
+                    }
+                    if (!accepted) {
+                        persistenceFailure(item.event.sourceFrameIndex, localError);
+                    } else {
+                        persistedEvents.fetch_add(1, std::memory_order_release);
+                        ++eventsSinceCheckpoint;
+                        lastSourceIndex = item.event.sourceFrameIndex;
+                        const bool checkpointDue =
+                            eventsSinceCheckpoint >= 50 ||
+                            std::chrono::steady_clock::now() - lastCheckpoint >=
+                                std::chrono::milliseconds(500);
+                        if (checkpointDue) {
+                            if (!checkpointWriter(&localError))
+                                persistenceFailure(lastSourceIndex, localError);
+                            else {
+                                eventsSinceCheckpoint = 0;
+                                lastCheckpoint = std::chrono::steady_clock::now();
+                            }
+                        }
+                    }
                 }
-                qWarning().noquote()
-                    << "Live Sorting event persistence loss at source frame"
-                    << item.event.sourceFrameIndex << ":" << localError;
-            } else {
-                persistedEvents.fetch_add(1, std::memory_order_release);
+            } catch (const std::exception& exception) {
+                persistenceFailure(
+                    haveItem ? item.event.sourceFrameIndex : lastSourceIndex,
+                    QStringLiteral("Live event persistence threw: %1")
+                        .arg(exception.what()));
+            } catch (...) {
+                persistenceFailure(
+                    haveItem ? item.event.sourceFrameIndex : lastSourceIndex,
+                    QStringLiteral("Live event persistence threw."));
             }
             {
                 std::lock_guard lock(persistenceMutex);
@@ -744,29 +884,52 @@ private:
         });
     }
 
+    bool workerCall(QString* error) const {
+        std::lock_guard lock(stateMutex);
+        const auto current = std::this_thread::get_id();
+        if (current != dispatcherWorkerId && current != persistenceWorkerId)
+            return false;
+        setError(error,
+                 QStringLiteral("Lifecycle control cannot run from a Live worker callback."));
+        return true;
+    }
+
     bool finish(run::RunStatus requestedStatus, const QString& reason,
                 QString* error) {
         setError(error, {});
+        if (workerCall(error))
+            return false;
         std::unique_ptr<LiveFrameDispatcher> toDrain;
         {
-            std::lock_guard lock(stateMutex);
+            std::unique_lock lock(stateMutex);
+            if (finishInProgress) {
+                finishFinished.wait(lock, [this] { return !finishInProgress; });
+                setError(error, lastFinishError);
+                return lastFinishResult;
+            }
             if (lifecycle == OperationLifecycle::Idle ||
                 lifecycle == OperationLifecycle::Completed ||
                 lifecycle == OperationLifecycle::Interrupted ||
                 lifecycle == OperationLifecycle::Failed) {
                 return false;
             }
+            finishInProgress = true;
+            acceptingOffers.store(false, std::memory_order_release);
+            processingAllowed.store(false, std::memory_order_release);
+            pulseAllowed.store(false, std::memory_order_release);
             if (lifecycle == OperationLifecycle::Running) {
                 elapsedBeforeCurrentRun +=
                     static_cast<double>(activeElapsed.nsecsElapsed()) /
                     1'000'000'000.0;
             }
-            lifecycle = OperationLifecycle::Stopping;
             toDrain = std::move(dispatcher);
         }
-        lease.transition(OperationLifecycle::Stopping);
         if (toDrain)
             toDrain->stopAndDrain();
+        {
+            std::lock_guard lock(stateMutex);
+            dispatcherWorkerId = {};
+        }
         finalizePending();
         drainPersistence();
         {
@@ -776,6 +939,12 @@ private:
         }
         if (persistenceWorker.joinable())
             persistenceWorker.join();
+        {
+            std::lock_guard lock(stateMutex);
+            persistenceWorkerId = {};
+            lifecycle = OperationLifecycle::Stopping;
+        }
+        lease.transition(OperationLifecycle::Stopping);
 
         run::RunStatus status = requestedStatus;
         QString stopReason = reason;
@@ -791,8 +960,14 @@ private:
                 stopReason = QStringLiteral("source_frame_gap");
             }
         }
-        syncWriterIntegrity();
         QString localError;
+        if (!checkpointWriter(&localError)) {
+            recordConsumerFailure(positiveFrameIndex());
+            fatal.store(true, std::memory_order_release);
+            status = run::RunStatus::Failed;
+            stopReason = QStringLiteral("event_integrity_loss");
+            checkpointWriter(nullptr);
+        }
         const bool finalized =
             writer && writer->finalize(
                           status,
@@ -820,6 +995,10 @@ private:
             lifecycle = finalLifecycle;
             if (!localError.isEmpty())
                 diagnostic = localError;
+            lastFinishResult = finalized;
+            lastFinishError = finalized ? QString{} : localError;
+            finishInProgress = false;
+            finishFinished.notify_all();
         }
         if (!finalized)
             setError(error, localError);
@@ -834,9 +1013,16 @@ private:
     HitPulseCallback pulse;
     LiveModelProvider modelProvider;
     PersistenceGate persistenceGate;
+    DispatcherStartGate dispatcherStartGate;
 
     mutable std::mutex stateMutex;
+    std::condition_variable finishFinished;
     OperationLifecycle lifecycle = OperationLifecycle::Idle;
+    bool finishInProgress = false;
+    bool lastFinishResult = false;
+    QString lastFinishError;
+    std::thread::id dispatcherWorkerId;
+    std::thread::id persistenceWorkerId;
     OperationLease lease;
     LiveSortingRequest request;
     std::optional<PreparedLiveModel> model;
@@ -851,7 +1037,11 @@ private:
     std::unique_ptr<LiveFrameDispatcher> dispatcher;
     std::optional<PendingEvent> pending;
     std::optional<run::RunWriterV2> writer;
+    std::mutex writerMutex;
     std::atomic_bool fatal{false};
+    std::atomic_bool acceptingOffers{false};
+    std::atomic_bool processingAllowed{false};
+    std::atomic_bool pulseAllowed{false};
     std::atomic<qint64> persistedEvents{0};
 
     std::mutex persistenceMutex;
@@ -868,10 +1058,12 @@ LiveSortingService::LiveSortingService(OperationCoordinator& operations,
                                        ModelLoadService* modelLoader,
                                        HitPulseCallback pulse,
                                        LiveModelProvider modelProvider,
-                                       PersistenceGate persistenceGate)
+                                       PersistenceGate persistenceGate,
+                                       DispatcherStartGate dispatcherStartGate)
     : impl_(std::make_unique<Impl>(operations, detector, modelLoader,
                                   std::move(pulse), std::move(modelProvider),
-                                  std::move(persistenceGate))) {}
+                                  std::move(persistenceGate),
+                                  std::move(dispatcherStartGate))) {}
 
 LiveSortingService::~LiveSortingService() = default;
 

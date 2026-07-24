@@ -36,6 +36,7 @@ struct PreparedLiveModel {
 using LiveModelProvider = std::function<std::optional<PreparedLiveModel>(QString*)>;
 using HitPulseCallback = std::function<run::DaqPulseStatus(QString*)>;
 using PersistenceGate = std::function<bool(QString*)>;
+using DispatcherStartGate = std::function<bool()>;
 
 struct LiveSortingRequest {
     QString outputRoot;
@@ -71,7 +72,8 @@ public:
                        ModelLoadService* modelLoader,
                        HitPulseCallback pulse,
                        LiveModelProvider modelProvider = {},
-                       PersistenceGate persistenceGate = {});
+                       PersistenceGate persistenceGate = {},
+                       DispatcherStartGate dispatcherStartGate = {});
     ~LiveSortingService();
 
     LiveSortingService(const LiveSortingService&) = delete;

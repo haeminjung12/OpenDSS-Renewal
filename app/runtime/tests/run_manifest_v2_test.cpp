@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QTemporaryDir>
 
@@ -288,10 +289,6 @@ void testLiveStoppedIntegrityRoundTrip() {
     data.routing.physicalDaqOutputEnabled = true;
     data.requestedProcessingFps = 0.0;
     data.achievedProcessingFps = 0.0;
-    data.integrity.sourceFrameGaps = {2, {{4, 5}}};
-    data.integrity.queueRejections = {1, {{8, 8}}};
-    data.integrity.consumerFailures = {1, {{12, 12}}};
-
     QString error;
     const QString root = QDir(temporary.path()).filePath("live");
     auto writer = RunWriterV2::start(root, data, &error);
@@ -309,16 +306,70 @@ void testLiveStoppedIntegrityRoundTrip() {
                 loaded->data().status == RunStatus::Stopped &&
                 loaded->data().sourceSequence.id.isEmpty() &&
                 loaded->data().requestedProcessingFps == 0.0 &&
-                loaded->data().integrity.sourceFrameGaps.count == 2 &&
-                loaded->data().integrity.queueRejections.ranges.first().first == 8 &&
-                loaded->data().integrity.consumerFailures.ranges.first().last == 12,
-            "Live/Stopped/integrity round-trip");
+                loaded->data().integrity.sourceFrameGaps.count == 0 &&
+                loaded->data().integrity.queueRejections.count == 0 &&
+                loaded->data().integrity.consumerFailures.count == 0,
+            "Live/Stopped round-trip");
     QFile file(summary);
     require(file.open(QIODevice::ReadOnly), "read Live summary");
     const QJsonObject object = QJsonDocument::fromJson(file.readAll()).object();
     require(!object.contains("source_sequence") && !object.contains("processing") &&
                 object.value("integrity").isObject(),
             "Live omits Sequence Test-only fields");
+
+    QJsonObject legacy = object;
+    legacy.remove("integrity");
+    QFile legacyFile(summary);
+    require(legacyFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "open old Run fixture");
+    require(legacyFile.write(QJsonDocument(legacy).toJson()) > 0,
+            "write old Run fixture");
+    legacyFile.close();
+    loaded = RunManifestV2::load(summary, &error);
+    require(loaded.has_value() &&
+                loaded->data().integrity.sourceFrameGaps.count == 0 &&
+                loaded->data().integrity.queueRejections.count == 0 &&
+                loaded->data().integrity.consumerFailures.count == 0,
+            "missing integrity loads as empty");
+
+    QJsonObject invalidStopped = legacy;
+    invalidStopped.insert(
+        "integrity",
+        QJsonObject{
+            {"source_frame_gaps",
+             QJsonObject{{"count", 0}, {"ranges", QJsonArray{}}}},
+            {"queue_rejections",
+             QJsonObject{
+                 {"count", 1},
+                 {"ranges",
+                  QJsonArray{
+                      QJsonObject{{"first", 8}, {"last", 8}}}}}},
+            {"consumer_failures",
+             QJsonObject{{"count", 0}, {"ranges", QJsonArray{}}}},
+        });
+    require(legacyFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "open invalid stopped fixture");
+    require(legacyFile.write(QJsonDocument(invalidStopped).toJson()) > 0,
+            "write invalid stopped fixture");
+    legacyFile.close();
+    require(!RunManifestV2::load(summary, &error),
+            "imported Stopped manifest rejects event loss");
+
+    const QString lossRoot = QDir(temporary.path()).filePath("loss");
+    data.runId = "loss";
+    data.runName = "Loss";
+    auto lossWriter = RunWriterV2::start(lossRoot, data, &error);
+    require(lossWriter.has_value(), qPrintable(error));
+    const RunIntegrity sourceLoss{{1, {{4, 4}}}, {}, {}};
+    require(lossWriter->checkpoint(sourceLoss, &error), qPrintable(error));
+    require(!lossWriter->finalize(RunStatus::Completed,
+                                  "2026-07-24T10:00:02Z",
+                                  "duration", 0.0, &error),
+            "Completed rejects source loss");
+    require(lossWriter->finalize(RunStatus::Interrupted,
+                                 "2026-07-24T10:00:02Z",
+                                 "source_frame_gap", 0.0, &error),
+            qPrintable(error));
 }
 
 } // namespace

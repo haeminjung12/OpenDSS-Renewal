@@ -169,6 +169,34 @@ void testDaqOutputReadinessAndPersistence() {
     {
         QTemporaryDir temporary;
         FakeDetector detector;
+        OperationCoordinator operations;
+        auto held = operations.acquireMomentary(ResourceLock::Daq);
+        require(held.acquired(), "hold DAQ lock");
+        int readinessChecks = 0;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](bool outputEnabled, QString*) {
+                return pulseStatus(outputEnabled);
+            },
+            {}, {}, {},
+            [&](QString*) {
+                ++readinessChecks;
+                return true;
+            });
+        QString error;
+        auto value = request(temporary.path());
+        require(service.start(value, &error), qPrintable(error));
+        require(!operations.snapshot().locks.testFlag(ResourceLock::Daq),
+                "DAQ Output OFF must not acquire the DAQ lock");
+        require(service.stop(&error), qPrintable(error));
+        value.daqOutputEnabled = true;
+        require(!service.start(value, &error) && readinessChecks == 0,
+                "DAQ Output ON must fail on the held DAQ lock before readiness");
+        held.lease.release();
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
         detector.results = {detection(true, true, 2.0f),
                             detection(false, false, 0.0f)};
         OperationCoordinator operations;
@@ -283,7 +311,7 @@ void testEveryDropletPulseRouteAndStopped() {
     require(!service.start(request(temporary.path()), &error), "duplicate start blocked");
     require(operations.snapshot().kind == OperationKind::LiveSorting &&
                 operations.snapshot().locks.testFlag(ResourceLock::Camera) &&
-                operations.snapshot().locks.testFlag(ResourceLock::Daq) &&
+                !operations.snapshot().locks.testFlag(ResourceLock::Daq) &&
                 operations.snapshot().locks.testFlag(ResourceLock::Run) &&
                 operations.snapshot().locks.testFlag(ResourceLock::Storage),
             "Live locks held");

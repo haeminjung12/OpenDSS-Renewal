@@ -264,8 +264,10 @@ public:
 
         const bool useModel =
             value.triggerMode == run::TriggerMode::ClassBased || value.useActiveModel;
-        ResourceLocks locks = ResourceLock::Camera | ResourceLock::Daq |
-                              ResourceLock::Run | ResourceLock::Storage;
+        ResourceLocks locks =
+            ResourceLock::Camera | ResourceLock::Run | ResourceLock::Storage;
+        if (value.daqOutputEnabled)
+            locks |= ResourceLock::Daq;
         if (useModel)
             locks |= ResourceLock::Model;
         auto acquired = operations.acquire(OperationKind::LiveSorting, locks);

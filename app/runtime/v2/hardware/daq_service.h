@@ -7,7 +7,6 @@
 
 #include <memory>
 #include <mutex>
-#include <optional>
 
 class DaqTrigger;
 
@@ -27,19 +26,17 @@ public:
 
     bool applySettings(const DaqAppliedSettings &settings, QString *error = nullptr);
     bool ready() const;
-    std::optional<DaqAppliedSettings> appliedSettings() const;
     QJsonObject settingsSnapshot() const;
     run::DaqPulseStatus issueLiveHit(bool outputEnabled, QString *error = nullptr);
     void shutdown();
 
 private:
-    void publishLocked(DaqStatus status, const QString &fault = {});
+    DaqState updateStateLocked(DaqStatus status, const QString &fault = {});
 
     OperationCoordinator &operations_;
     ApplicationStateStore &stateStore_;
     mutable std::mutex mutex_;
     std::unique_ptr<DaqTrigger> trigger_;
-    std::optional<DaqAppliedSettings> appliedSettings_;
     DaqState state_;
 };
 

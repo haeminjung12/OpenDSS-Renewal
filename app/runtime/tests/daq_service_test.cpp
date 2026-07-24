@@ -161,6 +161,15 @@ int main(int argc, char **argv)
     OperationCoordinator operations;
     ApplicationStateStore store;
     DaqService daq(operations, store);
+    int observerCalls = 0;
+    bool observerReady = false;
+    QJsonObject observerSettings;
+    const QMetaObject::Connection observerConnection =
+        QObject::connect(&store, &ApplicationStateStore::changed, [&] {
+            ++observerCalls;
+            observerReady = daq.ready();
+            observerSettings = daq.settingsSnapshot();
+        });
     ok &= check(store.snapshot().daq.status == DaqStatus::Disabled,
                 "DAQ must initially publish Disabled.");
 
@@ -171,12 +180,16 @@ int main(int argc, char **argv)
                     && defaults.delayMs == 0.0,
                 "DAQ settings must use the approved defaults.");
     ok &= check(daq.applySettings(defaults, &error), qPrintable(error));
-    const auto applied = daq.appliedSettings();
     const QJsonObject snapshot = daq.settingsSnapshot();
-    ok &= check(daq.ready() && applied && sameSettings(*applied, defaults)
+    ok &= check(daq.ready()
+                    && sameSettings(store.snapshot().daq.appliedSettings, defaults)
                     && store.snapshot().daq.status == DaqStatus::Ready
                     && store.snapshot().daq.deviceId == QStringLiteral("Dev1"),
                 "Successful apply must publish Ready with the applied settings.");
+    ok &= check(observerCalls == 1 && observerReady
+                    && observerSettings.value(QStringLiteral("channel")).toString()
+                        == QStringLiteral("Dev1/ao0"),
+                "Changed observers must query DAQ readiness and settings without deadlock.");
     ok &= check(snapshot.value(QStringLiteral("channel")).toString()
                         == QStringLiteral("Dev1/ao0")
                     && snapshot.value(QStringLiteral("frequency_hz")).toDouble()
@@ -212,14 +225,14 @@ int main(int argc, char **argv)
     DaqAppliedSettings invalid = defaults;
     invalid.frequencyHz = std::numeric_limits<double>::quiet_NaN();
     ok &= check(!daq.applySettings(invalid, &error) && daq.ready()
-                    && sameSettings(*daq.appliedSettings(), defaults),
+                    && sameSettings(store.snapshot().daq.appliedSettings, defaults),
                 "Invalid settings must preserve the prior applied state.");
 
     fake.createStatus = -1;
     DaqAppliedSettings candidate = defaults;
     candidate.outputChannel = QStringLiteral("Dev2/ao3");
     ok &= check(!daq.applySettings(candidate, &error) && daq.ready()
-                    && sameSettings(*daq.appliedSettings(), defaults)
+                    && sameSettings(store.snapshot().daq.appliedSettings, defaults)
                     && store.snapshot().daq.status == DaqStatus::Ready
                     && store.snapshot().daq.fault.contains(
                         QStringLiteral("injected NI failure")),
@@ -270,5 +283,6 @@ int main(int argc, char **argv)
                     && store.snapshot().daq.status == DaqStatus::Disabled,
                 "Shutdown must publish Disabled.");
 
+    QObject::disconnect(observerConnection);
     return ok ? 0 : 1;
 }

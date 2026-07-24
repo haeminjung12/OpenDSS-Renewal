@@ -57,8 +57,8 @@ DaqService::DaqService(OperationCoordinator &operations,
     : operations_(operations)
     , stateStore_(stateStore)
 {
-    std::lock_guard lock(mutex_);
-    publishLocked(DaqStatus::Disabled);
+    state_.status = DaqStatus::Disabled;
+    stateStore_.publishDaq(state_);
 }
 
 DaqService::~DaqService()
@@ -68,7 +68,7 @@ DaqService::~DaqService()
 
 bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *error)
 {
-    std::lock_guard lock(mutex_);
+    std::unique_lock lock(mutex_);
     const QString invalid = validationError(settings);
     if (!invalid.isEmpty()) {
         setError(error, invalid);
@@ -97,19 +97,23 @@ bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *erro
         const QString message =
             factualError(QStringLiteral("The DAQ settings could not be applied."),
                          deviceError);
-        if (trigger_ && trigger_->isReady())
-            publishLocked(DaqStatus::Ready, message);
-        else
-            publishLocked(DaqStatus::Faulted, message);
+        const DaqState published =
+            updateStateLocked(trigger_ && trigger_->isReady()
+                                  ? DaqStatus::Ready
+                                  : DaqStatus::Faulted,
+                              message);
         setError(error, message);
+        lock.unlock();
+        stateStore_.publishDaq(published);
         return false;
     }
 
     trigger_.swap(candidate);
-    appliedSettings_ = settings;
     state_.appliedSettings = settings;
-    publishLocked(DaqStatus::Ready);
+    const DaqState published = updateStateLocked(DaqStatus::Ready);
     setError(error, {});
+    lock.unlock();
+    stateStore_.publishDaq(published);
     return true;
 }
 
@@ -119,17 +123,10 @@ bool DaqService::ready() const
     return state_.status == DaqStatus::Ready && trigger_ && trigger_->isReady();
 }
 
-std::optional<DaqAppliedSettings> DaqService::appliedSettings() const
-{
-    std::lock_guard lock(mutex_);
-    return appliedSettings_;
-}
-
 QJsonObject DaqService::settingsSnapshot() const
 {
     std::lock_guard lock(mutex_);
-    const DaqAppliedSettings settings =
-        appliedSettings_.value_or(DaqAppliedSettings{});
+    const DaqAppliedSettings &settings = state_.appliedSettings;
     return {
         {QStringLiteral("channel"), settings.outputChannel},
         {QStringLiteral("frequency_hz"), settings.frequencyHz},
@@ -141,7 +138,7 @@ QJsonObject DaqService::settingsSnapshot() const
 
 run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
 {
-    std::lock_guard lock(mutex_);
+    std::unique_lock lock(mutex_);
     if (!outputEnabled) {
         setError(error, {});
         return run::DaqPulseStatus::SuppressedNotIssued;
@@ -150,8 +147,10 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
         const QString message = QStringLiteral("DAQ is not ready.");
         if (trigger_)
             trigger_->shutdown();
-        publishLocked(DaqStatus::Faulted, message);
+        const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
         setError(error, message);
+        lock.unlock();
+        stateStore_.publishDaq(published);
         return run::DaqPulseStatus::Failed;
     }
 
@@ -160,8 +159,10 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
         const QString message =
             factualError(QStringLiteral("The DAQ Hit pulse failed."), deviceError);
         trigger_->shutdown();
-        publishLocked(DaqStatus::Faulted, message);
+        const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
         setError(error, message);
+        lock.unlock();
+        stateStore_.publishDaq(published);
         return run::DaqPulseStatus::Failed;
     }
 
@@ -171,21 +172,22 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
 
 void DaqService::shutdown()
 {
-    std::lock_guard lock(mutex_);
+    std::unique_lock lock(mutex_);
     if (trigger_)
         trigger_->shutdown();
     trigger_.reset();
-    publishLocked(DaqStatus::Disabled);
+    const DaqState published = updateStateLocked(DaqStatus::Disabled);
+    lock.unlock();
+    stateStore_.publishDaq(published);
 }
 
-void DaqService::publishLocked(DaqStatus status, const QString &fault)
+DaqState DaqService::updateStateLocked(DaqStatus status, const QString &fault)
 {
     state_.status = status;
     state_.deviceId =
-        appliedSettings_ ? appliedSettings_->outputChannel.section(QLatin1Char('/'), 0, 0)
-                         : QString();
+        state_.appliedSettings.outputChannel.section(QLatin1Char('/'), 0, 0);
     state_.fault = fault;
-    stateStore_.publishDaq(state_);
+    return state_;
 }
 
 } // namespace desktop_app::v2

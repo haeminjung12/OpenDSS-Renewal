@@ -217,6 +217,48 @@ add_test(
 )
 set_tests_properties(image_sequence_capture_service_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(dataset_label_service_test
+  dataset_label_service_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/dataset/dataset_label_service.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+)
+target_include_directories(dataset_label_service_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(dataset_label_service_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+add_test(
+  NAME dataset_label_service_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:dataset_label_service_test>
+)
+set_tests_properties(dataset_label_service_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(sequence_viewer_model_test
+  sequence_viewer_model_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
+  ../v2/sequence/sequence_viewer_model.cpp
+)
+target_include_directories(sequence_viewer_model_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(sequence_viewer_model_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+add_test(
+  NAME sequence_viewer_model_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:sequence_viewer_model_test>
+)
+set_tests_properties(sequence_viewer_model_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(training_service_protocol_test
   training_service_protocol_test.cpp
   ../v2/training/training_service.cpp

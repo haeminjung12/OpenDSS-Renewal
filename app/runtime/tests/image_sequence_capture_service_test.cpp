@@ -1,4 +1,5 @@
 #include "v2/camera/camera_service.h"
+#include "v2/camera/frame_conversion.h"
 #include "v2/operation/operation_coordinator.h"
 #include "v2/sequence/image_sequence_capture_service.h"
 #include "v2/sequence/sequence_manifest_v2.h"
@@ -8,11 +9,17 @@
 #include <QDir>
 #include <QFile>
 #include <QImageReader>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QThread>
 
 #include <cstdio>
+#include <condition_variable>
 #include <memory>
+#include <mutex>
+#include <thread>
 
 using namespace desktop_app::v2;
 using namespace desktop_app::v2::sequence;
@@ -81,6 +88,13 @@ bool waitForLifecycle(ImageSequenceCaptureService& service, OperationLifecycle e
         QThread::msleep(5);
     }
     return false;
+}
+
+QJsonObject readJsonObject(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(file.readAll()).object();
 }
 
 bool manualCompletion() {
@@ -178,6 +192,105 @@ bool sourceGapCompletion() {
            check(logged, "Gap range must be written to diagnostics.");
 }
 
+bool pauseOfferRace() {
+    QTemporaryDir root;
+    Fixture fixture;
+    std::mutex gateMutex;
+    std::condition_variable gate;
+    bool entered = false;
+    bool release = false;
+    bool blockFirst = true;
+    ImageSequenceCaptureService service(
+        *fixture.camera, fixture.operations, [&] { return fixture.now; },
+        [&](const CameraFrame& input, QString* error) {
+            std::unique_lock lock(gateMutex);
+            if (blockFirst) {
+                blockFirst = false;
+                entered = true;
+                gate.notify_all();
+                gate.wait(lock, [&] { return release; });
+            }
+            lock.unlock();
+            return convertCameraFrame(input, error);
+        });
+    QString error;
+    if (!service.start(request(root.path()), &error))
+        return check(false, "Race fixture must start.");
+
+    bool offerResult = true;
+    QString offerError;
+    std::thread producer([&] {
+        offerResult = service.offerFrame(frame(1), 25.0, &offerError);
+    });
+    {
+        std::unique_lock lock(gateMutex);
+        gate.wait(lock, [&] { return entered; });
+    }
+    const bool paused = service.pause(&error);
+    {
+        std::lock_guard lock(gateMutex);
+        release = true;
+    }
+    gate.notify_all();
+    producer.join();
+    if (!check(paused && !offerResult &&
+                   offerError.contains("not accepting", Qt::CaseInsensitive),
+               "A frame converting across Pause must not be submitted.")) {
+        return false;
+    }
+    if (!service.resume(&error) || !service.offerFrame(frame(2), 25.0, &error) ||
+        !service.stop(&error)) {
+        return check(false, "Race fixture must resume and complete.");
+    }
+    return check(service.snapshot().savedFrameCount == 1,
+                 "Post-pause race must save only the frame offered after Resume.");
+}
+
+bool zeroFrameFailure() {
+    QTemporaryDir manualRoot;
+    Fixture manualFixture;
+    ImageSequenceCaptureService manual(
+        *manualFixture.camera, manualFixture.operations, [&] { return manualFixture.now; });
+    QString error;
+    if (!manual.start(request(manualRoot.path()), &error))
+        return check(false, "Zero-frame manual fixture must start.");
+    const QString manualFolder = manual.snapshot().folder;
+    if (!check(!manual.stop(&error) && error == "No frames were captured.",
+               "Manual stop with zero frames must fail directly.")) {
+        return false;
+    }
+    const QJsonObject manualRecovery =
+        readJsonObject(QDir(manualFolder).filePath("sequence.partial.json"));
+    bool ok = check(manual.snapshot().lifecycle == OperationLifecycle::Failed &&
+                        manualFixture.operations.snapshot().lifecycle == OperationLifecycle::Idle,
+                    "Zero-frame manual failure must release its lease.") &&
+              check(manualRecovery.value("status") == "failed" &&
+                        manualRecovery.value("stop_reason") == "user" &&
+                        manualRecovery.value("error") == "No frames were captured.",
+                    "Zero-frame manual recovery marker must be factual.") &&
+              check(!QFileInfo::exists(QDir(manualFolder).filePath("sequence.json")),
+                    "Zero-frame manual failure must not publish sequence.json.");
+
+    QTemporaryDir timedRoot;
+    Fixture timedFixture;
+    ImageSequenceCaptureService timed(
+        *timedFixture.camera, timedFixture.operations, [&] { return timedFixture.now; });
+    if (!timed.start(request(timedRoot.path(), 1.0), &error))
+        return check(false, "Zero-frame timed fixture must start.");
+    const QString timedFolder = timed.snapshot().folder;
+    timedFixture.now = 1'100'000'000;
+    ok &= check(!timed.pollDuration(&error) && error == "No frames were captured.",
+                "Timed expiry with zero frames must fail directly.");
+    const QJsonObject timedRecovery =
+        readJsonObject(QDir(timedFolder).filePath("sequence.partial.json"));
+    ok &= check(timedRecovery.value("status") == "failed" &&
+                    timedRecovery.value("stop_reason") == "duration",
+                "Zero-frame timed recovery marker must record duration.");
+    ok &= check(timedFixture.operations.snapshot().lifecycle == OperationLifecycle::Idle,
+                "Zero-frame timed failure must release its lease.");
+    return ok;
+}
+
 bool startConflicts() {
     QTemporaryDir root;
     Fixture fixture;
@@ -201,6 +314,7 @@ bool startConflicts() {
 }
 
 bool writeFailure() {
+    warnings.clear();
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
@@ -218,6 +332,16 @@ bool writeFailure() {
     if (!waitForLifecycle(service, OperationLifecycle::Failed))
         return check(false, "Consumer write failure must transition to Failed.");
     const auto state = service.snapshot();
+    const QJsonObject recovery =
+        readJsonObject(QDir(folder).filePath("sequence.partial.json"));
+    const QJsonObject consumer =
+        recovery.value("integrity").toObject().value("consumer_failures").toObject();
+    const QJsonArray failureRanges = consumer.value("ranges").toArray();
+    bool loggedHandoff = false;
+    for (const QString& warning : warnings) {
+        loggedHandoff |= warning.contains("handoff 1 - 1") ||
+                         warning.contains("handoff 1-1");
+    }
     return check(QFileInfo::exists(QDir(folder).filePath("sequence.partial.json")),
                  "Failed sequence must retain its recovery marker.") &&
            check(!QFileInfo::exists(QDir(folder).filePath("sequence.json")),
@@ -225,6 +349,17 @@ bool writeFailure() {
            check(state.savedFrameCount == 0 &&
                      state.integrity.consumerFailures.count == 1,
                  "Failed write must not count a frame and must record consumer failure.") &&
+           check(recovery.value("status") == "failed" &&
+                     recovery.value("stop_reason") == "consumer_failure" &&
+                     !recovery.value("error").toString().isEmpty() &&
+                     recovery.value("saved_frame_count").toInteger(-1) == 0,
+                 "Failed recovery marker must record factual failure state.") &&
+           check(consumer.value("count").toInteger(-1) == 1 &&
+                     failureRanges.size() == 1 &&
+                     failureRanges.at(0).toObject().value("first").toInteger(-1) == 1 &&
+                     failureRanges.at(0).toObject().value("last").toInteger(-1) == 1,
+                 "Failed recovery metadata must contain exact failed handoff 1-1.") &&
+           check(loggedHandoff, "Consumer diagnostics must identify failed handoff 1-1.") &&
            check(fixture.operations.snapshot().lifecycle == OperationLifecycle::Idle,
                  "Write failure must release its operation lock.");
 }
@@ -235,7 +370,8 @@ int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const auto previousHandler = qInstallMessageHandler(messageHandler);
     const bool ok = manualCompletion() && timedPauseCompletion() &&
-                    sourceGapCompletion() && startConflicts() && writeFailure();
+                    sourceGapCompletion() && pauseOfferRace() && zeroFrameFailure() &&
+                    startConflicts() && writeFailure();
     qInstallMessageHandler(previousHandler);
     return ok ? 0 : 1;
 }

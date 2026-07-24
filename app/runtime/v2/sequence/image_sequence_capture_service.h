@@ -41,9 +41,11 @@ struct ImageSequenceCaptureSnapshot {
 class ImageSequenceCaptureService final {
   public:
     using MonotonicNow = std::function<qint64()>;
+    using FrameConverter = std::function<QImage(const CameraFrame&, QString*)>;
 
     ImageSequenceCaptureService(CameraService& camera, OperationCoordinator& operations,
-                                MonotonicNow monotonicNow);
+                                MonotonicNow monotonicNow,
+                                FrameConverter frameConverter = {});
     ~ImageSequenceCaptureService();
 
     bool start(const ImageSequenceCaptureRequest& request, QString* error = nullptr);
@@ -58,7 +60,8 @@ class ImageSequenceCaptureService final {
     void consumeFrame(const QImage& image, const FrameMeta& meta, double fps,
                       std::uint64_t handoffId, LiveFrameDispatcher::Membership membership);
     bool stopWithReason(const QString& reason, QString* error);
-    bool failAndRelease(const QString& message, QString* error);
+    bool failAndRelease(const QString& message, const QString& stopReason, QString* error);
+    void updateFailedRecovery(const QString& stopReason, const QString& message);
     void refreshAsyncFailure();
     double activeElapsedLocked(qint64 now) const;
     SequenceIntegrity combinedIntegrity() const;
@@ -66,6 +69,7 @@ class ImageSequenceCaptureService final {
     CameraService& camera_;
     OperationCoordinator& operations_;
     MonotonicNow monotonicNow_;
+    FrameConverter frameConverter_;
 
     mutable std::mutex mutex_;
     OperationLease lease_;

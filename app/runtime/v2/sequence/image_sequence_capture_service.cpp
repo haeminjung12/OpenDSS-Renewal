@@ -11,6 +11,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QImageWriter>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QRegularExpression>
 #include <QTemporaryFile>
@@ -145,18 +146,41 @@ SequenceLossCategory category(const std::vector<LiveFrameDispatcher::Range>& ran
     return result;
 }
 
+QJsonObject categoryJson(const SequenceLossCategory& value) {
+    QJsonArray ranges;
+    for (const auto& range : value.ranges)
+        ranges.push_back(QJsonObject{{"first", range.first}, {"last", range.last}});
+    return QJsonObject{{"count", value.count}, {"ranges", ranges}};
+}
+
+QJsonObject integrityJson(const SequenceIntegrity& value) {
+    return QJsonObject{
+        {"source_frame_gaps", categoryJson(value.sourceFrameGaps)},
+        {"queue_rejections", categoryJson(value.queueRejections)},
+        {"consumer_failures", categoryJson(value.consumerFailures)},
+    };
+}
+
 } // namespace
 
 ImageSequenceCaptureService::ImageSequenceCaptureService(CameraService& camera,
                                                          OperationCoordinator& operations,
-                                                         MonotonicNow monotonicNow)
+                                                         MonotonicNow monotonicNow,
+                                                         FrameConverter frameConverter)
     : camera_(camera),
       operations_(operations),
       monotonicNow_(std::move(monotonicNow)),
+      frameConverter_(std::move(frameConverter)),
       dispatcher_([this](const QImage& image, const FrameMeta& meta, double fps,
                          std::uint64_t handoffId, LiveFrameDispatcher::Membership membership) {
           consumeFrame(image, meta, fps, handoffId, membership);
-      }) {}
+      }) {
+    if (!frameConverter_) {
+        frameConverter_ = [](const CameraFrame& frame, QString* error) {
+            return convertCameraFrame(frame, error);
+        };
+    }
+}
 
 ImageSequenceCaptureService::~ImageSequenceCaptureService() = default;
 
@@ -254,19 +278,25 @@ bool ImageSequenceCaptureService::offerFrame(const CameraFrame& frame, double no
     if (frame.deliveryId >
         static_cast<quint64>((std::numeric_limits<qint64>::max)())) {
         return failAndRelease(QStringLiteral("Camera delivery ID is outside the supported range."),
-                              error);
+                              QStringLiteral("delivery_error"), error);
     }
     QString conversionError;
-    const QImage image = convertCameraFrame(frame, &conversionError);
+    const QImage image = frameConverter_(frame, &conversionError);
     if (image.isNull())
-        return failAndRelease(conversionError, error);
+        return failAndRelease(conversionError, QStringLiteral("conversion_error"), error);
     if (!std::isfinite(nominalFps) || nominalFps <= 0.0)
-        return failAndRelease(QStringLiteral("Frame rate must be finite and positive."), error);
+        return failAndRelease(QStringLiteral("Frame rate must be finite and positive."),
+                              QStringLiteral("frame_rate_error"), error);
 
     FrameMeta meta;
     bool nonIncreasingDelivery = false;
+    LiveFrameDispatcher::OfferResult result;
     {
         std::lock_guard lock(mutex_);
+        if (lifecycle_ != OperationLifecycle::Running || !acceptingOffers_) {
+            setError(error, QStringLiteral("Image Sequence is not accepting frames."));
+            return false;
+        }
         nonIncreasingDelivery =
             lastSourceDelivery_ && frame.deliveryId <= *lastSourceDelivery_;
         if (!nonIncreasingDelivery && lastSourceDelivery_ &&
@@ -283,21 +313,22 @@ bool ImageSequenceCaptureService::offerFrame(const CameraFrame& frame, double no
         meta.bits = frame.bitDepth;
         meta.frameIndex = static_cast<qint64>(frame.deliveryId);
         meta.delivered = dispatcherDelivery_ + 1;
+        if (!nonIncreasingDelivery) {
+            LiveFrameDispatcher::Membership membership;
+            membership.collection = true;
+            membership.sequenceRunning = true;
+            result = dispatcher_.offer(image, meta, nominalFps, membership);
+            if (result.accepted) {
+                dispatcherDelivery_ = meta.delivered;
+                lastAcceptedHandoff_ = result.handoffId;
+            }
+        }
     }
     if (nonIncreasingDelivery)
-        return failAndRelease(QStringLiteral("Camera delivery IDs must increase."), error);
-
-    LiveFrameDispatcher::Membership membership;
-    membership.collection = true;
-    membership.sequenceRunning = true;
-    const auto result = dispatcher_.offer(image, meta, nominalFps, membership);
-    std::lock_guard lock(mutex_);
-    if (result.accepted) {
-        dispatcherDelivery_ = meta.delivered;
-        lastAcceptedHandoff_ = result.handoffId;
-    } else {
+        return failAndRelease(QStringLiteral("Camera delivery IDs must increase."),
+                              QStringLiteral("delivery_error"), error);
+    if (!result.accepted)
         qWarning().noquote() << "Image Sequence queue rejected handoff" << result.handoffId;
-    }
     return true;
 }
 
@@ -370,7 +401,7 @@ ImageSequenceCaptureSnapshot ImageSequenceCaptureService::snapshot() {
 }
 
 void ImageSequenceCaptureService::consumeFrame(const QImage& image, const FrameMeta& meta,
-                                               double fps, std::uint64_t,
+                                               double fps, std::uint64_t handoffId,
                                                LiveFrameDispatcher::Membership) {
     QString target;
     {
@@ -379,7 +410,8 @@ void ImageSequenceCaptureService::consumeFrame(const QImage& image, const FrameM
             (meta.width != imageWidth_ || meta.height != imageHeight_ ||
              meta.bits != bitDepth_ || fps != nominalFps_)) {
             error_ = QStringLiteral("Image Sequence frame format changed during capture.");
-            qWarning().noquote() << error_;
+            qWarning().noquote() << error_ << "Failed handoff" << handoffId << "-"
+                                 << handoffId;
             throw std::runtime_error("frame format mismatch");
         }
         target = QDir(framesFolder_)
@@ -390,7 +422,8 @@ void ImageSequenceCaptureService::consumeFrame(const QImage& image, const FrameM
     if (!writeTiffWithoutReplace(image, target, &writeError)) {
         std::lock_guard lock(mutex_);
         error_ = writeError;
-        qWarning().noquote() << "Image Sequence consumer failure:" << error_;
+        qWarning().noquote() << "Image Sequence consumer failure at handoff" << handoffId
+                             << "-" << handoffId << ":" << error_;
         throw std::runtime_error("frame write failure");
     }
     std::lock_guard lock(mutex_);
@@ -434,37 +467,44 @@ bool ImageSequenceCaptureService::stopWithReason(const QString& reason, QString*
             message = error_.isEmpty() ? QStringLiteral("Image Sequence frame writing failed.")
                                        : error_;
         }
-        return failAndRelease(message, error);
+        return failAndRelease(message, QStringLiteral("consumer_failure"), error);
     }
 
     SequenceManifestData manifest;
+    bool noFrames = false;
     {
         std::lock_guard lock(mutex_);
-        manifest.sequenceId = sequenceId_;
-        manifest.name = displayName_;
-        manifest.experimentType = request_.experimentType;
-        manifest.notes = request_.notes;
-        manifest.status = QStringLiteral("completed");
-        manifest.createdAt = createdAt_;
-        manifest.startedAt = startedAt_;
-        manifest.endedAt = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
-        manifest.requestedDurationSeconds = request_.durationSeconds;
-        manifest.stopReason = reason;
-        manifest.opendssVersion = request_.opendssVersion;
-        manifest.frameCount = savedFrameCount_;
-        manifest.cameraSettings = request_.cameraSettings;
-        manifest.imageWidth = imageWidth_;
-        manifest.imageHeight = imageHeight_;
-        manifest.bitDepth = bitDepth_;
-        manifest.nominalFps = nominalFps_;
-        manifest.integrity = combinedIntegrity();
+        noFrames = savedFrameCount_ == 0;
+        if (!noFrames) {
+            manifest.sequenceId = sequenceId_;
+            manifest.name = displayName_;
+            manifest.experimentType = request_.experimentType;
+            manifest.notes = request_.notes;
+            manifest.status = QStringLiteral("completed");
+            manifest.createdAt = createdAt_;
+            manifest.startedAt = startedAt_;
+            manifest.endedAt = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
+            manifest.requestedDurationSeconds = request_.durationSeconds;
+            manifest.stopReason = reason;
+            manifest.opendssVersion = request_.opendssVersion;
+            manifest.frameCount = savedFrameCount_;
+            manifest.cameraSettings = request_.cameraSettings;
+            manifest.imageWidth = imageWidth_;
+            manifest.imageHeight = imageHeight_;
+            manifest.bitDepth = bitDepth_;
+            manifest.nominalFps = nominalFps_;
+            manifest.integrity = combinedIntegrity();
+        }
     }
+    if (noFrames)
+        return failAndRelease(QStringLiteral("No frames were captured."), reason, error);
     QString manifestError;
     const QString manifestPath = QDir(folder_).filePath(QStringLiteral("sequence.json"));
     if (!SequenceManifestV2::save(manifestPath, manifest, &manifestError))
-        return failAndRelease(manifestError, error);
+        return failAndRelease(manifestError, QStringLiteral("manifest_error"), error);
     if (!QFile::remove(partialPath_))
-        return failAndRelease(QStringLiteral("The recovery marker could not be removed."), error);
+        return failAndRelease(QStringLiteral("The recovery marker could not be removed."),
+                              QStringLiteral("recovery_marker_error"), error);
 
     std::lock_guard lock(mutex_);
     lease_.transition(OperationLifecycle::Completed);
@@ -473,19 +513,63 @@ bool ImageSequenceCaptureService::stopWithReason(const QString& reason, QString*
     return true;
 }
 
-bool ImageSequenceCaptureService::failAndRelease(const QString& message, QString* error) {
+bool ImageSequenceCaptureService::failAndRelease(const QString& message,
+                                                 const QString& stopReason,
+                                                 QString* error) {
     dispatcher_.closeCollectionBoundary();
     dispatcher_.stopAndDrain();
-    std::lock_guard lock(mutex_);
-    error_ = message;
-    acceptingOffers_ = false;
-    if (lease_.isValid()) {
-        lease_.transition(OperationLifecycle::Failed);
-        lease_.release();
+    {
+        std::lock_guard lock(mutex_);
+        error_ = message;
+        acceptingOffers_ = false;
+        if (activeStartedNs_) {
+            activeElapsedNs_ +=
+                (std::max)(qint64(0), monotonicNow_() - *activeStartedNs_);
+            activeStartedNs_.reset();
+        }
+        if (lease_.isValid()) {
+            lease_.transition(OperationLifecycle::Failed);
+            lease_.release();
+        }
+        lifecycle_ = OperationLifecycle::Failed;
     }
-    lifecycle_ = OperationLifecycle::Failed;
+    updateFailedRecovery(stopReason, message);
     setError(error, message);
     return false;
+}
+
+void ImageSequenceCaptureService::updateFailedRecovery(const QString& stopReason,
+                                                       const QString& message) {
+    QString partialPath;
+    QString sequenceId;
+    QString createdAt;
+    qint64 savedCount = 0;
+    SequenceIntegrity integrity;
+    {
+        std::lock_guard lock(mutex_);
+        partialPath = partialPath_;
+        sequenceId = sequenceId_;
+        createdAt = createdAt_;
+        savedCount = savedFrameCount_;
+        integrity = combinedIntegrity();
+    }
+    if (partialPath.isEmpty())
+        return;
+    QString recoveryError;
+    if (!desktop_app::writeJsonObjectAtomically(
+            partialPath,
+            QJsonObject{{"schema_version", "opendss.sequence.partial.v1"},
+                        {"sequence_id", sequenceId},
+                        {"status", "failed"},
+                        {"created_at", createdAt},
+                        {"updated_at", QDateTime::currentDateTime().toString(Qt::ISODateWithMs)},
+                        {"stop_reason", stopReason},
+                        {"error", message},
+                        {"saved_frame_count", savedCount},
+                        {"integrity", integrityJson(integrity)}},
+            &recoveryError)) {
+        qWarning().noquote() << "Image Sequence failed recovery update:" << recoveryError;
+    }
 }
 
 void ImageSequenceCaptureService::refreshAsyncFailure() {
@@ -501,7 +585,7 @@ void ImageSequenceCaptureService::refreshAsyncFailure() {
         message = error_.isEmpty() ? QStringLiteral("Image Sequence frame writing failed.") : error_;
     }
     if (active)
-        failAndRelease(message, nullptr);
+        failAndRelease(message, QStringLiteral("consumer_failure"), nullptr);
 }
 
 double ImageSequenceCaptureService::activeElapsedLocked(qint64 now) const {

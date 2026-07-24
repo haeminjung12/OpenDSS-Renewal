@@ -13,8 +13,12 @@
 #include <QTemporaryDir>
 
 #include <cstdlib>
+#include <condition_variable>
 #include <functional>
 #include <iostream>
+#include <mutex>
+#include <stdexcept>
+#include <thread>
 #include <utility>
 
 using namespace desktop_app::v2;
@@ -226,7 +230,7 @@ void classBasedModel() {
             "Class-Based prediction, decision, route, or timing is incorrect.");
 }
 
-void skipsAndStops() {
+void artifactDamageFails() {
     QTemporaryDir temporary;
     const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
     const QString output = QDir(temporary.path()).filePath("runs");
@@ -237,10 +241,37 @@ void skipsAndStops() {
     OperationCoordinator operations;
     sequence_test::SequenceTestService service(operations, detector, nullptr);
     QString error;
-    require(service.run(request(manifest, output), &error), qPrintable(error));
-    require(hashFile(framePath(sequenceRoot, 1)) == frameOne,
-            "Skipped-frame processing changed its source.");
+    require(!service.run(request(manifest, output), &error) &&
+                error.contains(QStringLiteral("frame 2")) &&
+                loadRun(output).status == run::RunStatus::Failed &&
+                loadRun(output).stopReason == QStringLiteral("missing_frame_2") &&
+                QFileInfo(QDir(output).filePath("Run/events.partial.csv")).isFile() &&
+                QFileInfo(QDir(output)
+                              .filePath("Run/run_summary.partial.json"))
+                    .isFile() &&
+                hashFile(framePath(sequenceRoot, 1)) == frameOne &&
+                !operations.snapshot().kind,
+            "Missing frame did not preserve a factual failed Run.");
 
+    QTemporaryDir corruptTemporary;
+    const QString corruptRoot =
+        QDir(corruptTemporary.path()).filePath("sequence");
+    const QString corruptOutput = QDir(corruptTemporary.path()).filePath("runs");
+    require(QDir().mkpath(corruptOutput), "Could not create corrupt output.");
+    const QString corruptManifest = makeSequence(corruptRoot, 1, {}, {1});
+    const QByteArray corruptHash = hashFile(framePath(corruptRoot, 1));
+    OperationCoordinator corruptOperations;
+    sequence_test::SequenceTestService corruptService(corruptOperations, detector, nullptr);
+    require(!corruptService.run(request(corruptManifest, corruptOutput), &error) &&
+                error.contains(QStringLiteral("frame 1")) &&
+                loadRun(corruptOutput).status == run::RunStatus::Failed &&
+                loadRun(corruptOutput).stopReason == QStringLiteral("corrupt_frame_1") &&
+                hashFile(framePath(corruptRoot, 1)) == corruptHash &&
+                !corruptOperations.snapshot().kind,
+            "Corrupt frame did not preserve a factual failed Run.");
+}
+
+void stopAndSingleRunGuard() {
     QTemporaryDir stoppedTemp;
     const QString stoppedSequence = QDir(stoppedTemp.path()).filePath("sequence");
     const QString stoppedOutput = QDir(stoppedTemp.path()).filePath("runs");
@@ -250,15 +281,42 @@ void skipsAndStops() {
     OperationCoordinator stoppingOperations;
     sequence_test::SequenceTestService stoppingService(stoppingOperations,
                                                        stoppingDetector, nullptr);
-    stoppingDetector.onProcess = [&](int index) {
-        if (index == 0)
-            stoppingService.requestStop();
+    std::mutex mutex;
+    std::condition_variable enteredCondition;
+    std::condition_variable releaseCondition;
+    bool entered = false;
+    bool release = false;
+    stoppingDetector.onProcess = [&](int) {
+        std::unique_lock lock(mutex);
+        entered = true;
+        enteredCondition.notify_one();
+        releaseCondition.wait(lock, [&] { return release; });
     };
-    require(stoppingService.run(request(stoppedManifest, stoppedOutput), &error),
-            qPrintable(error));
+    bool firstResult = false;
+    QString firstError;
+    std::thread first([&] {
+        firstResult =
+            stoppingService.run(request(stoppedManifest, stoppedOutput), &firstError);
+    });
+    {
+        std::unique_lock lock(mutex);
+        enteredCondition.wait(lock, [&] { return entered; });
+    }
+    stoppingService.requestStop();
+    QString secondError;
+    require(!stoppingService.run(request(stoppedManifest, stoppedOutput), &secondError) &&
+                secondError.contains(QStringLiteral("already running")),
+            "Concurrent run was not rejected.");
+    {
+        std::lock_guard lock(mutex);
+        release = true;
+    }
+    releaseCondition.notify_one();
+    first.join();
+    require(firstResult, qPrintable(firstError));
     require(loadRun(stoppedOutput).status == run::RunStatus::Interrupted &&
                 !stoppingOperations.snapshot().kind,
-            "Stop did not finalize interrupted or release the lock.");
+            "Concurrent rejection cleared a pending Stop or retained the lock.");
 }
 
 void rejectsUnsafeRequests() {
@@ -281,17 +339,83 @@ void rejectsUnsafeRequests() {
     require(!service.run(classBased, &error) && !operations.snapshot().kind,
             "Class-Based request without Active Model was accepted.");
 
-    QTemporaryDir failedTemp;
-    const QString failedSequence = QDir(failedTemp.path()).filePath("sequence");
-    const QString failedOutput = QDir(failedTemp.path()).filePath("runs");
-    require(QDir().mkpath(failedOutput), "Could not create failure output.");
-    const QString failedManifest = makeSequence(failedSequence, 1, {}, {1});
-    require(!service.run(request(failedManifest, failedOutput), &error) &&
-                !operations.snapshot().kind &&
-                QFileInfo(QDir(failedOutput)
-                              .filePath("Run/run_summary.json"))
-                    .isFile(),
-            "Processing failure did not preserve a failed Run and release its lock.");
+    auto storage = operations.acquireMomentary(ResourceLock::Storage);
+    auto invalidSource = request(QDir(temporary.path()).filePath("missing.json"), output);
+    require(storage.acquired() && !service.run(invalidSource, &error) &&
+                error.contains(QStringLiteral("resource"), Qt::CaseInsensitive),
+            "Storage was not acquired before reading the Sequence.");
+    storage.lease.release();
+
+    bool providerCalled = false;
+    sequence_test::ModelProvider provider = [&](QString*) {
+        providerCalled = true;
+        return std::optional<sequence_test::PreparedModel>{};
+    };
+    sequence_test::SequenceTestService modeledService(operations, detector, nullptr,
+                                                      provider);
+    auto modelLock = operations.acquireMomentary(ResourceLock::Model);
+    auto modeled = request(manifest, output);
+    modeled.triggerMode = run::TriggerMode::ClassBased;
+    modeled.useActiveModel = true;
+    modeled.hitClassId = QStringLiteral("c0");
+    require(modelLock.acquired() && !modeledService.run(modeled, &error) &&
+                !providerCalled,
+            "Model was prepared before acquiring its resource lock.");
+    modelLock.lease.release();
+}
+
+void exceptionRecovery() {
+    QTemporaryDir providerTemporary;
+    const QString providerSequence =
+        QDir(providerTemporary.path()).filePath("sequence");
+    const QString providerOutput = QDir(providerTemporary.path()).filePath("runs");
+    require(QDir().mkpath(providerOutput), "Could not create provider output.");
+    const QString providerManifest = makeSequence(providerSequence, 1, {1});
+    FakeDetector providerDetector;
+    OperationCoordinator providerOperations;
+    sequence_test::ModelProvider throwingProvider = [](QString*)
+        -> std::optional<sequence_test::PreparedModel> {
+        throw std::runtime_error("provider boom");
+    };
+    sequence_test::SequenceTestService providerService(
+        providerOperations, providerDetector, nullptr, throwingProvider);
+    auto modeled = request(providerManifest, providerOutput);
+    modeled.triggerMode = run::TriggerMode::ClassBased;
+    modeled.useActiveModel = true;
+    modeled.hitClassId = QStringLiteral("c0");
+    QString error;
+    require(!providerService.run(modeled, &error) &&
+                error.contains(QStringLiteral("provider boom")) &&
+                !providerOperations.snapshot().kind &&
+                !QFileInfo(QDir(providerOutput).filePath("Run")).exists(),
+            "Provider exception escaped or retained resources.");
+
+    QTemporaryDir detectorTemporary;
+    const QString detectorSequence =
+        QDir(detectorTemporary.path()).filePath("sequence");
+    const QString detectorOutput = QDir(detectorTemporary.path()).filePath("runs");
+    require(QDir().mkpath(detectorOutput), "Could not create detector output.");
+    const QString detectorManifest = makeSequence(detectorSequence, 1, {1});
+    FakeDetector throwingDetector;
+    throwingDetector.onProcess = [](int) {
+        throw std::runtime_error("detector boom");
+    };
+    OperationCoordinator detectorOperations;
+    sequence_test::SequenceTestService detectorService(
+        detectorOperations, throwingDetector, nullptr);
+    require(!detectorService.run(request(detectorManifest, detectorOutput), &error) &&
+                error.contains(QStringLiteral("detector boom")) &&
+                loadRun(detectorOutput).status == run::RunStatus::Failed &&
+                loadRun(detectorOutput).stopReason ==
+                    QStringLiteral("processing_exception") &&
+                QFileInfo(QDir(detectorOutput)
+                              .filePath("Run/events.partial.csv"))
+                    .isFile() &&
+                QFileInfo(QDir(detectorOutput)
+                              .filePath("Run/run_summary.partial.json"))
+                    .isFile() &&
+                !detectorOperations.snapshot().kind,
+            "Detector exception did not preserve failed Run recovery.");
 }
 
 } // namespace
@@ -300,7 +424,9 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     noModelEveryDroplet();
     classBasedModel();
-    skipsAndStops();
+    artifactDamageFails();
+    stopAndSingleRunGuard();
     rejectsUnsafeRequests();
+    exceptionRecovery();
     return 0;
 }

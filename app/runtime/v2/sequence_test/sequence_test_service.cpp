@@ -159,6 +159,15 @@ struct PendingEvent {
         : route(std::move(boundary)) {}
 };
 
+class RunningGuard final {
+public:
+    explicit RunningGuard(std::atomic_bool& running) : running_(running) {}
+    ~RunningGuard() { running_.store(false, std::memory_order_release); }
+
+private:
+    std::atomic_bool& running_;
+};
+
 } // namespace
 
 SequenceTestService::SequenceTestService(OperationCoordinator& operations,
@@ -176,7 +185,40 @@ void SequenceTestService::requestStop() noexcept {
 
 bool SequenceTestService::run(const SequenceTestRequest& request, QString* error) {
     setError(error, {});
+    bool expected = false;
+    if (!running_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+        setError(error, QStringLiteral("This Sequence Test is already running."));
+        return false;
+    }
+    RunningGuard runningGuard(running_);
     stopRequested_.store(false, std::memory_order_release);
+    std::optional<run::RunWriterV2> writer;
+    OperationLease lease;
+    QElapsedTimer elapsed;
+    qint64 readableFrames = 0;
+    const auto failFromException = [&](const QString& message) {
+        const double seconds =
+            elapsed.isValid()
+                ? static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0
+                : 0.0;
+        const double achievedFps =
+            seconds > 0.0 && readableFrames > 0 ? readableFrames / seconds : 0.0;
+        if (writer) {
+            try {
+                writer->finalize(
+                    run::RunStatus::Failed,
+                    QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
+                    QStringLiteral("processing_exception"), achievedFps, nullptr);
+            } catch (...) {
+            }
+        }
+        if (lease.isValid())
+            lease.transition(OperationLifecycle::Failed);
+        setError(error, message);
+        return false;
+    };
+
+    try {
     if (request.physicalDaqOutputEnabled) {
         setError(error, QStringLiteral("Physical DAQ Output is not available in this Sequence Test."));
         return false;
@@ -202,9 +244,32 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         return false;
     }
 
+    const QFileInfo outputRoot(request.outputRoot);
+    if (!outputRoot.isDir() || !outputRoot.isWritable()) {
+        setError(error, QStringLiteral("The output root must be a writable directory."));
+        return false;
+    }
+
+    ResourceLocks locks =
+        ResourceLock::Sequence | ResourceLock::Run | ResourceLock::Storage;
+    if (useModel)
+        locks |= ResourceLock::Model;
+    auto acquired = operations_.acquire(OperationKind::SequenceTest, locks);
+    if (!acquired.acquired()) {
+        setError(error, acquired.fault ? acquired.fault->reason
+                                      : QStringLiteral("Sequence Test resources are in use."));
+        return false;
+    }
+    lease = std::move(acquired.lease);
+    if (!lease.transition(OperationLifecycle::Running)) {
+        setError(error, QStringLiteral("Sequence Test could not enter Running state."));
+        return false;
+    }
+
     QString localError;
     auto sequence = sequence::SequenceManifestV2::load(request.sequenceJson, &localError);
     if (!sequence) {
+        lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
         return false;
     }
@@ -214,12 +279,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         !std::isfinite(request.hitBoundary.boundaryY) ||
         request.hitBoundary.boundaryY < 0.0 ||
         request.hitBoundary.boundaryY >= request.hitBoundary.imageHeight) {
+        lease.transition(OperationLifecycle::Failed);
         setError(error, QStringLiteral("Hit boundary dimensions do not match the Sequence."));
-        return false;
-    }
-    const QFileInfo outputRoot(request.outputRoot);
-    if (!outputRoot.isDir() || !outputRoot.isWritable()) {
-        setError(error, QStringLiteral("The output root must be a writable directory."));
         return false;
     }
 
@@ -230,6 +291,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                     : (modelLoader_ ? prepareProductionModel(*modelLoader_, &localError)
                                     : std::nullopt);
         if (!model || !validModel(*model)) {
+            lease.transition(OperationLifecycle::Failed);
             setError(error, localError.isEmpty()
                                 ? QStringLiteral("The Active Model is unavailable or invalid.")
                                 : localError);
@@ -240,24 +302,10 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                          [&](const run::RunClassSnapshot& cls) {
                              return cls.id == *request.hitClassId;
                          })) {
+            lease.transition(OperationLifecycle::Failed);
             setError(error, QStringLiteral("Hit Class is not present in the Active Model."));
             return false;
         }
-    }
-
-    ResourceLocks locks = ResourceLock::Sequence | ResourceLock::Run;
-    if (useModel)
-        locks |= ResourceLock::Model;
-    auto acquired = operations_.acquire(OperationKind::SequenceTest, locks);
-    if (!acquired.acquired()) {
-        setError(error, acquired.fault ? acquired.fault->reason
-                                      : QStringLiteral("Sequence Test resources are in use."));
-        return false;
-    }
-    OperationLease lease = std::move(acquired.lease);
-    if (!lease.transition(OperationLifecycle::Running)) {
-        setError(error, QStringLiteral("Sequence Test could not enter Running state."));
-        return false;
     }
 
     const QString runFolder = uniqueRunFolder(request.outputRoot, request.runName);
@@ -284,7 +332,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     data.hitBoundary = request.hitBoundary;
     data.requestedProcessingFps = request.requestedProcessingFps;
 
-    auto writer = run::RunWriterV2::start(runFolder, data, &localError);
+    writer = run::RunWriterV2::start(runFolder, data, &localError);
     if (!writer) {
         lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
@@ -302,12 +350,11 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     }
 
     detector_.reset();
-    QElapsedTimer elapsed;
     elapsed.start();
-    qint64 readableFrames = 0;
     qint64 missingFrames = 0;
     qint64 corruptFrames = 0;
     qint64 eventNumber = 0;
+    QString failureReason = QStringLiteral("processing_failed");
     std::optional<PendingEvent> pending;
 
     const auto finalizePending = [&]() -> bool {
@@ -331,14 +378,25 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                               .arg(frameIndex, 8, 10, QLatin1Char('0')));
         if (!QFileInfo(framePath).isFile()) {
             ++missingFrames;
-            continue;
+            localError =
+                QStringLiteral("Sequence frame %1 is missing.").arg(frameIndex);
+            failureReason =
+                QStringLiteral("missing_frame_%1").arg(frameIndex);
+            processingOk = false;
+            break;
         }
         QImageReader reader(framePath, "TIFF");
         QImage image = reader.read();
         if (image.isNull() || image.width() != sequenceData.imageWidth ||
             image.height() != sequenceData.imageHeight) {
             ++corruptFrames;
-            continue;
+            localError =
+                QStringLiteral("Sequence frame %1 is corrupt or has invalid dimensions.")
+                    .arg(frameIndex);
+            failureReason =
+                QStringLiteral("corrupt_frame_%1").arg(frameIndex);
+            processingOk = false;
+            break;
         }
         image = image.convertToFormat(QImage::Format_Grayscale8);
         cv::Mat frame(image.height(), image.width(), CV_8UC1, image.bits(),
@@ -432,7 +490,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
             localError = QStringLiteral("The Sequence contained no readable frames.");
         writer->finalize(run::RunStatus::Failed,
                          QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
-                         QStringLiteral("processing_failed"), achievedFps, nullptr);
+                         failureReason, achievedFps, nullptr);
         lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
         return false;
@@ -451,6 +509,13 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     lease.transition(stopped ? OperationLifecycle::Interrupted
                              : OperationLifecycle::Completed);
     return true;
+    } catch (const std::exception& exception) {
+        return failFromException(
+            QStringLiteral("Sequence Test failed: %1").arg(exception.what()));
+    } catch (...) {
+        return failFromException(
+            QStringLiteral("Sequence Test failed with an unknown exception."));
+    }
 }
 
 } // namespace desktop_app::v2::sequence_test

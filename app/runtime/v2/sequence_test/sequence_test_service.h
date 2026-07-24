@@ -66,6 +66,7 @@ private:
     IDropletDetector& detector_;
     ModelLoadService* modelLoader_;
     ModelProvider modelProvider_;
+    std::atomic_bool running_{false};
     std::atomic_bool stopRequested_{false};
 };
 

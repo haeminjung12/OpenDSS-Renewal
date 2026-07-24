@@ -81,6 +81,15 @@ void ApplicationStateStore::publishRun(RunState state)
     emit changed();
 }
 
+void ApplicationStateStore::publishResults(ResultsState state)
+{
+    {
+        QWriteLocker locker(&lock_);
+        snapshot_.results = std::move(state);
+    }
+    emit changed();
+}
+
 void ApplicationStateStore::publishPreferences(PreferencesState state)
 {
     {

@@ -23,6 +23,7 @@ public:
     void publishSequence(SequenceState state);
     void publishTraining(TrainingState state);
     void publishRun(RunState state);
+    void publishResults(ResultsState state);
     void publishPreferences(PreferencesState state);
 
 signals:

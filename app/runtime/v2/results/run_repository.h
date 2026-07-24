@@ -7,12 +7,16 @@
 
 #include <optional>
 
-namespace desktop_app::v2::results {
+namespace desktop_app::v2 {
 
-struct RunSummary {
+class ApplicationStateStore;
+
+namespace results {
+
+struct RunEntry {
+    QString id;
     QString summaryPath;
     QString runFolderPath;
-    QString runId;
     QString runName;
     run::RunOperation operation = run::RunOperation::SequenceTest;
     QString experimentType;
@@ -26,20 +30,38 @@ struct RunSummary {
     QString eventsPath;
     QString cropsPath;
     std::optional<QString> sequencePath;
+    QString sequenceReason;
+    QString reason;
+    bool loadable = false;
+    bool recoverable = false;
+};
+
+struct LoadedRun {
+    RunEntry entry;
+    run::RunManifestV2 manifest;
 };
 
 class RunRepository {
   public:
-    // Invalid candidate Runs are skipped. When any are skipped, error contains
-    // newline-separated diagnostics while valid Runs are still returned.
-    static QVector<RunSummary> discover(const QString& dataRoot,
-                                        QString* error = nullptr);
+    explicit RunRepository(ApplicationStateStore& stateStore);
 
-    static std::optional<run::RunManifestV2> load(const QString& summaryPath,
-                                                  QString* error = nullptr);
+    bool refresh(const QString& dataRoot, QString* error = nullptr);
+    bool selectRun(const QString& id);
+    bool loadSelected(QString* error = nullptr);
+    bool updateLoadedNotes(const QString& notes, QString* error = nullptr);
 
-    static bool updateNotes(const QString& summaryPath, const QString& notes,
-                            QString* error = nullptr);
+    const QVector<RunEntry>& entries() const noexcept;
+    const QString& selectedRunId() const noexcept;
+    const std::optional<LoadedRun>& loadedRun() const noexcept;
+
+  private:
+    void publish(const QString& loadError = {});
+
+    ApplicationStateStore& stateStore_;
+    QVector<RunEntry> entries_;
+    QString selectedRunId_;
+    std::optional<LoadedRun> loadedRun_;
 };
 
-} // namespace desktop_app::v2::results
+} // namespace results
+} // namespace desktop_app::v2

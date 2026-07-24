@@ -42,6 +42,8 @@ int main(int argc, char **argv)
         {QStringLiteral("training-1"), TrainingStatus::Running, {}});
     store.publishRun(
         {QStringLiteral("run-1"), QStringLiteral("C:/data/run"), RunStatus::Open, {}});
+    store.publishResults(
+        {QStringLiteral("selected-run"), QStringLiteral("loaded-run"), {}});
     store.publishPreferences({QStringLiteral("C:/OpenDSS"), 125});
 
     const ApplicationSnapshot first = store.snapshot();
@@ -55,16 +57,28 @@ int main(int argc, char **argv)
         || first.training.status != TrainingStatus::Running
         || first.training.executionId != QStringLiteral("training-1")
         || first.run.status != RunStatus::Open || first.run.runId != QStringLiteral("run-1")
+        || first.results.selectedRunId != QStringLiteral("selected-run")
+        || first.results.loadedRunId != QStringLiteral("loaded-run")
         || first.preferences.storageRoot != QStringLiteral("C:/OpenDSS")
-        || first.preferences.textSizePercent != 125 || changedCount != 8) {
+        || first.preferences.textSizePercent != 125 || changedCount != 9) {
         return fail(1, "Publishing every domain did not produce one aggregate value snapshot.");
+    }
+
+    store.publishResults(
+        {QStringLiteral("selected-run-2"), QStringLiteral("loaded-run-2"),
+         QStringLiteral("load failed")});
+    if (first.results.selectedRunId != QStringLiteral("selected-run")
+        || store.snapshot().run.runId != QStringLiteral("run-1")
+        || store.snapshot().run.status != RunStatus::Open) {
+        return fail(2, "Results publication altered the independent Run state.");
     }
 
     store.publishDataset(
         {QStringLiteral("dataset-2"), QStringLiteral("D:/data/dataset.json"), true, {}});
     if (first.dataset.datasetId != QStringLiteral("dataset-1")
+        || first.results.selectedRunId != QStringLiteral("selected-run")
         || store.snapshot().dataset.datasetId != QStringLiteral("dataset-2")) {
-        return fail(2, "A returned snapshot was not an independent value copy.");
+        return fail(3, "A returned snapshot was not an independent value copy.");
     }
 
     std::thread publisher([&store] {
@@ -73,8 +87,11 @@ int main(int argc, char **argv)
     publisher.join();
     const ApplicationSnapshot threaded = store.snapshot();
     if (threaded.preferences.storageRoot != QStringLiteral("D:/OpenDSS")
-        || threaded.preferences.textSizePercent != 150 || changedCount != 10) {
-        return fail(3, "Threaded publication did not safely update the value snapshot.");
+        || threaded.preferences.textSizePercent != 150
+        || threaded.run.status != RunStatus::Open
+        || threaded.results.loadedRunId != QStringLiteral("loaded-run-2")
+        || changedCount != 12) {
+        return fail(4, "Threaded publication did not safely update the value snapshot.");
     }
 
     return 0;

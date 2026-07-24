@@ -79,6 +79,12 @@ struct RunState {
     QString fault;
 };
 
+struct ResultsState {
+    QString selectedRunId;
+    QString loadedRunId;
+    QString loadError;
+};
+
 struct PreferencesState {
     QString storageRoot;
     int textSizePercent = 100;
@@ -92,6 +98,7 @@ struct ApplicationSnapshot {
     SequenceState sequence;
     TrainingState training;
     RunState run;
+    ResultsState results;
     PreferencesState preferences;
 };
 

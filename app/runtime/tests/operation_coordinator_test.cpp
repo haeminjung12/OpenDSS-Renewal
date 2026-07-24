@@ -373,6 +373,20 @@ int main(int argc, char **argv)
         return fail(32, "A lexical Model package alias did not resolve to the same identity.");
     modelAliasRead.lease.release();
 
+    auto modelWriteA1 = coordinator.acquireModel(modelFolderA, ModelAccess::Write);
+    auto modelAliasWriteConflict =
+        coordinator.acquireModel(modelAliasA, ModelAccess::Write);
+    if (!modelWriteA1.acquired() || modelAliasWriteConflict.acquired()
+        || !modelAliasWriteConflict.fault) {
+        return fail(46, "Equivalent Model package identities allowed concurrent writers.");
+    }
+    modelWriteA1.lease.release();
+    auto modelAliasWriteAfterRelease =
+        coordinator.acquireModel(modelAliasA, ModelAccess::Write);
+    if (!modelAliasWriteAfterRelease.acquired())
+        return fail(47, "Model package write could not reacquire after release.");
+    modelAliasWriteAfterRelease.lease.release();
+
 #ifdef Q_OS_WIN
     auto modelCaseRead =
         coordinator.acquireModel(modelFolderA.toUpper(), ModelAccess::Read);

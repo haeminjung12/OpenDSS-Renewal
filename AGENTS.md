@@ -350,6 +350,7 @@ For v2 implementation work:
 - A primary OpenDSS thread explicitly assigned visual, design, or graphics ownership must load the repository-local `opendss-orchestrator` skill first, then `opendss-design-orchestrator`, plus the Qt skills required by **Qt skill routing**.
 - Declare one role lock and retain it for the thread lifetime. Change it only when the user explicitly reassigns the role.
 - These role skills do not apply to `opendss-worker` or `opendss-reviewer` agents.
+- Mock ownership is path-specific: design may own only explicitly named design-time files in the generated project's `MockDatas/` folder (or another exact design-only path named by authority); functional may own `app/runtime/Desktop_app_v2/Desktop_app_v2/MockAppState.qml` and other runtime/mock backbone state only when an exact work order names them. The word `mock` alone assigns no ownership; pause and consult the user for another or uncertain path.
 - Base orchestrator rules and canonical authority always win.
 
 ## Lean implementation rules
@@ -384,6 +385,6 @@ An accepted `*.ui.qml` form is protected by default. An agent may modify it only
 
 For the current visual-scaffold slice, Round 1 explicitly permits one visual writer to create Qt Design Studio-editable skeletal hosts for every approved workspace using only approved regions and headings. Do not add speculative controls or behavior. The user-accepted Round 1 form diff is the visual contract; freeze its exact exported aliases, signals, and state names before Round 2, and require the orchestrator to issue exact bounded work orders and obtain user acceptance between rounds.
 
-Round 2 uses separate isolated worktrees with nonoverlapping ownership: design owns authorized `*.ui.qml` forms, tokens, assets, design-time visual states, and design mocks; backbone owns ordinary QML wrappers, C++ authoritative state, narrow adapters, directly relevant tests, and explicitly authorized durable CMake files. The backbone remains hardware-free in these rounds: no vendor SDK, TIFF, DAQ, detector, inference, trainer, Run, Results, or persistence implementation.
+Round 2 uses separate isolated worktrees with nonoverlapping ownership: design owns authorized `*.ui.qml` forms, tokens, assets, design-time visual states, and explicitly named design-time mock files in `MockDatas/`; backbone owns ordinary QML wrappers, C++ authoritative state, narrow adapters, directly relevant tests, and explicitly authorized durable CMake files. The backbone remains hardware-free in these rounds: no vendor SDK, TIFF, DAQ, detector, inference, trainer, Run, Results, or persistence implementation.
 
 Validation is proportional to the files changed: workers run only targeted checks, the orchestrator runs one integrated check only when needed, and the user leads Qt Design Studio and manual visual review. Do not run the full legacy or hardware matrix, or repeat a successful check without a relevant change.

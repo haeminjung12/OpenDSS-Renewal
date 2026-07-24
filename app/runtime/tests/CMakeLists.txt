@@ -191,3 +191,39 @@ add_test(
     $<TARGET_FILE:training_service_protocol_test>
 )
 set_tests_properties(training_service_protocol_test PROPERTIES TIMEOUT 30)
+
+qt_add_executable(application_state_store_test
+  application_state_store_test.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(application_state_store_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(application_state_store_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME application_state_store_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:application_state_store_test>
+)
+set_tests_properties(application_state_store_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(operation_coordinator_test
+  operation_coordinator_test.cpp
+  ../v2/operation/operation_coordinator.cpp
+)
+target_include_directories(operation_coordinator_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(operation_coordinator_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME operation_coordinator_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:operation_coordinator_test>
+)
+set_tests_properties(operation_coordinator_test PROPERTIES TIMEOUT 15)

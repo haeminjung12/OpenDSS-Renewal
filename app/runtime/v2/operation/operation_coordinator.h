@@ -1,0 +1,135 @@
+#pragma once
+
+#include <QFlags>
+#include <QString>
+
+#include <memory>
+#include <optional>
+
+namespace desktop_app::v2 {
+
+enum class OperationKind {
+    ImageSequence,
+    DatasetCapture,
+    Training,
+    ModelTest,
+    SequenceTest,
+    LiveSorting,
+};
+
+enum class OperationLifecycle {
+    Idle,
+    Starting,
+    Running,
+    Paused,
+    Stopping,
+    Completed,
+    Interrupted,
+    Failed,
+};
+
+enum class ResourceLock : quint32 {
+    Camera = 1U << 0,
+    Daq = 1U << 1,
+    Storage = 1U << 2,
+    Model = 1U << 3,
+    Dataset = 1U << 4,
+    Sequence = 1U << 5,
+    Training = 1U << 6,
+    Run = 1U << 7,
+};
+Q_DECLARE_FLAGS(ResourceLocks, ResourceLock)
+
+struct OperationSnapshot {
+    std::optional<OperationKind> kind;
+    OperationLifecycle lifecycle = OperationLifecycle::Idle;
+    ResourceLocks locks;
+};
+
+struct OperationFault {
+    std::optional<OperationKind> currentKind;
+    OperationLifecycle currentLifecycle = OperationLifecycle::Idle;
+    ResourceLocks currentLocks;
+    QString reason;
+    QString recovery;
+};
+
+class OperationCoordinator;
+class OperationControl;
+
+class OperationLease final
+{
+public:
+    OperationLease() = default;
+    ~OperationLease();
+    OperationLease(OperationLease &&other) noexcept;
+    OperationLease &operator=(OperationLease &&other) noexcept;
+    OperationLease(const OperationLease &) = delete;
+    OperationLease &operator=(const OperationLease &) = delete;
+
+    bool isValid() const;
+    bool transition(OperationLifecycle next, OperationFault *fault = nullptr);
+    void release();
+
+private:
+    friend class OperationCoordinator;
+    OperationLease(std::weak_ptr<OperationControl> control, quint64 generation);
+
+    std::weak_ptr<OperationControl> control_;
+    quint64 generation_ = 0;
+};
+
+class MomentaryLease final
+{
+public:
+    MomentaryLease() = default;
+    ~MomentaryLease();
+    MomentaryLease(MomentaryLease &&other) noexcept;
+    MomentaryLease &operator=(MomentaryLease &&other) noexcept;
+    MomentaryLease(const MomentaryLease &) = delete;
+    MomentaryLease &operator=(const MomentaryLease &) = delete;
+
+    bool isValid() const;
+    void release();
+
+private:
+    friend class OperationCoordinator;
+    MomentaryLease(std::weak_ptr<OperationControl> control, quint64 generation);
+
+    std::weak_ptr<OperationControl> control_;
+    quint64 generation_ = 0;
+};
+
+struct OperationAcquireResult {
+    OperationLease lease;
+    std::optional<OperationFault> fault;
+
+    bool acquired() const;
+};
+
+struct MomentaryAcquireResult {
+    MomentaryLease lease;
+    std::optional<OperationFault> fault;
+
+    bool acquired() const;
+};
+
+class OperationCoordinator final
+{
+public:
+    OperationCoordinator();
+    ~OperationCoordinator();
+    OperationCoordinator(const OperationCoordinator &) = delete;
+    OperationCoordinator &operator=(const OperationCoordinator &) = delete;
+
+    OperationAcquireResult acquire(OperationKind kind, ResourceLocks locks);
+    MomentaryAcquireResult acquireMomentary(ResourceLocks locks);
+    OperationSnapshot snapshot() const;
+
+private:
+    std::shared_ptr<OperationControl> control_;
+};
+
+} // namespace desktop_app::v2
+
+Q_DECLARE_OPERATORS_FOR_FLAGS(desktop_app::v2::ResourceLocks)

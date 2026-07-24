@@ -33,12 +33,16 @@ enum class ResourceLock : quint32 {
     Daq = 1U << 1,
     Storage = 1U << 2,
     Model = 1U << 3,
-    Dataset = 1U << 4,
     Sequence = 1U << 5,
     Training = 1U << 6,
     Run = 1U << 7,
 };
 Q_DECLARE_FLAGS(ResourceLocks, ResourceLock)
+
+enum class DatasetAccess {
+    Read,
+    Write,
+};
 
 struct OperationSnapshot {
     std::optional<OperationKind> kind;
@@ -56,6 +60,27 @@ struct OperationFault {
 
 class OperationCoordinator;
 class OperationControl;
+
+class DatasetLease final
+{
+public:
+    DatasetLease() = default;
+    ~DatasetLease();
+    DatasetLease(DatasetLease &&other) noexcept;
+    DatasetLease &operator=(DatasetLease &&other) noexcept;
+    DatasetLease(const DatasetLease &) = delete;
+    DatasetLease &operator=(const DatasetLease &) = delete;
+
+    bool isValid() const;
+    void release();
+
+private:
+    friend class OperationCoordinator;
+    DatasetLease(std::weak_ptr<OperationControl> control, quint64 generation);
+
+    std::weak_ptr<OperationControl> control_;
+    quint64 generation_ = 0;
+};
 
 class OperationLease final
 {
@@ -114,6 +139,13 @@ struct MomentaryAcquireResult {
     bool acquired() const;
 };
 
+struct DatasetAcquireResult {
+    DatasetLease lease;
+    std::optional<OperationFault> fault;
+
+    bool acquired() const;
+};
+
 class OperationCoordinator final
 {
 public:
@@ -123,7 +155,11 @@ public:
     OperationCoordinator &operator=(const OperationCoordinator &) = delete;
 
     OperationAcquireResult acquire(OperationKind kind, ResourceLocks locks);
+    OperationAcquireResult acquireWithDataset(OperationKind kind, ResourceLocks locks,
+                                              const QString &datasetJsonPath,
+                                              DatasetAccess access);
     MomentaryAcquireResult acquireMomentary(ResourceLocks locks);
+    DatasetAcquireResult acquireDataset(const QString &datasetJsonPath, DatasetAccess access);
     OperationSnapshot snapshot() const;
 
 private:

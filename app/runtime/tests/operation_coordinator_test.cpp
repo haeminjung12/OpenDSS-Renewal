@@ -1,10 +1,20 @@
 #include "../v2/operation/operation_coordinator.h"
 
 #include <QCoreApplication>
+#include <QDir>
+#include <QFile>
+#include <QTemporaryDir>
 
 #include <array>
 #include <iostream>
 #include <utility>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace {
 
@@ -14,6 +24,12 @@ int fail(int code, const char *message)
 {
     std::cerr << message << '\n';
     return code;
+}
+
+bool writeFile(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::WriteOnly) && file.write("{}") == 2;
 }
 
 ResourceLocks locks(ResourceLock first, ResourceLock second)
@@ -155,7 +171,7 @@ int main(int argc, char **argv)
     replacementMomentary.lease.release();
 
     auto lifecycle =
-        coordinator.acquire(OperationKind::DatasetCapture, ResourceLock::Dataset);
+        coordinator.acquire(OperationKind::DatasetCapture, ResourceLock::Storage);
     OperationFault invalidTransition;
     if (!lifecycle.acquired()
         || lifecycle.lease.transition(OperationLifecycle::Paused, &invalidTransition)
@@ -192,6 +208,140 @@ int main(int argc, char **argv)
     expiredOperation.release();
     expiredMomentary.release();
     expiredMomentary.release();
+
+    QTemporaryDir datasets;
+    const QString folderA = QDir(datasets.path()).filePath(QStringLiteral("a"));
+    const QString folderB = QDir(datasets.path()).filePath(QStringLiteral("b"));
+    if (!QDir().mkpath(folderA) || !QDir().mkpath(folderB))
+        return fail(15, "Could not create Dataset lock fixtures.");
+    const QString datasetA = QDir(folderA).filePath(QStringLiteral("dataset.json"));
+    const QString datasetB = QDir(folderB).filePath(QStringLiteral("dataset.json"));
+    if (!writeFile(datasetA) || !writeFile(datasetB))
+        return fail(16, "Could not write Dataset lock fixtures.");
+
+    auto readA1 = coordinator.acquireDataset(datasetA, DatasetAccess::Read);
+    auto readA2 = coordinator.acquireDataset(datasetA, DatasetAccess::Read);
+    auto writeAConflict = coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    auto writeB = coordinator.acquireDataset(datasetB, DatasetAccess::Write);
+    if (!readA1.acquired() || !readA2.acquired() || writeAConflict.acquired()
+        || !writeAConflict.fault || !writeB.acquired()) {
+        return fail(17, "Dataset read/write identity matrix was not enforced.");
+    }
+    writeB.lease.release();
+    readA1.lease.release();
+    readA2.lease.release();
+
+    const QString aliasA =
+        QDir(folderA).filePath(QStringLiteral("nested/../dataset.json"));
+    if (!QDir().mkpath(QDir(folderA).filePath(QStringLiteral("nested"))))
+        return fail(18, "Could not create Dataset alias fixture.");
+    auto aliasRead = coordinator.acquireDataset(aliasA, DatasetAccess::Read);
+    auto aliasWrite = coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    if (!aliasRead.acquired() || aliasWrite.acquired())
+        return fail(18, "A lexical Dataset alias did not resolve to the same identity.");
+    aliasRead.lease.release();
+
+#ifdef Q_OS_WIN
+    auto caseRead =
+        coordinator.acquireDataset(datasetA.toUpper(), DatasetAccess::Read);
+    auto caseWrite = coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    if (!caseRead.acquired() || caseWrite.acquired())
+        return fail(19, "Windows Dataset identity was not case-folded.");
+    caseRead.lease.release();
+#endif
+
+    const QString linkA = QDir(datasets.path()).filePath(QStringLiteral("dataset-link.json"));
+    bool linkCreated = false;
+#ifdef Q_OS_WIN
+    const QString nativeLink = QDir::toNativeSeparators(linkA);
+    const QString nativeTarget = QDir::toNativeSeparators(datasetA);
+    linkCreated = CreateSymbolicLinkW(
+                      reinterpret_cast<LPCWSTR>(nativeLink.utf16()),
+                      reinterpret_cast<LPCWSTR>(nativeTarget.utf16()), 0x2)
+        != FALSE;
+#else
+    linkCreated = QFile::link(datasetA, linkA);
+#endif
+    if (linkCreated) {
+        auto originalRead = coordinator.acquireDataset(datasetA, DatasetAccess::Read);
+        auto linkedWrite = coordinator.acquireDataset(linkA, DatasetAccess::Write);
+        if (!originalRead.acquired() || linkedWrite.acquired())
+            return fail(20, "A symbolic Dataset alias did not resolve to the same identity.");
+        originalRead.lease.release();
+    }
+
+    auto trainingRead = coordinator.acquireWithDataset(
+        OperationKind::Training, ResourceLock::Training | ResourceLock::Storage,
+        datasetA, DatasetAccess::Read);
+    auto labelWriteA = coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    auto labelWriteB = coordinator.acquireDataset(datasetB, DatasetAccess::Write);
+    if (!trainingRead.acquired() || labelWriteA.acquired() || !labelWriteA.fault
+        || labelWriteA.fault->currentKind != OperationKind::Training
+        || !labelWriteB.acquired()) {
+        return fail(21, "A combined operation did not retain only its keyed Dataset hold.");
+    }
+    labelWriteB.lease.release();
+    trainingRead.lease.release();
+    auto labelWriteAfter = coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    if (!labelWriteAfter.acquired())
+        return fail(22, "Combined operation release did not release its Dataset hold.");
+    labelWriteAfter.lease.release();
+
+    auto active = coordinator.acquire(OperationKind::ModelTest, ResourceLock::Model);
+    const bool activeAcquired = active.acquired();
+    auto failedCombined = coordinator.acquireWithDataset(
+        OperationKind::Training, ResourceLock::Training, datasetA, DatasetAccess::Read);
+    active.lease.release();
+    auto writeAfterFailedCombined =
+        coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    if (!activeAcquired || failedCombined.acquired() || !writeAfterFailedCombined.acquired())
+        return fail(23, "Failed combined acquisition retained partial ownership.");
+    writeAfterFailedCombined.lease.release();
+
+    auto movedSource = coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    DatasetLease movedDataset = std::move(movedSource.lease);
+    if (movedSource.lease.isValid() || !movedDataset.isValid())
+        return fail(24, "Moving a Dataset lease did not transfer ownership.");
+    movedDataset.release();
+    auto replacementDataset = coordinator.acquireDataset(datasetA, DatasetAccess::Write);
+    DatasetLease staleDataset = std::move(movedDataset);
+    movedDataset.release();
+    staleDataset.release();
+    auto replacementConflict = coordinator.acquireDataset(datasetA, DatasetAccess::Read);
+    if (!replacementDataset.acquired() || replacementConflict.acquired())
+        return fail(25, "A stale Dataset lease affected a newer reservation.");
+    replacementDataset.lease.release();
+
+    DatasetLease expiredDataset;
+    {
+        OperationCoordinator scopedCoordinator;
+        auto scoped =
+            scopedCoordinator.acquireDataset(datasetA, DatasetAccess::Read);
+        expiredDataset = std::move(scoped.lease);
+    }
+    if (expiredDataset.isValid())
+        return fail(26, "Dataset lease did not expire with its coordinator.");
+    expiredDataset.release();
+
+    const QString captureFolder =
+        QDir(datasets.path()).filePath(QStringLiteral("capture"));
+    if (!QDir().mkpath(captureFolder))
+        return fail(27, "Could not create capture target parent.");
+    const QString futureDataset =
+        QDir(captureFolder).filePath(QStringLiteral("dataset.json"));
+    auto missingRead = coordinator.acquireDataset(futureDataset, DatasetAccess::Read);
+    auto wrongMissing = coordinator.acquireWithDataset(
+        OperationKind::Training, ResourceLock::Training, futureDataset,
+        DatasetAccess::Read);
+    auto captureWrite = coordinator.acquireWithDataset(
+        OperationKind::DatasetCapture, ResourceLock::Camera | ResourceLock::Storage,
+        futureDataset, DatasetAccess::Write);
+    auto captureConflict = coordinator.acquireDataset(futureDataset, DatasetAccess::Read);
+    if (missingRead.acquired() || wrongMissing.acquired() || !captureWrite.acquired()
+        || captureConflict.acquired()) {
+        return fail(28, "Missing Dataset targets were not restricted to Dataset Capture writes.");
+    }
+    captureWrite.lease.release();
 
     return 0;
 }

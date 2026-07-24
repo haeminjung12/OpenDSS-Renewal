@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../operation/operation_coordinator.h"
+
 #include <QObject>
 #include <QJsonObject>
 #include <QProcess>
@@ -49,7 +51,7 @@ class TrainingService final : public QObject
     Q_OBJECT
 
 public:
-    explicit TrainingService(QObject *parent = nullptr);
+    explicit TrainingService(OperationCoordinator &operations, QObject *parent = nullptr);
 
     TrainingState state() const;
     const TrainingProgress &progress() const;
@@ -75,6 +77,8 @@ private:
 
     QProcess process_;
     QTimer killTimer_;
+    OperationCoordinator &operations_;
+    OperationLease operationLease_;
     TrainingState state_ = TrainingState::Ready;
     TrainingProgress progress_;
     TrainingResult result_;

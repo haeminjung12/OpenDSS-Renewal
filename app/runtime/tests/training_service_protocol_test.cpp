@@ -20,6 +20,8 @@
 namespace {
 
 using desktop_app::v2::dataset::DatasetManifestV2;
+using desktop_app::v2::DatasetAccess;
+using desktop_app::v2::OperationCoordinator;
 using desktop_app::v2::training::TrainingProfile;
 using desktop_app::v2::training::TrainingRequest;
 using desktop_app::v2::training::TrainingService;
@@ -171,72 +173,65 @@ bool waitForTerminalState(TrainingService &service, int timeoutMilliseconds)
     return service.state() != TrainingState::Running;
 }
 
-QJsonObject datasetManifest(
+bool datasetWriteAvailable(OperationCoordinator &operations, const QString &path)
+{
+    auto access = operations.acquireDataset(path, DatasetAccess::Write);
+    return access.acquired();
+}
+
+desktop_app::v2::dataset::DatasetManifestData datasetManifest(
     const QString &firstHash,
     const QString &secondHash,
     const QString &thirdHash = {})
 {
-    auto record = [](const QString &id, const QString &path, const QString &hash) {
-        return QJsonObject{
-            {QStringLiteral("record_id"), id},
-            {QStringLiteral("crop_path"), path},
-            {QStringLiteral("crop_sha256"), hash},
-            {QStringLiteral("source_frame_id"), QStringLiteral("frame-") + id},
-            {QStringLiteral("source_event_id"), QStringLiteral("event-") + id},
-            {QStringLiteral("timestamp"), QStringLiteral("2026-07-24T10:15:30Z")},
-            {QStringLiteral("crop_rect"),
-             QJsonObject{
-                 {QStringLiteral("x"), 1},
-                 {QStringLiteral("y"), 2},
-                 {QStringLiteral("width"), 96},
-                 {QStringLiteral("height"), 96},
-             }},
+    using namespace desktop_app::v2::dataset;
+    auto record = [](const QString &id, const QString &path, const QString &hash,
+                     qint64 frameIndex) {
+        return DatasetRecord{
+            id,
+            path,
+            hash,
+            QStringLiteral("frame-") + id,
+            QStringLiteral("event-") + id,
+            QStringLiteral("2026-07-24T10:15:30Z"),
+            QRect(1, 2, 64, 64),
+            frameIndex,
         };
     };
-    QJsonArray classes{
-        QJsonObject{{QStringLiteral("id"), QStringLiteral("0")},
-                    {QStringLiteral("name"), QStringLiteral("Empty")}},
-        QJsonObject{{QStringLiteral("id"), QStringLiteral("1")},
-                    {QStringLiteral("name"), QStringLiteral("Target")}},
+
+    DatasetManifestData data;
+    data.datasetId = QStringLiteral("training-fixture");
+    data.provenance.name = QStringLiteral("Training fixture");
+    data.provenance.opendssVersion = QStringLiteral("v2-test");
+    data.provenance.createdAt = QStringLiteral("2026-07-24T10:15:30Z");
+    data.provenance.updatedAt = QStringLiteral("2026-07-24T10:15:30Z");
+    data.provenance.captureStartedAt = QStringLiteral("2026-07-24T10:15:30Z");
+    data.provenance.captureEndedAt = QStringLiteral("2026-07-24T10:15:31Z");
+    data.provenance.stopReason = QStringLiteral("test");
+    data.provenance.status = QStringLiteral("completed");
+    data.provenance.sequence.frameCount = thirdHash.isEmpty() ? 2 : 3;
+    data.provenance.sequence.imageWidth = 128;
+    data.provenance.sequence.imageHeight = 128;
+    data.provenance.sequence.bitDepth = 8;
+    data.provenance.sequence.nominalFps = 100.0;
+    data.classes = {{QStringLiteral("0"), QStringLiteral("Empty")},
+                    {QStringLiteral("1"), QStringLiteral("Target")}};
+    data.records = {
+        record(QStringLiteral("empty"), QStringLiteral("crops/empty.png"), firstHash, 1),
+        record(QStringLiteral("target"), QStringLiteral("crops/target.png"), secondHash, 2),
     };
-    QJsonArray records{
-        record(QStringLiteral("empty"), QStringLiteral("crops/empty.png"), firstHash),
-        record(QStringLiteral("target"), QStringLiteral("crops/target.png"), secondHash),
-    };
-    QJsonArray labels{
-        QJsonObject{
-            {QStringLiteral("label_id"), QStringLiteral("label-empty")},
-            {QStringLiteral("record_id"), QStringLiteral("empty")},
-            {QStringLiteral("class_id"), QStringLiteral("0")},
-        },
-        QJsonObject{
-            {QStringLiteral("label_id"), QStringLiteral("label-target")},
-            {QStringLiteral("record_id"), QStringLiteral("target")},
-            {QStringLiteral("class_id"), QStringLiteral("1")},
-        },
+    data.labels = {
+        {QStringLiteral("label-empty"), QStringLiteral("empty"), QStringLiteral("0"), false},
+        {QStringLiteral("label-target"), QStringLiteral("target"), QStringLiteral("1"), false},
     };
     if (!thirdHash.isEmpty()) {
-        classes.append(QJsonObject{
-            {QStringLiteral("id"), QStringLiteral("2")},
-            {QStringLiteral("name"), QStringLiteral("Multiple")},
-        });
-        records.append(record(
-            QStringLiteral("multiple"),
-            QStringLiteral("crops/multiple.png"),
-            thirdHash));
-        labels.append(QJsonObject{
-            {QStringLiteral("label_id"), QStringLiteral("label-multiple")},
-            {QStringLiteral("record_id"), QStringLiteral("multiple")},
-            {QStringLiteral("class_id"), QStringLiteral("2")},
-        });
+        data.classes.append({QStringLiteral("2"), QStringLiteral("Multiple")});
+        data.records.append(record(QStringLiteral("multiple"),
+                                   QStringLiteral("crops/multiple.png"), thirdHash, 3));
+        data.labels.append({QStringLiteral("label-multiple"), QStringLiteral("multiple"),
+                            QStringLiteral("2"), false});
     }
-    return QJsonObject{
-        {QStringLiteral("schema_version"), DatasetManifestV2::SchemaVersion},
-        {QStringLiteral("dataset_id"), QStringLiteral("training-fixture")},
-        {QStringLiteral("classes"), classes},
-        {QStringLiteral("records"), records},
-        {QStringLiteral("labels"), labels},
-    };
+    return data;
 }
 
 TrainingRequest requestFor(
@@ -295,18 +290,23 @@ int main(int argc, char **argv)
         return QString::fromLatin1(
             QCryptographicHash::hash(bytes, QCryptographicHash::Sha256).toHex());
     };
-    if (!writeJson(datasetPath, datasetManifest(hash(emptyBytes), hash(targetBytes))))
+    QString manifestError;
+    if (!DatasetManifestV2::save(
+            datasetPath, datasetManifest(hash(emptyBytes), hash(targetBytes)),
+            &manifestError))
         return fail(4, QStringLiteral("Could not write Dataset fixture."));
     const QString threeClassDatasetPath =
         QDir(temporaryDirectory.path()).filePath(QStringLiteral("dataset-three-class.json"));
-    if (!writeJson(
+    if (!DatasetManifestV2::save(
             threeClassDatasetPath,
-            datasetManifest(hash(emptyBytes), hash(targetBytes), hash(multipleBytes)))) {
+            datasetManifest(hash(emptyBytes), hash(targetBytes), hash(multipleBytes)),
+            &manifestError)) {
         return fail(5, QStringLiteral("Could not write three-class Dataset fixture."));
     }
 
     const QString repositoryRoot = QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT)).absoluteFilePath();
-    TrainingService service;
+    OperationCoordinator operations;
+    TrainingService service(operations);
     QString error;
     bool sawFirstStageEpoch = false;
     bool sawSecondStageEpoch = false;
@@ -325,9 +325,19 @@ int main(int argc, char **argv)
     if (!service.start(
             requestFor(datasetPath, fasterOutput, repositoryRoot, TrainingProfile::Faster,
                        QStringLiteral("fake-success")),
-            &error)
-        || !waitForTerminalState(service, 5000) || service.state() != TrainingState::Completed) {
+            &error)) {
         return fail(6, QStringLiteral("Faster run failed: ") + error + service.lastError());
+    }
+    auto blockedDataset =
+        operations.acquireDataset(datasetPath, DatasetAccess::Write);
+    auto otherDataset =
+        operations.acquireDataset(threeClassDatasetPath, DatasetAccess::Write);
+    if (blockedDataset.acquired() || !otherDataset.acquired())
+        return fail(6, QStringLiteral("Training did not retain only its Dataset read lock."));
+    otherDataset.lease.release();
+    if (!waitForTerminalState(service, 5000) || service.state() != TrainingState::Completed
+        || !datasetWriteAvailable(operations, datasetPath)) {
+        return fail(6, QStringLiteral("Faster run did not release its Dataset lock."));
     }
     const QJsonObject fasterConfig = readJson(service.configPath());
     const QJsonObject prepared = readJson(service.preparedManifestPath());
@@ -392,8 +402,23 @@ int main(int argc, char **argv)
         || !service.result().modelOnnx.isEmpty() || !service.result().runDirectory.isEmpty()
         || !service.progress().stage.isEmpty() || service.progress().stageEpochs != 0
         || service.progress().epoch != 0 || service.progress().globalEpoch != 0
-        || !service.preparedManifestPath().isEmpty() || !service.configPath().isEmpty()) {
+        || !service.preparedManifestPath().isEmpty() || !service.configPath().isEmpty()
+        || !datasetWriteAvailable(operations, datasetPath)) {
         return fail(9, QStringLiteral("Failed restart retained prior run state."));
+    }
+
+    const QString invalidDatasetPath =
+        QDir(temporaryDirectory.path()).filePath(QStringLiteral("invalid-dataset.json"));
+    if (!writeJson(invalidDatasetPath, QJsonObject{})
+        || service.start(
+            requestFor(invalidDatasetPath,
+                       QDir(temporaryDirectory.path()).filePath(QStringLiteral("invalid-output")),
+                       repositoryRoot, TrainingProfile::Faster,
+                       QStringLiteral("fake-success")),
+            &error)
+        || service.state() != TrainingState::Failed
+        || !datasetWriteAvailable(operations, invalidDatasetPath)) {
+        return fail(19, QStringLiteral("Synchronous Dataset load failure retained its lock."));
     }
 
     const QString accurateOutput = QDir(temporaryDirectory.path()).filePath(QStringLiteral("accurate"));
@@ -425,7 +450,8 @@ int main(int argc, char **argv)
                        QStringLiteral("fake-missing")),
             &error)
         || !waitForTerminalState(service, 5000) || service.state() != TrainingState::Failed
-        || !service.lastError().contains(QStringLiteral("missing or out-of-run"))) {
+        || !service.lastError().contains(QStringLiteral("missing or out-of-run"))
+        || !datasetWriteAvailable(operations, datasetPath)) {
         return fail(12, QStringLiteral("Missing success artifacts were accepted."));
     }
 
@@ -436,7 +462,8 @@ int main(int argc, char **argv)
                        QStringLiteral("fake-outside-run")),
             &error)
         || !waitForTerminalState(service, 5000) || service.state() != TrainingState::Failed
-        || !service.lastError().contains(QStringLiteral("outside the output root"))) {
+        || !service.lastError().contains(QStringLiteral("outside the output root"))
+        || !datasetWriteAvailable(operations, datasetPath)) {
         return fail(13, QStringLiteral("Out-of-output run directory was accepted."));
     }
 
@@ -447,7 +474,8 @@ int main(int argc, char **argv)
                        QStringLiteral("fake-outside-artifact")),
             &error)
         || !waitForTerminalState(service, 5000) || service.state() != TrainingState::Failed
-        || !service.lastError().contains(QStringLiteral("out-of-run"))) {
+        || !service.lastError().contains(QStringLiteral("out-of-run"))
+        || !datasetWriteAvailable(operations, datasetPath)) {
         return fail(14, QStringLiteral("Out-of-run artifact was accepted."));
     }
 
@@ -457,7 +485,8 @@ int main(int argc, char **argv)
                        QStringLiteral("fake-malformed")),
             &error)
         || !waitForTerminalState(service, 5000) || service.state() != TrainingState::Failed
-        || !service.lastError().contains(QStringLiteral("Malformed trainer JSONL"))) {
+        || !service.lastError().contains(QStringLiteral("Malformed trainer JSONL"))
+        || !datasetWriteAvailable(operations, datasetPath)) {
         return fail(15, QStringLiteral("Malformed JSONL was accepted."));
     }
 
@@ -468,7 +497,8 @@ int main(int argc, char **argv)
             &error)
         || !waitForTerminalState(service, 5000) || service.state() != TrainingState::Failed
         || !service.lastError().contains(QStringLiteral("deliberate trainer failure"))
-        || !service.standardError().contains(QStringLiteral("fake trainer stderr evidence"))) {
+        || !service.standardError().contains(QStringLiteral("fake trainer stderr evidence"))
+        || !datasetWriteAvailable(operations, datasetPath)) {
         return fail(16, QStringLiteral("Trainer failure or stderr evidence mismatch."));
     }
 
@@ -488,7 +518,8 @@ int main(int argc, char **argv)
     }
     service.cancel();
     if (!waitForTerminalState(service, 7000) || service.state() != TrainingState::Interrupted
-        || !service.standardError().contains(QStringLiteral("fake cancel stderr evidence"))) {
+        || !service.standardError().contains(QStringLiteral("fake cancel stderr evidence"))
+        || !datasetWriteAvailable(operations, datasetPath)) {
         return fail(18, QStringLiteral("Cancellation did not finish as Interrupted with stderr evidence."));
     }
 

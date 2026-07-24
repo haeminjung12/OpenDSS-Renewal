@@ -188,6 +188,40 @@ int main(int argc, char** argv) {
                "Completed capture retained its operation lease"))
         return 6;
 
+    OperationCoordinator lockOperations;
+    FakeDetector lockDetector;
+    DatasetCaptureService lockCapture(lockOperations, lockDetector, [&] { return now; });
+    if (!check(lockCapture.start(request(temporary.path(), "identity-lock"), &error), error))
+        return 26;
+    const QString lockedDataset =
+        QDir(lockCapture.snapshot().folder).filePath("dataset.json");
+    QFile visibleTarget(lockedDataset);
+    if (!visibleTarget.open(QIODevice::WriteOnly) || visibleTarget.write("{}") != 2)
+        return 27;
+    visibleTarget.close();
+    auto sameDatasetRead =
+        lockOperations.acquireDataset(lockedDataset, DatasetAccess::Read);
+    auto otherDatasetRead = lockOperations.acquireDataset(
+        QDir(manualFolder).filePath("dataset.json"), DatasetAccess::Read);
+    if (!check(!sameDatasetRead.acquired() && otherDatasetRead.acquired(),
+               "Dataset Capture did not block only its exact target Dataset"))
+        return 28;
+    otherDatasetRead.lease.release();
+    QFile::remove(lockedDataset);
+    lockCapture.stop(&error);
+
+    OperationCoordinator blockedOperations;
+    auto blocker =
+        blockedOperations.acquire(OperationKind::ModelTest, ResourceLock::Model);
+    FakeDetector blockedDetector;
+    DatasetCaptureService blockedCapture(blockedOperations, blockedDetector, [&] { return now; });
+    if (!check(blocker.acquired()
+                   && !blockedCapture.start(request(temporary.path(), "blocked-start"), &error)
+                   && !QFileInfo::exists(QDir(temporary.path()).filePath("blocked-start")),
+               "Failed Dataset Capture start did not clean its new folder"))
+        return 29;
+    blocker.lease.release();
+
     OperationCoordinator timedOperations;
     FakeDetector timedDetector;
     now = 0;

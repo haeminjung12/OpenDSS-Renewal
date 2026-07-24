@@ -222,6 +222,7 @@ qt_add_executable(dataset_label_service_test
   ../desktop_app/json_persistence.cpp
   ../v2/dataset/dataset_label_service.cpp
   ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/operation/operation_coordinator.cpp
 )
 target_include_directories(dataset_label_service_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -307,8 +308,10 @@ set_tests_properties(sequence_viewer_model_test PROPERTIES TIMEOUT 15)
 
 qt_add_executable(training_service_protocol_test
   training_service_protocol_test.cpp
+  ../desktop_app/json_persistence.cpp
   ../v2/training/training_service.cpp
   ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/operation/operation_coordinator.cpp
 )
 target_compile_definitions(training_service_protocol_test PRIVATE
   OPENDSS_TEST_REPOSITORY_ROOT="${CMAKE_SOURCE_DIR}/../.."

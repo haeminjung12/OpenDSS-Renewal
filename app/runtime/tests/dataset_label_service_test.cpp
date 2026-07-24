@@ -92,6 +92,7 @@ DatasetManifestData fixture(const QString& root) {
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     QTemporaryDir temporary;
+    desktop_app::v2::OperationCoordinator operations;
     const QString source = QDir(temporary.path()).filePath("source");
     QDir().mkpath(source);
     const DatasetManifestData original = fixture(source);
@@ -99,7 +100,7 @@ int main(int argc, char** argv) {
     QString error;
     if (!check(DatasetManifestV2::save(path, original, &error), error))
         return 1;
-    DatasetLabelService service;
+    DatasetLabelService service(operations);
     if (!check(service.open(path, &error), error) ||
         !check(service.configureClassCount(2, &error), error) ||
         !check(service.renameClass("0", "Empty", &error), error) ||
@@ -113,24 +114,59 @@ int main(int argc, char** argv) {
                "Label mutations or undo lost immutable provenance"))
         return 3;
 
+    const QString sourceB = QDir(temporary.path()).filePath("source-b");
+    QDir().mkpath(sourceB);
+    DatasetManifestData other = fixture(sourceB);
+    other.datasetId = "other";
+    const QString pathB = QDir(sourceB).filePath("dataset.json");
+    if (!DatasetManifestV2::save(pathB, other, &error))
+        return 4;
+    DatasetLabelService serviceB(operations);
+    if (!serviceB.open(pathB, &error) || !serviceB.configureClassCount(2, &error))
+        return 5;
+
+    auto training = operations.acquireWithDataset(
+        desktop_app::v2::OperationKind::Training,
+        desktop_app::v2::ResourceLock::Training | desktop_app::v2::ResourceLock::Storage,
+        path, desktop_app::v2::DatasetAccess::Read);
+    const QByteArray beforeDenied = read(path);
+    const DatasetLabelSnapshot beforeDeniedSnapshot = service.snapshot();
+    if (!check(training.acquired(), "Could not acquire Training Dataset read fixture") ||
+        !check(!service.renameClass("0", "Blocked", &error),
+               "Label write was allowed during Training read") ||
+        !check(read(path) == beforeDenied &&
+                   service.snapshot().classes.at(0).name ==
+                       beforeDeniedSnapshot.classes.at(0).name,
+               "Denied Label write changed memory or disk") ||
+        !check(serviceB.renameClass("0", "Other", &error),
+               "Different Dataset Label write was incorrectly blocked"))
+        return 6;
+    training.lease.release();
+    if (!check(service.renameClass("0", "Allowed", &error),
+               "Label write remained blocked after Training released the Dataset"))
+        return 7;
+
+    current = DatasetManifestV2::load(path, &error);
+    if (!current)
+        return 8;
     const DatasetManifestData beforeFailure = current->data();
     const QString backup = path + ".backup";
     if (!QFile::rename(path, backup) || !QDir().mkdir(path))
-        return 4;
+        return 9;
     if (!check(!service.renameClass("1", "Cell", &error),
                "Persistence failure was not reported") ||
         !check(QDir(path).removeRecursively() && QFile::rename(backup, path),
                "Could not restore manifest after failure"))
-        return 5;
+        return 10;
     current = DatasetManifestV2::load(path, &error);
     if (!check(current && sameClasses(current->data().classes, beforeFailure.classes) &&
                    stable(current->data().provenance, beforeFailure.provenance),
                "Failed save changed manifest data"))
-        return 6;
+        return 11;
 
     const QString copy = QDir(temporary.path()).filePath("copy");
     if (!check(service.saveAs(copy, &error), error))
-        return 7;
+        return 12;
     const auto copied = DatasetManifestV2::load(QDir(copy).filePath("dataset.json"), &error);
     const auto originalAfter = DatasetManifestV2::load(path, &error);
     if (!check(copied && originalAfter && copied->data().datasetId != originalAfter->data().datasetId &&
@@ -138,6 +174,6 @@ int main(int argc, char** argv) {
                    copied->data().provenance.updatedAt !=
                        originalAfter->data().provenance.updatedAt,
                "Save As changed provenance beyond ID and updated_at"))
-        return 8;
+        return 13;
     return 0;
 }

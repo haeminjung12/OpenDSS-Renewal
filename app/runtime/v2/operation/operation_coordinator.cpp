@@ -1,26 +1,42 @@
 #include "operation_coordinator.h"
 
 #include <QHash>
+#include <QDir>
+#include <QFileInfo>
 #include <QMutex>
 #include <QMutexLocker>
 
 #include <utility>
+
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace desktop_app::v2 {
 
 class OperationControl final
 {
 public:
+    struct DatasetReservation {
+        QString key;
+        DatasetAccess access = DatasetAccess::Read;
+    };
+
     struct ActiveOperation {
         OperationKind kind;
         OperationLifecycle lifecycle = OperationLifecycle::Starting;
         ResourceLocks locks;
         quint64 generation = 0;
+        bool hasDataset = false;
     };
 
     QMutex mutex;
     std::optional<ActiveOperation> active;
     QHash<quint64, ResourceLocks> momentary;
+    QHash<quint64, DatasetReservation> datasets;
     quint64 nextGeneration = 1;
 };
 
@@ -29,6 +45,93 @@ namespace {
 bool overlaps(ResourceLocks left, ResourceLocks right)
 {
     return (left & right) != ResourceLocks{};
+}
+
+bool isLinkOrReparse(const QFileInfo &entry)
+{
+    if (entry.isSymLink())
+        return true;
+#ifdef Q_OS_WIN
+    const QString nativePath = QDir::toNativeSeparators(entry.absoluteFilePath());
+    const DWORD attributes =
+        GetFileAttributesW(reinterpret_cast<LPCWSTR>(nativePath.utf16()));
+    return attributes != INVALID_FILE_ATTRIBUTES
+        && (attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+#else
+    return false;
+#endif
+}
+
+bool pathContainsLinkOrReparse(QString path)
+{
+    path = QFileInfo(path).absoluteFilePath();
+    for (;;) {
+        const QFileInfo entry(path);
+        if (isLinkOrReparse(entry))
+            return true;
+        const QString parent = entry.absolutePath();
+        if (parent == path)
+            return false;
+        path = parent;
+    }
+}
+
+QString normalizedDatasetKey(QString path)
+{
+    path = QDir::cleanPath(QDir::fromNativeSeparators(path));
+#ifdef Q_OS_WIN
+    return path.toCaseFolded();
+#else
+    return path;
+#endif
+}
+
+std::optional<QString> datasetKey(const QString &path, bool allowMissingCaptureTarget,
+                                  QString *error)
+{
+    const QFileInfo requested(path);
+    if (requested.exists()) {
+        const QString canonical = requested.canonicalFilePath();
+        const QFileInfo resolved(canonical);
+        if (canonical.isEmpty() || !resolved.isFile()) {
+            if (error)
+                *error = QStringLiteral("Dataset path must identify an existing regular file.");
+            return std::nullopt;
+        }
+        return normalizedDatasetKey(canonical);
+    }
+
+    if (!allowMissingCaptureTarget) {
+        if (error)
+            *error = QStringLiteral("Dataset path must identify an existing regular file.");
+        return std::nullopt;
+    }
+    if (isLinkOrReparse(requested)) {
+        if (error)
+            *error = QStringLiteral("Dataset Capture target must not be a link or reparse point.");
+        return std::nullopt;
+    }
+    const QFileInfo parent(requested.absolutePath());
+    if (!parent.exists() || !parent.isDir()
+        || pathContainsLinkOrReparse(parent.absoluteFilePath())) {
+        if (error)
+            *error = QStringLiteral("Dataset Capture target parent must be an existing real directory.");
+        return std::nullopt;
+    }
+    const QString canonicalParent = parent.canonicalFilePath();
+    if (canonicalParent.isEmpty()) {
+        if (error)
+            *error = QStringLiteral("Could not resolve the Dataset Capture target parent.");
+        return std::nullopt;
+    }
+    return normalizedDatasetKey(QDir(canonicalParent).filePath(requested.fileName()));
+}
+
+bool datasetConflicts(const OperationControl::DatasetReservation &held,
+                      const QString &key, DatasetAccess requested)
+{
+    return held.key == key
+        && (held.access == DatasetAccess::Write || requested == DatasetAccess::Write);
 }
 
 QString operationName(OperationKind kind)
@@ -102,6 +205,16 @@ OperationFault conflictFault(const OperationControl &control, ResourceLocks conf
     return fault;
 }
 
+OperationFault datasetConflictFault(const OperationControl &control, quint64 generation)
+{
+    if (control.active && control.active->generation == generation)
+        return conflictFault(control, control.active->locks);
+    OperationFault fault;
+    fault.reason = QStringLiteral("This Dataset is in use.");
+    fault.recovery = QStringLiteral("Wait for the current Dataset action to finish.");
+    return fault;
+}
+
 OperationFault expiredCoordinatorFault()
 {
     OperationFault fault;
@@ -111,6 +224,53 @@ OperationFault expiredCoordinatorFault()
 }
 
 } // namespace
+
+DatasetLease::DatasetLease(std::weak_ptr<OperationControl> control, quint64 generation)
+    : control_(std::move(control))
+    , generation_(generation)
+{
+}
+
+DatasetLease::~DatasetLease()
+{
+    release();
+}
+
+DatasetLease::DatasetLease(DatasetLease &&other) noexcept
+    : control_(std::move(other.control_))
+    , generation_(std::exchange(other.generation_, 0))
+{
+    other.control_.reset();
+}
+
+DatasetLease &DatasetLease::operator=(DatasetLease &&other) noexcept
+{
+    if (this != &other) {
+        release();
+        control_ = std::move(other.control_);
+        generation_ = std::exchange(other.generation_, 0);
+        other.control_.reset();
+    }
+    return *this;
+}
+
+bool DatasetLease::isValid() const
+{
+    return generation_ != 0 && !control_.expired();
+}
+
+void DatasetLease::release()
+{
+    if (generation_ == 0)
+        return;
+    const quint64 generation = std::exchange(generation_, 0);
+    const auto control = control_.lock();
+    control_.reset();
+    if (!control)
+        return;
+    QMutexLocker locker(&control->mutex);
+    control->datasets.remove(generation);
+}
 
 OperationLease::OperationLease(std::weak_ptr<OperationControl> control, quint64 generation)
     : control_(std::move(control))
@@ -180,8 +340,11 @@ void OperationLease::release()
     if (!control)
         return;
     QMutexLocker locker(&control->mutex);
-    if (control->active && control->active->generation == generation)
+    if (control->active && control->active->generation == generation) {
+        if (control->active->hasDataset)
+            control->datasets.remove(generation);
         control->active.reset();
+    }
 }
 
 MomentaryLease::MomentaryLease(std::weak_ptr<OperationControl> control, quint64 generation)
@@ -241,6 +404,11 @@ bool MomentaryAcquireResult::acquired() const
     return lease.isValid();
 }
 
+bool DatasetAcquireResult::acquired() const
+{
+    return lease.isValid();
+}
+
 OperationCoordinator::OperationCoordinator()
     : control_(std::make_shared<OperationControl>())
 {
@@ -260,7 +428,42 @@ OperationAcquireResult OperationCoordinator::acquire(OperationKind kind, Resourc
 
     const quint64 generation = control_->nextGeneration++;
     control_->active =
-        OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation};
+        OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
+                                          false};
+    return {OperationLease(control_, generation), std::nullopt};
+}
+
+OperationAcquireResult OperationCoordinator::acquireWithDataset(
+    OperationKind kind, ResourceLocks locks, const QString &datasetJsonPath,
+    DatasetAccess access)
+{
+    QString pathError;
+    const bool allowMissing =
+        kind == OperationKind::DatasetCapture && access == DatasetAccess::Write;
+    const auto key = datasetKey(datasetJsonPath, allowMissing, &pathError);
+    if (!key) {
+        OperationFault fault;
+        fault.reason = pathError;
+        fault.recovery = QStringLiteral("Choose a valid Dataset manifest path.");
+        return {{}, fault};
+    }
+
+    QMutexLocker locker(&control_->mutex);
+    if (control_->active)
+        return {{}, conflictFault(*control_, control_->active->locks)};
+    const ResourceLocks heldMomentaryLocks = momentaryLocks(*control_);
+    if (overlaps(locks, heldMomentaryLocks))
+        return {{}, conflictFault(*control_, locks & heldMomentaryLocks)};
+    for (auto it = control_->datasets.cbegin(); it != control_->datasets.cend(); ++it) {
+        if (datasetConflicts(it.value(), *key, access))
+            return {{}, datasetConflictFault(*control_, it.key())};
+    }
+
+    const quint64 generation = control_->nextGeneration++;
+    control_->active =
+        OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
+                                          true};
+    control_->datasets.insert(generation, {*key, access});
     return {OperationLease(control_, generation), std::nullopt};
 }
 
@@ -276,6 +479,28 @@ MomentaryAcquireResult OperationCoordinator::acquireMomentary(ResourceLocks lock
     const quint64 generation = control_->nextGeneration++;
     control_->momentary.insert(generation, locks);
     return {MomentaryLease(control_, generation), std::nullopt};
+}
+
+DatasetAcquireResult OperationCoordinator::acquireDataset(const QString &datasetJsonPath,
+                                                          DatasetAccess access)
+{
+    QString pathError;
+    const auto key = datasetKey(datasetJsonPath, false, &pathError);
+    if (!key) {
+        OperationFault fault;
+        fault.reason = pathError;
+        fault.recovery = QStringLiteral("Choose an existing Dataset manifest.");
+        return {{}, fault};
+    }
+
+    QMutexLocker locker(&control_->mutex);
+    for (auto it = control_->datasets.cbegin(); it != control_->datasets.cend(); ++it) {
+        if (datasetConflicts(it.value(), *key, access))
+            return {{}, datasetConflictFault(*control_, it.key())};
+    }
+    const quint64 generation = control_->nextGeneration++;
+    control_->datasets.insert(generation, {*key, access});
+    return {DatasetLease(control_, generation), std::nullopt};
 }
 
 OperationSnapshot OperationCoordinator::snapshot() const

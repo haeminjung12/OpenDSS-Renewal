@@ -10,6 +10,8 @@
 #include <QProcessEnvironment>
 #include <QSaveFile>
 
+#include <utility>
+
 namespace desktop_app::v2::training {
 namespace {
 
@@ -152,8 +154,9 @@ bool resolveExistingContainedPath(
 
 } // namespace
 
-TrainingService::TrainingService(QObject *parent)
+TrainingService::TrainingService(OperationCoordinator &operations, QObject *parent)
     : QObject(parent)
+    , operations_(operations)
 {
     process_.setProcessChannelMode(QProcess::SeparateChannels);
     killTimer_.setSingleShot(true);
@@ -234,10 +237,25 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
     runFinished_ = {};
     cancelRequested_ = false;
 
+    auto acquired = operations_.acquireWithDataset(
+        OperationKind::Training, ResourceLock::Training | ResourceLock::Storage,
+        request.datasetJsonPath, DatasetAccess::Read);
+    if (!acquired.acquired()) {
+        lastError_ = acquired.fault ? acquired.fault->reason
+                                    : QStringLiteral("Training resources are in use.");
+        setState(TrainingState::Failed);
+        if (error)
+            *error = lastError_;
+        return false;
+    }
+    operationLease_ = std::move(acquired.lease);
+
     QString loadError;
     const auto manifest = dataset::DatasetManifestV2::load(request.datasetJsonPath, &loadError);
     if (!manifest) {
         lastError_ = loadError;
+        operationLease_.transition(OperationLifecycle::Failed);
+        operationLease_.release();
         setState(TrainingState::Failed);
         if (error)
             *error = lastError_;
@@ -246,6 +264,8 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
     const auto samples = manifest->trainingSamples(&loadError);
     if (!loadError.isEmpty()) {
         lastError_ = loadError;
+        operationLease_.transition(OperationLifecycle::Failed);
+        operationLease_.release();
         setState(TrainingState::Failed);
         if (error)
             *error = lastError_;
@@ -256,6 +276,8 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
     const QString repositoryRoot = repositoryInfo.absoluteFilePath();
     if (request.pythonExecutable.trimmed().isEmpty() || !repositoryInfo.isDir()) {
         lastError_ = QStringLiteral("Python executable and repository root are required.");
+        operationLease_.transition(OperationLifecycle::Failed);
+        operationLease_.release();
         setState(TrainingState::Failed);
         if (error)
             *error = lastError_;
@@ -265,6 +287,8 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
     QDir outputDirectory(QFileInfo(request.outputDirectory).absoluteFilePath());
     if (!outputDirectory.exists() && !outputDirectory.mkpath(QStringLiteral("."))) {
         lastError_ = QStringLiteral("Could not create output directory %1.").arg(outputDirectory.absolutePath());
+        operationLease_.transition(OperationLifecycle::Failed);
+        operationLease_.release();
         setState(TrainingState::Failed);
         if (error)
             *error = lastError_;
@@ -300,6 +324,8 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
     if (!writeJsonFile(preparedManifestPath_, preparedManifest, &loadError)
         || !writeJsonFile(configPath_, fixedTrainerConfig(*manifest, request), &loadError)) {
         lastError_ = loadError;
+        operationLease_.transition(OperationLifecycle::Failed);
+        operationLease_.release();
         setState(TrainingState::Failed);
         if (error)
             *error = lastError_;
@@ -327,6 +353,14 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
         QStringLiteral("--device"),
         request.device,
     });
+    if (!operationLease_.transition(OperationLifecycle::Running)) {
+        lastError_ = QStringLiteral("Training could not enter Running state.");
+        operationLease_.release();
+        setState(TrainingState::Failed);
+        if (error)
+            *error = lastError_;
+        return false;
+    }
     setState(TrainingState::Running);
     process_.start();
     return true;
@@ -407,6 +441,8 @@ void TrainingService::finish(int exitCode, QProcess::ExitStatus exitStatus)
 
     if (cancelRequested_) {
         lastError_ = QStringLiteral("Training was interrupted.");
+        operationLease_.transition(OperationLifecycle::Interrupted);
+        operationLease_.release();
         setState(TrainingState::Interrupted);
         return;
     }
@@ -452,10 +488,14 @@ void TrainingService::finish(int exitCode, QProcess::ExitStatus exitStatus)
         if (!standardError_.trimmed().isEmpty())
             failure += QStringLiteral(" stderr: %1").arg(standardError_.trimmed());
         lastError_ = failure;
+        operationLease_.transition(OperationLifecycle::Failed);
+        operationLease_.release();
         setState(TrainingState::Failed);
         return;
     }
 
+    operationLease_.transition(OperationLifecycle::Completed);
+    operationLease_.release();
     setState(TrainingState::Completed);
 }
 
@@ -463,6 +503,8 @@ void TrainingService::failToStart(const QString &message)
 {
     killTimer_.stop();
     lastError_ = QStringLiteral("Could not start trainer: %1").arg(message);
+    operationLease_.transition(OperationLifecycle::Failed);
+    operationLease_.release();
     setState(TrainingState::Failed);
 }
 

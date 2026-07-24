@@ -1,6 +1,7 @@
 #pragma once
 
 #include "dataset_manifest_v2.h"
+#include "../operation/operation_coordinator.h"
 
 #include <QString>
 #include <QVector>
@@ -40,6 +41,8 @@ struct DatasetLabelSnapshot {
 
 class DatasetLabelService {
   public:
+    explicit DatasetLabelService(OperationCoordinator& operations);
+
     bool open(const QString& manifestPath, QString* error = nullptr);
 
     bool configureClassCount(int classCount, QString* error = nullptr);
@@ -61,6 +64,7 @@ class DatasetLabelService {
                       const QVector<UserLabelRecord>& labels, QString* error);
     bool isOpen(QString* error) const;
 
+    OperationCoordinator& operations_;
     QString manifestPath_;
     DatasetManifestData data_;
     std::optional<UndoState> undo_;

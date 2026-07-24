@@ -44,11 +44,16 @@ QString cleanName(const QString& requested) {
     return value;
 }
 
-QString uniqueFolder(const QString& root, const QString& name) {
-    QString candidate = QDir(root).absoluteFilePath(name);
-    for (int suffix = 2; QFileInfo::exists(candidate); ++suffix)
-        candidate = QDir(root).absoluteFilePath(name + "-" + QString::number(suffix));
-    return candidate;
+QString createUniqueFolder(const QString& root, const QString& name) {
+    QDir rootDirectory(root);
+    for (int suffix = 1;; ++suffix) {
+        const QString leaf = suffix == 1 ? name : name + "-" + QString::number(suffix);
+        const QString candidate = rootDirectory.absoluteFilePath(leaf);
+        if (rootDirectory.mkdir(leaf))
+            return candidate;
+        if (!QFileInfo::exists(candidate))
+            return {};
+    }
 }
 
 bool publish(const QString& temporary, const QString& target, QString* error) {
@@ -188,29 +193,40 @@ bool DatasetCaptureService::start(const DatasetCaptureRequest& request, QString*
             return setError(error, "This Dataset Capture has already started."), false;
     }
 
-    auto acquired = operations_.acquire(OperationKind::DatasetCapture,
-                                        ResourceLock::Camera | ResourceLock::Storage |
-                                            ResourceLock::Dataset);
-    if (!acquired.acquired())
-        return setError(error, acquired.fault ? acquired.fault->reason
-                                             : "Dataset Capture resources are in use."), false;
     const QString displayName = cleanName(request.name);
-    const QString folder = uniqueFolder(request.saveRoot, displayName);
+    const QString folder = createUniqueFolder(request.saveRoot, displayName);
+    if (folder.isEmpty())
+        return setError(error, "Could not create a unique Dataset folder."), false;
     const QString sequenceFolder = QDir(folder).filePath("sequence");
     const QString cropsFolder = QDir(folder).filePath("crops");
-    if (!QDir().mkpath(sequenceFolder) || !QDir().mkpath(cropsFolder))
+    if (!QDir().mkpath(sequenceFolder) || !QDir().mkpath(cropsFolder)) {
+        QDir(folder).removeRecursively();
         return setError(error, "Could not create Dataset folders."), false;
+    }
     const QString now = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
     const QString partial = QDir(folder).filePath("dataset.partial.json");
     QString persistenceError;
     if (!desktop_app::writeJsonObjectAtomically(
             partial, QJsonObject{{"schema_version", "opendss.dataset.partial.v1"},
                                  {"status", "in_progress"}, {"created_at", now}},
-            &persistenceError))
+            &persistenceError)) {
+        QDir(folder).removeRecursively();
         return setError(error, persistenceError), false;
+    }
+    const QString datasetPath = QDir(folder).filePath("dataset.json");
+    auto acquired = operations_.acquireWithDataset(
+        OperationKind::DatasetCapture, ResourceLock::Camera | ResourceLock::Storage,
+        datasetPath, DatasetAccess::Write);
+    if (!acquired.acquired()) {
+        QDir(folder).removeRecursively();
+        return setError(error, acquired.fault ? acquired.fault->reason
+                                             : "Dataset Capture resources are in use."), false;
+    }
     detector_.reset();
-    if (!acquired.lease.transition(OperationLifecycle::Running))
+    if (!acquired.lease.transition(OperationLifecycle::Running)) {
+        QDir(folder).removeRecursively();
         return setError(error, "Dataset Capture could not enter Running state."), false;
+    }
 
     dispatcher_.openDatasetBoundary();
     std::lock_guard lock(mutex_);

@@ -145,10 +145,16 @@ DatasetLabelState stateForLabel(const UserLabelRecord* label) {
 
 namespace desktop_app::v2::dataset {
 
+DatasetLabelService::DatasetLabelService(OperationCoordinator& operations)
+    : operations_(operations) {}
+
 bool DatasetLabelService::open(const QString& manifestPath, QString* error) {
     if (error)
         error->clear();
     const QString absolutePath = QFileInfo(manifestPath).absoluteFilePath();
+    auto access = operations_.acquireDataset(absolutePath, DatasetAccess::Read);
+    if (!access.acquired())
+        return fail(error, access.fault ? access.fault->reason : "Dataset is in use.");
     const auto manifest = DatasetManifestV2::load(absolutePath, error);
     if (!manifest)
         return false;
@@ -173,6 +179,9 @@ bool DatasetLabelService::isOpen(QString* error) const {
 
 bool DatasetLabelService::saveMutation(const QVector<DatasetClass>& classes,
                                        const QVector<UserLabelRecord>& labels, QString* error) {
+    auto access = operations_.acquireDataset(manifestPath_, DatasetAccess::Write);
+    if (!access.acquired())
+        return fail(error, access.fault ? access.fault->reason : "Dataset is in use.");
     DatasetManifestData next = data_;
     next.classes = classes;
     next.labels = labels;
@@ -310,6 +319,9 @@ bool DatasetLabelService::undo(QString* error) {
     if (!undo_)
         return fail(error, "There is no label change to undo.");
 
+    auto access = operations_.acquireDataset(manifestPath_, DatasetAccess::Write);
+    if (!access.acquired())
+        return fail(error, access.fault ? access.fault->reason : "Dataset is in use.");
     const UndoState previous = *undo_;
     DatasetManifestData next = data_;
     next.classes = previous.classes;
@@ -329,6 +341,9 @@ bool DatasetLabelService::saveAs(const QString& destinationFolder, QString* erro
     if (!isOpen(error))
         return false;
 
+    auto access = operations_.acquireDataset(manifestPath_, DatasetAccess::Write);
+    if (!access.acquired())
+        return fail(error, access.fault ? access.fault->reason : "Dataset is in use.");
     const QString destination = QFileInfo(destinationFolder).absoluteFilePath();
     if (QFileInfo::exists(destination))
         return fail(error, "Save As destination already exists.");

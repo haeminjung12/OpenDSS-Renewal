@@ -48,6 +48,7 @@ class ModelTestWriter {
     bool finalized_ = false;
     bool failNextAppendForTest_ = false;
     bool failNextFinalSummaryForTest_ = false;
+    bool failPartialCsvCleanupForTest_ = false;
 };
 
 } // namespace desktop_app::v2::model_test

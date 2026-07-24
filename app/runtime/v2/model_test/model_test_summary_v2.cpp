@@ -127,7 +127,11 @@ bool validateData(const ModelTestSummaryData& data, bool requireDataset,
         !sameClasses(data.activeModel.classes, data.dataset.classes) ||
         deviceText(data.effectiveDevice).isEmpty() || data.eligibleImages < 0 ||
         data.predictionsCsv != "predictions.csv" ||
-        (data.fallbackWarning && data.fallbackWarning->trimmed().isEmpty())) {
+        (data.effectiveDevice == EffectiveDevice::Cuda &&
+         data.fallbackWarning.has_value()) ||
+        (data.effectiveDevice == EffectiveDevice::Cpu &&
+         (!data.fallbackWarning ||
+          data.fallbackWarning->trimmed().isEmpty()))) {
         return fail(error, "Model Test Summary metadata is invalid.");
     }
     const QString normalizedSource =
@@ -362,7 +366,14 @@ bool sameOptionalDouble(const QJsonValue& value, const std::optional<double>& ex
     if (!expected)
         return value.isNull();
     return value.isDouble() && std::isfinite(value.toDouble()) &&
-           std::abs(value.toDouble() - *expected) <= 1e-12;
+           value.toDouble() == *expected;
+}
+
+bool validStoredAccuracy(const QJsonValue& value, bool hasSupport) {
+    if (!hasSupport)
+        return value.isNull();
+    return value.isDouble() && std::isfinite(value.toDouble()) &&
+           value.toDouble() >= 0.0 && value.toDouble() <= 1.0;
 }
 
 } // namespace
@@ -614,7 +625,8 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
     if (!exactKeys(counts, {"eligible", "processed", "correct"}) ||
         !requireInteger(counts.value("eligible"), &storedEligible) ||
         !requireInteger(counts.value("processed"), &storedProcessed) ||
-        !requireInteger(counts.value("correct"), &storedCorrect)) {
+        !requireInteger(counts.value("correct"), &storedCorrect) ||
+        storedProcessed > storedEligible || storedCorrect > storedProcessed) {
         return failed<ModelTestSummaryV2>(error, "Model Test counts are invalid.");
     }
     result.data_.eligibleImages = storedEligible;
@@ -631,13 +643,13 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
     auto derived = derive(result.data_, *predictions, error);
     if (!derived)
         return std::nullopt;
-    if ((!partial &&
+    if (!validStoredAccuracy(root.value("overall_accuracy"),
+                             storedProcessed > 0) ||
+        (!partial &&
          (storedProcessed != derived->processedImages ||
           storedCorrect != derived->correctPredictions ||
           !sameOptionalDouble(root.value("overall_accuracy"),
-                              derived->overallAccuracy))) ||
-        (partial && (storedProcessed > derived->processedImages ||
-                     storedCorrect > derived->correctPredictions))) {
+                              derived->overallAccuracy)))) {
         return failed<ModelTestSummaryV2>(error, "Stored Model Test metrics disagree with predictions CSV.");
     }
 
@@ -656,13 +668,12 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
             !requireInteger(item.value("class_id"), &id) ||
             !requireInteger(item.value("support"), &support) ||
             !requireInteger(item.value("correct"), &correct) ||
-            id != expected.classId ||
+            id != expected.classId || correct > support ||
+            !validStoredAccuracy(item.value("accuracy"), support > 0) ||
             (!partial && (support != expected.support ||
                           correct != expected.correct ||
                           !sameOptionalDouble(item.value("accuracy"),
-                                              expected.accuracy))) ||
-            (partial && (support > expected.support ||
-                         correct > expected.correct))) {
+                                              expected.accuracy)))) {
             return failed<ModelTestSummaryV2>(error, "Per-class metrics disagree with predictions CSV.");
         }
     }
@@ -678,9 +689,7 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
             qint64 count = 0;
             if (!requireInteger(confusion.at(row).toArray().at(column), &count) ||
                 (!partial &&
-                 count != derived->confusionMatrix.at(row).at(column)) ||
-                (partial &&
-                 count > derived->confusionMatrix.at(row).at(column))) {
+                 count != derived->confusionMatrix.at(row).at(column))) {
                 return failed<ModelTestSummaryV2>(error, "Confusion matrix disagrees with predictions CSV.");
             }
         }

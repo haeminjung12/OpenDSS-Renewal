@@ -6,6 +6,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include <cstdlib>
@@ -20,6 +23,9 @@ struct ModelTestWriterTestAccess {
     }
     static void failNextFinalSummary(ModelTestWriter& writer) {
         writer.failNextFinalSummaryForTest_ = true;
+    }
+    static void failPartialCsvCleanup(ModelTestWriter& writer) {
+        writer.failPartialCsvCleanupForTest_ = true;
     }
 };
 } // namespace desktop_app::v2::model_test
@@ -102,6 +108,24 @@ void testCompletedEscapingRecoveryAndSourceUntouched() {
                 recovered->derivedResults().processedImages == 2 &&
                 recovered->derivedResults().correctPredictions == 1,
             qPrintable(error));
+    QJsonObject malformed =
+        QJsonDocument::fromJson(staleSummary).object();
+    QJsonObject malformedCounts = malformed.value("counts").toObject();
+    malformedCounts.insert("processed", QStringLiteral("zero"));
+    malformed.insert("counts", malformedCounts);
+    writeFile(partialSummary, QJsonDocument(malformed).toJson());
+    require(!ModelTestSummaryV2::load(partialSummary, &error),
+            "partial count type remains strict");
+    malformed = QJsonDocument::fromJson(staleSummary).object();
+    QJsonArray malformedPerClass = malformed.value("per_class").toArray();
+    QJsonObject malformedMetric = malformedPerClass.at(0).toObject();
+    malformedMetric.insert("accuracy", QStringLiteral("not-a-number"));
+    malformedPerClass[0] = malformedMetric;
+    malformed.insert("per_class", malformedPerClass);
+    writeFile(partialSummary, QJsonDocument(malformed).toJson());
+    require(!ModelTestSummaryV2::load(partialSummary, &error),
+            "partial accuracy type remains strict");
+    writeFile(partialSummary, staleSummary);
     require(writer->finalize(ModelTestStatus::Completed,
                              "2026-07-24T12:01:00Z",
                              "all_eligible_images_processed", &error),
@@ -206,6 +230,45 @@ void testUniqueFolderAndStoppedTwoClass() {
             "two-class CSV omits score_class_2");
 }
 
+void testCanonicalSuccessSurvivesCleanupFailure() {
+    stage = "cleanup";
+    QTemporaryDir temporary;
+    QString error;
+    const QString root = QDir(temporary.path()).filePath("output");
+    auto writer = ModelTestWriter::start(root, data(temporary, 2, 1), &error);
+    require(writer.has_value(), qPrintable(error));
+    require(writer->appendPrediction(
+                {"crops/a.png", 0, 0, {0.8, 0.2}}, &error),
+            qPrintable(error));
+    ModelTestWriterTestAccess::failPartialCsvCleanup(*writer);
+    require(writer->finalize(ModelTestStatus::Completed,
+                             "2026-07-24T12:00:05Z",
+                             "all_eligible_images_processed", &error),
+            qPrintable(error));
+    const QString finalCsv = QDir(root).filePath("predictions.csv");
+    const QString finalSummary =
+        QDir(root).filePath("model_test_summary.json");
+    const QString stalePartial =
+        QDir(root).filePath("predictions.partial.csv");
+    require(QFileInfo::exists(stalePartial) &&
+                !QFileInfo::exists(
+                    QDir(root).filePath("model_test_summary.partial.json")),
+            "partial cleanup attempts are independent");
+    require(ModelTestSummaryV2::load(finalSummary, &error).has_value(),
+            qPrintable(error));
+    const QByteArray canonicalCsv = readFile(finalCsv);
+    const QByteArray canonicalSummary = readFile(finalSummary);
+    const QByteArray partialCsv = readFile(stalePartial);
+    require(!writer->finalize(ModelTestStatus::Completed,
+                              "2026-07-24T12:00:05Z",
+                              "all_eligible_images_processed", &error),
+            "finalized writer refuses retry");
+    require(readFile(finalCsv) == canonicalCsv &&
+                readFile(finalSummary) == canonicalSummary &&
+                readFile(stalePartial) == partialCsv,
+            "retry cannot rewrite canonical or truncate stale partial");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -214,5 +277,6 @@ int main(int argc, char** argv) {
     testRollbackAndFailedRecovery();
     testFinalSummaryLastAndRetry();
     testUniqueFolderAndStoppedTwoClass();
+    testCanonicalSuccessSurvivesCleanupFailure();
     return 0;
 }

@@ -256,11 +256,15 @@ bool ModelTestWriter::finalize(ModelTestStatus status, const QString& endedAt,
     if (!ModelTestSummaryV2::save(finalSummary, data_, predictions_, error))
         return false;
 
-    if (status != ModelTestStatus::Failed) {
-        if (!QFile::remove(partialPath) || !QFile::remove(partialSummary))
-            return fail(error, "Finalized Model Test could not remove recovery files.");
-    }
     finalized_ = true;
+    if (status != ModelTestStatus::Failed) {
+        if (failPartialCsvCleanupForTest_) {
+            failPartialCsvCleanupForTest_ = false;
+        } else {
+            QFile::remove(partialPath);
+        }
+        QFile::remove(partialSummary);
+    }
     return true;
 }
 

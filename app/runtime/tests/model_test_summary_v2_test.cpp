@@ -129,12 +129,35 @@ void testThreeClassMetricsAndStrictRoundTrip() {
 
     QFile jsonFile(jsonPath);
     require(jsonFile.open(QIODevice::ReadOnly), "read summary JSON");
-    QJsonObject object = QJsonDocument::fromJson(jsonFile.readAll()).object();
+    const QByteArray validCpuJson = jsonFile.readAll();
     jsonFile.close();
+    QJsonObject object = QJsonDocument::fromJson(validCpuJson).object();
+    QJsonObject contradictoryDevice = object.value("device").toObject();
+    contradictoryDevice.insert("effective", "cuda");
+    object.insert("device", contradictoryDevice);
+    writeFile(jsonPath, QJsonDocument(object).toJson());
+    require(!ModelTestSummaryV2::load(jsonPath, &error),
+            "CUDA with fallback warning rejected on load");
+
+    object = QJsonDocument::fromJson(validCpuJson).object();
     object.insert("approval_threshold", 0.9);
     writeFile(jsonPath, QJsonDocument(object).toJson());
     require(!ModelTestSummaryV2::load(jsonPath, &error),
             "unknown approval field rejected");
+
+    summary.testId = "test-cuda";
+    summary.effectiveDevice = EffectiveDevice::Cuda;
+    summary.fallbackWarning.reset();
+    const QString cudaFolder = QDir(temporary.path()).filePath("cuda");
+    QDir().mkpath(cudaFolder);
+    const QString cudaJson =
+        QDir(cudaFolder).filePath("model_test_summary.json");
+    require(ModelTestSummaryV2::save(cudaJson, summary, predictions, &error),
+            qPrintable(error));
+    writeFile(QDir(cudaFolder).filePath("predictions.csv"),
+              csv(predictions, 3));
+    require(ModelTestSummaryV2::load(cudaJson, &error).has_value(),
+            qPrintable(error));
 }
 
 void testTwoClassArgmaxAndMismatch() {
@@ -159,6 +182,24 @@ void testTwoClassArgmaxAndMismatch() {
     summary.dataset.classes[1].name = "Different";
     require(!ModelTestSummaryV2::validateInitial(summary, &error),
             "Dataset class snapshot must exactly match Active Model");
+
+    summary.dataset.classes = summary.activeModel.classes;
+    summary.fallbackWarning.reset();
+    require(!ModelTestSummaryV2::validateInitial(summary, &error),
+            "CPU requires a factual fallback warning");
+    tie.scores = {0.6, 0.4};
+    require(!ModelTestSummaryV2::save(
+                QDir(temporary.path()).filePath("invalid-cpu.json"),
+                summary, {tie}, &error),
+            "strict save rejects CPU without fallback warning");
+    summary.effectiveDevice = EffectiveDevice::Cuda;
+    summary.fallbackWarning = QStringLiteral("contradictory fallback");
+    require(!ModelTestSummaryV2::validateInitial(summary, &error),
+            "CUDA forbids a fallback warning");
+    require(!ModelTestSummaryV2::save(
+                QDir(temporary.path()).filePath("invalid-cuda.json"),
+                summary, {tie}, &error),
+            "strict save rejects CUDA with fallback warning");
 }
 
 void testPathContainmentAndLinks() {

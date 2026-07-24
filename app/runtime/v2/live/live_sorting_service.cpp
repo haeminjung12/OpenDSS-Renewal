@@ -45,7 +45,7 @@ QString cleanName(QString value) {
     value.replace(QRegularExpression(R"([^\p{L}\p{N} _.-])"), "_");
     value.remove(QRegularExpression(R"(^[ ._]+|[ ._]+$)"));
     return value.isEmpty()
-               ? QDateTime::currentDateTimeUtc().toString(
+               ? QDateTime::currentDateTime().toString(
                      QStringLiteral("yyyy-MM-dd_HH-mm-ss"))
                : value;
 }
@@ -455,6 +455,7 @@ public:
             toDrain = std::move(dispatcher);
         }
         toDrain->stopAndDrain();
+        waitForExternalCallbacks();
         {
             std::lock_guard lock(stateMutex);
             dispatcherWorkerId = {};
@@ -507,10 +508,10 @@ public:
         {
             std::lock_guard lock(stateMutex);
             lifecycle = OperationLifecycle::Running;
+            pulseAllowed.store(true, std::memory_order_release);
+            processingAllowed.store(true, std::memory_order_release);
+            acceptingOffers.store(true, std::memory_order_release);
         }
-        pulseAllowed.store(true, std::memory_order_release);
-        processingAllowed.store(true, std::memory_order_release);
-        acceptingOffers.store(true, std::memory_order_release);
         return true;
     }
 
@@ -545,6 +546,50 @@ public:
     }
 
 private:
+    class ExternalCallbackReservation final {
+    public:
+        ExternalCallbackReservation(Impl& owner, bool pulseCallback)
+            : owner_(owner),
+              reserved_(owner_.reserveExternalCallback(pulseCallback)) {}
+        ~ExternalCallbackReservation() {
+            if (reserved_)
+                owner_.releaseExternalCallback();
+        }
+
+        ExternalCallbackReservation(const ExternalCallbackReservation&) = delete;
+        ExternalCallbackReservation& operator=(
+            const ExternalCallbackReservation&) = delete;
+
+        explicit operator bool() const noexcept { return reserved_; }
+
+    private:
+        Impl& owner_;
+        bool reserved_ = false;
+    };
+
+    bool reserveExternalCallback(bool pulseCallback) {
+        std::lock_guard lock(stateMutex);
+        if (!processingAllowed.load(std::memory_order_acquire) ||
+            (pulseCallback &&
+             !pulseAllowed.load(std::memory_order_acquire))) {
+            return false;
+        }
+        ++externalCallbacksInFlight;
+        return true;
+    }
+
+    void releaseExternalCallback() {
+        std::lock_guard lock(stateMutex);
+        --externalCallbacksInFlight;
+        externalCallbacksFinished.notify_all();
+    }
+
+    void waitForExternalCallbacks() {
+        std::unique_lock lock(stateMutex);
+        externalCallbacksFinished.wait(
+            lock, [this] { return externalCallbacksInFlight == 0; });
+    }
+
     static qint64 frameIndex(const FrameMeta& meta) {
         return meta.frameIndex > 0 ? meta.frameIndex : meta.delivered;
     }
@@ -646,7 +691,15 @@ private:
             if (model) {
                 QElapsedTimer inferenceTimer;
                 inferenceTimer.start();
-                auto result = model->classify(crop.image, &localError);
+                std::optional<LiveInferenceResult> result;
+                {
+                    ExternalCallbackReservation callback(*this, false);
+                    if (!callback) {
+                        pending.reset();
+                        return;
+                    }
+                    result = model->classify(crop.image, &localError);
+                }
                 const double inferenceMs =
                     static_cast<double>(inferenceTimer.nsecsElapsed()) / 1'000'000.0;
                 if (!result ||
@@ -689,7 +742,15 @@ private:
                     pending.reset();
                     return;
                 }
-                const auto pulseStatus = pulse(&localError);
+                run::DaqPulseStatus pulseStatus;
+                {
+                    ExternalCallbackReservation callback(*this, true);
+                    if (!callback) {
+                        pending.reset();
+                        return;
+                    }
+                    pulseStatus = pulse(&localError);
+                }
                 if (pulseStatus != run::DaqPulseStatus::Issued &&
                     pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
                     pulseStatus != run::DaqPulseStatus::Failed) {
@@ -926,6 +987,7 @@ private:
         }
         if (toDrain)
             toDrain->stopAndDrain();
+        waitForExternalCallbacks();
         {
             std::lock_guard lock(stateMutex);
             dispatcherWorkerId = {};
@@ -1017,8 +1079,10 @@ private:
 
     mutable std::mutex stateMutex;
     std::condition_variable finishFinished;
+    std::condition_variable externalCallbacksFinished;
     OperationLifecycle lifecycle = OperationLifecycle::Idle;
     bool finishInProgress = false;
+    int externalCallbacksInFlight = 0;
     bool lastFinishResult = false;
     QString lastFinishError;
     std::thread::id dispatcherWorkerId;

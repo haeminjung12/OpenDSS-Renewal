@@ -421,9 +421,16 @@ bool validateData(const RunManifestData& data, QString* error) {
     const bool sourceLoss = data.integrity.sourceFrameGaps.count > 0;
     const bool eventLoss = data.integrity.queueRejections.count > 0 ||
                            data.integrity.consumerFailures.count > 0;
-    if ((eventLoss && data.status != RunStatus::Failed) ||
-        (sourceLoss && data.status != RunStatus::Interrupted &&
-         data.status != RunStatus::Failed)) {
+    const bool activeCheckpoint =
+        data.stopReason == QStringLiteral("operation_in_progress") &&
+        data.endedAt == data.startedAt;
+    const bool cleanTerminal =
+        data.status == RunStatus::Completed || data.status == RunStatus::Stopped;
+    if ((cleanTerminal && (sourceLoss || eventLoss)) ||
+        (!activeCheckpoint &&
+         ((eventLoss && data.status != RunStatus::Failed) ||
+          (sourceLoss && data.status != RunStatus::Interrupted &&
+           data.status != RunStatus::Failed)))) {
         return fail(error, "Run status does not match recorded integrity loss.");
     }
     QSet<QString> ids;

@@ -322,12 +322,14 @@ void testPauseResumeSourceGapAndDuration() {
                 "gapped frame consumed");
         require(service.pause(&error), qPrintable(error));
         const auto partial = loadPartialRun(temporary.path());
-        require(partial.integrity.sourceFrameGaps.count == 1,
-                "Pause checkpoints integrity after drain");
+        require(partial.integrity.sourceFrameGaps.count == 1 &&
+                    partial.integrity.consumerFailures.count == 0,
+                "Pause checkpoints factual source loss without manufacturing event loss");
         require(service.stop(&error), qPrintable(error));
         const auto data = loadRun(temporary.path());
         require(data.status == run::RunStatus::Interrupted &&
                     data.integrity.sourceFrameGaps.count == 1 &&
+                    data.integrity.consumerFailures.count == 0 &&
                     data.integrity.sourceFrameGaps.ranges.first().first == 12 &&
                     data.integrity.sourceFrameGaps.ranges.first().last == 12,
                 "delivery gap is keyed by source frame index");
@@ -418,6 +420,183 @@ void testBacklogCancellationAtPauseAndStop() {
         }
         require(loadRun(temporary.path()).events.isEmpty(),
                 "cancelled backlog produced no persisted events");
+    }
+}
+
+void testExternalCallbackQuiescence() {
+    stage = "external callback quiescence";
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f)};
+        std::mutex detectorMutex;
+        std::condition_variable detectorReady;
+        bool detectorEntered = false;
+        bool releaseDetector = false;
+        detector.onProcess = [&](int) {
+            std::unique_lock lock(detectorMutex);
+            detectorEntered = true;
+            detectorReady.notify_all();
+            detectorReady.wait(lock, [&] { return releaseDetector; });
+        };
+        std::atomic_int classifications{0};
+        auto prepared = model(2, {0.1, 0.9});
+        prepared.classify =
+            [&](const cv::Mat&, QString*)
+                -> std::optional<live::LiveInferenceResult> {
+            classifications.fetch_add(1);
+            return live::LiveInferenceResult{{0.1, 0.9}};
+        };
+        live::LiveSortingRequest value = request(temporary.path());
+        value.triggerMode = run::TriggerMode::ClassBased;
+        value.useActiveModel = true;
+        value.hitClassId = QStringLiteral("c1");
+        OperationCoordinator operations;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [prepared](QString*) { return std::optional(prepared); });
+        QString error;
+        require(service.start(value, &error), qPrintable(error));
+        require(service.offerFrame(image(), meta(1), 100.0),
+                "offer pre-classifier blocked frame");
+        {
+            std::unique_lock lock(detectorMutex);
+            require(detectorReady.wait_for(lock, std::chrono::seconds(2),
+                                           [&] { return detectorEntered; }),
+                    "frame blocked immediately before classifier");
+        }
+        bool paused = false;
+        QString pauseError;
+        std::thread control([&] { paused = service.pause(&pauseError); });
+        require(waitFor([&] {
+                    return !service.offerFrame(image(), meta(2), 100.0);
+                }),
+                "Pause closes callback admission");
+        {
+            std::lock_guard lock(detectorMutex);
+            releaseDetector = true;
+        }
+        detectorReady.notify_all();
+        control.join();
+        require(paused && classifications.load() == 0,
+                "classifier cannot begin after Pause closes admission");
+        require(service.stop(&error), qPrintable(error));
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f)};
+        std::mutex callbackMutex;
+        std::condition_variable callbackReady;
+        bool callbackEntered = false;
+        bool releaseCallback = false;
+        std::atomic_int classifications{0};
+        auto prepared = model(2, {0.1, 0.9});
+        prepared.classify =
+            [&](const cv::Mat&, QString*)
+                -> std::optional<live::LiveInferenceResult> {
+            classifications.fetch_add(1);
+            std::unique_lock lock(callbackMutex);
+            callbackEntered = true;
+            callbackReady.notify_all();
+            callbackReady.wait(lock, [&] { return releaseCallback; });
+            return live::LiveInferenceResult{{0.1, 0.9}};
+        };
+        live::LiveSortingRequest value = request(temporary.path());
+        value.triggerMode = run::TriggerMode::ClassBased;
+        value.useActiveModel = true;
+        value.hitClassId = QStringLiteral("c1");
+        OperationCoordinator operations;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [](QString*) { return run::DaqPulseStatus::Issued; },
+            [prepared](QString*) { return std::optional(prepared); });
+        QString error;
+        require(service.start(value, &error), qPrintable(error));
+        require(service.offerFrame(image(), meta(1), 100.0),
+                "offer classifier-blocked frame");
+        {
+            std::unique_lock lock(callbackMutex);
+            require(callbackReady.wait_for(lock, std::chrono::seconds(2),
+                                           [&] { return callbackEntered; }),
+                    "classifier entered");
+        }
+        std::atomic_bool controlDone{false};
+        bool paused = false;
+        QString pauseError;
+        std::thread control([&] {
+            paused = service.pause(&pauseError);
+            controlDone.store(true);
+        });
+        require(waitFor([&] {
+                    return !service.offerFrame(image(), meta(2), 100.0);
+                }),
+                "Pause closes admission around reserved classifier");
+        require(!controlDone.load(),
+                "Pause waits for reserved classifier callback");
+        {
+            std::lock_guard lock(callbackMutex);
+            releaseCallback = true;
+        }
+        callbackReady.notify_all();
+        control.join();
+        require(paused && controlDone.load() && classifications.load() == 1,
+                "Pause returns after classifier quiesces exactly once");
+        require(service.stop(&error), qPrintable(error));
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f)};
+        std::mutex callbackMutex;
+        std::condition_variable callbackReady;
+        bool callbackEntered = false;
+        bool releaseCallback = false;
+        std::atomic_int pulses{0};
+        OperationCoordinator operations;
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [&](QString*) {
+                pulses.fetch_add(1);
+                std::unique_lock lock(callbackMutex);
+                callbackEntered = true;
+                callbackReady.notify_all();
+                callbackReady.wait(lock, [&] { return releaseCallback; });
+                return run::DaqPulseStatus::Issued;
+            });
+        QString error;
+        require(service.start(request(temporary.path()), &error), qPrintable(error));
+        require(service.offerFrame(image(), meta(1), 100.0),
+                "offer pulse-blocked frame");
+        {
+            std::unique_lock lock(callbackMutex);
+            require(callbackReady.wait_for(lock, std::chrono::seconds(2),
+                                           [&] { return callbackEntered; }),
+                    "pulse callback entered");
+        }
+        std::atomic_bool controlDone{false};
+        bool stopped = false;
+        QString stopError;
+        std::thread control([&] {
+            stopped = service.stop(&stopError);
+            controlDone.store(true);
+        });
+        require(waitFor([&] {
+                    return !service.offerFrame(image(), meta(2), 100.0);
+                }),
+                "Stop closes admission around reserved pulse");
+        require(!controlDone.load(), "Stop waits for reserved pulse callback");
+        {
+            std::lock_guard lock(callbackMutex);
+            releaseCallback = true;
+        }
+        callbackReady.notify_all();
+        control.join();
+        require(stopped && controlDone.load() && pulses.load() == 1,
+                "Stop returns after pulse quiesces exactly once");
+        require(!service.offerFrame(image(), meta(3), 100.0),
+                "no pulse callback begins after Stop acceptance");
     }
 }
 
@@ -838,6 +1017,7 @@ int main(int argc, char** argv) {
     testClassBasedTwoAndThreeClass();
     testPauseResumeSourceGapAndDuration();
     testBacklogCancellationAtPauseAndStop();
+    testExternalCallbackQuiescence();
     testSingleFinishOwnerAndRepeatedStop();
     testReentrantCallbacksFailPromptly();
     testInitializationExceptionsReleaseLocks();

@@ -17,6 +17,9 @@
 namespace {
 
 using desktop_app::v2::dataset::DatasetManifestV2;
+using desktop_app::v2::dataset::DatasetClass;
+using desktop_app::v2::dataset::DatasetRecord;
+using desktop_app::v2::dataset::UserLabelRecord;
 
 int fail(int code, const QString& message) {
     std::cerr << message.toStdString() << '\n';
@@ -292,6 +295,61 @@ int main(int argc, char** argv) {
                 }
             }
         }
+    }
+
+    const QString savedPath = QDir(temp.path()).filePath("saved-dataset.json");
+    const QVector<DatasetClass> savedClasses{{"0", "Empty"}, {"1", "Single"}};
+    const QVector<DatasetRecord> savedRecords{
+        {"saved-record", "crops/assigned.png", sha256(cropBytes), "frame-saved",
+         "event-saved", "2026-07-24T10:15:30Z", QRect(10, 20, 64, 64)},
+    };
+    const QVector<UserLabelRecord> savedLabels{
+        {"saved-label", "saved-record", "1", false},
+    };
+    if (!DatasetManifestV2::save(savedPath, "saved-dataset", savedClasses, savedRecords,
+                                 savedLabels, &error)) {
+        return fail(32, "Dataset save failed: " + error);
+    }
+    auto saved = DatasetManifestV2::load(savedPath, &error);
+    if (!saved || saved->datasetId() != "saved-dataset" || saved->classes().size() != 2 ||
+        saved->classes().at(0).id != "0" || saved->classes().at(1).name != "Single" ||
+        saved->records().size() != 1 || saved->records().front().cropRect != QRect(10, 20, 64, 64) ||
+        saved->labels().size() != 1 || saved->labels().front().classId != "1") {
+        return fail(33, "Dataset save/load round trip failed: " + error);
+    }
+    QFile savedFile(savedPath);
+    if (!savedFile.open(QIODevice::ReadOnly))
+        return fail(34, "Could not read saved Dataset fixture.");
+    const QByteArray savedBytes = savedFile.readAll();
+    savedFile.close();
+
+    QVector<DatasetClass> invalidClasses = savedClasses;
+    invalidClasses[1].id = "9";
+    if (DatasetManifestV2::save(savedPath, "invalid-dataset", invalidClasses, savedRecords,
+                                savedLabels, &error)) {
+        return fail(35, "Invalid Dataset was saved.");
+    }
+    if (!savedFile.open(QIODevice::ReadOnly) || savedFile.readAll() != savedBytes)
+        return fail(36, "Failed Dataset save replaced the valid manifest.");
+    savedFile.close();
+
+    const QString neutralPath = QDir(temp.path()).filePath("neutral-dataset.json");
+    if (!DatasetManifestV2::save(neutralPath, "neutral-dataset", {}, savedRecords, {}, &error)) {
+        return fail(37, "Zero-class neutral Dataset save failed: " + error);
+    }
+    auto neutral = DatasetManifestV2::load(neutralPath, &error);
+    if (!neutral || !neutral->classes().isEmpty() || !neutral->labels().isEmpty() ||
+        neutral->records().size() != 1) {
+        return fail(38, "Zero-class neutral Dataset round trip failed: " + error);
+    }
+    if (!expectLoadFailure(neutralPath,
+                           manifest({}, QJsonArray{record("neutral", "crops/assigned.png",
+                                                          sha256(cropBytes))},
+                                    QJsonArray{QJsonObject{{"label_id", "invalid"},
+                                                          {"record_id", "neutral"},
+                                                          {"excluded", true}}}),
+                           "must not contain labels")) {
+        return fail(39, "Dataset labels were accepted without configured classes.");
     }
 
     return 0;

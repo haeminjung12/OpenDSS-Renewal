@@ -154,6 +154,7 @@ add_test(
 
 qt_add_executable(dataset_manifest_v2_test
   dataset_manifest_v2_test.cpp
+  ../desktop_app/json_persistence.cpp
   ../v2/dataset/dataset_manifest_v2.cpp
 )
 target_include_directories(dataset_manifest_v2_test PRIVATE
@@ -169,6 +170,25 @@ add_test(
     $<TARGET_FILE:dataset_manifest_v2_test>
 )
 set_tests_properties(dataset_manifest_v2_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(sequence_manifest_v2_test
+  sequence_manifest_v2_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
+)
+target_include_directories(sequence_manifest_v2_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(sequence_manifest_v2_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME sequence_manifest_v2_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:sequence_manifest_v2_test>
+)
+set_tests_properties(sequence_manifest_v2_test PROPERTIES TIMEOUT 15)
 
 qt_add_executable(training_service_protocol_test
   training_service_protocol_test.cpp

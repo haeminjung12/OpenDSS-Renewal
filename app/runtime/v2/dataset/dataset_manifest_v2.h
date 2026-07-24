@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QRect>
+#include <QJsonObject>
 #include <QString>
 #include <QVector>
 
@@ -41,6 +42,10 @@ class DatasetManifestV2 {
     static constexpr auto SchemaVersion = "opendss.dataset.v2";
 
     static std::optional<DatasetManifestV2> load(const QString& path, QString* error = nullptr);
+    static bool save(const QString& path, const QString& datasetId,
+                     const QVector<DatasetClass>& classes,
+                     const QVector<DatasetRecord>& records,
+                     const QVector<UserLabelRecord>& labels, QString* error = nullptr);
 
     const QString& datasetId() const noexcept;
     const QVector<DatasetClass>& classes() const noexcept;
@@ -49,6 +54,10 @@ class DatasetManifestV2 {
     QVector<TrainingSample> trainingSamples(QString* error = nullptr) const;
 
   private:
+    static std::optional<DatasetManifestV2> fromJsonObject(const QJsonObject& root,
+                                                           const QString& path,
+                                                           QString* error);
+
     QString datasetRoot_;
     QString datasetId_;
     QVector<DatasetClass> classes_;

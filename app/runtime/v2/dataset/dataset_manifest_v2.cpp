@@ -1,5 +1,7 @@
 #include "dataset_manifest_v2.h"
 
+#include "../../desktop_app/json_persistence.h"
+
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
@@ -146,7 +148,11 @@ std::optional<DatasetManifestV2> DatasetManifestV2::load(const QString& path, QS
         fail(error, "dataset.json is not a valid JSON object.");
         return std::nullopt;
     }
-    const QJsonObject root = document.object();
+    return fromJsonObject(document.object(), path, error);
+}
+
+std::optional<DatasetManifestV2>
+DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, QString* error) {
     if (root.value("schema_version").toString() != SchemaVersion) {
         fail(error, "Unsupported Dataset schema_version.");
         return std::nullopt;
@@ -167,12 +173,15 @@ std::optional<DatasetManifestV2> DatasetManifestV2::load(const QString& path, QS
         return std::nullopt;
     }
     const QJsonArray classes = classesValue.toArray();
-    if (classes.size() != 2 && classes.size() != 3) {
-        fail(error, "A v2 Dataset must configure exactly two or three classes.");
+    if (!classes.isEmpty() && classes.size() != 2 && classes.size() != 3) {
+        fail(error, "A v2 Dataset must have no classes or configure exactly two or three classes.");
         return std::nullopt;
     }
-    const QVector<QString> expectedIds =
-        classes.size() == 2 ? QVector<QString>{"0", "1"} : QVector<QString>{"0", "1", "2"};
+    const QVector<QString> expectedIds = classes.size() == 2
+                                            ? QVector<QString>{"0", "1"}
+                                            : classes.size() == 3
+                                                  ? QVector<QString>{"0", "1", "2"}
+                                                  : QVector<QString>{};
     QSet<QString> classNames;
     for (qsizetype index = 0; index < classes.size(); ++index) {
         if (!classes.at(index).isObject()) {
@@ -274,6 +283,10 @@ std::optional<DatasetManifestV2> DatasetManifestV2::load(const QString& path, QS
         fail(error, "Field 'labels' must be an array.");
         return std::nullopt;
     }
+    if (classes.isEmpty() && !labelsValue.toArray().isEmpty()) {
+        fail(error, "A Dataset without classes must not contain labels.");
+        return std::nullopt;
+    }
     QSet<QString> labelIds;
     QSet<QString> labeledRecordIds;
     for (const QJsonValue& value : labelsValue.toArray()) {
@@ -334,6 +347,54 @@ std::optional<DatasetManifestV2> DatasetManifestV2::load(const QString& path, QS
     }
 
     return manifest;
+}
+
+bool DatasetManifestV2::save(const QString& path, const QString& datasetId,
+                             const QVector<DatasetClass>& classes,
+                             const QVector<DatasetRecord>& records,
+                             const QVector<UserLabelRecord>& labels, QString* error) {
+    QJsonArray classesJson;
+    for (const DatasetClass& datasetClass : classes) {
+        classesJson.push_back(QJsonObject{{"id", datasetClass.id}, {"name", datasetClass.name}});
+    }
+
+    QJsonArray recordsJson;
+    for (const DatasetRecord& record : records) {
+        recordsJson.push_back(
+            QJsonObject{{"record_id", record.recordId},
+                        {"crop_path", record.cropPath},
+                        {"crop_sha256", record.cropSha256},
+                        {"source_frame_id", record.sourceFrameId},
+                        {"source_event_id", record.sourceEventId},
+                        {"timestamp", record.timestamp},
+                        {"crop_rect", QJsonObject{{"x", record.cropRect.x()},
+                                                  {"y", record.cropRect.y()},
+                                                  {"width", record.cropRect.width()},
+                                                  {"height", record.cropRect.height()}}}});
+    }
+
+    QJsonArray labelsJson;
+    for (const UserLabelRecord& label : labels) {
+        QJsonObject object{{"label_id", label.labelId}, {"record_id", label.recordId}};
+        if (label.excluded)
+            object.insert("excluded", true);
+        else
+            object.insert("class_id", label.classId);
+        labelsJson.push_back(object);
+    }
+
+    const QJsonObject root{
+        {"schema_version", SchemaVersion},
+        {"dataset_id", datasetId},
+        {"classes", classesJson},
+        {"records", recordsJson},
+        {"labels", labelsJson},
+    };
+    if (!fromJsonObject(root, path, error))
+        return false;
+    if (!desktop_app::writeJsonObjectAtomically(path, root, error))
+        return false;
+    return load(path, error).has_value();
 }
 
 const QString& DatasetManifestV2::datasetId() const noexcept {

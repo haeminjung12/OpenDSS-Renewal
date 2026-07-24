@@ -448,5 +448,169 @@ int main(int argc, char** argv) {
     if (!hasSingleActiveEntry(registryPath, kCandidateId))
         return fail(42, "Valid activation did not durably select exactly the candidate entry.");
 
+    const QString completionRegistryDirectory = QDir(temp.path()).filePath("completion-registry");
+    if (!QDir().mkpath(completionRegistryDirectory))
+        return fail(53, "Could not create completion registry directory.");
+    const QString completionRegistryPath =
+        QDir(completionRegistryDirectory).filePath("model_registry.json");
+    if (!writeJsonObject(completionRegistryPath, registryObject(packagePath)))
+        return fail(54, "Could not create completion registry fixture.");
+
+    desktop_app::v2::ModelLoadService completionService(completionRegistryPath);
+    PipelineRunner completionPipeline;
+    auto completionPersisted =
+        completionService.preparePersistedActive("cpu", nullptr, &error);
+    if (!completionPersisted)
+        return fail(55, "Could not prepare completion prior active model: " + error);
+    completionService.installPersisted(std::move(completionPersisted), completionPipeline);
+
+    const QString trainingRun = QDir(temp.path()).filePath("training-run");
+    if (!preparePackageFixture(trainingRun, &fixtureError)
+        || !writeBytes(QDir(trainingRun).filePath("checkpoint.pth"), "checkpoint")) {
+        return fail(56, "Could not create completed Training run fixture: " + fixtureError);
+    }
+    const QString trainingModel = QDir(trainingRun).filePath("model.onnx");
+    const QString trainingMetadata = QDir(trainingRun).filePath("metadata.json");
+    const QString destinationRoot = QDir(temp.path()).filePath("saved-models");
+    QString registeredEntryId;
+    QString warning;
+    if (!completionService.saveAndActivateTrainedModel(
+            trainingRun, trainingModel, trainingMetadata, "Saved Success", destinationRoot,
+            "cpu", completionPipeline, &registeredEntryId, &warning, &error)) {
+        return fail(57, "Explicit-root save and activation failed: " + error);
+    }
+    const QString successPackage = QDir(destinationRoot).filePath("Saved Success");
+    if (registeredEntryId.isEmpty() || !QFileInfo(successPackage).isDir()
+        || !QFileInfo(QDir(successPackage).filePath("checkpoint.pth")).isFile()
+        || completionPipeline.loadedModelId() != registeredEntryId.toStdString()
+        || !hasSingleActiveEntry(completionRegistryPath, registeredEntryId)) {
+        return fail(58, "Explicit-root completion did not install and activate the saved package.");
+    }
+
+    const QString badRun = QDir(temp.path()).filePath("bad-training-run");
+    if (!preparePackageFixture(badRun, &fixtureError)
+        || !writeBytes(QDir(badRun).filePath("checkpoint.pth"), "checkpoint")
+        || !writeBytes(QDir(badRun).filePath("model.onnx"), "not an ONNX model")) {
+        return fail(59, "Could not create prepare-failure Training run fixture.");
+    }
+    const QByteArray beforePrepareFailure = readBytes(completionRegistryPath);
+    const std::string modelBeforePrepareFailure = completionPipeline.loadedModelId();
+    if (completionService.saveAndActivateTrainedModel(
+            badRun, QDir(badRun).filePath("model.onnx"),
+            QDir(badRun).filePath("metadata.json"), "Retry Model", destinationRoot, "cpu",
+            completionPipeline, &registeredEntryId, &warning, &error)) {
+        return fail(60, "Invalid saved model unexpectedly prepared and activated.");
+    }
+    const QString retryPackage = QDir(destinationRoot).filePath("Retry Model");
+    if (error.isEmpty() || readBytes(completionRegistryPath) != beforePrepareFailure
+        || QFileInfo::exists(retryPackage)
+        || completionPipeline.loadedModelId() != modelBeforePrepareFailure
+        || !hasSingleActiveEntry(completionRegistryPath, QString::fromStdString(modelBeforePrepareFailure))) {
+        return fail(61, "Prepare failure did not preserve registry, Active Model, and pipeline.");
+    }
+    if (!completionService.saveAndActivateTrainedModel(
+            trainingRun, trainingModel, trainingMetadata, "Retry Model", destinationRoot, "cpu",
+            completionPipeline, &registeredEntryId, &warning, &error)
+        || !QFileInfo(retryPackage).isDir()
+        || completionPipeline.loadedModelId() != registeredEntryId.toStdString()
+        || !hasSingleActiveEntry(completionRegistryPath, registeredEntryId)) {
+        return fail(62, "Prepare-failure rollback did not allow a same-name retry: " + error);
+    }
+
+    const QString missingCheckpointRun =
+        QDir(temp.path()).filePath("missing-checkpoint-run");
+    if (!preparePackageFixture(missingCheckpointRun, &fixtureError))
+        return fail(63, "Could not create missing-checkpoint fixture.");
+    const QByteArray beforeMissingCheckpoint = readBytes(completionRegistryPath);
+    const std::string modelBeforeMissingCheckpoint = completionPipeline.loadedModelId();
+    const QString missingCheckpointPackage =
+        QDir(destinationRoot).filePath("Missing Checkpoint");
+    if (completionService.saveAndActivateTrainedModel(
+            missingCheckpointRun, QDir(missingCheckpointRun).filePath("model.onnx"),
+            QDir(missingCheckpointRun).filePath("metadata.json"), "Missing Checkpoint",
+            destinationRoot, "cpu", completionPipeline, &registeredEntryId, &warning, &error)
+        || readBytes(completionRegistryPath) != beforeMissingCheckpoint
+        || QFileInfo::exists(missingCheckpointPackage)
+        || completionPipeline.loadedModelId() != modelBeforeMissingCheckpoint) {
+        return fail(64, "Missing checkpoint changed package, registry, or pipeline state.");
+    }
+
+    if (!completionPipeline.configureInstalled(liveConfig, pipelineError))
+        return fail(65, "Could not make completion pipeline Ready for rejection coverage.");
+    const QByteArray beforeReadyCompletion = readBytes(completionRegistryPath);
+    const std::string modelBeforeReadyCompletion = completionPipeline.loadedModelId();
+    const QString readyPackage = QDir(destinationRoot).filePath("Ready Blocked");
+    if (completionService.saveAndActivateTrainedModel(
+            trainingRun, trainingModel, trainingMetadata, "Ready Blocked", destinationRoot,
+            "cpu", completionPipeline, &registeredEntryId, &warning, &error)
+        || !error.contains("Stop the active pipeline")
+        || readBytes(completionRegistryPath) != beforeReadyCompletion
+        || QFileInfo::exists(readyPackage) || !completionPipeline.isReady()
+        || completionPipeline.loadedModelId() != modelBeforeReadyCompletion) {
+        return fail(66, "Pipeline Ready rejection did not roll back the saved package and registry.");
+    }
+    completionPipeline.clear();
+
+    const QString collisionPackage = QDir(destinationRoot).filePath("Collision Model");
+    if (!QDir().mkpath(collisionPackage)
+        || !writeBytes(QDir(collisionPackage).filePath("keep.txt"), "existing")) {
+        return fail(67, "Could not create destination collision fixture.");
+    }
+    const QByteArray beforeCollision = readBytes(completionRegistryPath);
+    const std::string modelBeforeCollision = completionPipeline.loadedModelId();
+    if (completionService.saveAndActivateTrainedModel(
+            trainingRun, trainingModel, trainingMetadata, "Collision Model", destinationRoot,
+            "cpu", completionPipeline, &registeredEntryId, &warning, &error)
+        || !error.contains("already exists") || readBytes(completionRegistryPath) != beforeCollision
+        || readBytes(QDir(collisionPackage).filePath("keep.txt")) != QByteArray("existing")
+        || completionPipeline.loadedModelId() != modelBeforeCollision) {
+        return fail(68, "Destination collision did not remain a normal non-mutating save failure.");
+    }
+
+    const QString absentFailureRegistry =
+        QDir(temp.path()).filePath("absent-failure-registry/model_registry.json");
+    const QString absentFailureRoot = QDir(temp.path()).filePath("absent-failure-models");
+    desktop_app::v2::ModelLoadService absentFailureService(absentFailureRegistry);
+    PipelineRunner absentFailurePipeline;
+    const QString priorCompletionId =
+        QString::fromStdString(completionPipeline.loadedModelId());
+    auto absentFailurePrior =
+        completionService.prepare(priorCompletionId, "cpu", nullptr, &error);
+    if (!absentFailurePrior)
+        return fail(69, "Could not prepare prior pipeline state for absent-registry rollback.");
+    completionService.installPersisted(std::move(absentFailurePrior), absentFailurePipeline);
+    const std::string absentFailurePriorId = absentFailurePipeline.loadedModelId();
+    const QString absentFailurePackage =
+        QDir(absentFailureRoot).filePath("Absent Failure");
+    if (absentFailureService.saveAndActivateTrainedModel(
+            badRun, QDir(badRun).filePath("model.onnx"),
+            QDir(badRun).filePath("metadata.json"), "Absent Failure", absentFailureRoot,
+            "cpu", absentFailurePipeline, &registeredEntryId, &warning, &error)
+        || QFileInfo::exists(absentFailureRegistry)
+        || QFileInfo::exists(absentFailurePackage)
+        || absentFailurePipeline.loadedModelId() != absentFailurePriorId) {
+        return fail(70, "Absent-registry failure did not remove its new registry and package.");
+    }
+
+    const QString absentSuccessRegistry =
+        QDir(temp.path()).filePath("absent-success-registry/model_registry.json");
+    const QString absentSuccessRoot = QDir(temp.path()).filePath("absent-success-models");
+    desktop_app::v2::ModelLoadService absentSuccessService(absentSuccessRegistry);
+    PipelineRunner absentSuccessPipeline;
+    if (!absentSuccessService.saveAndActivateTrainedModel(
+            trainingRun, trainingModel, trainingMetadata, "Absent Success", absentSuccessRoot,
+            "cpu", absentSuccessPipeline, &registeredEntryId, &warning, &error)) {
+        return fail(71, "Absent-registry completion failed: " + error);
+    }
+    const QString absentSuccessPackage =
+        QDir(absentSuccessRoot).filePath("Absent Success");
+    if (!QFileInfo(absentSuccessRegistry).isFile()
+        || !QFileInfo(absentSuccessPackage).isDir()
+        || registeredEntryId.isEmpty()
+        || absentSuccessPipeline.loadedModelId() != registeredEntryId.toStdString()
+        || !hasSingleActiveEntry(absentSuccessRegistry, registeredEntryId)) {
+        return fail(72, "Absent-registry completion did not create and activate its saved package.");
+    }
+
     return 0;
 }

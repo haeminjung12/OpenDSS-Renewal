@@ -24,6 +24,16 @@ public:
     bool activateAndInstall(std::unique_ptr<OnnxInferenceAdapter> candidate,
                             PipelineRunner& pipeline,
                             QString* error = nullptr) const;
+    bool saveAndActivateTrainedModel(const QString& runDir,
+                                    const QString& modelOnnxPath,
+                                    const QString& metadataJsonPath,
+                                    const QString& modelName,
+                                    const QString& destinationRoot,
+                                    const QString& requestedDevice,
+                                    PipelineRunner& pipeline,
+                                    QString* registeredEntryId = nullptr,
+                                    QString* warning = nullptr,
+                                    QString* error = nullptr) const;
     void installPersisted(std::unique_ptr<OnnxInferenceAdapter> candidate,
                           PipelineRunner& pipeline) const noexcept;
 

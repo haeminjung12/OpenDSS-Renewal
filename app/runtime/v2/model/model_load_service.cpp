@@ -13,6 +13,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
+#include <QSaveFile>
 
 #include <cmath>
 
@@ -102,6 +103,55 @@ bool samePath(const QString& left, const QString& right) {
 #else
     return normalizedLeft == normalizedRight;
 #endif
+}
+
+struct RegistrySnapshot {
+    bool existed = false;
+    QByteArray bytes;
+};
+
+bool readRegistrySnapshot(const QString& path, RegistrySnapshot& snapshot, QString* error) {
+    snapshot = {};
+    if (!QFileInfo::exists(path))
+        return true;
+
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly)) {
+        if (error)
+            *error = "Could not read the model registry before saving: " + file.errorString();
+        return false;
+    }
+    snapshot.bytes = file.readAll();
+    if (file.error() != QFile::NoError) {
+        if (error)
+            *error = "Could not read the complete model registry before saving: " + file.errorString();
+        return false;
+    }
+    snapshot.existed = true;
+    return true;
+}
+
+bool restoreRegistrySnapshot(const QString& path, const RegistrySnapshot& snapshot, QString* error) {
+    if (!snapshot.existed) {
+        if (!QFileInfo::exists(path) || QFile::remove(path))
+            return true;
+        if (error)
+            *error = "Could not remove the newly created model registry during rollback.";
+        return false;
+    }
+
+    QSaveFile file(path);
+    if (!file.open(QIODevice::WriteOnly)) {
+        if (error)
+            *error = "Could not open the model registry for rollback: " + file.errorString();
+        return false;
+    }
+    if (file.write(snapshot.bytes) != snapshot.bytes.size() || !file.commit()) {
+        if (error)
+            *error = "Could not restore the model registry during rollback: " + file.errorString();
+        return false;
+    }
+    return true;
 }
 
 } // namespace
@@ -317,6 +367,77 @@ bool ModelLoadService::activateAndInstall(std::unique_ptr<OnnxInferenceAdapter> 
 
     pipeline.installInference(std::move(candidate));
     return true;
+}
+
+bool ModelLoadService::saveAndActivateTrainedModel(
+    const QString& runDir,
+    const QString& modelOnnxPath,
+    const QString& metadataJsonPath,
+    const QString& modelName,
+    const QString& destinationRoot,
+    const QString& requestedDevice,
+    PipelineRunner& pipeline,
+    QString* registeredEntryId,
+    QString* warning,
+    QString* error) const {
+    if (registeredEntryId)
+        registeredEntryId->clear();
+    if (warning)
+        warning->clear();
+    if (error)
+        error->clear();
+
+    RegistrySnapshot priorRegistry;
+    QString snapshotError;
+    if (!readRegistrySnapshot(registryFilePath_, priorRegistry, &snapshotError)) {
+        if (error)
+            *error = snapshotError;
+        return false;
+    }
+
+    QString packagePath;
+    QString entryId;
+    QString saveError;
+    if (!saveTrainedModelArtifacts(
+            registryFilePath_, runDir, modelOnnxPath, metadataJsonPath, QString(), QString(),
+            QString(), QString(), QString(), modelName, destinationRoot, &packagePath, &entryId,
+            &saveError)) {
+        if (error)
+            *error = saveError;
+        return false;
+    }
+
+    QString prepareWarning;
+    QString completionError;
+    auto candidate = prepare(entryId, requestedDevice, &prepareWarning, &completionError);
+    if (candidate && activateAndInstall(std::move(candidate), pipeline, &completionError)) {
+        if (registeredEntryId)
+            *registeredEntryId = entryId;
+        if (warning)
+            *warning = prepareWarning;
+        return true;
+    }
+
+    QString rollbackError;
+    if (!restoreRegistrySnapshot(registryFilePath_, priorRegistry, &rollbackError)) {
+        if (error) {
+            *error = completionError + " Registry rollback also failed: " + rollbackError
+                + " The saved package was retained at " + packagePath + '.';
+        }
+        return false;
+    }
+
+    QDir packageDirectory(packagePath);
+    if (!packageDirectory.removeRecursively()) {
+        if (error)
+            *error = completionError + " Registry rollback succeeded, but the saved package could not be removed: "
+                + packagePath;
+        return false;
+    }
+
+    if (error)
+        *error = completionError;
+    return false;
 }
 
 void ModelLoadService::installPersisted(std::unique_ptr<OnnxInferenceAdapter> candidate,

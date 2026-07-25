@@ -1,5 +1,6 @@
 
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent)
 
 if (ONNXRUNTIME_DIR)
     if (NOT ONNXRUNTIME_INCLUDE_DIR)
@@ -19,6 +20,23 @@ endif()
 
 target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "main.cpp"
+    "../../dcam_camera.cpp"
+    "../../dcam_camera.h"
+    "../../v2/camera/camera_controller.cpp"
+    "../../v2/camera/camera_controller.h"
+    "../../v2/camera/camera_device.h"
+    "../../v2/camera/camera_preview_image_provider.cpp"
+    "../../v2/camera/camera_preview_image_provider.h"
+    "../../v2/camera/camera_service.cpp"
+    "../../v2/camera/camera_service.h"
+    "../../v2/camera/dcam_camera_device.cpp"
+    "../../v2/camera/dcam_camera_device.h"
+    "../../v2/camera/frame_conversion.cpp"
+    "../../v2/camera/frame_conversion.h"
+    "../../v2/camera/single_image_capture_controller.cpp"
+    "../../v2/camera/single_image_capture_controller.h"
+    "../../v2/camera/single_image_capture_service.cpp"
+    "../../v2/camera/single_image_capture_service.h"
     "../../v2/dataset/dataset_label_controller.cpp"
     "../../v2/dataset/dataset_label_controller.h"
     "../../v2/dataset/dataset_label_service.cpp"
@@ -85,15 +103,22 @@ target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}/../.."
+    "${DCAM_SDK_DIR}/inc"
     "${ONNXRUNTIME_INCLUDE_DIR}"
     ${OpenCV_INCLUDE_DIRS}
 )
 
+target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
+    "${DCAM_SDK_DIR}/lib/win64"
+)
+
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     Qt${QT_VERSION_MAJOR}::Core
+    Qt${QT_VERSION_MAJOR}::Concurrent
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::Quick
     Qt${QT_VERSION_MAJOR}::Qml
+    dcamapi
     ${ONNXRUNTIME_LIB}
     ${OpenCV_LIBS})

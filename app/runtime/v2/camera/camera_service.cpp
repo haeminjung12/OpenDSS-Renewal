@@ -2,6 +2,11 @@
 
 #include "../state/application_state_store.h"
 
+#include <QMetaObject>
+#include <QMutexLocker>
+#include <QThread>
+#include <QTimer>
+
 namespace desktop_app::v2 {
 namespace {
 
@@ -24,15 +29,35 @@ QString factualError(const QString &action, const QString &deviceError)
 
 CameraService::CameraService(std::unique_ptr<ICameraDevice> device,
                              ApplicationStateStore &stateStore)
-    : device_(std::move(device))
+    : QObject(nullptr)
+    , device_(std::move(device))
     , stateStore_(stateStore)
+    , pollTimer_(new QTimer(this))
 {
+    qRegisterMetaType<CameraFrame>();
+    pollTimer_->setInterval(16);
+    pollTimer_->setTimerType(Qt::PreciseTimer);
+    connect(pollTimer_, &QTimer::timeout, this, &CameraService::pollFrame);
     publish(CameraStatus::Unavailable);
 }
 
-bool CameraService::open(QString *error)
+CameraService::~CameraService()
 {
-    if (state_.status != CameraStatus::Unavailable) {
+    pollTimer_->stop();
+    QString ignored;
+    closeDevice(&ignored);
+}
+
+void CameraService::open()
+{
+    QString error;
+    const bool succeeded = openDevice(&error);
+    emit commandFinished(succeeded, error);
+}
+
+bool CameraService::openDevice(QString *error)
+{
+    if (state().status != CameraStatus::Unavailable) {
         setError(error, QStringLiteral("The camera can only be opened while it is unavailable."));
         return false;
     }
@@ -61,56 +86,66 @@ bool CameraService::open(QString *error)
     return true;
 }
 
-bool CameraService::start(QString *error)
+void CameraService::start()
 {
-    if (state_.status != CameraStatus::Ready) {
+    QString error;
+    bool succeeded = false;
+    if (state().status != CameraStatus::Ready) {
         const QString message = QStringLiteral("The camera must be ready before streaming can start.");
-        setError(error, message);
-        return false;
+        setError(&error, message);
+    } else {
+        QString deviceError;
+        if (!device_->start(&deviceError)) {
+            const QString message = factualError(QStringLiteral("start streaming"), deviceError);
+            QString ignored;
+            device_->close(&ignored);
+            publish(CameraStatus::Faulted, message);
+            setError(&error, message);
+        } else {
+            lastDeliveryId_.reset();
+            lastTimestampNs_.reset();
+            publish(CameraStatus::Streaming);
+            pollTimer_->start();
+            succeeded = true;
+        }
     }
-
-    QString deviceError;
-    if (!device_->start(&deviceError)) {
-        const QString message = factualError(QStringLiteral("start streaming"), deviceError);
-        QString ignored;
-        device_->close(&ignored);
-        publish(CameraStatus::Faulted, message);
-        setError(error, message);
-        return false;
-    }
-
-    lastDeliveryId_.reset();
-    lastTimestampNs_.reset();
-    publish(CameraStatus::Streaming);
-    setError(error, {});
-    return true;
+    emit commandFinished(succeeded, error);
 }
 
-bool CameraService::stop(QString *error)
+void CameraService::stop()
 {
-    if (state_.status != CameraStatus::Streaming) {
+    QString error;
+    bool succeeded = false;
+    if (state().status != CameraStatus::Streaming) {
         const QString message = QStringLiteral("The camera is not streaming.");
-        setError(error, message);
-        return false;
+        setError(&error, message);
+    } else {
+        pollTimer_->stop();
+        QString deviceError;
+        if (!device_->stop(&deviceError)) {
+            const QString message = factualError(QStringLiteral("stop streaming"), deviceError);
+            QString ignored;
+            device_->close(&ignored);
+            publish(CameraStatus::Faulted, message);
+            setError(&error, message);
+        } else {
+            publish(CameraStatus::Ready);
+            succeeded = true;
+        }
     }
-
-    QString deviceError;
-    if (!device_->stop(&deviceError)) {
-        const QString message = factualError(QStringLiteral("stop streaming"), deviceError);
-        QString ignored;
-        device_->close(&ignored);
-        publish(CameraStatus::Faulted, message);
-        setError(error, message);
-        return false;
-    }
-
-    publish(CameraStatus::Ready);
-    setError(error, {});
-    return true;
+    emit commandFinished(succeeded, error);
 }
 
-bool CameraService::close(QString *error)
+void CameraService::close()
 {
+    QString error;
+    const bool succeeded = closeDevice(&error);
+    emit commandFinished(succeeded, error);
+}
+
+bool CameraService::closeDevice(QString *error)
+{
+    pollTimer_->stop();
     if (!device_) {
         lastDeliveryId_.reset();
         lastTimestampNs_.reset();
@@ -120,7 +155,7 @@ bool CameraService::close(QString *error)
     }
 
     QString firstError;
-    if (state_.status == CameraStatus::Streaming) {
+    if (state().status == CameraStatus::Streaming) {
         QString stopError;
         if (!device_->stop(&stopError)) {
             firstError = factualError(QStringLiteral("stop streaming"), stopError);
@@ -145,62 +180,81 @@ bool CameraService::close(QString *error)
     return true;
 }
 
-bool CameraService::recover(QString *error)
+void CameraService::recover()
 {
+    QString error;
     QString closeError;
-    if (!close(&closeError)) {
-        setError(error, closeError);
-        return false;
+    bool succeeded = closeDevice(&closeError);
+    if (!succeeded) {
+        error = closeError;
+    } else {
+        succeeded = openDevice(&error);
     }
-    return open(error);
+    emit commandFinished(succeeded, error);
 }
 
-std::optional<CameraFrame> CameraService::latestOwnedFrame(QString *error)
+void CameraService::pollFrame()
 {
-    if (state_.status != CameraStatus::Streaming) {
-        setError(error, QStringLiteral("The camera is not streaming."));
-        return std::nullopt;
-    }
-
     CameraFrame frame;
     QString deviceError;
     const CameraFrameResult result = device_->latestFrame(frame, &deviceError);
-    if (result == CameraFrameResult::NoFrame) {
-        setError(error, {});
-        return std::nullopt;
-    }
+    if (result == CameraFrameResult::NoFrame)
+        return;
     if (result == CameraFrameResult::Error) {
-        setError(error, factualError(QStringLiteral("provide a current frame"), deviceError));
-        return std::nullopt;
+        pollTimer_->stop();
+        const QString message =
+            factualError(QStringLiteral("provide a current frame"), deviceError);
+        QString ignored;
+        device_->stop(&ignored);
+        device_->close(&ignored);
+        lastDeliveryId_.reset();
+        lastTimestampNs_.reset();
+        publish(CameraStatus::Faulted, message);
+        emit frameError(message);
+        return;
     }
 
     if (lastDeliveryId_ && frame.deliveryId < *lastDeliveryId_) {
-        setError(error, QStringLiteral("The camera returned an older frame delivery identifier."));
-        return std::nullopt;
+        emit frameError(QStringLiteral("The camera returned an older frame delivery identifier."));
+        return;
     }
     if (lastTimestampNs_ && frame.monotonicTimestampNs < *lastTimestampNs_) {
-        setError(error, QStringLiteral("The camera returned an older frame timestamp."));
-        return std::nullopt;
+        emit frameError(QStringLiteral("The camera returned an older frame timestamp."));
+        return;
     }
 
     frame.bytes = QByteArray(frame.bytes.constData(), frame.bytes.size());
     lastDeliveryId_ = frame.deliveryId;
     lastTimestampNs_ = frame.monotonicTimestampNs;
-    setError(error, {});
-    return frame;
+    emit frameReady(std::move(frame));
 }
 
 CameraState CameraService::state() const
 {
+    QMutexLocker locker(&stateMutex_);
     return state_;
 }
 
 void CameraService::publish(CameraStatus status, const QString &fault)
 {
-    state_.status = status;
-    state_.deviceId = device_ ? device_->deviceId() : QString();
-    state_.fault = fault;
-    stateStore_.publishCamera(state_);
+    CameraState published;
+    {
+        QMutexLocker locker(&stateMutex_);
+        state_.status = status;
+        state_.deviceId = device_ ? device_->deviceId() : QString();
+        state_.fault = fault;
+        published = state_;
+    }
+
+    if (stateStore_.thread() == QThread::currentThread()) {
+        stateStore_.publishCamera(published);
+    } else {
+        QMetaObject::invokeMethod(
+            &stateStore_,
+            [store = &stateStore_, published]() { store->publishCamera(published); },
+            Qt::QueuedConnection);
+    }
+    emit stateChanged(static_cast<int>(published.status), published.deviceId, published.fault);
 }
 
 } // namespace desktop_app::v2

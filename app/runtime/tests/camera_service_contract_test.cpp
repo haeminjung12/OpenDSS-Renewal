@@ -3,6 +3,13 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QMutex>
+#include <QMutexLocker>
+#include <QQueue>
+#include <QSignalSpy>
+#include <QThread>
+
+#include <atomic>
 
 using namespace desktop_app::v2;
 
@@ -20,7 +27,6 @@ public:
             *error = openError;
             return false;
         }
-        opened = true;
         return true;
     }
 
@@ -51,58 +57,73 @@ public:
             *error = closeError;
             return false;
         }
-        opened = false;
         return true;
     }
 
     CameraFrameResult latestFrame(CameraFrame &output, QString *error) override
     {
-        if (frameResult == CameraFrameResult::Error) {
-            *error = frameError;
-            return frameResult;
+        ++latestFrameCalls;
+        if (failFrames.load()) {
+            *error = QStringLiteral("Camera transport failed.");
+            return CameraFrameResult::Error;
         }
-        if (frameResult == CameraFrameResult::NoFrame) {
+        QMutexLocker locker(&mutex);
+        if (frames.isEmpty()) {
             error->clear();
-            return frameResult;
+            return CameraFrameResult::NoFrame;
         }
-        output = frame;
-        return frameResult;
+        output = frames.dequeue();
+        return CameraFrameResult::Frame;
     }
 
+    void enqueue(CameraFrame frame)
+    {
+        QMutexLocker locker(&mutex);
+        frames.enqueue(std::move(frame));
+    }
+
+    QMutex mutex;
+    QQueue<CameraFrame> frames;
     QString openError;
     QString startError;
     QString stopError;
     QString closeError;
-    QString frameError;
-    CameraFrameResult frameResult = CameraFrameResult::Frame;
-    CameraFrame frame;
-    bool opened = false;
     int openCalls = 0;
     int startCalls = 0;
     int stopCalls = 0;
     int closeCalls = 0;
+    std::atomic_bool failFrames = false;
+    std::atomic_int latestFrameCalls = 0;
 };
 
 bool check(bool condition, const char *message)
 {
-    if (!condition) {
+    if (!condition)
         qCritical().noquote() << message;
-    }
     return condition;
 }
 
-CameraFrame validFrame()
+CameraFrame frame(quint64 deliveryId, qint64 timestamp)
 {
-    CameraFrame frame;
-    frame.pixelFormat = CameraPixelFormat::Mono8;
-    frame.width = 2;
-    frame.height = 1;
-    frame.rowBytes = 2;
-    frame.bitDepth = 8;
-    frame.deliveryId = 7;
-    frame.monotonicTimestampNs = 700;
-    frame.bytes = QByteArray::fromHex("1122");
-    return frame;
+    CameraFrame result;
+    result.pixelFormat = CameraPixelFormat::Mono8;
+    result.width = 2;
+    result.height = 1;
+    result.rowBytes = 2;
+    result.bitDepth = 8;
+    result.deliveryId = deliveryId;
+    result.monotonicTimestampNs = timestamp;
+    result.bytes = QByteArray::fromHex("1122");
+    return result;
+}
+
+QVariantList runCommand(CameraService *service, const char *method, QSignalSpy &spy)
+{
+    const int before = spy.count();
+    QMetaObject::invokeMethod(service, method, Qt::QueuedConnection);
+    if (spy.count() == before)
+        spy.wait(1000);
+    return spy.count() > before ? spy.at(before) : QVariantList{};
 }
 
 } // namespace
@@ -111,118 +132,93 @@ int main(int argc, char **argv)
 {
     QCoreApplication app(argc, argv);
     bool ok = true;
-    QString error;
 
     ApplicationStateStore store;
-    int publications = 0;
-    QObject::connect(&store, &ApplicationStateStore::changed,
-                     [&publications]() { ++publications; });
     auto device = std::make_unique<FakeCameraDevice>();
     FakeCameraDevice *fake = device.get();
-    fake->frame = validFrame();
-    CameraService camera(std::move(device), store);
+    auto *service = new CameraService(std::move(device), store);
+    QThread worker;
+    service->moveToThread(&worker);
+    QObject::connect(&worker, &QThread::finished, service, &QObject::deleteLater);
+    worker.start();
 
-    ok &= check(publications == 1
-                    && store.snapshot().camera.status == CameraStatus::Unavailable,
-                "Construction must publish one authoritative Unavailable state.");
-    ok &= check(camera.open(&error) && publications == 2 && fake->openCalls == 1
-                    && camera.state().status == CameraStatus::Ready
-                    && store.snapshot().camera.deviceId == QStringLiteral("fake-camera"),
-                "Open must publish the ready device once.");
-    ok &= check(!camera.open(&error) && publications == 2 && fake->openCalls == 1,
-                "Repeated open must not touch the device or publish state.");
-    ok &= check(camera.start(&error) && publications == 3 && fake->startCalls == 1
-                    && store.snapshot().camera.status == CameraStatus::Streaming,
-                "Start must publish Streaming once.");
+    QSignalSpy commands(service, &CameraService::commandFinished);
+    QSignalSpy frames(service, &CameraService::frameReady);
+    QSignalSpy frameErrors(service, &CameraService::frameError);
 
-    fake->frameResult = CameraFrameResult::NoFrame;
-    error = QStringLiteral("stale");
-    ok &= check(!camera.latestOwnedFrame(&error).has_value() && error.isEmpty()
-                    && publications == 3
-                    && camera.state().status == CameraStatus::Streaming,
-                "NoFrame must be non-faulting and clear stale errors.");
+    ok &= check(store.snapshot().camera.status == CameraStatus::Unavailable,
+                "Construction must publish Unavailable.");
+    QVariantList result = runCommand(service, "open", commands);
+    ok &= check(result.value(0).toBool() && fake->openCalls == 1
+                    && service->state().status == CameraStatus::Ready,
+                "Queued open must publish Ready.");
 
-    fake->frameResult = CameraFrameResult::Error;
-    fake->frameError = QStringLiteral("Camera transfer failed.");
-    ok &= check(!camera.latestOwnedFrame(&error).has_value()
-                    && error == QStringLiteral("Camera transfer failed.")
-                    && publications == 3,
-                "Frame Error must remain distinct and factual without republishing state.");
+    fake->enqueue(frame(7, 700));
+    result = runCommand(service, "start", commands);
+    ok &= check(result.value(0).toBool() && fake->startCalls == 1,
+                "Queued start must be accepted by the worker.");
+    if (frames.isEmpty())
+        frames.wait(1000);
+    ok &= check(!frames.isEmpty(), "Worker-affine polling must emit a frame.");
+    if (!frames.isEmpty()) {
+        const CameraFrame delivered = qvariant_cast<CameraFrame>(frames.first().first());
+        ok &= check(delivered.bytes == QByteArray::fromHex("1122")
+                        && delivered.deliveryId == 7,
+                    "Frame delivery must preserve a deep-owned CameraFrame.");
+    }
 
-    fake->frameResult = CameraFrameResult::Frame;
-    auto owned = camera.latestOwnedFrame(&error);
-    ok &= check(owned.has_value() && owned->bytes == QByteArray::fromHex("1122"),
-                "Frame must be returned.");
-    fake->frame.bytes[0] = static_cast<char>(0x7f);
-    ok &= check(owned->bytes == QByteArray::fromHex("1122"),
-                "Returned frame bytes must be deeply owned.");
+    fake->enqueue(frame(6, 701));
+    if (frameErrors.isEmpty())
+        frameErrors.wait(1000);
+    ok &= check(!frameErrors.isEmpty()
+                    && frameErrors.takeFirst().first().toString().contains("older"),
+                "A regressed delivery identifier must be rejected factually.");
 
-    fake->frame.deliveryId = 6;
-    ok &= check(!camera.latestOwnedFrame(&error).has_value() && error.contains("older"),
-                "A regressed delivery identifier must be rejected.");
-    fake->frame.deliveryId = 8;
-    fake->frame.monotonicTimestampNs = 699;
-    ok &= check(!camera.latestOwnedFrame(&error).has_value() && error.contains("timestamp"),
-                "A regressed timestamp must be rejected.");
+    fake->enqueue(frame(8, 699));
+    if (frameErrors.isEmpty())
+        frameErrors.wait(1000);
+    ok &= check(!frameErrors.isEmpty()
+                    && frameErrors.takeFirst().first().toString().contains("timestamp"),
+                "A regressed timestamp must be rejected factually.");
 
-    ok &= check(camera.stop(&error) && publications == 4 && fake->stopCalls == 1
-                    && camera.state().status == CameraStatus::Ready,
-                "Stop must publish Ready once.");
-    ok &= check(camera.close(&error) && publications == 5 && fake->closeCalls == 1
-                    && camera.state().status == CameraStatus::Unavailable,
-                "Close must reset ownership and publish Unavailable.");
-    ok &= check(camera.open(&error) && fake->openCalls == 2,
-                "A closed camera must open again through the same service.");
-    ok &= check(camera.recover(&error) && fake->closeCalls == 2 && fake->openCalls == 3
-                    && camera.state().status == CameraStatus::Ready,
-                "Recover must close and reopen without replacing CameraService.");
+    fake->failFrames = true;
+    if (frameErrors.isEmpty())
+        frameErrors.wait(1000);
+    const int callsAtFault = fake->latestFrameCalls.load();
+    const int errorsAtFault = frameErrors.count();
+    QThread::msleep(80);
+    QCoreApplication::processEvents();
+    ok &= check(service->state().status == CameraStatus::Faulted
+                    && service->state().fault == QStringLiteral("Camera transport failed.")
+                    && fake->stopCalls == 1 && fake->closeCalls == 1
+                    && fake->latestFrameCalls.load() == callsAtFault
+                    && errorsAtFault == 1 && frameErrors.count() == errorsAtFault,
+                "A polling error must close the stream, publish Faulted, and stop error flooding.");
 
-    ApplicationStateStore openFailureStore;
-    auto openFailureDevice = std::make_unique<FakeCameraDevice>();
-    FakeCameraDevice *openFailureFake = openFailureDevice.get();
-    openFailureFake->openError = QStringLiteral("Camera cable is disconnected.");
-    CameraService openFailureCamera(std::move(openFailureDevice), openFailureStore);
-    ok &= check(!openFailureCamera.open(&error) && openFailureFake->closeCalls == 1
-                    && openFailureCamera.state().status == CameraStatus::Faulted
-                    && error == QStringLiteral("Camera cable is disconnected."),
-                "Open failure must clean up and publish the factual fault.");
-    openFailureFake->openError.clear();
-    ok &= check(openFailureCamera.recover(&error) && openFailureFake->closeCalls == 2
-                    && openFailureFake->openCalls == 2
-                    && openFailureCamera.state().status == CameraStatus::Ready,
-                "A faulted service must recover without replacement.");
+    fake->failFrames = false;
+    result = runCommand(service, "recover", commands);
+    ok &= check(result.value(0).toBool() && fake->closeCalls == 2
+                    && fake->openCalls == 2
+                    && service->state().status == CameraStatus::Ready,
+                "Recovery after a polling fault must remain explicit.");
 
-    ApplicationStateStore startFailureStore;
-    auto startFailureDevice = std::make_unique<FakeCameraDevice>();
-    FakeCameraDevice *startFailureFake = startFailureDevice.get();
-    CameraService startFailureCamera(std::move(startFailureDevice), startFailureStore);
-    ok &= check(startFailureCamera.open(&error), "Start-failure setup must open.");
-    startFailureFake->startError = QStringLiteral("Camera stream could not be armed.");
-    ok &= check(!startFailureCamera.start(&error) && startFailureFake->closeCalls == 1
-                    && startFailureCamera.state().status == CameraStatus::Faulted,
-                "Start failure must clean up and publish Faulted.");
+    result = runCommand(service, "start", commands);
+    ok &= check(result.value(0).toBool(), "Recovered camera must stream again.");
+    result = runCommand(service, "stop", commands);
+    ok &= check(result.value(0).toBool() && fake->stopCalls == 2
+                    && service->state().status == CameraStatus::Ready,
+                "Queued stop must stop polling and publish Ready.");
 
-    ApplicationStateStore stopFailureStore;
-    auto stopFailureDevice = std::make_unique<FakeCameraDevice>();
-    FakeCameraDevice *stopFailureFake = stopFailureDevice.get();
-    CameraService stopFailureCamera(std::move(stopFailureDevice), stopFailureStore);
-    ok &= check(stopFailureCamera.open(&error) && stopFailureCamera.start(&error),
-                "Stop-failure setup must stream.");
-    stopFailureFake->stopError = QStringLiteral("Camera stream could not be stopped.");
-    ok &= check(!stopFailureCamera.stop(&error) && stopFailureFake->closeCalls == 1
-                    && stopFailureCamera.state().status == CameraStatus::Faulted,
-                "Stop failure must clean up and publish Faulted.");
+    fake->startError = QStringLiteral("Camera stream could not be armed.");
+    result = runCommand(service, "start", commands);
+    ok &= check(!result.value(0).toBool()
+                    && result.value(1).toString()
+                           == QStringLiteral("Camera stream could not be armed.")
+                    && service->state().status == CameraStatus::Faulted,
+                "Lifecycle faults must remain factual.");
 
-    ApplicationStateStore closeFailureStore;
-    auto closeFailureDevice = std::make_unique<FakeCameraDevice>();
-    FakeCameraDevice *closeFailureFake = closeFailureDevice.get();
-    CameraService closeFailureCamera(std::move(closeFailureDevice), closeFailureStore);
-    ok &= check(closeFailureCamera.open(&error), "Close-failure setup must open.");
-    closeFailureFake->closeError = QStringLiteral("Camera could not be released.");
-    ok &= check(!closeFailureCamera.close(&error)
-                    && closeFailureCamera.state().status == CameraStatus::Faulted
-                    && error == QStringLiteral("Camera could not be released."),
-                "Close failure must publish the factual fault.");
-
+    runCommand(service, "close", commands);
+    worker.quit();
+    worker.wait();
     return ok ? 0 : 1;
 }

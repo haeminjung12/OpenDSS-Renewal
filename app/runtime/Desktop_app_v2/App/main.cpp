@@ -3,13 +3,25 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QQmlApplicationEngine>
+#include <QQmlContext>
 #include <QStandardPaths>
+#include <QThread>
+#include <QTimer>
 #include <QVariant>
+
+#include <memory>
 
 #include "autogen/environment.h"
 #include "../../desktop_app/model_registry_service.h"
+#include "../../v2/camera/camera_controller.h"
+#include "../../v2/camera/camera_preview_image_provider.h"
+#include "../../v2/camera/camera_service.h"
+#include "../../v2/camera/dcam_camera_device.h"
+#include "../../v2/camera/single_image_capture_controller.h"
+#include "../../v2/camera/single_image_capture_service.h"
 #include "../../v2/dataset/dataset_label_controller.h"
 #include "../../v2/model/model_library_controller.h"
 #include "../../v2/model/model_load_service.h"
@@ -68,6 +80,23 @@ int main(int argc, char *argv[])
 
     desktop_app::v2::ApplicationStateStore applicationStateStore;
     desktop_app::v2::OperationCoordinator operationCoordinator;
+    QThread cameraThread;
+    auto *cameraService = new desktop_app::v2::CameraService(
+        std::make_unique<desktop_app::v2::DcamCameraDevice>(), applicationStateStore);
+    auto *cameraPreviewProvider = new desktop_app::v2::CameraPreviewImageProvider;
+    desktop_app::v2::CameraController cameraController(*cameraService,
+                                                       *cameraPreviewProvider);
+    desktop_app::v2::SingleImageCaptureService singleImageCaptureService;
+    desktop_app::v2::SingleImageCaptureController singleImageCaptureController(
+        singleImageCaptureService, cameraController, operationCoordinator);
+    singleImageCaptureController.initializeDefaultOutputFolder(
+        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
+    cameraService->moveToThread(&cameraThread);
+    QObject::connect(&cameraThread, &QThread::finished,
+                     cameraService, &QObject::deleteLater);
+    cameraThread.start();
+    cameraController.open();
+
     const QString preferencesFilePath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
                                             .filePath(QStringLiteral("preferences.json"));
     desktop_app::v2::SettingsRepository settingsRepository(preferencesFilePath, applicationStateStore);
@@ -93,8 +122,13 @@ int main(int argc, char *argv[])
                      &desktop_app::v2::model_test::ModelTestController::refreshPreflight);
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("camera-preview"), cameraPreviewProvider);
     engine.addImageProvider(QStringLiteral("sequence-frame"),
                             new desktop_app::v2::sequence::SequenceViewerImageProvider(sequenceViewerController));
+    engine.rootContext()->setContextProperty(QStringLiteral("cameraRuntimeController"),
+                                             &cameraController);
+    engine.rootContext()->setContextProperty(QStringLiteral("singleImageRuntimeController"),
+                                             &singleImageCaptureController);
     const QUrl url(mainQmlFile);
     QObject::connect(
                 &engine, &QQmlApplicationEngine::objectCreated, &app,
@@ -114,8 +148,28 @@ int main(int argc, char *argv[])
                                  {QStringLiteral("modelTestController"), QVariant::fromValue(&modelTestController)}});
     engine.load(url);
 
-    if (engine.rootObjects().isEmpty())
-        return -1;
+    const int exitCode = engine.rootObjects().isEmpty() ? -1 : app.exec();
 
-    return app.exec();
+    auto waitForCameraCommand = [&cameraController]() {
+        if (!cameraController.busy())
+            return;
+        QEventLoop loop;
+        QTimer timeout;
+        timeout.setSingleShot(true);
+        QObject::connect(&cameraController, &desktop_app::v2::CameraController::busyChanged,
+                         &loop, [&]() {
+                             if (!cameraController.busy())
+                                 loop.quit();
+                         });
+        QObject::connect(&timeout, &QTimer::timeout, &loop, &QEventLoop::quit);
+        timeout.start(5000);
+        loop.exec();
+    };
+
+    waitForCameraCommand();
+    if (cameraController.close())
+        waitForCameraCommand();
+    cameraThread.quit();
+    cameraThread.wait();
+    return exitCode;
 }

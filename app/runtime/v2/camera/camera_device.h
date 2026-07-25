@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QMetaType>
 #include <QString>
 #include <QtGlobal>
 
@@ -42,3 +43,5 @@ public:
 };
 
 } // namespace desktop_app::v2
+
+Q_DECLARE_METATYPE(desktop_app::v2::CameraFrame)

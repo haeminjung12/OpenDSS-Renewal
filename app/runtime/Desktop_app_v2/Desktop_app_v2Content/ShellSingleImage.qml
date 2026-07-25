@@ -16,13 +16,22 @@ Item {
     property var trainingController
     property var modelLibraryController
     property var modelTestController
+    property var cameraController: typeof cameraRuntimeController !== "undefined"
+                                           ? cameraRuntimeController : null
+    property var singleImageCaptureController:
+        typeof singleImageRuntimeController !== "undefined"
+        ? singleImageRuntimeController : null
+    readonly property bool singleImageCapturing:
+        root.singleImageCaptureController
+        ? root.singleImageCaptureController.presentation === "capturing"
+        : state.capturing
     property string settingsActionError: ""
     property alias modelRenameDialog: modelRenameDialog
     property alias modelRenameField: modelRenameField
     signal closeRequested()
 
     function focusCameraPrompt() {
-        if (state.cameraPromptVisible)
+        if (screen.cameraPromptVisible)
             screen.cameraPromptYesButton.forceActiveFocus()
     }
 
@@ -89,6 +98,9 @@ Item {
     }
 
     Component.onCompleted: {
+        if (root.cameraController
+                && root.cameraController.cameraStatus !== "Unavailable")
+            state.cameraPromptHandled = true
         focusCameraPrompt()
         if (root.runsResultsController)
             root.runsResultsController.refresh()
@@ -103,28 +115,55 @@ Item {
     Screen01 {
         id: screen
         anchors.fill: parent
-        cameraStatus: state.cameraStatus
+        cameraStatus: root.cameraController ? root.cameraController.cameraStatus
+                                            : state.cameraStatus
+        cameraPreviewSource: root.cameraController ? root.cameraController.previewSource : ""
         daqStatus: state.projectedDaqStatus
         activeModelText: state.activeModelText
-        activityText: state.activityText
-        fileNameText: state.fileNameDraft
-        saveLocationText: state.saveLocationDraft
-        disabledReason: state.disabledReason
-        savedPath: state.savedPath
+        activityText: root.singleImageCaptureController
+                      && root.singleImageCaptureController.presentation === "capturing"
+                      ? qsTr("Capturing Image") : state.activityText
+        fileNameText: root.singleImageCaptureController
+                      ? root.singleImageCaptureController.fileName : state.fileNameDraft
+        saveLocationText: root.singleImageCaptureController
+                          ? root.localFilePath(
+                                root.singleImageCaptureController.outputFolder.toString())
+                          : state.saveLocationDraft
+        disabledReason: root.singleImageCaptureController
+                        ? root.singleImageCaptureController.disabledReason
+                        : state.disabledReason
+        savedPath: root.singleImageCaptureController
+                   ? root.localFilePath(
+                         root.singleImageCaptureController.savedArtifactUrl.toString())
+                   : state.savedPath
         bannerHeading: state.bannerHeading
-        bannerText: state.bannerText
-        captureEnabled: state.captureEnabled
-        showSavedPath: state.showSavedPath
-        showBanner: state.showBanner
+        bannerText: root.singleImageCaptureController
+                    ? root.singleImageCaptureController.error : state.bannerText
+        captureEnabled: root.singleImageCaptureController
+                        ? root.singleImageCaptureController.canCapture
+                        : state.captureEnabled
+        showSavedPath: root.singleImageCaptureController
+                       ? root.singleImageCaptureController.savedArtifactUrl.toString() !== ""
+                       : state.showSavedPath
+        showBanner: root.singleImageCaptureController
+                    ? root.singleImageCaptureController.error !== "" : state.showBanner
         drawerOpen: state.hardwareDrawerOpen
         capturePanelExpanded: state.capturePanelExpanded
         selectedWorkspace: state.selectedWorkspace
-        singleImagePresentation: state.singleImagePresentation
-        singleImageOpen: state.singleImageOpen
+        singleImagePresentation: root.singleImageCaptureController
+                                 ? root.singleImageCaptureController.presentation
+                                 : state.singleImagePresentation
+        singleImageOpen: root.singleImageCapturing || state.singleImageOpen
         imageSequenceOpen: state.imageSequenceOpen
         datasetOpen: state.datasetOpen
-        otherCaptureHeadingsDisabled: state.otherCaptureHeadingsDisabled
-        cameraPromptVisible: state.cameraPromptVisible
+        otherCaptureHeadingsDisabled:
+            state.otherCaptureHeadingsDisabled
+            || root.singleImageCapturing
+        cameraPromptVisible: root.cameraController
+                             ? !root.cameraController.busy
+                               && root.cameraController.cameraStatus === "Unavailable"
+                               && !state.cameraPromptHandled
+                             : state.cameraPromptVisible
         cameraPromptChoice: state.cameraPromptChoice
         sequencePresentation: state.capturePresentation === "sequence" ? state.capturePhase : "ready"
         datasetPresentation: state.capturePresentation === "dataset" ? state.capturePhase : "ready"
@@ -132,6 +171,8 @@ Item {
         datasetFrameCount: state.datasetFrameCount
         datasetCropCount: state.datasetCropCount
         cameraLocked: state.cameraLocked
+                      || (root.cameraController && root.cameraController.busy)
+                      || root.singleImageCapturing
         cameraResolution: state.cameraResolution
         cameraCustomWidth: state.cameraCustomWidth
         cameraCustomHeight: state.cameraCustomHeight
@@ -279,6 +320,9 @@ Item {
     Binding { target: screen.trainWorkspace.loadWeightsButton; property: "enabled"; value: false; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.retrySaveButton; property: "enabled"; value: false; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.openInModelTestButton; property: "enabled"; value: false; when: !!root.trainingController }
+    Binding { target: screen.fileNameField; property: "enabled"; value: !root.singleImageCapturing }
+    Binding { target: screen.saveLocationField; property: "enabled"; value: !root.singleImageCapturing }
+    Binding { target: screen.browseButton; property: "enabled"; value: !root.singleImageCapturing }
     Binding { target: screen.trainWorkspace; property: "trainingSetupExpanded"; value: state.trainingSetupExpanded }
     Binding { target: screen.trainWorkspace; property: "trainingStatusExpanded"; value: state.trainingStatusExpanded }
     Binding { target: screen.trainWorkspace; property: "operationPanelExpanded"; value: state.trainOperationPanelExpanded }
@@ -392,9 +436,17 @@ Item {
     Binding { target: Constants; property: "textSizePercent"; value: root.settingsController ? root.settingsController.textSizePercent : 100; when: !!root.settingsController }
 
     Connections {
-        target: state
+        target: screen
         function onCameraPromptVisibleChanged() {
             root.focusCameraPrompt()
+        }
+    }
+
+    Connections {
+        target: root.cameraController
+        function onStateChanged() {
+            if (root.cameraController.cameraStatus !== "Unavailable")
+                state.cameraPromptHandled = true
         }
     }
 
@@ -408,8 +460,20 @@ Item {
     Connections { target: screen.datasetBrowseButton; function onClicked() { state.browseDataset() } }
     Connections { target: screen.sequenceLocationField; function onTextEdited() { state.sequenceLocationDraft = screen.sequenceLocationField.text } }
     Connections { target: screen.datasetLocationField; function onTextEdited() { state.datasetLocationDraft = screen.datasetLocationField.text } }
-    Connections { target: screen.startCameraButton; function onClicked() { state.toggleCameraStreaming() } }
-    Connections { target: screen.restoreCameraButton; function onClicked() { state.selectCameraDevice(true) } }
+    Connections {
+        target: screen.startCameraButton
+        function onClicked() {
+            if (root.cameraController) {
+                if (root.cameraController.streaming)
+                    root.cameraController.stop()
+                else
+                    root.cameraController.start()
+            } else {
+                state.toggleCameraStreaming()
+            }
+        }
+    }
+    Connections { target: screen.restoreCameraButton; function onClicked() { if (root.cameraController) root.cameraController.recover(); else state.selectCameraDevice(true) } }
     Connections { target: screen.cameraDeviceSelector; function onActivated(index) { state.selectCameraDevice(index === 1) } }
     Connections { target: screen.cameraResolutionSelector; function onActivated(index) { state.cameraResolution = index === 1 ? qsTr("2048 × 2048") : index === 2 ? qsTr("Custom") : qsTr("1024 × 1024") } }
     Connections { target: screen.cameraCustomWidthField; function onTextEdited() { state.cameraCustomWidth = screen.cameraCustomWidthField.text } }
@@ -721,7 +785,13 @@ Item {
     Connections { target: screen.navRunsButton; function onClicked() { state.selectWorkspace("runs") } }
     Connections { target: screen.navSettingsButton; function onClicked() { state.selectWorkspace("settings") } }
 
-    Connections { target: screen.singleImageSection.headingButton; function onClicked() { state.toggleSingleImage() } }
+    Connections {
+        target: screen.singleImageSection.headingButton
+        function onClicked() {
+            if (!root.singleImageCapturing)
+                state.toggleSingleImage()
+        }
+    }
     Connections { target: screen.imageSequenceSection.headingButton; function onClicked() { state.toggleImageSequence() } }
     Connections { target: screen.datasetCaptureSection.headingButton; function onClicked() { state.toggleDataset() } }
     Connections { target: screen.cameraSectionHeadingButton; function onClicked() { screen.cameraSectionExpanded = !screen.cameraSectionExpanded } }
@@ -754,28 +824,58 @@ Item {
     Connections {
         target: screen.fileNameField
         function onTextEdited() {
-            state.fileNameDraft = screen.fileNameField.text
+            if (root.singleImageCapturing)
+                return
+            if (root.singleImageCaptureController)
+                root.singleImageCaptureController.fileName = screen.fileNameField.text
+            else
+                state.fileNameDraft = screen.fileNameField.text
         }
     }
 
     Connections {
         target: screen.saveLocationField
         function onTextEdited() {
-            state.saveLocationDraft = screen.saveLocationField.text
+            if (root.singleImageCapturing)
+                return
+            if (root.singleImageCaptureController)
+                root.singleImageCaptureController.setOutputFolderPath(
+                            screen.saveLocationField.text)
+            else
+                state.saveLocationDraft = screen.saveLocationField.text
+        }
+    }
+
+    FolderDialog {
+        id: singleImageFolderDialog
+        title: qsTr("Choose Image Save Location")
+        currentFolder: root.singleImageCaptureController
+                       ? root.singleImageCaptureController.outputFolder : ""
+        onAccepted: {
+            if (root.singleImageCaptureController && !root.singleImageCapturing)
+                root.singleImageCaptureController.outputFolder = selectedFolder
         }
     }
 
     Connections {
         target: screen.browseButton
         function onClicked() {
-            state.browse()
+            if (root.singleImageCapturing)
+                return
+            if (root.singleImageCaptureController)
+                singleImageFolderDialog.open()
+            else
+                state.browse()
         }
     }
 
     Connections {
         target: screen.captureButton
         function onClicked() {
-            state.capture()
+            if (root.singleImageCaptureController)
+                root.singleImageCaptureController.capture()
+            else
+                state.capture()
         }
     }
 }

@@ -318,6 +318,39 @@ Item {
         }
     }
 
+    QtObject {
+        id: singleImageCaptureController
+        property url outputFolder: "file:///C:/OpenDSS/Images"
+        property string fileName: "accepted-name"
+        property bool canCapture: presentation !== "capturing"
+        property string disabledReason: ""
+        property string presentation: "ready"
+        property string error: ""
+        property url savedArtifactUrl: ""
+        property int outputPathEditCount: 0
+        property string requestedOutputPath: ""
+
+        function reset() {
+            outputFolder = "file:///C:/OpenDSS/Images"
+            fileName = "accepted-name"
+            presentation = "ready"
+            error = ""
+            savedArtifactUrl = ""
+            outputPathEditCount = 0
+            requestedOutputPath = ""
+        }
+
+        function setOutputFolderPath(path) {
+            ++outputPathEditCount
+            requestedOutputPath = path
+        }
+
+        function capture() {
+            presentation = "capturing"
+            return true
+        }
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
@@ -342,9 +375,11 @@ Item {
         shell.trainingController = null
         shell.modelLibraryController = null
         shell.modelTestController = null
+        shell.singleImageCaptureController = null
         shell.settingsActionError = ""
         modelLibraryController.reset()
         modelTestController.reset()
+        singleImageCaptureController.reset()
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
@@ -646,6 +681,44 @@ Item {
         verify(shell.form.singleImageSection.headingButton.enabled)
         verify(shell.form.imageSequenceSection.headingButton.enabled)
         verify(shell.form.datasetCaptureSection.headingButton.enabled)
+    }
+
+    function test_runtimeCaptureFreezesInputsAndDisclosure() {
+        shell.singleImageCaptureController = singleImageCaptureController
+        shell.mockState.singleImageOpen = true
+        singleImageCaptureController.presentation = "capturing"
+
+        verify(shell.form.singleImageOpen)
+        verify(!shell.form.fileNameField.enabled)
+        verify(!shell.form.saveLocationField.enabled)
+        verify(!shell.form.browseButton.enabled)
+
+        shell.form.fileNameField.text = "edited-during-capture"
+        shell.form.fileNameField.textEdited()
+        shell.form.saveLocationField.text = "C:/OpenDSS/Edited"
+        shell.form.saveLocationField.textEdited()
+        shell.form.browseButton.clicked()
+        shell.form.singleImageSection.headingButton.clicked()
+
+        compare(singleImageCaptureController.fileName, "accepted-name")
+        compare(singleImageCaptureController.outputPathEditCount, 0)
+        verify(shell.form.singleImageOpen)
+
+        singleImageCaptureController.presentation = "completed"
+        verify(shell.form.fileNameField.enabled)
+        verify(shell.form.saveLocationField.enabled)
+        verify(shell.form.browseButton.enabled)
+
+        shell.form.fileNameField.text = "edited-after-completion"
+        shell.form.fileNameField.textEdited()
+        shell.form.saveLocationField.text = "C:/OpenDSS/Edited"
+        shell.form.saveLocationField.textEdited()
+        compare(singleImageCaptureController.fileName, "edited-after-completion")
+        compare(singleImageCaptureController.outputPathEditCount, 1)
+        compare(singleImageCaptureController.requestedOutputPath, "C:/OpenDSS/Edited")
+
+        shell.form.singleImageSection.headingButton.clicked()
+        verify(!shell.form.singleImageOpen)
     }
 
     function test_cameraStatesAndConflictReason() {

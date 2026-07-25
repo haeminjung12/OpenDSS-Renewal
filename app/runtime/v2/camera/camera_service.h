@@ -3,6 +3,10 @@
 #include "camera_device.h"
 #include "../state/domain_state.h"
 
+#include <QMutex>
+#include <QObject>
+#include <QTimer>
+
 #include <memory>
 #include <optional>
 
@@ -10,25 +14,39 @@ namespace desktop_app::v2 {
 
 class ApplicationStateStore;
 
-class CameraService final
+class CameraService final : public QObject
 {
+    Q_OBJECT
+
 public:
     CameraService(std::unique_ptr<ICameraDevice> device, ApplicationStateStore &stateStore);
-
-    bool open(QString *error = nullptr);
-    bool start(QString *error = nullptr);
-    bool stop(QString *error = nullptr);
-    bool close(QString *error = nullptr);
-    bool recover(QString *error = nullptr);
-    std::optional<CameraFrame> latestOwnedFrame(QString *error = nullptr);
+    ~CameraService() override;
 
     CameraState state() const;
 
+public slots:
+    void open();
+    void start();
+    void stop();
+    void close();
+    void recover();
+
+signals:
+    void stateChanged(int status, const QString &deviceId, const QString &fault);
+    void frameReady(desktop_app::v2::CameraFrame frame);
+    void frameError(const QString &error);
+    void commandFinished(bool success, const QString &error);
+
 private:
+    bool openDevice(QString *error);
+    bool closeDevice(QString *error);
+    void pollFrame();
     void publish(CameraStatus status, const QString &fault = {});
 
     std::unique_ptr<ICameraDevice> device_;
     ApplicationStateStore &stateStore_;
+    QTimer *pollTimer_ = nullptr;
+    mutable QMutex stateMutex_;
     CameraState state_;
     std::optional<quint64> lastDeliveryId_;
     std::optional<qint64> lastTimestampNs_;

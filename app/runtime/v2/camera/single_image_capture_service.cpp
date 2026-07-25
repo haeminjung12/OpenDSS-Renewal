@@ -1,8 +1,6 @@
 #include "single_image_capture_service.h"
 
-#include "camera_service.h"
 #include "frame_conversion.h"
-#include "../operation/operation_coordinator.h"
 
 #include <QDateTime>
 #include <QDir>
@@ -52,19 +50,6 @@ QString captureName(const QString &requested)
         stem.prepend(QLatin1Char('_'));
     }
     return stem + QStringLiteral(".tif");
-}
-
-QString operationConflict(const OperationFault &fault)
-{
-    QString message = fault.reason.trimmed();
-    if (!fault.recovery.trimmed().isEmpty()) {
-        if (!message.isEmpty()) {
-            message += QLatin1Char(' ');
-        }
-        message += fault.recovery.trimmed();
-    }
-    return message.isEmpty() ? QStringLiteral("Camera or storage is in use by another operation.")
-                             : message;
 }
 
 enum class PublishResult {
@@ -135,38 +120,16 @@ void cleanFailedPublicationTemporary(const QString &temporaryPath, QString *deta
 
 } // namespace
 
-SingleImageCaptureService::SingleImageCaptureService(CameraService &camera,
-                                                     OperationCoordinator &operations)
-    : camera_(camera)
-    , operations_(operations)
-{
-}
-
-bool SingleImageCaptureService::capture(const QString &saveDirectory,
-                                        const QString &requestedFileName,
-                                        QString *savedPath,
-                                        QString *error)
+bool SingleImageCaptureService::save(const CameraFrame &frame,
+                                     const QString &saveDirectory,
+                                     const QString &requestedFileName,
+                                     QString *savedPath,
+                                     QString *error) const
 {
     if (savedPath) {
         savedPath->clear();
     }
     setError(error, {});
-
-    auto acquisition =
-        operations_.acquireMomentary(ResourceLock::Camera | ResourceLock::Storage);
-    if (!acquisition.acquired()) {
-        setError(error,
-                 acquisition.fault ? operationConflict(*acquisition.fault)
-                                   : QStringLiteral("Camera or storage is in use by another operation."));
-        return false;
-    }
-
-    if (camera_.state().status != CameraStatus::Streaming) {
-        setError(error, camera_.state().status == CameraStatus::Unavailable
-                            ? QStringLiteral("No camera is connected.")
-                            : QStringLiteral("The camera is not streaming."));
-        return false;
-    }
 
     const QFileInfo directoryInfo(saveDirectory);
     if (!directoryInfo.exists() || !directoryInfo.isDir()) {
@@ -178,15 +141,8 @@ bool SingleImageCaptureService::capture(const QString &saveDirectory,
         return false;
     }
 
-    QString frameError;
-    const auto frame = camera_.latestOwnedFrame(&frameError);
-    if (!frame) {
-        setError(error, frameError);
-        return false;
-    }
-
     QString conversionError;
-    const QImage image = convertCameraFrame(*frame, &conversionError);
+    const QImage image = convertCameraFrame(frame, &conversionError);
     if (image.isNull()) {
         setError(error, conversionError);
         return false;

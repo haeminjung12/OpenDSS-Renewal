@@ -359,7 +359,7 @@ add_test(
 )
 set_tests_properties(sequence_viewer_model_test PROPERTIES TIMEOUT 15)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Qml Quick)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent Qml Quick Test)
 
 qt_add_executable(sequence_viewer_controller_test
   sequence_viewer_controller_test.cpp
@@ -571,6 +571,7 @@ target_include_directories(camera_service_contract_test PRIVATE
 )
 target_link_libraries(camera_service_contract_test PRIVATE
   Qt6::Core
+  Qt6::Test
 )
 add_test(
   NAME camera_service_contract_test
@@ -583,7 +584,9 @@ set_tests_properties(camera_service_contract_test PROPERTIES TIMEOUT 15)
 qt_add_executable(camera_controller_test
   camera_controller_test.cpp
   ../v2/camera/camera_controller.cpp
+  ../v2/camera/camera_preview_image_provider.cpp
   ../v2/camera/camera_service.cpp
+  ../v2/camera/frame_conversion.cpp
   ../v2/state/application_state_store.cpp
 )
 target_include_directories(camera_controller_test PRIVATE
@@ -591,6 +594,9 @@ target_include_directories(camera_controller_test PRIVATE
 )
 target_link_libraries(camera_controller_test PRIVATE
   Qt6::Core
+  Qt6::Gui
+  Qt6::Quick
+  Qt6::Test
 )
 add_test(
   NAME camera_controller_test
@@ -599,6 +605,27 @@ add_test(
     $<TARGET_FILE:camera_controller_test>
 )
 set_tests_properties(camera_controller_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(camera_preview_image_provider_test
+  camera_preview_image_provider_test.cpp
+  ../v2/camera/camera_preview_image_provider.cpp
+  ../v2/camera/frame_conversion.cpp
+)
+target_include_directories(camera_preview_image_provider_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(camera_preview_image_provider_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  Qt6::Quick
+)
+add_test(
+  NAME camera_preview_image_provider_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:camera_preview_image_provider_test>
+)
+set_tests_properties(camera_preview_image_provider_test PROPERTIES TIMEOUT 15)
 
 qt_add_executable(dcam_camera_device_test
   dcam_camera_device_test.cpp
@@ -643,11 +670,8 @@ set_tests_properties(frame_conversion_golden_test PROPERTIES TIMEOUT 15)
 
 qt_add_executable(single_image_capture_test
   single_image_capture_test.cpp
-  ../v2/camera/camera_service.cpp
   ../v2/camera/frame_conversion.cpp
   ../v2/camera/single_image_capture_service.cpp
-  ../v2/operation/operation_coordinator.cpp
-  ../v2/state/application_state_store.cpp
 )
 target_include_directories(single_image_capture_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -666,6 +690,8 @@ set_tests_properties(single_image_capture_test PROPERTIES TIMEOUT 15)
 
 qt_add_executable(single_image_capture_controller_test
   single_image_capture_controller_test.cpp
+  ../v2/camera/camera_controller.cpp
+  ../v2/camera/camera_preview_image_provider.cpp
   ../v2/camera/camera_service.cpp
   ../v2/camera/frame_conversion.cpp
   ../v2/camera/single_image_capture_controller.cpp
@@ -678,7 +704,10 @@ target_include_directories(single_image_capture_controller_test PRIVATE
 )
 target_link_libraries(single_image_capture_controller_test PRIVATE
   Qt6::Core
+  Qt6::Concurrent
   Qt6::Gui
+  Qt6::Quick
+  Qt6::Test
 )
 add_test(
   NAME single_image_capture_controller_test

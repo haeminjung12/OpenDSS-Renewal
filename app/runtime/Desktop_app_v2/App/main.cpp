@@ -2,14 +2,27 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QApplication>
+#include <QDir>
 #include <QQmlApplicationEngine>
+#include <QStandardPaths>
+#include <QVariant>
 
 #include "autogen/environment.h"
+#include "../../v2/settings/settings_controller.h"
+#include "../../v2/settings/settings_repository.h"
+#include "../../v2/state/application_state_store.h"
 
 int main(int argc, char *argv[])
 {
     set_qt_environment();
     QApplication app(argc, argv);
+
+    desktop_app::v2::ApplicationStateStore applicationStateStore;
+    const QString preferencesFilePath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
+                                            .filePath(QStringLiteral("preferences.json"));
+    desktop_app::v2::SettingsRepository settingsRepository(preferencesFilePath, applicationStateStore);
+    settingsRepository.load();
+    desktop_app::v2::SettingsController settingsController(settingsRepository, applicationStateStore);
 
     QQmlApplicationEngine engine;
     const QUrl url(mainQmlFile);
@@ -22,6 +35,7 @@ int main(int argc, char *argv[])
 
     engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
     engine.addImportPath(":/");
+    engine.setInitialProperties({{QStringLiteral("settingsController"), QVariant::fromValue(&settingsController)}});
     engine.load(url);
 
     if (engine.rootObjects().isEmpty())

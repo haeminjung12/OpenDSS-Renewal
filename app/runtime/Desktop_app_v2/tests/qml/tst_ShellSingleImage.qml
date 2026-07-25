@@ -7,9 +7,21 @@ Item {
     width: 1600
     height: 900
 
+    QtObject {
+        id: textSizeController
+        property int textSizePercent: 100
+        property int lastRequestedTextSizePercent: -1
+
+        function setTextSizePercent(value) {
+            lastRequestedTextSizePercent = value
+            textSizePercent = value
+        }
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
+        settingsController: textSizeController
     }
 
     TestCase {
@@ -28,6 +40,8 @@ Item {
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
         shell.mockState.daqAvailable = true
+        textSizeController.textSizePercent = 100
+        textSizeController.lastRequestedTextSizePercent = -1
         shell.mockState.activeModelId = ""
         shell.mockState.hardwareDrawerOpen = false
         shell.mockState.capturePanelExpanded = true
@@ -66,7 +80,6 @@ Item {
         shell.mockState.liveTriggerTimingExpanded = true
         shell.mockState.liveOutputRecordingExpanded = true
         shell.mockState.liveRunningExpanded = true
-        shell.mockState.setTextSizePercent(100)
         shell.mockState.sequenceTestPresentation = "empty"
         shell.mockState.sequenceTestExpanded = true
         shell.mockState.sequenceTestRightPanelExpanded = true
@@ -550,18 +563,23 @@ Item {
     }
 
     function test_textSizeProjection() {
-        compare(shell.mockState.textSizePercent, 100)
+        compare(textSizeController.textSizePercent, 100)
         compare(Constants.textSizePercent, 100)
-        shell.mockState.setTextSizePercent(80)
-        compare(shell.mockState.textSizePercent, 80)
+        textSizeController.textSizePercent = 80
+        compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 0)
+        shell.form.settingsWorkspace.textSizeSelector.activated(0)
+        compare(textSizeController.lastRequestedTextSizePercent, 80)
+        compare(textSizeController.textSizePercent, 80)
         compare(Constants.textSizePercent, 80)
-        shell.mockState.setTextSizePercent(200)
-        compare(shell.mockState.textSizePercent, 200)
-        compare(Constants.textSizePercent, 200)
-        shell.mockState.setTextSizePercent(220)
-        compare(shell.mockState.textSizePercent, 200)
-        shell.mockState.setTextSizePercent(60)
-        compare(shell.mockState.textSizePercent, 80)
+        textSizeController.textSizePercent = 100
+        compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 1)
+        shell.form.settingsWorkspace.textSizeSelector.activated(1)
+        compare(textSizeController.lastRequestedTextSizePercent, 100)
+        textSizeController.textSizePercent = 125
+        compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 2)
+        shell.form.settingsWorkspace.textSizeSelector.activated(2)
+        compare(textSizeController.lastRequestedTextSizePercent, 125)
+        compare(Constants.textSizePercent, 125)
     }
 
     function test_sequenceViewerTransitions() {

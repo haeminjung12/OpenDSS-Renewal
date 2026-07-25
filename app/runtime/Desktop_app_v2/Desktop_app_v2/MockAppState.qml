@@ -65,7 +65,6 @@ QtObject {
                                                    ? qsTr("Live Sorting  |  Stopped")
                                                    : qsTr("Live Sorting  |  Completed")
     property string settingsPresentation: "settingsReady"
-    property int textSizePercent: 100
     property bool cameraPromptHandled: false
     property string cameraPromptChoice: ""
     property bool singleImageOpen: false
@@ -317,8 +316,6 @@ QtObject {
         else
             modelTestPresentation = modelTestDatasetSelected ? "datasetOnly" : "empty"
     }
-
-    function setTextSizePercent(value) { textSizePercent = Math.max(80, Math.min(200, Math.round(value))) }
 
     function livePrimaryAction() {
         if (livePresentation === "ready")

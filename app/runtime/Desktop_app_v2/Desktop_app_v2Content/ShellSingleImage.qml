@@ -7,6 +7,7 @@ Item {
     anchors.fill: parent
     property alias mockState: state
     property alias form: screen
+    property var settingsController
     signal closeRequested()
 
     function focusCameraPrompt() {
@@ -149,8 +150,8 @@ Item {
     Binding { target: screen.runsWorkspace; property: "run042RowStatusText"; value: state.run042RowStatusText }
 
     Binding { target: screen.settingsWorkspace; property: "settingsPresentation"; value: state.settingsPresentation === "settingsError" ? "error" : "ready" }
-    Binding { target: screen.settingsWorkspace; property: "textSizePercent"; value: state.textSizePercent }
-    Binding { target: Constants; property: "textSizePercent"; value: state.textSizePercent }
+    Binding { target: screen.settingsWorkspace; property: "textSizePercent"; value: root.settingsController.textSizePercent }
+    Binding { target: Constants; property: "textSizePercent"; value: root.settingsController.textSizePercent }
 
     Connections {
         target: state
@@ -268,7 +269,7 @@ Item {
     Connections {
         target: screen.settingsWorkspace.textSizeSelector
         function onActivated() {
-            state.setTextSizePercent([80, 100, 125, 150, 175, 200][screen.settingsWorkspace.textSizeSelector.currentIndex])
+            root.settingsController.setTextSizePercent([80, 100, 125][screen.settingsWorkspace.textSizeSelector.currentIndex])
         }
     }
     Connections { target: screen.runsWorkspace.cancelNotesButton; function onClicked() { state.finishRunNotesEditing() } }

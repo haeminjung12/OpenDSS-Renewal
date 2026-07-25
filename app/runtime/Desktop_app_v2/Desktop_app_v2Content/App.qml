@@ -4,6 +4,8 @@ import Desktop_app_v2
 Window {
     id: window
 
+    property var settingsController: null
+
     width: Constants.width
     height: Constants.height
     minimumWidth: Constants.width
@@ -15,6 +17,7 @@ Window {
 
     ShellSingleImage {
         anchors.fill: parent
+        settingsController: window.settingsController
         onCloseRequested: window.close()
     }
 

@@ -19,8 +19,28 @@ namespace desktop_app::v2 {
 namespace {
 
 constexpr int kSchemaVersion = 1;
-constexpr int kMinimumTextSizePercent = 80;
-constexpr int kMaximumTextSizePercent = 200;
+
+bool normalizeTextSizePercent(double value, int *normalized)
+{
+    if (value == 80.0 || value == 100.0 || value == 125.0) {
+        *normalized = static_cast<int>(value);
+        return true;
+    }
+    if (value == 90.0) {
+        *normalized = 100;
+        return true;
+    }
+    if (value == 150.0 || value == 175.0 || value == 200.0) {
+        *normalized = 125;
+        return true;
+    }
+    return false;
+}
+
+bool isSupportedTextSizePercent(int value)
+{
+    return value == 80 || value == 100 || value == 125;
+}
 
 PreferencesState defaultPreferences()
 {
@@ -59,10 +79,9 @@ bool validatePreferences(const PreferencesState &preferences, QString *error)
 {
     if (!validateStorageRoot(preferences.storageRoot, error))
         return false;
-    if (preferences.textSizePercent < kMinimumTextSizePercent
-        || preferences.textSizePercent > kMaximumTextSizePercent) {
+    if (!isSupportedTextSizePercent(preferences.textSizePercent)) {
         if (error)
-            *error = QStringLiteral("Text size percent must be between 80 and 200.");
+            *error = QStringLiteral("Text size percent must be 80, 100, or 125.");
         return false;
     }
     return true;
@@ -84,14 +103,21 @@ bool parsePreferences(const QJsonObject &document, PreferencesState *preferences
     const double textSize = textSizePercent.toDouble();
     if (!schemaVersion.isDouble() || !storageRoot.isString() || !textSizePercent.isDouble()
         || std::floor(schemaVersion.toDouble()) != schemaVersion.toDouble()
-        || std::floor(textSize) != textSize || schemaVersion.toDouble() != kSchemaVersion
-        || textSize < kMinimumTextSizePercent || textSize > kMaximumTextSizePercent) {
+        || !std::isfinite(textSize) || std::floor(textSize) != textSize
+        || schemaVersion.toDouble() != kSchemaVersion) {
         if (error)
             *error = QStringLiteral("Preferences document has unsupported field values.");
         return false;
     }
 
-    const PreferencesState candidate{storageRoot.toString(), static_cast<int>(textSize)};
+    int normalizedTextSizePercent = 0;
+    if (!normalizeTextSizePercent(textSize, &normalizedTextSizePercent)) {
+        if (error)
+            *error = QStringLiteral("Preferences document has unsupported field values.");
+        return false;
+    }
+
+    const PreferencesState candidate{storageRoot.toString(), normalizedTextSizePercent};
     if (!validatePreferences(candidate, error))
         return false;
     *preferences = candidate;
@@ -123,7 +149,9 @@ bool SettingsRepository::load(QString *error)
         return false;
     }
     QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    const QByteArray bytes = file.readAll();
+    file.close();
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         if (error)
             *error = QStringLiteral("Preferences file is not a JSON object.");
@@ -133,6 +161,10 @@ bool SettingsRepository::load(QString *error)
     PreferencesState candidate;
     if (!parsePreferences(document.object(), &candidate, error))
         return false;
+    if (document.object().value(QStringLiteral("text_size_percent")).toInt() != candidate.textSizePercent
+        && !save(candidate, error)) {
+        return false;
+    }
     stateStore_.publishPreferences(candidate);
     return true;
 }
@@ -153,6 +185,11 @@ bool SettingsRepository::setStorageRoot(const QString &storageRoot, QString *err
 {
     PreferencesState candidate = stateStore_.snapshot().preferences;
     candidate.storageRoot = storageRoot;
+    if (!isSupportedTextSizePercent(candidate.textSizePercent)) {
+        if (error)
+            *error = QStringLiteral("Current text size percent is unsupported.");
+        return false;
+    }
     if (!save(candidate, error))
         return false;
     stateStore_.publishPreferences(candidate);
@@ -162,7 +199,11 @@ bool SettingsRepository::setStorageRoot(const QString &storageRoot, QString *err
 bool SettingsRepository::setTextSizePercent(int textSizePercent, QString *error)
 {
     PreferencesState candidate = stateStore_.snapshot().preferences;
-    candidate.textSizePercent = textSizePercent;
+    if (!normalizeTextSizePercent(textSizePercent, &candidate.textSizePercent)) {
+        if (error)
+            *error = QStringLiteral("Text size percent must be 80, 100, or 125.");
+        return false;
+    }
     if (!save(candidate, error))
         return false;
     stateStore_.publishPreferences(candidate);

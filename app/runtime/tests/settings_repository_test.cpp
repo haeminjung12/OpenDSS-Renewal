@@ -10,6 +10,8 @@
 #include <QTemporaryDir>
 
 #include <iostream>
+#include <initializer_list>
+#include <utility>
 
 namespace {
 
@@ -25,8 +27,11 @@ bool writeDocument(const QString &path, const QJsonObject &document)
 {
     const QByteArray bytes = QJsonDocument(document).toJson();
     QFile file(path);
-    return file.open(QIODevice::WriteOnly | QIODevice::Truncate)
-        && file.write(bytes) == bytes.size();
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return false;
+    const bool written = file.write(bytes) == bytes.size();
+    file.close();
+    return written;
 }
 
 QJsonObject validDocument(const QString &root, int textSizePercent = 100)
@@ -81,10 +86,43 @@ int main(int argc, char **argv)
         || roundTripStore.snapshot().preferences.textSizePercent != 125) {
         return fail(6, "Valid preferences did not round trip.");
     }
-    if (repository.setTextSizePercent(79) || repository.setTextSizePercent(201)
+    for (const int supportedTextSize : {80, 100, 125}) {
+        if (!repository.setTextSizePercent(supportedTextSize)
+            || store.snapshot().preferences.textSizePercent != supportedTextSize) {
+            return fail(7, "Supported text sizes did not save.");
+        }
+    }
+    if (!repository.setTextSizePercent(125))
+        return fail(7, "Unable to restore the supported text size.");
+    if (repository.setTextSizePercent(79) || repository.setTextSizePercent(110)
+        || repository.setTextSizePercent(126) || repository.setTextSizePercent(201)
         || store.snapshot().preferences.textSizePercent != 125) {
         return fail(7, "Out-of-range text sizes changed preferences.");
     }
+    for (const auto &[legacyValue, expectedValue] : std::initializer_list<std::pair<int, int>>{
+             {90, 100}, {150, 125}, {175, 125}, {200, 125}}) {
+        if (!writeDocument(preferencesPath, validDocument(root, legacyValue)))
+            return fail(8, "Unable to write legacy preferences.");
+        QString legacyError;
+        if (!repository.load(&legacyError)) {
+            std::cerr << legacyError.toStdString() << '\n';
+            return fail(8, "Legacy preferences did not normalize.");
+        }
+        if (store.snapshot().preferences.textSizePercent != expectedValue) {
+            return fail(8, "Legacy preferences did not normalize.");
+        }
+        QFile normalizedFile(preferencesPath);
+        const QJsonDocument normalizedDocument = normalizedFile.open(QIODevice::ReadOnly)
+            ? QJsonDocument::fromJson(normalizedFile.readAll())
+            : QJsonDocument();
+        if (!normalizedDocument.isObject()
+            || normalizedDocument.object().value(QStringLiteral("text_size_percent")).toInt()
+                != expectedValue) {
+            return fail(8, "Legacy preferences were published before normalization persisted.");
+        }
+    }
+    if (!repository.setTextSizePercent(125))
+        return fail(8, "Unable to restore normalized preferences.");
     {
         QFile malformed(preferencesPath);
         if (!malformed.open(QIODevice::WriteOnly | QIODevice::Truncate)
@@ -129,7 +167,7 @@ int main(int argc, char **argv)
     }
 
     const int changesBeforeFailedSave = changedCount;
-    if (!QFile::remove(preferencesPath) || !QDir().mkdir(preferencesPath) || repository.setTextSizePercent(130)
+    if (!QFile::remove(preferencesPath) || !QDir().mkdir(preferencesPath) || repository.setTextSizePercent(125)
         || store.snapshot().preferences.textSizePercent != 125 || changedCount != changesBeforeFailedSave) {
         return fail(12, "Failed atomic save published a candidate state.");
     }

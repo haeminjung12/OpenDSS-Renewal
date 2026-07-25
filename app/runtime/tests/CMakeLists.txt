@@ -610,6 +610,33 @@ add_test(
 )
 set_tests_properties(run_repository_test PROPERTIES TIMEOUT 30)
 
+qt_add_executable(runs_results_controller_test
+  runs_results_controller_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/results/run_repository.cpp
+  ../v2/results/runs_results_controller.cpp
+  ../v2/run/run_manifest_v2.cpp
+  ../v2/run/run_writer_v2.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(runs_results_controller_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_compile_definitions(runs_results_controller_test PRIVATE
+  OPENDSS_TEST_DESKTOP_V2_CONTENT_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../Desktop_app_v2/Desktop_app_v2Content"
+)
+target_link_libraries(runs_results_controller_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME runs_results_controller_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:runs_results_controller_test>
+)
+set_tests_properties(runs_results_controller_test PROPERTIES TIMEOUT 30)
+
 qt_add_executable(model_test_summary_v2_test
   model_test_summary_v2_test.cpp
   ../v2/model_test/model_test_summary_v2.cpp

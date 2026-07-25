@@ -5,6 +5,7 @@ Window {
     id: window
 
     property var settingsController: null
+    property var runsResultsController: null
 
     width: Constants.width
     height: Constants.height
@@ -18,6 +19,7 @@ Window {
     ShellSingleImage {
         anchors.fill: parent
         settingsController: window.settingsController
+        property var runsResultsController: window.runsResultsController
         onCloseRequested: window.close()
     }
 

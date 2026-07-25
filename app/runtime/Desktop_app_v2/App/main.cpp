@@ -10,6 +10,8 @@
 #include "autogen/environment.h"
 #include "../../v2/settings/settings_controller.h"
 #include "../../v2/settings/settings_repository.h"
+#include "../../v2/results/run_repository.h"
+#include "../../v2/results/runs_results_controller.h"
 #include "../../v2/state/application_state_store.h"
 
 int main(int argc, char *argv[])
@@ -23,6 +25,8 @@ int main(int argc, char *argv[])
     desktop_app::v2::SettingsRepository settingsRepository(preferencesFilePath, applicationStateStore);
     settingsRepository.load();
     desktop_app::v2::SettingsController settingsController(settingsRepository, applicationStateStore);
+    desktop_app::v2::results::RunRepository runRepository(applicationStateStore);
+    desktop_app::v2::results::RunsResultsController runsResultsController(runRepository, applicationStateStore);
 
     QQmlApplicationEngine engine;
     const QUrl url(mainQmlFile);
@@ -35,7 +39,8 @@ int main(int argc, char *argv[])
 
     engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
     engine.addImportPath(":/");
-    engine.setInitialProperties({{QStringLiteral("settingsController"), QVariant::fromValue(&settingsController)}});
+    engine.setInitialProperties({{QStringLiteral("settingsController"), QVariant::fromValue(&settingsController)},
+                                 {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)}});
     engine.load(url);
 
     if (engine.rootObjects().isEmpty())

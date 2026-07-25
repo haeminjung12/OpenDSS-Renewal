@@ -121,17 +121,13 @@ Item {
                         elide: Text.ElideRight
                     }
                 }
-                Button {
+                AppInspectorRail {
                     id: rightPanelToggleButton
                     text: root.rightPanelExpanded ? "›" : "‹"
-                    width: Math.round(30 * Constants.textScale)
-                    height: panelTopStrip.height
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     z: 1
                     Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Live panel") : qsTr("Expand Live panel")
-                    background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
-                    contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
 
                 ScrollView {
@@ -150,7 +146,7 @@ Item {
                         height: implicitHeight
                         spacing: Constants.spacing
 
-                        CollapsibleSection {
+                        AppAccordion {
                         id: setupProfileSection
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Setup Profile")
@@ -173,15 +169,15 @@ Item {
                                 Text { text: qsTr("Profile: Default Live Setup"); color: Constants.textColor; font: Constants.smallFont }
                                 Row {
                                     spacing: Constants.spacing
-                                    Button { id: openProfileButton; text: qsTr("Open Profile"); enabled: !root.setupLocked }
-                                    Button { id: saveProfileButton; text: qsTr("Save Profile"); enabled: !root.setupLocked }
-                                    Button { id: saveProfileAsButton; text: qsTr("Save Profile As"); enabled: !root.setupLocked }
+                                    AppButton { id: openProfileButton; text: qsTr("Open Profile"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
+                                    AppButton { id: saveProfileButton; text: qsTr("Save Profile"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
+                                    AppButton { id: saveProfileAsButton; text: qsTr("Save Profile As"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
                                 }
                             }
                         }
                     }
 
-                        CollapsibleSection {
+                        AppAccordion {
                         id: runInformationSection
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Run Information")
@@ -202,20 +198,20 @@ Item {
                                 spacing: Constants.spacing
 
                                 Text { text: qsTr("Run Name"); color: Constants.textColor; font: Constants.font }
-                                TextField { id: runNameField; width: parent.width; text: qsTr("Run-042"); readOnly: root.setupLocked; Accessible.name: qsTr("Run Name") }
+                                AppTextField { id: runNameField; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Run-042"); readOnly: root.setupLocked; Accessible.name: qsTr("Run Name") }
                                 Text { text: qsTr("Experiment Type"); color: Constants.textColor; font: Constants.font }
-                                TextField { id: experimentTypeField; width: parent.width; text: qsTr("Droplet sorting"); readOnly: root.setupLocked; Accessible.name: qsTr("Experiment Type") }
+                                AppTextField { id: experimentTypeField; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Droplet sorting"); readOnly: root.setupLocked; Accessible.name: qsTr("Experiment Type") }
                                 Text { text: qsTr("Notes"); color: Constants.textColor; font: Constants.font }
-                                TextField { id: notesField; width: parent.width; text: qsTr("Deterministic visual review run"); readOnly: root.setupLocked; Accessible.name: qsTr("Notes") }
+                                AppTextField { id: notesField; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Deterministic visual review run"); readOnly: root.setupLocked; Accessible.name: qsTr("Notes") }
                                 Text { text: qsTr("Duration"); color: Constants.textColor; font: Constants.font }
-                                TextField { id: durationField; width: parent.width; text: ""; placeholderText: qsTr("Optional — continue until Stop"); readOnly: root.setupLocked; Accessible.name: qsTr("Duration") }
+                                AppTextField { id: durationField; width: parent.width; height: Constants.appStandardControlHeight; text: ""; placeholderText: qsTr("Optional — continue until Stop"); readOnly: root.setupLocked; Accessible.name: qsTr("Duration") }
                                 Text { text: qsTr("Save Location"); color: Constants.textColor; font: Constants.font }
-                                TextField { id: saveLocationField; width: parent.width; text: qsTr("C:/OpenDSS/Runs"); readOnly: root.setupLocked; Accessible.name: qsTr("Save Location") }
+                                AppTextField { id: saveLocationField; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("C:/OpenDSS/Runs"); readOnly: root.setupLocked; Accessible.name: qsTr("Save Location") }
                             }
                         }
                     }
 
-                        CollapsibleSection {
+                        AppAccordion {
                         id: triggerTimingSection
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Trigger & Timing")
@@ -237,32 +233,33 @@ Item {
 
                                 Text { text: qsTr("Active Model: %1").arg(root.activeModelText); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Hit Class"); color: Constants.textColor; font: Constants.font }
-                                ComboBox {
+                                AppComboBox {
                                     id: hitClassControl
                                     width: parent.width
+                                    height: Constants.appStandardControlHeight
                                     model: [qsTr("Class 0"), qsTr("Class 1"), qsTr("Class 2")]
                                     currentIndex: 1
                                     enabled: !root.setupLocked
                                     Accessible.name: qsTr("Hit Class")
                                 }
-                                CheckBox {
+                                AppSwitch {
                                     id: triggerEveryDropletControl
                                     text: qsTr("Trigger Every Droplet")
                                     checked: false
                                     enabled: !root.setupLocked
                                 }
-                                CheckBox {
+                                AppSwitch {
                                     id: daqOutputControl
                                     text: qsTr("DAQ Output")
                                     checked: true
                                     enabled: !root.setupLocked
                                 }
-                                Button { id: sendTestPulseButton; text: qsTr("Send Test Sine Wave"); enabled: !root.setupLocked }
+                                AppButton { id: sendTestPulseButton; text: qsTr("Send Test Sine Wave"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
                             }
                         }
                     }
 
-                        CollapsibleSection {
+                        AppAccordion {
                         id: outputRecordingSection
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Output & Recording")
@@ -282,7 +279,7 @@ Item {
                                 anchors.margins: Constants.spacing
                                 spacing: Constants.spacing
 
-                                CheckBox {
+                                AppCheckBox {
                                     id: recordFullImageSequenceControl
                                     text: qsTr("Record Full Image Sequence")
                                     checked: false
@@ -293,7 +290,7 @@ Item {
                         }
                     }
 
-                        CollapsibleSection {
+                        AppAccordion {
                         id: runningSection
                         width: rightPanelScroll.availableWidth
                         visible: root.active || root.completed
@@ -359,25 +356,23 @@ Item {
                         anchors.margins: Constants.spacing
                         spacing: Constants.spacing
 
-                        Button {
+                        AppButton {
                             id: primaryActionButton
                             visible: root.active || root.completed || root.presentation === "ready"
                             width: secondaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width
-                            height: Constants.controlHeight
+                            height: Constants.appPrimaryButtonHeight
                             text: root.active ? (root.presentation === "paused" ? qsTr("Resume") : qsTr("Pause")) : (root.completed ? qsTr("Start New Run") : (root.cameraStreaming ? qsTr("Stop Camera") : qsTr("Start Camera")))
                             enabled: !root.unavailable && !root.error
-                            palette.buttonText: Constants.surfaceColor
-                            background: Rectangle { color: primaryActionButton.enabled ? Constants.accentColor : Constants.borderColor }
+                            visualRole: "primary"
                         }
-                        Button {
+                        AppButton {
                             id: secondaryActionButton
                             visible: root.active || root.completed || root.presentation === "ready"
                             width: primaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width
-                            height: Constants.controlHeight
+                            height: Constants.appPrimaryButtonHeight
                             text: root.active ? qsTr("Stop") : (root.completed ? qsTr("Open Run Summary") : qsTr("Start Sorting"))
                             enabled: root.active || root.completed || (root.presentation === "ready" && root.cameraStreaming && root.startSortingEnabled)
-                            palette.buttonText: Constants.surfaceColor
-                            background: Rectangle { color: root.active ? Constants.faultColor : (secondaryActionButton.enabled ? Constants.accentColor : Constants.borderColor) }
+                            visualRole: root.active ? "destructive" : "primary"
                         }
                     }
                 }

@@ -77,7 +77,7 @@ Rectangle {
                     Text { text: root.datasetText; wrapMode: Text.WordWrap; width: parent.width }
                     Text { text: qsTr("Classes: 2 or 3"); color: Constants.mutedTextColor }
                     Text { text: qsTr("Eligible labeled crops: factual count"); color: Constants.mutedTextColor }
-                    Button { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.controlHeight }
+                    AppButton { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.appStandardControlHeight }
                 }
             }
 
@@ -140,7 +140,7 @@ Rectangle {
                     }
                     Text { visible: root.showCompleted; text: qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width }
                     Text { visible: root.showCompleted; text: qsTr("Active Model confirmed"); color: Constants.readyColor }
-                    Button { id: openInModelTestButton; visible: root.showCompleted; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
+                    AppButton { id: openInModelTestButton; visible: root.showCompleted; text: qsTr("Open in Model Test"); height: Constants.appStandardControlHeight }
                 }
             }
         }
@@ -174,16 +174,12 @@ Rectangle {
                     elide: Text.ElideRight
                 }
             }
-            Button {
+            AppInspectorRail {
                 id: operationPanelToggleButton
                 text: root.operationPanelExpanded ? "›" : "‹"
-                width: Math.round(30 * Constants.textScale)
-                height: panelTopStrip.height
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 z: 1
-                background: Rectangle { color: Constants.backgroundColor; border.color: operationPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: operationPanelToggleButton.activeFocus ? 2 : 1 }
-                contentItem: Text { text: operationPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
             Column {
@@ -196,7 +192,7 @@ Rectangle {
                 anchors.leftMargin: Constants.spacing
                 spacing: 2
 
-                CollapsibleSection {
+                AppAccordion {
                     id: trainingSetupSection
                     visible: !root.showRunning && !root.showCompleted && !root.showError
                     width: parent.width
@@ -214,35 +210,30 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
-                            Text { text: qsTr("Architecture"); font: Constants.font }
-                            ComboBox {
+                            Text { text: qsTr("Architecture"); font: Constants.appLabelFont }
+                            AppComboBox {
                                 id: architectureSelector
                                 width: parent.width
-                                height: Math.round(54 * Constants.textScale)
+                                height: Constants.appStandardControlHeight
                                 enabled: true
                                 model: [qsTr("MobileNet"), qsTr("EfficientNet")]
-                                background: Rectangle {
-                                    color: Constants.surfaceColor
-                                    border.color: architectureSelector.activeFocus ? Constants.accentColor : Constants.borderColor
-                                    border.width: architectureSelector.activeFocus ? 2 : 1
-                                }
                                 contentItem: Item {
                                     Text {
                                         id: selectedArchitectureName
                                         text: architectureSelector.currentText
-                                        color: Constants.textColor
-                                        font: Constants.font
+                                        color: Constants.appPrimaryTextColor
+                                        font: Constants.appBodyFont
                                         anchors.left: parent.left
                                         anchors.verticalCenter: parent.verticalCenter
                                     }
                                     Text {
                                         text: architectureSelector.currentIndex === 0 ? qsTr("— Faster") : qsTr("— More Accurate")
-                                        color: Constants.mutedTextColor
-                                        font: Constants.smallFont
+                                        color: Constants.appSecondaryTextColor
+                                        font: Constants.appCaptionFont
                                         anchors.left: selectedArchitectureName.right
                                         anchors.leftMargin: Constants.spacing
                                         anchors.right: parent.right
-                                        anchors.rightMargin: Math.round(28 * Constants.textScale)
+                                        anchors.rightMargin: Constants.appControlHorizontalPadding * 2
                                         anchors.verticalCenter: parent.verticalCenter
                                         elide: Text.ElideRight
                                     }
@@ -252,22 +243,22 @@ Rectangle {
                                     required property int index
                                     required property string modelData
                                     width: architectureSelector.width
-                                    height: Math.round(54 * Constants.textScale)
+                                    height: Constants.appStandardControlHeight
                                     highlighted: architectureSelector.highlightedIndex === index
                                     hoverEnabled: true
                                     contentItem: Item {
                                         Text {
                                             id: architectureOptionName
                                             text: architectureOptionDelegate.modelData
-                                            color: Constants.textColor
-                                            font: Constants.font
+                                            color: Constants.appPrimaryTextColor
+                                            font: Constants.appBodyFont
                                             anchors.left: parent.left
                                             anchors.verticalCenter: parent.verticalCenter
                                         }
                                         Text {
                                             text: architectureOptionDelegate.index === 0 ? qsTr("— Faster") : qsTr("— More Accurate")
-                                            color: Constants.mutedTextColor
-                                            font: Constants.smallFont
+                                            color: Constants.appSecondaryTextColor
+                                            font: Constants.appCaptionFont
                                             anchors.left: architectureOptionName.right
                                             anchors.leftMargin: Constants.spacing
                                             anchors.right: parent.right
@@ -276,67 +267,68 @@ Rectangle {
                                         }
                                     }
                                     background: Rectangle {
-                                        color: architectureOptionDelegate.index === architectureSelector.currentIndex || architectureOptionDelegate.hovered || architectureOptionDelegate.highlighted ? Constants.backgroundColor : Constants.surfaceColor
-                                        border.color: Constants.borderColor
+                                        color: architectureOptionDelegate.index === architectureSelector.currentIndex || architectureOptionDelegate.hovered || architectureOptionDelegate.highlighted ? Constants.appHoverColor : Constants.appSurfaceColor
+                                        border.color: Constants.appBorderSubtleColor
                                     }
                                 }
                             }
-                            Text { text: qsTr("Weights"); font: Constants.font }
-                            ComboBox {
+                            Text { text: qsTr("Weights"); font: Constants.appLabelFont }
+                            AppComboBox {
                                 id: weightsSelector
                                 width: parent.width
-                                height: Constants.controlHeight
+                                height: Constants.appStandardControlHeight
                                 enabled: true
                                 model: [qsTr("ImageNet-pretrained"), qsTr("OpenDSS droplet checkpoint — bundled"), qsTr("OpenDSS droplet checkpoint — user-added")]
                                 contentItem: Text {
                                     text: weightsSelector.currentText
-                                    color: Constants.textColor
-                                    font: Constants.font
+                                    color: Constants.appPrimaryTextColor
+                                    font: Constants.appBodyFont
                                     verticalAlignment: Text.AlignVCenter
                                     elide: Text.ElideRight
                                     leftPadding: Constants.spacing
-                                    rightPadding: Math.round(28 * Constants.textScale)
+                                    rightPadding: Constants.appControlHorizontalPadding * 2
                                 }
                                 delegate: ItemDelegate {
                                     id: weightsOptionDelegate
                                     required property int index
                                     required property string modelData
                                     width: weightsSelector.width
-                                    height: Constants.controlHeight
+                                    height: Constants.appStandardControlHeight
                                     highlighted: weightsSelector.highlightedIndex === index
                                     hoverEnabled: true
                                     contentItem: Text {
                                         text: weightsOptionDelegate.modelData
-                                        color: Constants.textColor
-                                        font: Constants.font
+                                        color: Constants.appPrimaryTextColor
+                                        font: Constants.appBodyFont
                                         verticalAlignment: Text.AlignVCenter
                                         elide: Text.ElideRight
                                     }
                                     background: Rectangle {
-                                        color: weightsOptionDelegate.index === weightsSelector.currentIndex || weightsOptionDelegate.hovered || weightsOptionDelegate.highlighted ? Constants.backgroundColor : Constants.surfaceColor
-                                        border.color: Constants.borderColor
+                                        color: weightsOptionDelegate.index === weightsSelector.currentIndex || weightsOptionDelegate.hovered || weightsOptionDelegate.highlighted ? Constants.appHoverColor : Constants.appSurfaceColor
+                                        border.color: Constants.appBorderSubtleColor
                                     }
                                 }
                             }
-                            Button { id: loadWeightsButton; text: qsTr("Load Weights"); width: parent.width; height: Constants.controlHeight }
-                            Text { text: qsTr("Compute Device"); font: Constants.font }
-                            ComboBox {
+                            AppButton { id: loadWeightsButton; text: qsTr("Load Weights"); width: parent.width; height: Constants.appStandardControlHeight }
+                            Text { text: qsTr("Compute Device"); font: Constants.appLabelFont }
+                            AppComboBox {
                                 id: trainingDeviceSelector
                                 width: parent.width
+                                height: Constants.appStandardControlHeight
                                 enabled: true
                                 model: [qsTr("GPU"), qsTr("CPU")]
                                 currentIndex: 0
                             }
-                            Text { text: qsTr("Model Name"); font: Constants.font }
-                            TextField { id: modelNameField; text: root.modelNameText; height: Constants.controlHeight; width: parent.width }
-                            Text { text: qsTr("Save Location"); font: Constants.font }
-                            Row { width: parent.width; spacing: Constants.spacing; TextField { id: saveLocationField; text: root.saveLocationText; height: Constants.controlHeight; width: parent.width - browseButton.width - Constants.spacing } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } }
-                            Button { id: startButton; text: qsTr("Start Training"); enabled: root.startEnabled; height: Constants.controlHeight; width: parent.width; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: startButton.enabled ? Constants.accentColor : Constants.borderColor } }
+                            Text { text: qsTr("Model Name"); font: Constants.appLabelFont }
+                            AppTextField { id: modelNameField; text: root.modelNameText; height: Constants.appStandardControlHeight; width: parent.width }
+                            Text { text: qsTr("Save Location"); font: Constants.appLabelFont }
+                            Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: saveLocationField; text: root.saveLocationText; height: Constants.appStandardControlHeight; width: parent.width - browseButton.width - Constants.spacing } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }
+                            AppButton { id: startButton; text: qsTr("Start Training"); visualRole: "primary"; enabled: root.startEnabled; height: Constants.appPrimaryButtonHeight; width: parent.width }
                         }
                     }
                 }
 
-                CollapsibleSection {
+                AppAccordion {
                     id: trainingStatusSection
                     visible: root.showRunning
                     width: parent.width
@@ -358,9 +350,9 @@ Rectangle {
                             Text { text: qsTr("Elapsed: 00:04:12") }
                             Text { text: qsTr("Estimated Remaining: 00:08:36") }
                             Text { text: qsTr("Epoch: 12 of 40") }
-                            ProgressBar { value: 0.3; width: parent.width }
+                            AppProgressBar { value: 0.3; width: parent.width }
                             Text { text: qsTr("Overall progress") }
-                            Button { id: stopButton; text: qsTr("Stop Training"); height: Constants.controlHeight; width: parent.width; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.faultColor } }
+                            AppButton { id: stopButton; text: qsTr("Stop Training"); visualRole: "destructive"; height: Constants.appPrimaryButtonHeight; width: parent.width }
                         }
                     }
                 }
@@ -371,7 +363,7 @@ Rectangle {
                     height: 150
                     color: Constants.errorSurfaceColor
                     border.color: Constants.faultColor
-                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Button { id: retrySaveButton; text: qsTr("Retry Save"); height: Constants.controlHeight } }
+                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } AppButton { id: retrySaveButton; text: qsTr("Retry Save"); height: Constants.appStandardControlHeight } }
                 }
             }
         }

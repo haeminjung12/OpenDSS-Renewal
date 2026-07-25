@@ -70,9 +70,9 @@ Rectangle {
                     anchors.left: parent.left
                     anchors.leftMargin: Constants.spacing
                     Text { text: qsTr("Page"); color: Constants.textColor; font: Constants.font; anchors.verticalCenter: parent.verticalCenter }
-                    SpinBox { id: pageSpinBox; from: 1; to: 1; value: 1 }
+                    AppSpinBox { id: pageSpinBox; from: 1; to: 1; value: 1; height: Constants.appStandardControlHeight }
                     Text { text: qsTr("Images per page"); color: Constants.textColor; font: Constants.font; anchors.verticalCenter: parent.verticalCenter }
-                    ComboBox { id: imagesPerPageSelector; model: ["100", "200", "500"]; currentIndex: 2; width: Math.round(96 * Constants.textScale) }
+                    AppComboBox { id: imagesPerPageSelector; model: ["100", "200", "500"]; currentIndex: 2; width: Math.round(96 * Constants.textScale); height: Constants.appStandardControlHeight }
                 }
                 ScrollView {
                     id: cropGridScroll
@@ -147,16 +147,12 @@ Rectangle {
                         elide: Text.ElideRight
                     }
                 }
-                Button {
+                AppInspectorRail {
                     id: rightPanelToggleButton
                     text: root.rightPanelExpanded ? "›" : "‹"
-                    width: Math.round(30 * Constants.textScale)
-                    height: panelTopStrip.height
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     z: 1
-                    background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
-                    contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
 
                 ScrollView {
@@ -193,12 +189,12 @@ Rectangle {
                             Text { text: qsTr("Load Dataset"); font: Constants.headingFont; color: Constants.textColor }
                             Row { width: parent.width; spacing: 6
                                 Text { text: root.presentation === "empty" ? qsTr("No Dataset selected") : root.datasetName; width: parent.width - openDatasetButton.width - 6; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
-                                Button { id: openDatasetButton; text: qsTr("Open Dataset"); height: Constants.controlHeight }
+                                AppButton { id: openDatasetButton; text: qsTr("Open Dataset"); height: Constants.appStandardControlHeight }
                             }
                         }
                     }
 
-                    CollapsibleSection {
+                    AppAccordion {
                         id: datasetSummarySection
                         width: parent.width
                         sectionTitle: qsTr("Dataset Summary")
@@ -213,14 +209,14 @@ Rectangle {
                             Row {
                                 spacing: Constants.spacing
                                 Text { text: qsTr("Class setup"); font: Constants.font; verticalAlignment: Text.AlignVCenter }
-                                RadioButton { id: twoClassChoice; text: qsTr("2 classes"); checked: root.classCount === 2 }
-                                RadioButton { id: threeClassChoice; text: qsTr("3 classes"); checked: root.classCount === 3 }
+                                AppRadioButton { id: twoClassChoice; text: qsTr("2 classes"); checked: root.classCount === 2; height: Constants.appStandardControlHeight }
+                                AppRadioButton { id: threeClassChoice; text: qsTr("3 classes"); checked: root.classCount === 3; height: Constants.appStandardControlHeight }
                             }
                             Text { text: qsTr("Configured schema: %1 classes").arg(root.classCount); color: Constants.mutedTextColor; wrapMode: Text.WordWrap; width: parent.width }
                         }
                     }
 
-                    CollapsibleSection {
+                    AppAccordion {
                         id: labelSection
                         width: parent.width
                         sectionTitle: qsTr("Label")
@@ -260,22 +256,22 @@ Rectangle {
                                     anchors.fill: parent
                                     spacing: Constants.spacing
                                     Grid { columns: 3; width: parent.width; spacing: 6
-                                        Button { id: class0Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 0"); palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.accentColor } }
-                                        Button { id: class1Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 1"); palette.buttonText: Constants.surfaceColor; background: Rectangle { color: "#d46a18" } }
-                                        Button { id: class2Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 2"); enabled: root.classCount === 3; palette.buttonText: class2Button.enabled ? Constants.surfaceColor : Constants.mutedTextColor; background: Rectangle { color: class2Button.enabled ? "#7652b8" : Constants.backgroundColor; border.color: Constants.borderColor } }
+                                        AppButton { id: class0Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 0"); visualRole: "identity"; identityColor: Constants.appClass0Color }
+                                        AppButton { id: class1Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 1"); visualRole: "identity"; identityColor: Constants.appClass1Color }
+                                        AppButton { id: class2Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 2"); enabled: root.classCount === 3; visualRole: "identity"; identityColor: Constants.appClass2Color }
                                     }
-                                    Button { id: excludeButton; width: parent.width; height: Constants.controlHeight; text: qsTr("Exclude") }
+                                    AppButton { id: excludeButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Exclude") }
                                     Row { width: parent.width; spacing: 6
-                                        Button { id: undoButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("↶  Undo") }
-                                        Button { id: previousButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("←  Previous") }
-                                        Button { id: nextButton; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Next  →") }
+                                        AppButton { id: undoButton; width: (parent.width - 12) / 3; height: Constants.appStandardControlHeight; text: qsTr("↶  Undo") }
+                                        AppButton { id: previousButton; width: (parent.width - 12) / 3; height: Constants.appStandardControlHeight; text: qsTr("←  Previous") }
+                                        AppButton { id: nextButton; width: (parent.width - 12) / 3; height: Constants.appStandardControlHeight; text: qsTr("Next  →") }
                                     }
                                 }
                             }
                         }
                     }
 
-                    CollapsibleSection {
+                    AppAccordion {
                         id: filterSection
                         width: parent.width
                         sectionTitle: qsTr("Filter")
@@ -285,12 +281,12 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             spacing: 4
-                            Button { id: allFilterButton; width: parent.width; text: qsTr("All (%1)").arg(root.totalCount) }
-                            Button { id: class0FilterButton; width: parent.width; text: qsTr("Class 0 (12000)") }
-                            Button { id: class1FilterButton; width: parent.width; text: qsTr("Class 1 (6072)") }
-                            Button { id: class2FilterButton; width: parent.width; text: root.classCount === 3 ? qsTr("Class 2 (0)") : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3 }
-                            Button { id: excludedFilterButton; width: parent.width; text: qsTr("Excluded (0)") }
-                            Button { id: unreviewedFilterButton; width: parent.width; text: qsTr("Unreviewed (%1)").arg(root.totalCount - root.labeledCount) }
+                            AppButton { id: allFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("All (%1)").arg(root.totalCount) }
+                            AppButton { id: class0FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 0 (12000)") }
+                            AppButton { id: class1FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 1 (6072)") }
+                            AppButton { id: class2FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: root.classCount === 3 ? qsTr("Class 2 (0)") : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3 }
+                            AppButton { id: excludedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Excluded (0)") }
+                            AppButton { id: unreviewedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Unreviewed (%1)").arg(root.totalCount - root.labeledCount) }
                         }
                     }
 
@@ -307,7 +303,7 @@ Rectangle {
                     anchors.bottom: parent.bottom
                     anchors.margins: Constants.spacing
 
-                    Button { id: saveAsButton; width: 120; height: Constants.controlHeight; text: qsTr("Save As"); anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
+                    AppButton { id: saveAsButton; width: 120; height: Constants.appStandardControlHeight; text: qsTr("Save As"); anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
                 }
             }
         }

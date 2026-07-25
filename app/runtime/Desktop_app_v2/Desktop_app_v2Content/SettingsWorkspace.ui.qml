@@ -65,8 +65,8 @@ Rectangle {
                     Text { text: qsTr("Default Data Root"); color: Constants.textColor; font: Constants.font }
                 Rectangle { width: parent.width; height: Constants.controlHeight; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: root.defaultDataRoot; elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 6 } }
                 Flow { width: parent.width; height: implicitHeight; spacing: Constants.spacing
-                    Button { id: chooseDataRootButton; text: qsTr("Choose Default Data Root"); height: Constants.controlHeight }
-                    Button { id: openDataRootButton; text: qsTr("Open Data Root"); height: Constants.controlHeight }
+                    AppButton { id: chooseDataRootButton; text: qsTr("Choose Default Data Root"); height: Constants.appStandardControlHeight }
+                    AppButton { id: openDataRootButton; text: qsTr("Open Data Root"); height: Constants.appStandardControlHeight }
                 }
             }
         }
@@ -95,7 +95,7 @@ Rectangle {
             Column { id: diagnosticsContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
                 Text { text: qsTr("Diagnostics"); font: Constants.headingFont; color: Constants.textColor }
                 Text { text: qsTr("Diagnostic Folder: C:/Users/Scientist/AppData/Local/OpenDSS/Logs"); elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; width: parent.width }
-                Button { id: openDiagnosticFolderButton; text: qsTr("Open Diagnostic Folder"); height: Constants.controlHeight }
+                AppButton { id: openDiagnosticFolderButton; text: qsTr("Open Diagnostic Folder"); height: Constants.appStandardControlHeight }
             }
         }
 
@@ -110,12 +110,12 @@ Rectangle {
                     width: parent.width
                     spacing: Constants.spacing
                     Text { text: qsTr("Text Size"); width: 120; font: Constants.font; verticalAlignment: Text.AlignVCenter; color: Constants.textColor }
-                    ComboBox {
+                    AppComboBox {
                         id: textSizeSelector
-                        model: ["80%", "100%", "125%", "150%", "175%", "200%"]
-                        currentIndex: root.textSizePercent === 80 ? 0 : root.textSizePercent === 125 ? 2 : root.textSizePercent === 150 ? 3 : root.textSizePercent === 175 ? 4 : root.textSizePercent === 200 ? 5 : 1
+                        model: [qsTr("Small"), qsTr("Medium"), qsTr("Large")]
+                        currentIndex: root.textSizePercent === 80 ? 0 : root.textSizePercent === 125 ? 2 : 1
                         width: parent.width - 120 - Constants.spacing
-                        height: Constants.controlHeight
+                        height: Constants.appStandardControlHeight
                     }
                 }
             }

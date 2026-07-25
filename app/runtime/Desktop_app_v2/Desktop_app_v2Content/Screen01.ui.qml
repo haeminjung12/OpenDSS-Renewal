@@ -179,19 +179,19 @@ Rectangle {
             height: implicitHeight
             spacing: 3
             Text { text: qsTr("Data"); font: Constants.headingFont }
-            Button { id: singleImageNavigationButton; text: qsTr("Capture"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "capture"; background: Rectangle { color: singleImageNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: singleImageNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
-            Button { id: labelNavigationButton; text: qsTr("Label"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "label"; background: Rectangle { color: labelNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: labelNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
-            Button { id: sequenceViewerNavigationButton; text: qsTr("Sequence Viewer"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "sequenceViewer"; background: Rectangle { color: sequenceViewerNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: sequenceViewerNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
+            AppNavigationItem { id: singleImageNavigationButton; text: qsTr("Capture"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "capture"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "capture" }
+            AppNavigationItem { id: labelNavigationButton; text: qsTr("Label"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "label"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "label" }
+            AppNavigationItem { id: sequenceViewerNavigationButton; text: qsTr("Sequence Viewer"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "sequenceViewer"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "sequenceViewer" }
             Text { text: qsTr("Models"); font: Constants.headingFont }
-            Button { id: trainNavigationButton; text: qsTr("Train"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "train"; background: Rectangle { color: trainNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: trainNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
-            Button { id: modelTestNavigationButton; text: qsTr("Model Test"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "modelTest"; background: Rectangle { color: modelTestNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: modelTestNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
-            Button { id: libraryNavigationButton; text: qsTr("Library"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "library"; background: Rectangle { color: libraryNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: libraryNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
+            AppNavigationItem { id: trainNavigationButton; text: qsTr("Train"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "train"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "train" }
+            AppNavigationItem { id: modelTestNavigationButton; text: qsTr("Model Test"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "modelTest"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "modelTest" }
+            AppNavigationItem { id: libraryNavigationButton; text: qsTr("Library"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "library"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "library" }
             Text { text: qsTr("Sort"); font: Constants.headingFont }
-            Button { id: liveNavigationButton; text: qsTr("Live"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "live"; background: Rectangle { color: liveNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: liveNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
-            Button { id: sequenceTestNavigationButton; text: qsTr("Sequence Test"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "sequenceTest"; background: Rectangle { color: sequenceTestNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: sequenceTestNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
+            AppNavigationItem { id: liveNavigationButton; text: qsTr("Live"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "live"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "live" }
+            AppNavigationItem { id: sequenceTestNavigationButton; text: qsTr("Sequence Test"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "sequenceTest"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "sequenceTest" }
             Text { text: qsTr("Results"); font: Constants.headingFont }
-            Button { id: runsNavigationButton; text: qsTr("Runs"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "runs"; background: Rectangle { color: runsNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: runsNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
-            Button { id: settingsNavigationButton; text: qsTr("Settings"); palette.buttonText: Constants.textColor; width: parent.width; height: Constants.navigationItemHeight; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "settings"; background: Rectangle { color: settingsNavigationButton.checked ? "#e7eef7" : Constants.backgroundColor; border.color: Constants.backgroundColor; Rectangle { visible: settingsNavigationButton.checked; width: 3; color: Constants.accentColor; anchors.top: parent.top; anchors.bottom: parent.bottom; anchors.left: parent.left } } }
+            AppNavigationItem { id: runsNavigationButton; text: qsTr("Runs"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "runs"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "runs" }
+            AppNavigationItem { id: settingsNavigationButton; text: qsTr("Settings"); width: parent.width; height: Constants.appStandardControlHeight; selected: root.selectedWorkspace === "settings"; checkable: true; autoExclusive: true; checked: root.selectedWorkspace === "settings" }
         }
         }
         Item {
@@ -199,7 +199,7 @@ Rectangle {
             SplitView.minimumHeight: root.drawerOpen ? Math.min(hardwareButton.height + Math.round(180 * Constants.textScale), navigationPanel.height * 0.75) : hardwareButton.height
             SplitView.preferredHeight: Math.min(hardwareButton.height + Math.round(320 * Constants.textScale), navigationPanel.height * 0.75)
             SplitView.maximumHeight: root.drawerOpen ? navigationPanel.height * 0.75 : hardwareButton.height
-            Button {
+            AppButton {
                 id: hardwareButton
                 text: qsTr("Hardware Configuration")
                 enabled: root.hardwareActionEnabled
@@ -257,8 +257,8 @@ Rectangle {
                 ScrollView { anchors.fill: parent; anchors.margins: Constants.spacing; clip: true; contentWidth: availableWidth
                 Column { width: parent.width; spacing: Constants.spacing
                     Text { text: qsTr("Hardware Configuration"); font: Constants.headingFont; width: parent.width; wrapMode: Text.WordWrap }
-                    Button { id: drawerCloseButton; visible: false; enabled: false; text: qsTr("Close"); width: 0; height: 0 }
-                    CollapsibleSection {
+                    AppButton { id: drawerCloseButton; visible: false; enabled: false; text: qsTr("Close"); width: 0; height: 0 }
+                    AppAccordion {
                         id: cameraSection
                         sectionTitle: qsTr("Camera")
                         expanded: true
@@ -269,23 +269,23 @@ Rectangle {
                             height: implicitHeight
                             spacing: Constants.spacing
                             Text { text: qsTr("Status: ") + root.cameraStatus + (root.cameraLocked ? qsTr(" — locked by current capture") : qsTr(" — mock only")); color: root.cameraStatus === qsTr("Unavailable") ? Constants.warningColor : Constants.readyColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                            Button { id: restoreCameraButton; visible: root.cameraStatus === qsTr("Unavailable"); enabled: !root.cameraLocked; text: qsTr("Restore Camera (mock)"); width: parent.width; height: Constants.controlHeight }
+                            AppButton { id: restoreCameraButton; visible: root.cameraStatus === qsTr("Unavailable"); enabled: !root.cameraLocked; text: qsTr("Restore Camera (mock)"); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Device"); font: Constants.font }
-                            ComboBox { id: cameraDeviceSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Unavailable", "Illustrative Camera A"]; currentIndex: root.cameraStatus === qsTr("Unavailable") ? 0 : 1; width: parent.width }
+                            AppComboBox { id: cameraDeviceSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Unavailable", "Illustrative Camera A"]; currentIndex: root.cameraStatus === qsTr("Unavailable") ? 0 : 1; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Resolution preset"); font: Constants.font }
-                            ComboBox { id: cameraResolutionSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["1024 × 1024", "2048 × 2048", "Custom"]; currentIndex: root.cameraResolution === "2048 × 2048" ? 1 : root.cameraResolution === "Custom" ? 2 : 0; width: parent.width }
+                            AppComboBox { id: cameraResolutionSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["1024 × 1024", "2048 × 2048", "Custom"]; currentIndex: root.cameraResolution === "2048 × 2048" ? 1 : root.cameraResolution === "Custom" ? 2 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Row { visible: root.cameraResolution === "Custom"; spacing: 6
-                                TextField { id: cameraCustomWidthField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomWidth; width: (parent.width - 6) / 2; placeholderText: qsTr("Custom Width") }
-                                TextField { id: cameraCustomHeightField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomHeight; width: (parent.width - 6) / 2; placeholderText: qsTr("Custom Height") }
+                                AppTextField { id: cameraCustomWidthField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomWidth; width: (parent.width - 6) / 2; height: Constants.appStandardControlHeight; placeholderText: qsTr("Custom Width") }
+                                AppTextField { id: cameraCustomHeightField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomHeight; width: (parent.width - 6) / 2; height: Constants.appStandardControlHeight; placeholderText: qsTr("Custom Height") }
                             }
                             Text { text: qsTr("Bit Depth"); font: Constants.font }
-                            ComboBox { id: cameraBitDepthSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["8-bit", "12-bit", "16-bit"]; currentIndex: root.cameraBitDepth === "16-bit" ? 2 : root.cameraBitDepth === "12-bit" ? 1 : 0; width: parent.width }
+                            AppComboBox { id: cameraBitDepthSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["8-bit", "12-bit", "16-bit"]; currentIndex: root.cameraBitDepth === "16-bit" ? 2 : root.cameraBitDepth === "12-bit" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Exposure"); font: Constants.font }
-                            TextField { id: cameraExposureField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: parent.width }
+                            AppTextField { id: cameraExposureField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Readout"); font: Constants.font }
-                            ComboBox { id: cameraReadoutSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Fast", "Slow"]; currentIndex: root.cameraReadoutMode === "Slow" ? 1 : 0; width: parent.width }
+                            AppComboBox { id: cameraReadoutSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Fast", "Slow"]; currentIndex: root.cameraReadoutMode === "Slow" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Preview LUT"); font: Constants.font }
-                            ComboBox { id: cameraLutSelector; visible: false; enabled: false; model: ["Linear", "High contrast"]; currentIndex: root.cameraLut === "High contrast" ? 1 : 0; width: 0; height: 0 }
+                            AppComboBox { id: cameraLutSelector; visible: false; enabled: false; model: ["Linear", "High contrast"]; currentIndex: root.cameraLut === "High contrast" ? 1 : 0; width: 0; height: 0 }
                             RangeSlider {
                                 id: previewLutRangeSlider
                                 width: parent.width
@@ -302,7 +302,7 @@ Rectangle {
                             Text { text: qsTr("Presentation LUT only"); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
                         }
                     }
-                    CollapsibleSection {
+                    AppAccordion {
                         id: daqSection
                         sectionTitle: qsTr("DAQ")
                         expanded: true
@@ -327,26 +327,22 @@ Rectangle {
                                     spacing: Constants.spacing
                                     Text { text: qsTr("Output Configuration"); font.pixelSize: Constants.font.pixelSize; font.bold: true; width: parent.width; wrapMode: Text.WordWrap }
                                     Text { text: qsTr("Output Channel"); font: Constants.font }
-                                    ComboBox { id: daqChannelSelector; model: ["ao0", "ao1"]; currentIndex: root.daqOutputChannel === "ao1" ? 1 : 0; width: parent.width }
+                                    AppComboBox { id: daqChannelSelector; model: ["ao0", "ao1"]; currentIndex: root.daqOutputChannel === "ao1" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                                     Text { text: qsTr("Amplitude (Vpp)"); font: Constants.font }
-                                    SpinBox { id: daqVppSpinBox; from: 0; to: 10; value: 5; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.controlHeight }
+                                    AppSpinBox { id: daqVppSpinBox; from: 0; to: 10; value: 5; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.appStandardControlHeight }
                                     Text { text: qsTr("Frequency (kHz)"); font: Constants.font }
-                                    SpinBox { id: daqFrequencySpinBox; from: 1; to: 1000; value: 10; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.controlHeight }
+                                    AppSpinBox { id: daqFrequencySpinBox; from: 1; to: 1000; value: 10; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.appStandardControlHeight }
                                     Text { text: qsTr("Event Duration (ms)"); font: Constants.font }
-                                    SpinBox { id: daqEventDurationSpinBox; from: 1; to: 500; value: 5; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.controlHeight }
+                                    AppSpinBox { id: daqEventDurationSpinBox; from: 1; to: 500; value: 5; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.appStandardControlHeight }
                                     Text { text: qsTr("Decision-to-trigger Delay (ms)"); font: Constants.font }
-                                    SpinBox { id: daqDecisionDelaySpinBox; from: 0; to: 500; value: 0; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.controlHeight }
-                                    Button {
+                                    AppSpinBox { id: daqDecisionDelaySpinBox; from: 0; to: 500; value: 0; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.appStandardControlHeight }
+                                    AppButton {
                                         id: continuousSineWaveButton
                                         text: qsTr("Start Sine Wave")
                                         enabled: root.daqStatus !== qsTr("Unavailable")
                                         width: parent.width
-                                        height: Constants.controlHeight
-                                        palette.buttonText: Constants.surfaceColor
-                                        background: Rectangle {
-                                            color: continuousSineWaveButton.enabled ? Constants.accentColor : Constants.borderColor
-                                            border.color: continuousSineWaveButton.enabled ? Constants.accentColor : Constants.borderColor
-                                        }
+                                        height: Constants.appPrimaryButtonHeight
+                                        visualRole: "primary"
                                     }
                                 }
                             }
@@ -410,27 +406,12 @@ Rectangle {
                         elide: Text.ElideRight
                     }
                 }
-                Button {
+                AppInspectorRail {
                     id: capturePanelToggleButton
                     text: root.capturePanelExpanded ? "›" : "‹"
-                    width: Math.round(30 * Constants.textScale)
-                    height: capturePanelTopStrip.height
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     z: 1
-                    background: Rectangle {
-                        color: Constants.backgroundColor
-                        border.color: capturePanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor
-                        border.width: capturePanelToggleButton.activeFocus ? 2 : 1
-                    }
-                    contentItem: Text {
-                        text: capturePanelToggleButton.text
-                        color: Constants.textColor
-                        font: Constants.font
-                        horizontalAlignment: Text.AlignHCenter
-                        verticalAlignment: Text.AlignVCenter
-                        elide: Text.ElideRight
-                    }
                 }
                 Rectangle {
                     id: cameraActionFooter
@@ -442,10 +423,11 @@ Rectangle {
                     anchors.leftMargin: Constants.collapsedOperationPanelWidth
                     anchors.right: parent.right
                     anchors.bottom: parent.bottom
-                    Button {
+                    AppButton {
                         id: startCameraButton
                         enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable")
                         text: root.cameraStatus === qsTr("Streaming") ? qsTr("Stop Camera") : qsTr("Start Camera")
+                        visualRole: root.cameraStatus === qsTr("Streaming") ? "destructive" : "primary"
                         anchors.fill: parent
                         anchors.margins: Constants.spacing
                     }
@@ -467,7 +449,7 @@ Rectangle {
                         width: parent.width
                         height: implicitHeight
                         spacing: 2
-                        CollapsibleSection {
+                        AppAccordion {
                         id: singleImageSection
                         sectionTitle: qsTr("Single Image")
                         expanded: root.singleImageOpen
@@ -479,71 +461,71 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             Text { text: qsTr("File Name"); font: Constants.font }
-                            TextField { id: fileNameField; text: root.fileNameText; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Optional — timestamp used") }
+                            AppTextField { id: fileNameField; text: root.fileNameText; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Optional — timestamp used") }
                             Text { text: qsTr("Save Location"); font: Constants.font }
                             Row {
                                 spacing: 6
                                 width: parent.width
-                                TextField { id: saveLocationField; text: root.saveLocationText; width: parent.width - browseButton.width - 6; height: Constants.controlHeight }
-                                Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight }
+                                AppTextField { id: saveLocationField; text: root.saveLocationText; width: parent.width - browseButton.width - 6; height: Constants.appStandardControlHeight }
+                                AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight }
                             }
-                            Button { id: captureButton; text: root.singleImagePresentation === "capturing" ? qsTr("Capturing Image…") : qsTr("Capture Image"); enabled: root.captureEnabled; width: parent.width; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: captureButton.enabled ? Constants.accentColor : Constants.borderColor } }
+                            AppButton { id: captureButton; text: root.singleImagePresentation === "capturing" ? qsTr("Capturing Image…") : qsTr("Capture Image"); visualRole: "primary"; enabled: root.captureEnabled; width: parent.width; height: Constants.appPrimaryButtonHeight }
                             Text { visible: root.showSavedPath; text: qsTr("Saved: ") + root.savedPath; color: Constants.readyColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             Text { visible: root.disabledReason !== ""; text: root.disabledReason; color: Constants.warningColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             Rectangle { visible: root.singleImagePresentation === "error"; width: parent.width; height: 34; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font.bold: true; anchors.centerIn: parent } }
                         }
                     }
-                        CollapsibleSection {
+                        AppAccordion {
                         id: imageSequenceSection; sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.sequencePresentation === "running" || root.sequencePresentation === "paused"; width: parent.width; useIntrinsicBodyHeight: true
                         Column { spacing: 6; width: parent.width; height: implicitHeight
                             Text { text: qsTr("Name"); font: Constants.font }
-                            TextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Sequence name") }
+                            AppTextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Sequence name") }
                             Text { text: qsTr("Experiment Type"); font: Constants.font }
-                            TextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.controlHeight }
+                            AppTextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Notes"); font: Constants.font }
-                            TextArea { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap; background: Rectangle { color: Constants.surfaceColor; border.color: Constants.borderColor } }
+                            AppTextArea { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap }
                             Text { text: qsTr("Duration (optional — blank continues until Stop)"); font: Constants.font }
-                            TextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Optional") }
+                            AppTextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Optional") }
                             Text { text: qsTr("Save Location"); font: Constants.font }
                             Row { spacing: 6; width: parent.width
-                                TextField { id: sequenceLocationField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: root.sequenceLocationText; width: parent.width - sequenceBrowseButton.width - 6; height: Constants.controlHeight }
-                                Button { id: sequenceBrowseButton; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr("Browse"); height: Constants.controlHeight }
+                                AppTextField { id: sequenceLocationField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: root.sequenceLocationText; width: parent.width - sequenceBrowseButton.width - 6; height: Constants.appStandardControlHeight }
+                                AppButton { id: sequenceBrowseButton; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr("Browse"); height: Constants.appStandardControlHeight }
                             }
-                            Button { id: sequenceStartButton; visible: root.sequencePresentation === "ready"; text: qsTr("Start Recording"); enabled: root.sequencePresentation === "ready" && root.cameraStatus === qsTr("Streaming") && root.captureStartsAvailable && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: sequenceStartButton.enabled ? Constants.accentColor : Constants.borderColor } }
+                            AppButton { id: sequenceStartButton; visible: root.sequencePresentation === "ready"; text: qsTr("Start Recording"); visualRole: "primary"; enabled: root.sequencePresentation === "ready" && root.cameraStatus === qsTr("Streaming") && root.captureStartsAvailable && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.appPrimaryButtonHeight }
                             Row { visible: root.sequencePresentation === "running" || root.sequencePresentation === "paused"; width: parent.width; spacing: 6
-                                Button { id: captureStopButton; text: qsTr("Stop"); width: (parent.width - parent.spacing) * 0.8; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.faultColor } }
-                                Button { id: capturePauseButton; text: root.sequencePresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); width: (parent.width - parent.spacing) * 0.2; height: Constants.controlHeight }
+                                AppButton { id: captureStopButton; text: qsTr("Stop"); visualRole: "destructive"; width: (parent.width - parent.spacing) * 0.8; height: Constants.appPrimaryButtonHeight }
+                                AppButton { id: capturePauseButton; text: root.sequencePresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); width: (parent.width - parent.spacing) * 0.2; height: Constants.appStandardControlHeight }
                             }
                             Text { visible: root.sequencePresentation !== "ready"; text: root.sequencePresentation === "completed" ? qsTr("Completed — 24 frames captured.") : qsTr("Frames captured: ") + root.sequenceFrameCount + (root.sequencePresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Recording")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                            Row { visible: root.sequencePresentation === "completed"; spacing: 4; Button { id: sequenceViewerButton; text: qsTr("Open in Sequence Viewer") } Button { id: sequenceTestButton; text: qsTr("Open in Sequence Test") } }
-                            Button { id: sequenceNewButton; visible: root.sequencePresentation === "completed"; text: qsTr("Start New Recording"); width: parent.width; height: Constants.controlHeight }
+                            Row { visible: root.sequencePresentation === "completed"; spacing: 4; AppButton { id: sequenceViewerButton; text: qsTr("Open in Sequence Viewer"); height: Constants.appStandardControlHeight } AppButton { id: sequenceTestButton; text: qsTr("Open in Sequence Test"); height: Constants.appStandardControlHeight } }
+                            AppButton { id: sequenceNewButton; visible: root.sequencePresentation === "completed"; text: qsTr("Start New Recording"); width: parent.width; height: Constants.appStandardControlHeight }
                         }
                     }
-                        CollapsibleSection {
+                        AppAccordion {
                         id: datasetCaptureSection; sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.datasetPresentation === "running" || root.datasetPresentation === "paused"; width: parent.width; useIntrinsicBodyHeight: true
-                        Column { spacing: 6; width: parent.width; height: implicitHeight
+                        Column { spacing: Constants.spacing; width: parent.width; height: implicitHeight
                             Text { text: qsTr("Dataset Name"); font: Constants.font }
-                            TextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Dataset name") }
+                            AppTextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Dataset name") }
                             Text { text: qsTr("Experiment Type"); font: Constants.font }
-                            TextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.controlHeight }
+                            AppTextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Notes"); font: Constants.font }
-                            TextArea { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap; background: Rectangle { color: Constants.surfaceColor; border.color: Constants.borderColor } }
+                            AppTextArea { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap }
                             Text { text: qsTr("Duration (optional — blank continues until Stop)"); font: Constants.font }
-                            TextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.controlHeight; placeholderText: qsTr("Optional") }
+                            AppTextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Optional") }
                             Text { text: qsTr("Save Location"); font: Constants.font }
                             Row { spacing: 6; width: parent.width
-                                TextField { id: datasetLocationField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: root.datasetLocationText; width: parent.width - datasetBrowseButton.width - 6; height: Constants.controlHeight }
-                                Button { id: datasetBrowseButton; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: qsTr("Browse"); height: Constants.controlHeight }
+                                AppTextField { id: datasetLocationField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: root.datasetLocationText; width: parent.width - datasetBrowseButton.width - 6; height: Constants.appStandardControlHeight }
+                                AppButton { id: datasetBrowseButton; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: qsTr("Browse"); height: Constants.appStandardControlHeight }
                             }
                             Text { text: qsTr("Fixed qualified processing is used; detector, crop, and timing settings are not editable."); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                            Button { id: datasetStartButton; visible: root.datasetPresentation === "ready"; text: qsTr("Start Droplet Dataset Capture"); enabled: root.datasetPresentation === "ready" && root.cameraStatus === qsTr("Streaming") && root.captureStartsAvailable && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: datasetStartButton.enabled ? Constants.accentColor : Constants.borderColor } }
+                            AppButton { id: datasetStartButton; visible: root.datasetPresentation === "ready"; text: qsTr("Start Droplet Dataset Capture"); visualRole: "primary"; enabled: root.datasetPresentation === "ready" && root.cameraStatus === qsTr("Streaming") && root.captureStartsAvailable && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.appPrimaryButtonHeight }
                             Row { visible: root.datasetPresentation === "running" || root.datasetPresentation === "paused"; width: parent.width; spacing: 6
-                                Button { id: datasetStopButton; text: qsTr("Stop"); width: (parent.width - parent.spacing) * 0.8; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.faultColor } }
-                                Button { id: datasetPauseButton; text: root.datasetPresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); width: (parent.width - parent.spacing) * 0.2; height: Constants.controlHeight }
+                                AppButton { id: datasetStopButton; text: qsTr("Stop"); visualRole: "destructive"; width: (parent.width - parent.spacing) * 0.8; height: Constants.appPrimaryButtonHeight }
+                                AppButton { id: datasetPauseButton; text: root.datasetPresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); width: (parent.width - parent.spacing) * 0.2; height: Constants.appStandardControlHeight }
                             }
                             Text { visible: root.datasetPresentation !== "ready"; text: root.datasetPresentation === "completed" ? qsTr("Completed — 18 frames, 42 crops captured.") : qsTr("Frames: ") + root.datasetFrameCount + qsTr("   Crops: ") + root.datasetCropCount + (root.datasetPresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Capturing")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                            Row { visible: root.datasetPresentation === "completed"; spacing: 4; Button { id: datasetLabelButton; text: qsTr("Open in Label") } Button { id: datasetFolderButton; text: qsTr("Open Folder") } }
-                            Button { id: datasetNewButton; visible: root.datasetPresentation === "completed"; text: qsTr("Start New Droplet Dataset Capture"); width: parent.width; height: Constants.controlHeight }
+                            Row { visible: root.datasetPresentation === "completed"; spacing: 4; AppButton { id: datasetLabelButton; text: qsTr("Open in Label"); height: Constants.appStandardControlHeight } AppButton { id: datasetFolderButton; text: qsTr("Open Folder"); height: Constants.appStandardControlHeight } }
+                            AppButton { id: datasetNewButton; visible: root.datasetPresentation === "completed"; text: qsTr("Start New Droplet Dataset Capture"); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { visible: root.datasetHandoffText !== ""; text: root.datasetHandoffText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                         }
                     }

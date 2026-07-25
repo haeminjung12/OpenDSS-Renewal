@@ -638,6 +638,30 @@ add_test(
 )
 set_tests_properties(single_image_capture_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(single_image_capture_controller_test
+  single_image_capture_controller_test.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/camera/frame_conversion.cpp
+  ../v2/camera/single_image_capture_controller.cpp
+  ../v2/camera/single_image_capture_service.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(single_image_capture_controller_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(single_image_capture_controller_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+add_test(
+  NAME single_image_capture_controller_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:single_image_capture_controller_test>
+)
+set_tests_properties(single_image_capture_controller_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(sequence_test_decision_route_test
   sequence_test_decision_route_test.cpp
   ../v2/decision/decision_service.cpp

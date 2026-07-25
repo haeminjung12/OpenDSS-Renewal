@@ -506,5 +506,36 @@ int main(int argc, char **argv)
         return fail(45, "Invalid Model package identities were accepted.");
     }
 
+    OperationCoordinator availability;
+    int resourceChanges = 0;
+    QObject::connect(&availability, &OperationCoordinator::resourcesChanged,
+                     [&resourceChanges]() { ++resourceChanges; });
+    const ResourceLocks captureLocks =
+        locks(ResourceLock::Camera, ResourceLock::Storage);
+    if (!availability.momentaryAvailable(captureLocks)
+        || resourceChanges != 0 || availability.snapshot().kind) {
+        return fail(46, "The read-only momentary query changed idle coordinator state.");
+    }
+    auto heldCamera = availability.acquireMomentary(ResourceLock::Camera);
+    if (!heldCamera.acquired() || resourceChanges != 1
+        || availability.momentaryAvailable(captureLocks)
+        || !availability.momentaryAvailable(ResourceLock::Storage)) {
+        return fail(47, "Momentary availability did not reuse resource overlap rules.");
+    }
+    heldCamera.lease.release();
+    if (resourceChanges != 2 || !availability.momentaryAvailable(captureLocks)) {
+        return fail(48, "Momentary release did not publish restored availability.");
+    }
+    auto heldStorage =
+        availability.acquire(OperationKind::ImageSequence, ResourceLock::Storage);
+    if (!heldStorage.acquired() || resourceChanges != 3
+        || availability.momentaryAvailable(captureLocks)) {
+        return fail(49, "Long-operation resources were not reflected by availability.");
+    }
+    heldStorage.lease.release();
+    if (resourceChanges != 4 || !availability.momentaryAvailable(captureLocks)) {
+        return fail(50, "Long-operation release did not publish restored availability.");
+    }
+
     return 0;
 }

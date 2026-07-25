@@ -6,6 +6,7 @@
 #include <QMutex>
 #include <QMutexLocker>
 
+#include <functional>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -45,6 +46,7 @@ public:
     QHash<quint64, DatasetReservation> datasets;
     QHash<quint64, ModelReservation> models;
     quint64 nextGeneration = 1;
+    std::function<void()> resourcesChanged;
 };
 
 namespace {
@@ -230,6 +232,17 @@ OperationFault conflictFault(const OperationControl &control, ResourceLocks conf
         fault.recovery = QStringLiteral("Wait for the current resource action to finish.");
     }
     return fault;
+}
+
+std::optional<OperationFault> momentaryConflict(const OperationControl &control,
+                                                ResourceLocks locks)
+{
+    if (control.active && overlaps(locks, control.active->locks))
+        return conflictFault(control, locks & control.active->locks);
+    const ResourceLocks heldMomentaryLocks = momentaryLocks(control);
+    if (overlaps(locks, heldMomentaryLocks))
+        return conflictFault(control, locks & heldMomentaryLocks);
+    return std::nullopt;
 }
 
 OperationFault datasetConflictFault(const OperationControl &control, quint64 generation)
@@ -423,14 +436,20 @@ void OperationLease::release()
     control_.reset();
     if (!control)
         return;
-    QMutexLocker locker(&control->mutex);
-    if (control->active && control->active->generation == generation) {
-        if (control->active->hasDataset)
-            control->datasets.remove(generation);
-        if (control->active->hasModel)
-            control->models.remove(generation);
-        control->active.reset();
+    bool released = false;
+    {
+        QMutexLocker locker(&control->mutex);
+        if (control->active && control->active->generation == generation) {
+            if (control->active->hasDataset)
+                control->datasets.remove(generation);
+            if (control->active->hasModel)
+                control->models.remove(generation);
+            control->active.reset();
+            released = true;
+        }
     }
+    if (released && control->resourcesChanged)
+        control->resourcesChanged();
 }
 
 MomentaryLease::MomentaryLease(std::weak_ptr<OperationControl> control, quint64 generation)
@@ -476,8 +495,13 @@ void MomentaryLease::release()
     control_.reset();
     if (!control)
         return;
-    QMutexLocker locker(&control->mutex);
-    control->momentary.remove(generation);
+    bool released = false;
+    {
+        QMutexLocker locker(&control->mutex);
+        released = control->momentary.remove(generation);
+    }
+    if (released && control->resourcesChanged)
+        control->resourcesChanged();
 }
 
 bool OperationAcquireResult::acquired() const
@@ -500,12 +524,17 @@ bool ModelAcquireResult::acquired() const
     return lease.isValid();
 }
 
-OperationCoordinator::OperationCoordinator()
-    : control_(std::make_shared<OperationControl>())
+OperationCoordinator::OperationCoordinator(QObject *parent)
+    : QObject(parent)
+    , control_(std::make_shared<OperationControl>())
 {
+    control_->resourcesChanged = [this]() { emit resourcesChanged(); };
 }
 
-OperationCoordinator::~OperationCoordinator() = default;
+OperationCoordinator::~OperationCoordinator()
+{
+    control_->resourcesChanged = {};
+}
 
 OperationAcquireResult OperationCoordinator::acquire(OperationKind kind, ResourceLocks locks)
 {
@@ -521,7 +550,10 @@ OperationAcquireResult OperationCoordinator::acquire(OperationKind kind, Resourc
     control_->active =
         OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
                                           false, false};
-    return {OperationLease(control_, generation), std::nullopt};
+    OperationAcquireResult result{OperationLease(control_, generation), std::nullopt};
+    locker.unlock();
+    emit resourcesChanged();
+    return result;
 }
 
 OperationAcquireResult OperationCoordinator::acquireWithDataset(
@@ -555,7 +587,10 @@ OperationAcquireResult OperationCoordinator::acquireWithDataset(
         OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
                                           true, false};
     control_->datasets.insert(generation, {*key, access});
-    return {OperationLease(control_, generation), std::nullopt};
+    OperationAcquireResult result{OperationLease(control_, generation), std::nullopt};
+    locker.unlock();
+    emit resourcesChanged();
+    return result;
 }
 
 OperationAcquireResult OperationCoordinator::acquireWithModel(
@@ -587,21 +622,24 @@ OperationAcquireResult OperationCoordinator::acquireWithModel(
         OperationControl::ActiveOperation{kind, OperationLifecycle::Starting, locks, generation,
                                           false, true};
     control_->models.insert(generation, {*key, access});
-    return {OperationLease(control_, generation), std::nullopt};
+    OperationAcquireResult result{OperationLease(control_, generation), std::nullopt};
+    locker.unlock();
+    emit resourcesChanged();
+    return result;
 }
 
 MomentaryAcquireResult OperationCoordinator::acquireMomentary(ResourceLocks locks)
 {
     QMutexLocker locker(&control_->mutex);
-    if (control_->active && overlaps(locks, control_->active->locks))
-        return {{}, conflictFault(*control_, locks & control_->active->locks)};
-    const ResourceLocks heldMomentaryLocks = momentaryLocks(*control_);
-    if (overlaps(locks, heldMomentaryLocks))
-        return {{}, conflictFault(*control_, locks & heldMomentaryLocks)};
+    if (const auto fault = momentaryConflict(*control_, locks))
+        return {{}, fault};
 
     const quint64 generation = control_->nextGeneration++;
     control_->momentary.insert(generation, locks);
-    return {MomentaryLease(control_, generation), std::nullopt};
+    MomentaryAcquireResult result{MomentaryLease(control_, generation), std::nullopt};
+    locker.unlock();
+    emit resourcesChanged();
+    return result;
 }
 
 DatasetAcquireResult OperationCoordinator::acquireDataset(const QString &datasetJsonPath,
@@ -646,6 +684,12 @@ ModelAcquireResult OperationCoordinator::acquireModel(const QString &modelPackag
     const quint64 generation = control_->nextGeneration++;
     control_->models.insert(generation, {*key, access});
     return {ModelLease(control_, generation), std::nullopt};
+}
+
+bool OperationCoordinator::momentaryAvailable(ResourceLocks locks) const
+{
+    QMutexLocker locker(&control_->mutex);
+    return !momentaryConflict(*control_, locks).has_value();
 }
 
 OperationSnapshot OperationCoordinator::snapshot() const

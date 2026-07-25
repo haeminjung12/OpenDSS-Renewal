@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QFlags>
+#include <QObject>
 #include <QString>
 
 #include <memory>
@@ -179,10 +180,12 @@ struct ModelAcquireResult {
     bool acquired() const;
 };
 
-class OperationCoordinator final
+class OperationCoordinator final : public QObject
 {
+    Q_OBJECT
+
 public:
-    OperationCoordinator();
+    explicit OperationCoordinator(QObject *parent = nullptr);
     ~OperationCoordinator();
     OperationCoordinator(const OperationCoordinator &) = delete;
     OperationCoordinator &operator=(const OperationCoordinator &) = delete;
@@ -197,7 +200,11 @@ public:
     MomentaryAcquireResult acquireMomentary(ResourceLocks locks);
     DatasetAcquireResult acquireDataset(const QString &datasetJsonPath, DatasetAccess access);
     ModelAcquireResult acquireModel(const QString &modelPackagePath, ModelAccess access);
+    bool momentaryAvailable(ResourceLocks locks) const;
     OperationSnapshot snapshot() const;
+
+signals:
+    void resourcesChanged();
 
 private:
     std::shared_ptr<OperationControl> control_;

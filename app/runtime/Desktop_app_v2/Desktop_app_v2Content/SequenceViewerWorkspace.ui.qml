@@ -13,6 +13,7 @@ Rectangle {
     property string presentation: "empty"
     property int currentFrame: 0
     property int totalFrames: 0
+    property url currentFrameSource: ""
 
     property alias openSequenceButton: openSequenceButton
     property alias previousButton: previousButton
@@ -38,6 +39,16 @@ Rectangle {
             color: Constants.viewerColor
             border.color: Constants.borderColor
             focus: true
+            Image {
+                anchors.fill: parent
+                source: root.currentFrameSource
+                sourceSize.width: width
+                sourceSize.height: height
+                fillMode: Image.PreserveAspectFit
+                asynchronous: true
+                cache: false
+                visible: root.currentFrameSource !== ""
+            }
             Text {
                 text: root.presentation === "empty" ? qsTr("No Image Sequence selected") : qsTr("CURRENT FRAME")
                 color: Constants.surfaceColor
@@ -47,7 +58,7 @@ Rectangle {
                 anchors.margins: Constants.spacing
             }
             Text {
-                visible: root.presentation !== "empty" && root.presentation !== "error"
+                visible: root.presentation !== "empty" && root.presentation !== "error" && root.currentFrameSource === ""
                 text: qsTr("Frame ") + root.currentFrame
                 color: Constants.surfaceColor
                 font: Constants.largeFont

@@ -15,12 +15,35 @@ Rectangle {
     property bool showError: false
     property bool selectedModelExpanded: true
     property bool rightPanelExpanded: true
-    property alias activeModelRowButton: activeModelRowButton
+    property var modelRows: []
+    property bool hasDynamicModelRows: root.modelRows !== null && root.modelRows.length > 0
+    property int selectedModelIndex: -1
+    property string selectedModelName: ""
+    property string selectedModelArchitecture: ""
+    property string selectedModelPerformanceLabel: ""
+    property string selectedModelClassSummary: ""
+    property string selectedModelSourceDataset: ""
+    property string selectedModelCreationDate: ""
+    property string selectedModelPackageLocation: ""
+    property string selectedModelTrainingMetrics: ""
+    property alias modelListView: modelListView
+    property alias modelRowButtonGroup: modelRowButtonGroup
+    property alias productionModelRowButton: productionModelRowButton
+    property alias activeModelRowButton: productionModelRowButton
     property alias candidateModelRowButton: candidateModelRowButton
+    property alias importButton: importButton
     property alias setActiveButton: setActiveButton
     property alias openInModelTestButton: openInModelTestButton
+    property alias exportButton: exportButton
+    property alias duplicateButton: duplicateButton
+    property alias renameButton: renameButton
+    property alias deleteButton: deleteButton
     property alias selectedModelHeadingButton: selectedModelSection.headingButton
     property alias rightPanelToggleButton: rightPanelToggleButton
+
+    ButtonGroup {
+        id: modelRowButtonGroup
+    }
 
     Text {
         id: workspaceTitle
@@ -63,8 +86,43 @@ Rectangle {
                     visible: root.presentation !== "empty"
                     width: parent.width
                     spacing: 4
+                    ListView {
+                        id: modelListView
+                        visible: root.hasDynamicModelRows
+                        width: parent.width
+                        height: contentHeight
+                        model: root.modelRows
+                        delegate: Button {
+                            required property int index
+                            required property var modelData
+                            readonly property int rowIndex: index
+                            readonly property var row: modelData
+                            width: ListView.view.width
+                            height: Math.round(82 * Constants.textScale)
+                            padding: Constants.spacing
+                            activeFocusOnTab: true
+                            checkable: true
+                            checked: index === root.selectedModelIndex
+                            ButtonGroup.group: modelRowButtonGroup
+                            background: Rectangle {
+                                color: row.active ? "#dcebdc" : (parent.checked ? "#dfe8f4" : Constants.backgroundColor)
+                                border.color: Constants.borderColor
+                            }
+                            contentItem: Row {
+                                spacing: Constants.spacing
+                                Text { text: qsTr("✓"); visible: row.active; color: Constants.readyColor; Accessible.name: qsTr("Active Model") }
+                                Column {
+                                    width: parent.width - (row.active ? 48 : 0)
+                                    Text { text: row.name; font.bold: true; elide: Text.ElideRight; width: parent.width }
+                                    Text { text: qsTr("Architecture: %1").arg(row.architecture); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: parent.width }
+                                    Text { text: qsTr("%1  •  %2").arg(row.performanceLabel).arg(row.classSummary); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
+                                }
+                            }
+                        }
+                    }
                     Button {
-                        id: activeModelRowButton
+                        id: productionModelRowButton
+                        visible: !root.hasDynamicModelRows
                         width: parent.width
                         height: Math.round(82 * Constants.textScale)
                         padding: Constants.spacing
@@ -77,7 +135,7 @@ Rectangle {
                             spacing: Constants.spacing
                             Text { text: qsTr("✓"); visible: true; color: Constants.readyColor; Accessible.name: qsTr("Active Model") }
                             Column {
-                                width: activeModelRowButton.width - 48
+                                width: productionModelRowButton.width - 48
                                 Text { text: qsTr("DropletNet-04"); font.bold: true }
                                 Text { text: qsTr("Architecture: EfficientNet-B0"); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: parent.width }
                                 Text { text: qsTr("More Accurate  •  Labels: Class 0, Class 1"); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
@@ -86,6 +144,7 @@ Rectangle {
                     }
                     Button {
                         id: candidateModelRowButton
+                        visible: !root.hasDynamicModelRows
                         width: parent.width
                         height: Math.round(82 * Constants.textScale)
                         padding: Constants.spacing
@@ -173,9 +232,9 @@ Rectangle {
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
                             Text { visible: root.showError; text: qsTr("Error"); font: Constants.largeFont; color: Constants.faultColor }
-                            Text { visible: root.hasSelection && !root.showError; text: qsTr("DropletNet-03") ; font: Constants.headingFont }
+                            Text { visible: root.hasSelection && !root.showError; text: root.selectedModelName; font: Constants.headingFont }
                             Text { visible: root.hasSelection && !root.showError; text: qsTr("Active state: %1").arg(root.selectedActive ? qsTr("Active Model") : qsTr("Not Active")) }
-                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: 2026-07-23\nDataset: Dataset-042\nArchitecture: MobileNetV3-Small\nFaster\nLabels: Class 0, Class 1\nTraining results: Accuracy 0.94\nPackage: C:/OpenDSS/Models/DropletNet-03.opendssmodel"); wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: %1\nDataset: %2\nArchitecture: %3\n%4\nLabels: %5\nTraining results: %6\nPackage: %7").arg(root.selectedModelCreationDate).arg(root.selectedModelSourceDataset).arg(root.selectedModelArchitecture).arg(root.selectedModelPerformanceLabel).arg(root.selectedModelClassSummary).arg(root.selectedModelTrainingMetrics).arg(root.selectedModelPackageLocation); wrapMode: Text.WordWrap; width: parent.width }
                             Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor; wrapMode: Text.WordWrap; width: parent.width }
                             AppButton { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); visualRole: "primary"; enabled: !root.selectedActive && !root.modelLocked; height: Constants.appPrimaryButtonHeight }
                             AppButton { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.appStandardControlHeight }

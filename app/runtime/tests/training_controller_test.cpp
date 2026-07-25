@@ -1,4 +1,7 @@
+#include "../desktop_app/pipeline_runner.h"
 #include "../v2/dataset/dataset_manifest_v2.h"
+#include "../v2/model/model_library_controller.h"
+#include "../v2/model/model_load_service.h"
 #include "../v2/operation/operation_coordinator.h"
 #include "../v2/state/application_state_store.h"
 #include "../v2/training/training_controller.h"
@@ -95,8 +98,13 @@ int runFakeTrainer(const QStringList &arguments)
         QDir(runDirectory).filePath(QStringLiteral("model.onnx"));
     const QString metadataPath =
         QDir(runDirectory).filePath(QStringLiteral("metadata.json"));
-    if (!writeBytes(modelPath, QByteArrayLiteral("fake onnx"))
-        || !writeBytes(metadataPath, QByteArrayLiteral("{}"))) {
+    const QDir sourcePackage(
+        QDir(QStringLiteral(OPENDSS_TEST_RUNTIME_DIR))
+            .filePath(QStringLiteral("models/templates/pretrained/mobilenet_v3_small")));
+    if (!QFile::copy(sourcePackage.filePath(QStringLiteral("model.onnx")), modelPath)
+        || !QFile::copy(sourcePackage.filePath(QStringLiteral("metadata.json")), metadataPath)
+        || !writeBytes(QDir(runDirectory).filePath(QStringLiteral("checkpoint.pth")),
+                       QByteArrayLiteral("checkpoint"))) {
         return 3;
     }
 
@@ -224,8 +232,14 @@ int main(int argc, char **argv)
 
     OperationCoordinator operations;
     ApplicationStateStore stateStore;
+    const QString registryPath =
+        QDir(temporary.path()).filePath(QStringLiteral("registry/model_registry.json"));
+    ModelLoadService modelLoadService(registryPath);
+    PipelineRunner pipeline;
+    ModelLibraryController modelLibraryController(registryPath, operations);
     TrainingController controller(
-        operations, stateStore, QCoreApplication::applicationFilePath(),
+        operations, stateStore, modelLoadService, pipeline, modelLibraryController,
+        QCoreApplication::applicationFilePath(),
         QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT)).absoluteFilePath());
 
     const QMetaObject *metaObject = controller.metaObject();
@@ -234,6 +248,7 @@ int main(int argc, char **argv)
         "datasetManifestUrl", "architecture", "modelName", "outputDirectoryUrl",
         "requestedDevice", "presentation", "errorMessage", "stage", "stageEpochs",
         "epoch", "globalEpoch", "resultDirectoryUrl", "modelOnnxUrl", "metadataUrl",
+        "registeredPackageUrl", "retrySaveAvailable",
     };
     bool propertiesUseChangedSignal = changedSignal >= 0;
     for (const char *propertyName : propertyNames) {
@@ -252,12 +267,12 @@ int main(int argc, char **argv)
                    && metaObject->property(outputProperty).metaType().id() == QMetaType::QUrl,
                QStringLiteral("Training paths are not QUrl properties.")) ||
         !check(metaObject->indexOfMethod("start()") >= 0
-                   && metaObject->indexOfMethod("stop()") >= 0,
-               QStringLiteral("Training start/stop invokables are missing.")) ||
+                   && metaObject->indexOfMethod("stop()") >= 0
+                   && metaObject->indexOfMethod("retrySave()") >= 0,
+               QStringLiteral("Training action invokables are missing.")) ||
         !check(metaObject->indexOfProperty("effectiveDevice") < 0
                    && metaObject->indexOfProperty("elapsedMilliseconds") < 0
                    && metaObject->indexOfProperty("trainingLoss") < 0
-                   && metaObject->indexOfMethod("retrySave()") < 0
                    && metaObject->indexOfMethod("activate()") < 0,
                QStringLiteral("Unsupported Training facts or actions were exposed.")) ||
         !check(controller.presentation() == QStringLiteral("empty")
@@ -321,9 +336,14 @@ int main(int argc, char **argv)
         || !check(controller.resultDirectoryUrl().isLocalFile()
                       && controller.modelOnnxUrl().isLocalFile()
                       && controller.metadataUrl().isLocalFile()
+                      && controller.registeredPackageUrl().isLocalFile()
                       && QFileInfo::exists(controller.modelOnnxUrl().toLocalFile())
-                      && QFileInfo::exists(controller.metadataUrl().toLocalFile()),
-                  QStringLiteral("Completed result URLs are incorrect."))) {
+                      && QFileInfo::exists(controller.metadataUrl().toLocalFile())
+                      && QFileInfo(controller.registeredPackageUrl().toLocalFile()).isDir()
+                      && !controller.retrySaveAvailable()
+                      && modelLibraryController.selectedId()
+                          == modelLibraryController.activeId(),
+                  QStringLiteral("Completed registration facts are incorrect."))) {
         return 10;
     }
 
@@ -342,6 +362,56 @@ int main(int argc, char **argv)
         return 11;
     }
 
+    const int modelCountAfterSuccess = modelLibraryController.modelRows().size();
+    if (!check(!controller.retrySave()
+                   && modelLibraryController.modelRows().size() == modelCountAfterSuccess,
+               QStringLiteral("Repeated completion was allowed to register twice."))) {
+        return 12;
+    }
+
+    const QString retryOutput =
+        QDir(temporary.path()).filePath(QStringLiteral("retry"));
+    const QString retryCollision =
+        QDir(retryOutput).filePath(QStringLiteral("Retry model"));
+    if (!check(QDir().mkpath(retryCollision),
+               QStringLiteral("Could not create retry collision fixture."))) {
+        return 13;
+    }
+    controller.setOutputDirectoryUrl(QUrl::fromLocalFile(retryOutput));
+    controller.setModelName(QStringLiteral("Retry model"));
+    if (!check(controller.start(), controller.errorMessage())
+        || !check(waitForTerminalState(controller, 5000),
+                  QStringLiteral("Retry fixture Training did not finish."))
+        || !check(controller.presentation() == QStringLiteral("saveFailed")
+                      && controller.retrySaveAvailable()
+                      && !controller.errorMessage().isEmpty()
+                      && controller.registeredPackageUrl().isEmpty()
+                      && QFileInfo(controller.modelOnnxUrl().toLocalFile()).isFile()
+                      && QFileInfo(controller.metadataUrl().toLocalFile()).isFile()
+                      && QFileInfo(QDir(controller.resultDirectoryUrl().toLocalFile())
+                                       .filePath(QStringLiteral("checkpoint.pth"))).isFile()
+                      && modelLibraryController.modelRows().size() == modelCountAfterSuccess,
+                  QStringLiteral("Save failure did not retain retryable Training artifacts."))) {
+        return 14;
+    }
+    if (!check(!controller.retrySave()
+                   && controller.presentation() == QStringLiteral("saveFailed")
+                   && modelLibraryController.modelRows().size() == modelCountAfterSuccess,
+               QStringLiteral("Repeated failed save corrupted registration state."))) {
+        return 15;
+    }
+    if (!check(QDir(retryCollision).removeRecursively(),
+               QStringLiteral("Could not clear retry collision fixture."))
+        || !check(controller.retrySave(), controller.errorMessage())
+        || !check(controller.presentation() == QStringLiteral("completed")
+                      && !controller.retrySaveAvailable()
+                      && QFileInfo(controller.registeredPackageUrl().toLocalFile()).isDir()
+                      && modelLibraryController.selectedId()
+                          == modelLibraryController.activeId(),
+                  QStringLiteral("Retry Save did not register and activate the retained result."))) {
+        return 16;
+    }
+
     const QString cancelOutput =
         QDir(temporary.path()).filePath(QStringLiteral("cancel"));
     controller.setOutputDirectoryUrl(QUrl::fromLocalFile(cancelOutput));
@@ -350,12 +420,12 @@ int main(int argc, char **argv)
         || !check(waitForFile(
                       QDir(cancelOutput).filePath(QStringLiteral("trainer_started")), 3000),
                   QStringLiteral("Cancellation trainer did not start."))) {
-        return 12;
+        return 17;
     }
     controller.setModelName(QStringLiteral("Ignored while running"));
     if (!check(controller.modelName() == QStringLiteral("Cancelled model"),
                QStringLiteral("Running Training selections were mutable."))) {
-        return 13;
+        return 18;
     }
     controller.stop();
     if (!check(waitForTerminalState(controller, 7000),
@@ -367,7 +437,7 @@ int main(int argc, char **argv)
         !check(stateStore.snapshot().training.status == TrainingStatus::Interrupted
                    && !stateStore.snapshot().training.fault.isEmpty(),
                QStringLiteral("Interrupted Training state was not published."))) {
-        return 14;
+        return 19;
     }
 
     return 0;

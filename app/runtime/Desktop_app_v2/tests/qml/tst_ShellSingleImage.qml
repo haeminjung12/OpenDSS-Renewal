@@ -217,8 +217,11 @@ Item {
         property url resultDirectoryUrl: ""
         property url modelOnnxUrl: ""
         property url metadataUrl: ""
+        property url registeredPackageUrl: ""
+        property bool retrySaveAvailable: false
         property int startCallCount: 0
         property int stopCallCount: 0
+        property int retrySaveCallCount: 0
 
         function reset() {
             datasetManifestUrl = "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
@@ -235,8 +238,11 @@ Item {
             resultDirectoryUrl = ""
             modelOnnxUrl = ""
             metadataUrl = ""
+            registeredPackageUrl = ""
+            retrySaveAvailable = false
             startCallCount = 0
             stopCallCount = 0
+            retrySaveCallCount = 0
         }
 
         function start() {
@@ -246,6 +252,11 @@ Item {
 
         function stop() {
             ++stopCallCount
+        }
+
+        function retrySave() {
+            ++retrySaveCallCount
+            return true
         }
     }
 
@@ -1350,21 +1361,33 @@ Item {
                 "file:///C:/OpenDSS/Training%20Output/run-001/model.onnx"
         trainingController.metadataUrl =
                 "file:///C:/OpenDSS/Training%20Output/run-001/metadata.json"
+        trainingController.registeredPackageUrl =
+                "file:///C:/OpenDSS/Models/Renamed%20Model"
         trainingController.presentation = "completed"
         verify(shell.form.trainWorkspace.showCompleted)
         compare(shell.form.trainWorkspace.resultPath,
-                "C:/OpenDSS/Training Output/run-001")
+                "C:/OpenDSS/Models/Renamed Model")
         compare(shell.form.trainWorkspace.modelOnnxPath,
                 "C:/OpenDSS/Training Output/run-001/model.onnx")
         compare(shell.form.trainWorkspace.metadataPath,
                 "C:/OpenDSS/Training Output/run-001/metadata.json")
-        verify(!shell.form.trainWorkspace.openInModelTestButton.visible)
+        verify(shell.form.trainWorkspace.showActiveModelConfirmation)
+        verify(shell.form.trainWorkspace.openInModelTestButton.visible)
+        verify(shell.form.trainWorkspace.openInModelTestButton.enabled)
+        shell.form.trainWorkspace.openInModelTestButton.clicked()
+        compare(shell.mockState.selectedWorkspace, "modelTest")
 
-        trainingController.errorMessage = "Trainer failed."
-        trainingController.presentation = "failed"
+        shell.form.navTrainButton.clicked()
+        trainingController.errorMessage = "Model package save failed."
+        trainingController.retrySaveAvailable = true
+        trainingController.presentation = "saveFailed"
         verify(shell.form.trainWorkspace.showError)
-        compare(shell.form.trainWorkspace.errorText, "Trainer failed.")
-        verify(!shell.form.trainWorkspace.retrySaveButton.visible)
+        compare(shell.form.trainWorkspace.errorText, "Model package save failed.")
+        verify(shell.form.trainWorkspace.retrySaveButton.visible)
+        verify(shell.form.trainWorkspace.retrySaveButton.enabled)
+        verify(!shell.form.trainWorkspace.openInModelTestButton.visible)
+        shell.form.trainWorkspace.retrySaveButton.clicked()
+        compare(trainingController.retrySaveCallCount, 1)
     }
 
     function test_modelTestStartAndInterrupt() {

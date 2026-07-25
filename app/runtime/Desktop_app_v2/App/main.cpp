@@ -16,6 +16,7 @@
 
 #include "autogen/environment.h"
 #include "../../desktop_app/model_registry_service.h"
+#include "../../desktop_app/pipeline_runner.h"
 #include "../../v2/camera/camera_controller.h"
 #include "../../v2/camera/camera_preview_image_provider.h"
 #include "../../v2/camera/camera_service.h"
@@ -115,13 +116,15 @@ int main(int argc, char *argv[])
     desktop_app::v2::sequence::SequenceViewerController sequenceViewerController;
     desktop_app::v2::dataset::DatasetLabelController datasetLabelController(operationCoordinator,
                                                                             applicationStateStore);
-    desktop_app::v2::training::TrainingController trainingController(
-        operationCoordinator, applicationStateStore, trainingPythonExecutable(), repositoryRoot());
     loadModelRegistry();
     const QString registryFilePath = modelRegistryPath();
     desktop_app::v2::ModelLibraryController modelLibraryController(
         registryFilePath, operationCoordinator);
     desktop_app::v2::ModelLoadService modelLoadService(registryFilePath);
+    PipelineRunner pipeline;
+    desktop_app::v2::training::TrainingController trainingController(
+        operationCoordinator, applicationStateStore, modelLoadService, pipeline,
+        modelLibraryController, trainingPythonExecutable(), repositoryRoot());
     desktop_app::v2::model_test::ModelTestController modelTestController(
         operationCoordinator, modelLoadService, QCoreApplication::applicationVersion());
     QObject::connect(&modelLibraryController,

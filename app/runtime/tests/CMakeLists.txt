@@ -412,21 +412,35 @@ set_tests_properties(training_service_protocol_test PROPERTIES TIMEOUT 30)
 
 qt_add_executable(training_controller_test
   training_controller_test.cpp
+  ../desktop_app/app_utils.cpp
   ../desktop_app/json_persistence.cpp
+  ../desktop_app/model_registry_service.cpp
+  ../desktop_app/pipeline_runner.cpp
+  ../inference/onnx_inference_adapter.cpp
   ../v2/training/training_controller.cpp
   ../v2/training/training_service.cpp
   ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/model/model_library_controller.cpp
+  ../v2/model/model_load_service.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/state/application_state_store.cpp
 )
 target_compile_definitions(training_controller_test PRIVATE
   OPENDSS_TEST_REPOSITORY_ROOT="${CMAKE_SOURCE_DIR}/../.."
+  OPENDSS_TEST_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."
 )
 target_include_directories(training_controller_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(training_controller_test PRIVATE
+  opendss_runtime
   Qt6::Core
+  Qt6::Widgets
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
 )
 add_test(
   NAME training_controller_test

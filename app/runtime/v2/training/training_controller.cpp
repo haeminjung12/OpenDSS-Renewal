@@ -1,8 +1,12 @@
 #include "training_controller.h"
 
+#include "../../desktop_app/pipeline_runner.h"
+#include "../model/model_library_controller.h"
+#include "../model/model_load_service.h"
 #include "../state/application_state_store.h"
 
 #include <QFileInfo>
+#include <QVariantMap>
 
 #include <utility>
 
@@ -35,20 +39,23 @@ desktop_app::v2::TrainingStatus applicationStatus(TrainingState state)
 
 TrainingController::TrainingController(OperationCoordinator &operations,
                                        ApplicationStateStore &stateStore,
+                                       ModelLoadService &modelLoadService,
+                                       PipelineRunner &pipeline,
+                                       ModelLibraryController &modelLibraryController,
                                        QString pythonExecutable,
                                        QString repositoryRoot,
                                        QObject *parent)
     : QObject(parent)
     , service_(operations)
     , stateStore_(stateStore)
+    , modelLoadService_(modelLoadService)
+    , pipeline_(pipeline)
+    , modelLibraryController_(modelLibraryController)
     , pythonExecutable_(std::move(pythonExecutable))
     , repositoryRoot_(std::move(repositoryRoot))
 {
-    connect(&service_, &TrainingService::changed, this, [this] {
-        controllerError_.clear();
-        publishTrainingState();
-        emit changed();
-    });
+    connect(&service_, &TrainingService::changed,
+            this, &TrainingController::handleServiceChanged);
     publishTrainingState();
 }
 
@@ -67,14 +74,32 @@ QUrl TrainingController::resultDirectoryUrl() const
 }
 QUrl TrainingController::modelOnnxUrl() const { return localUrl(service_.result().modelOnnx); }
 QUrl TrainingController::metadataUrl() const { return localUrl(service_.result().metadataJson); }
+QUrl TrainingController::registeredPackageUrl() const { return registeredPackageUrl_; }
+bool TrainingController::retrySaveAvailable() const
+{
+    return registrationState_ == RegistrationState::SaveFailed;
+}
 
 QString TrainingController::presentation() const
 {
+    if (service_.state() == TrainingState::Completed) {
+        switch (registrationState_) {
+        case RegistrationState::Saving:
+            return QStringLiteral("saving");
+        case RegistrationState::SaveFailed:
+            return QStringLiteral("saveFailed");
+        case RegistrationState::Completed:
+            return QStringLiteral("completed");
+        case RegistrationState::NotStarted:
+            break;
+        }
+    }
+
     switch (service_.state()) {
     case TrainingState::Running:
         return QStringLiteral("running");
     case TrainingState::Completed:
-        return QStringLiteral("completed");
+        return QStringLiteral("saving");
     case TrainingState::Failed:
         return QStringLiteral("failed");
     case TrainingState::Interrupted:
@@ -111,6 +136,8 @@ QString TrainingController::inputError() const
 
 QString TrainingController::errorMessage() const
 {
+    if (registrationState_ == RegistrationState::SaveFailed)
+        return registrationError_;
     if (service_.state() == TrainingState::Failed
         || service_.state() == TrainingState::Interrupted) {
         return service_.lastError();
@@ -120,7 +147,9 @@ QString TrainingController::errorMessage() const
 
 bool TrainingController::selectionsLocked() const
 {
-    return service_.state() == TrainingState::Running;
+    return service_.state() == TrainingState::Running
+        || registrationState_ == RegistrationState::Saving
+        || registrationState_ == RegistrationState::SaveFailed;
 }
 
 void TrainingController::setDatasetManifestUrl(const QUrl &url)
@@ -195,6 +224,9 @@ bool TrainingController::start()
     }
 
     controllerError_.clear();
+    registrationError_.clear();
+    registeredPackageUrl_ = {};
+    registrationState_ = RegistrationState::NotStarted;
     QString error;
     const TrainingRequest request{
         datasetManifestUrl_.toLocalFile(),
@@ -218,18 +250,100 @@ bool TrainingController::start()
 
 void TrainingController::stop()
 {
-    service_.cancel();
+    if (service_.state() == TrainingState::Running)
+        service_.cancel();
+}
+
+bool TrainingController::retrySave()
+{
+    if (registrationState_ != RegistrationState::SaveFailed
+        || service_.state() != TrainingState::Completed) {
+        return false;
+    }
+    return saveCompletedTraining();
+}
+
+bool TrainingController::saveCompletedTraining()
+{
+    if (service_.state() != TrainingState::Completed
+        || registrationState_ == RegistrationState::Saving
+        || registrationState_ == RegistrationState::Completed) {
+        return false;
+    }
+
+    registrationState_ = RegistrationState::Saving;
+    registrationError_.clear();
+    registeredPackageUrl_ = {};
+    publishTrainingState();
+    emit changed();
+
+    const TrainingResult result = service_.result();
+    QString registeredEntryId;
+    QString warning;
+    QString error;
+    const bool saved = modelLoadService_.saveAndActivateTrainedModel(
+        result.runDirectory, result.modelOnnx, result.metadataJson,
+        modelName_.trimmed(), outputDirectoryUrl_.toLocalFile(),
+        QStringLiteral("cpu"), pipeline_, &registeredEntryId, &warning, &error);
+    Q_UNUSED(warning);
+
+    if (!saved) {
+        registrationError_ = error.isEmpty()
+            ? QStringLiteral("The completed model could not be saved and activated.")
+            : error;
+        registrationState_ = RegistrationState::SaveFailed;
+        publishTrainingState();
+        emit changed();
+        return false;
+    }
+
+    modelLibraryController_.refresh();
+    const QVariantList rows = modelLibraryController_.modelRows();
+    for (int index = 0; index < rows.size(); ++index) {
+        if (rows.at(index).toMap().value(QStringLiteral("id")).toString()
+                .compare(registeredEntryId, Qt::CaseInsensitive) == 0) {
+            modelLibraryController_.select(index);
+            registeredPackageUrl_ = localUrl(
+                modelLibraryController_.selectedDetail()
+                    .value(QStringLiteral("packageLocation")).toString());
+            break;
+        }
+    }
+
+    registrationState_ = RegistrationState::Completed;
+    publishTrainingState();
+    emit changed();
+    return true;
+}
+
+void TrainingController::handleServiceChanged()
+{
+    controllerError_.clear();
+    if (service_.state() == TrainingState::Completed
+        && registrationState_ == RegistrationState::NotStarted) {
+        saveCompletedTraining();
+        return;
+    }
+    publishTrainingState();
+    emit changed();
 }
 
 void TrainingController::publishTrainingState()
 {
     desktop_app::v2::TrainingState published;
-    published.status = applicationStatus(service_.state());
-    published.fault =
-        service_.state() == TrainingState::Failed
-            || service_.state() == TrainingState::Interrupted
-        ? service_.lastError()
-        : QString{};
+    if (registrationState_ == RegistrationState::SaveFailed) {
+        published.status = desktop_app::v2::TrainingStatus::Failed;
+        published.fault = registrationError_;
+    } else if (registrationState_ == RegistrationState::Saving) {
+        published.status = desktop_app::v2::TrainingStatus::Running;
+    } else {
+        published.status = applicationStatus(service_.state());
+        published.fault =
+            service_.state() == TrainingState::Failed
+                || service_.state() == TrainingState::Interrupted
+            ? service_.lastError()
+            : QString{};
+    }
 
     const auto current = stateStore_.snapshot().training;
     if (current.executionId != published.executionId

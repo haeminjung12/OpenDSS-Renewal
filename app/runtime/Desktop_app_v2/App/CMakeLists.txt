@@ -91,25 +91,28 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "../../v2/training/training_controller.h"
     "../../v2/training/training_service.cpp"
     "../../v2/training/training_service.h"
+    "../../desktop_app/pipeline_runner.cpp"
+    "../../desktop_app/pipeline_runner.h"
     "../../desktop_app/app_utils.cpp"
     "../../desktop_app/app_utils.h"
     "../../desktop_app/json_persistence.cpp"
     "../../desktop_app/json_persistence.h"
     "../../desktop_app/model_registry_service.cpp"
     "../../desktop_app/model_registry_service.h"
+    "../../detection/droplet_detector_adapters.cpp"
+    "../../detection/droplet_detector_adapters.h"
     "../../daq_trigger.cpp"
     "../../daq_trigger.h"
+    "../../event_detector.cpp"
+    "../../event_detector.h"
+    "../../fast_event_detector.cpp"
+    "../../fast_event_detector.h"
     "../../inference/onnx_inference_adapter.cpp"
     "../../inference/onnx_inference_adapter.h"
     "../../metadata_loader.cpp"
     "../../metadata_loader.h"
     "../../onnx_classifier.cpp"
     "../../onnx_classifier.h"
-)
-
-target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE
-    # The v2 shell prepares the persisted Active Model but never activates or installs one.
-    OPENDSS_MODEL_LOAD_NO_PIPELINE
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

@@ -120,7 +120,11 @@ Item {
                                             : state.cameraStatus
         cameraPreviewSource: root.cameraController ? root.cameraController.previewSource : ""
         daqStatus: state.projectedDaqStatus
-        activeModelText: state.activeModelText
+        activeModelText: root.modelTestController
+                         ? root.modelTestController.activeModelName
+                           || root.modelTestController.activeModelId
+                           || qsTr("No Active Model")
+                         : state.activeModelText
         activityText: root.singleImageCaptureController
                       && root.singleImageCaptureController.presentation === "capturing"
                       ? qsTr("Capturing Image") : state.activityText
@@ -276,19 +280,19 @@ Item {
     Binding { target: screen.sequenceViewerWorkspace; property: "totalFrames"; value: root.sequenceViewerController ? root.sequenceViewerController.totalFrames : state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? 0 : 120 }
     Binding { target: screen.sequenceViewerWorkspace; property: "currentFrameSource"; value: root.sequenceViewerController ? root.sequenceViewerController.currentFrameImageUrl : "" }
 
-    Binding { target: screen.trainWorkspace; property: "presentation"; value: root.trainingController ? root.trainingController.presentation === "ready" ? root.trainingController.requestedDevice === "cpu" ? "readyCpu" : "readyGpu" : root.trainingController.presentation === "failed" ? "error" : root.trainingController.presentation : state.trainPresentation }
+    Binding { target: screen.trainWorkspace; property: "presentation"; value: root.trainingController ? root.trainingController.presentation === "ready" ? root.trainingController.requestedDevice === "cpu" ? "readyCpu" : "readyGpu" : root.trainingController.presentation === "failed" || root.trainingController.presentation === "saveFailed" ? "error" : root.trainingController.presentation === "saving" ? "running" : root.trainingController.presentation : state.trainPresentation }
     Binding { target: screen.trainWorkspace; property: "datasetText"; value: root.trainingController ? root.trainingController.datasetManifestUrl.toString() === "" ? qsTr("No Dataset selected") : root.localFilePath(root.trainingController.datasetManifestUrl) : state.trainPresentation === "empty" ? qsTr("No Dataset selected") : qsTr("Dataset-042") }
     Binding { target: screen.trainWorkspace; property: "deviceText"; value: root.trainingController ? root.trainingController.requestedDevice === "cpu" ? qsTr("CPU") : qsTr("GPU") : state.trainPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
     Binding { target: screen.trainWorkspace; property: "disabledReason"; value: root.trainingController ? root.trainingController.errorMessage : state.activeOperation !== "" ? qsTr("Another operation is active") : state.trainPresentation === "empty" ? qsTr("No dataset selected") : state.trainPresentation === "unavailable" ? qsTr("No Labeled Droplet Crops") : state.trainModelNameDraft.trim() === "" ? qsTr("Model name required") : "" }
     Binding { target: screen.trainWorkspace; property: "modelNameText"; value: root.trainingController ? root.trainingController.modelName : state.trainModelNameDraft }
     Binding { target: screen.trainWorkspace; property: "saveLocationText"; value: root.trainingController ? root.localFilePath(root.trainingController.outputDirectoryUrl) : state.trainSaveLocationDraft }
-    Binding { target: screen.trainWorkspace; property: "resultPath"; value: root.trainingController ? root.localFilePath(root.trainingController.resultDirectoryUrl) : qsTr("C:/OpenDSS/Models/DropletNet-04.opendssmodel") }
+    Binding { target: screen.trainWorkspace; property: "resultPath"; value: root.trainingController ? root.localFilePath(root.trainingController.registeredPackageUrl.toString() !== "" ? root.trainingController.registeredPackageUrl : root.trainingController.resultDirectoryUrl) : qsTr("C:/OpenDSS/Models/DropletNet-04.opendssmodel") }
     Binding { target: screen.trainWorkspace; property: "modelOnnxPath"; value: root.trainingController ? root.localFilePath(root.trainingController.modelOnnxUrl) : "" }
     Binding { target: screen.trainWorkspace; property: "metadataPath"; value: root.trainingController ? root.localFilePath(root.trainingController.metadataUrl) : "" }
     Binding { target: screen.trainWorkspace; property: "startEnabled"; value: root.trainingController ? root.trainingController.presentation === "ready" : (state.trainPresentation === "readyCpu" || state.trainPresentation === "readyGpu") && state.trainModelNameDraft.trim() !== "" && state.activeOperation === "" }
-    Binding { target: screen.trainWorkspace; property: "showRunning"; value: root.trainingController ? root.trainingController.presentation === "running" : state.trainPresentation === "running" }
+    Binding { target: screen.trainWorkspace; property: "showRunning"; value: root.trainingController ? root.trainingController.presentation === "running" || root.trainingController.presentation === "saving" : state.trainPresentation === "running" }
     Binding { target: screen.trainWorkspace; property: "showCompleted"; value: root.trainingController ? root.trainingController.presentation === "completed" : state.trainPresentation === "completed" }
-    Binding { target: screen.trainWorkspace; property: "showError"; value: root.trainingController ? root.trainingController.presentation === "failed" : state.trainPresentation === "error" }
+    Binding { target: screen.trainWorkspace; property: "showError"; value: root.trainingController ? root.trainingController.presentation === "failed" || root.trainingController.presentation === "saveFailed" : state.trainPresentation === "error" }
     Binding { target: screen.trainWorkspace; property: "showInterrupted"; value: root.trainingController ? root.trainingController.presentation === "interrupted" : state.trainPresentation === "interrupted" }
     Binding { target: screen.trainWorkspace; property: "requestedDeviceText"; value: root.trainingController ? root.trainingController.requestedDevice === "cpu" ? qsTr("CPU") : qsTr("GPU") : "" }
     Binding { target: screen.trainWorkspace; property: "effectiveDeviceText"; value: ""; when: !!root.trainingController }
@@ -304,8 +308,8 @@ Item {
     Binding { target: screen.trainWorkspace; property: "resultMetrics"; value: []; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace; property: "showMetrics"; value: false; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace; property: "showTiming"; value: false; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace; property: "showActiveModelConfirmation"; value: false; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace; property: "showRetrySave"; value: false; when: !!root.trainingController }
+    Binding { target: screen.trainWorkspace; property: "showActiveModelConfirmation"; value: root.trainingController && root.trainingController.presentation === "completed"; when: !!root.trainingController }
+    Binding { target: screen.trainWorkspace; property: "showRetrySave"; value: root.trainingController && root.trainingController.retrySaveAvailable; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace; property: "serviceFactsOnly"; value: true; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.architectureSelector; property: "currentIndex"; value: root.trainingController && root.trainingController.architecture === "efficientnet" ? 1 : 0; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.trainingDeviceSelector; property: "currentIndex"; value: root.trainingController && root.trainingController.requestedDevice === "cpu" ? 1 : 0; when: !!root.trainingController }
@@ -319,8 +323,8 @@ Item {
     Binding { target: screen.trainWorkspace.stopButton; property: "enabled"; value: root.trainingController && root.trainingController.presentation === "running"; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.weightsSelector; property: "enabled"; value: false; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.loadWeightsButton; property: "enabled"; value: false; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.retrySaveButton; property: "enabled"; value: false; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.openInModelTestButton; property: "enabled"; value: false; when: !!root.trainingController }
+    Binding { target: screen.trainWorkspace.retrySaveButton; property: "enabled"; value: root.trainingController && root.trainingController.retrySaveAvailable; when: !!root.trainingController }
+    Binding { target: screen.trainWorkspace.openInModelTestButton; property: "enabled"; value: root.trainingController && root.trainingController.presentation === "completed"; when: !!root.trainingController }
     Binding { target: screen.fileNameField; property: "enabled"; value: !root.singleImageCapturing }
     Binding { target: screen.saveLocationField; property: "enabled"; value: !root.singleImageCapturing }
     Binding { target: screen.browseButton; property: "enabled"; value: !root.singleImageCapturing }
@@ -591,8 +595,21 @@ Item {
     Connections { target: screen.trainWorkspace.trainingDeviceSelector; function onActivated(index) { if (root.trainingController) root.trainingController.requestedDevice = index === 1 ? "cpu" : "gpu" } }
     Connections { target: screen.trainWorkspace.startButton; function onClicked() { if (root.trainingController) root.trainingController.start(); else state.startTraining() } }
     Connections { target: screen.trainWorkspace.stopButton; function onClicked() { if (root.trainingController) root.trainingController.stop(); else state.stopTraining() } }
-    Connections { target: screen.trainWorkspace.retrySaveButton; function onClicked() { if (!root.trainingController) state.retryTrainingSave() } }
-    Connections { target: screen.trainWorkspace.openInModelTestButton; function onClicked() { if (!root.trainingController) state.openTrainingInModelTest() } }
+    Connections { target: screen.trainWorkspace.retrySaveButton; function onClicked() { if (root.trainingController) root.trainingController.retrySave(); else state.retryTrainingSave() } }
+    Connections {
+        target: screen.trainWorkspace.openInModelTestButton
+        function onClicked() {
+            if (root.trainingController) {
+                if (root.trainingController.presentation === "completed") {
+                    state.modelTestDatasetSelected = false
+                    state.modelTestPresentation = "modelOnly"
+                    state.selectWorkspace("modelTest")
+                }
+            } else {
+                state.openTrainingInModelTest()
+            }
+        }
+    }
     Connections { target: screen.trainWorkspace.trainingSetupHeadingButton; function onClicked() { state.toggleTrainingSetup() } }
     Connections { target: screen.trainWorkspace.trainingStatusHeadingButton; function onClicked() { state.toggleTrainingStatus() } }
     Connections { target: screen.trainWorkspace.operationPanelToggleButton; function onClicked() { state.toggleTrainOperationPanel() } }

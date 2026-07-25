@@ -6,9 +6,13 @@
 #include <QString>
 #include <QUrl>
 
+class PipelineRunner;
+
 namespace desktop_app::v2 {
 
 class ApplicationStateStore;
+class ModelLibraryController;
+class ModelLoadService;
 class OperationCoordinator;
 
 namespace training {
@@ -30,9 +34,13 @@ class TrainingController final : public QObject
     Q_PROPERTY(QUrl resultDirectoryUrl READ resultDirectoryUrl NOTIFY changed)
     Q_PROPERTY(QUrl modelOnnxUrl READ modelOnnxUrl NOTIFY changed)
     Q_PROPERTY(QUrl metadataUrl READ metadataUrl NOTIFY changed)
+    Q_PROPERTY(QUrl registeredPackageUrl READ registeredPackageUrl NOTIFY changed)
+    Q_PROPERTY(bool retrySaveAvailable READ retrySaveAvailable NOTIFY changed)
 
 public:
     TrainingController(OperationCoordinator &operations, ApplicationStateStore &stateStore,
+                       ModelLoadService &modelLoadService, PipelineRunner &pipeline,
+                       ModelLibraryController &modelLibraryController,
                        QString pythonExecutable, QString repositoryRoot,
                        QObject *parent = nullptr);
 
@@ -50,6 +58,8 @@ public:
     QUrl resultDirectoryUrl() const;
     QUrl modelOnnxUrl() const;
     QUrl metadataUrl() const;
+    QUrl registeredPackageUrl() const;
+    bool retrySaveAvailable() const;
 
     void setDatasetManifestUrl(const QUrl &url);
     void setArchitecture(const QString &architecture);
@@ -59,17 +69,30 @@ public:
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE void stop();
+    Q_INVOKABLE bool retrySave();
 
 signals:
     void changed();
 
 private:
+    enum class RegistrationState {
+        NotStarted,
+        Saving,
+        SaveFailed,
+        Completed,
+    };
+
     bool selectionsLocked() const;
     QString inputError() const;
+    bool saveCompletedTraining();
+    void handleServiceChanged();
     void publishTrainingState();
 
     TrainingService service_;
     ApplicationStateStore &stateStore_;
+    ModelLoadService &modelLoadService_;
+    PipelineRunner &pipeline_;
+    ModelLibraryController &modelLibraryController_;
     QString pythonExecutable_;
     QString repositoryRoot_;
     QUrl datasetManifestUrl_;
@@ -78,6 +101,9 @@ private:
     QUrl outputDirectoryUrl_;
     QString requestedDevice_ = QStringLiteral("gpu");
     QString controllerError_;
+    QString registrationError_;
+    QUrl registeredPackageUrl_;
+    RegistrationState registrationState_ = RegistrationState::NotStarted;
 };
 
 } // namespace training

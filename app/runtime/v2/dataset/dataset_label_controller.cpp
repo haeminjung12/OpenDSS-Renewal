@@ -76,6 +76,14 @@ int DatasetLabelController::classCount() const { return snapshot_.classes.size()
 int DatasetLabelController::class0Count() const { return snapshot_.counts.classCounts.value(0); }
 int DatasetLabelController::class1Count() const { return snapshot_.counts.classCounts.value(1); }
 int DatasetLabelController::class2Count() const { return snapshot_.counts.classCounts.value(2); }
+QVariantList DatasetLabelController::classNames() const
+{
+    QVariantList names;
+    names.reserve(snapshot_.classes.size());
+    for (const DatasetClass &datasetClass : snapshot_.classes)
+        names.append(datasetClass.name);
+    return names;
+}
 bool DatasetLabelController::class2Enabled() const { return classCount() == 3; }
 bool DatasetLabelController::canUndo() const { return snapshot_.canUndo; }
 
@@ -188,6 +196,15 @@ bool DatasetLabelController::configureClassCount(int classCount)
 {
     QString error;
     const bool success = service_.configureClassCount(classCount, &error);
+    return finish(success, error, true);
+}
+
+bool DatasetLabelController::renameClass(int index, const QString &name)
+{
+    if (index < 0 || index >= snapshot_.classes.size())
+        return finish(false, QStringLiteral("Unknown Class index."));
+    QString error;
+    const bool success = service_.renameClass(snapshot_.classes.at(index).id, name, &error);
     return finish(success, error, true);
 }
 

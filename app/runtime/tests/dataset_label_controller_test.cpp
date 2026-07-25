@@ -97,7 +97,7 @@ int main(int argc, char **argv)
     const char *propertyNames[] = {
         "presentation", "manifestUrl", "datasetId", "totalCount", "labeledCount",
         "unreviewedCount", "excludedCount", "classCount", "class0Count", "class1Count",
-        "class2Count", "class2Enabled", "canUndo", "records", "filteredRecords",
+        "class2Count", "classNames", "class2Enabled", "canUndo", "records", "filteredRecords",
         "selectedRecordId", "selectedCropUrl", "selectedIndex", "filter", "errorMessage",
     };
     bool propertiesUseChangedSignal = changedSignal >= 0;
@@ -120,6 +120,8 @@ int main(int argc, char **argv)
                QStringLiteral("QUrl open invokable missing")) ||
         !check(metaObject->indexOfMethod("saveAs(QUrl)") >= 0,
                QStringLiteral("QUrl Save As invokable missing")) ||
+        !check(metaObject->indexOfMethod("renameClass(int,QString)") >= 0,
+               QStringLiteral("index-based class rename invokable missing")) ||
         !check(controller.presentation() == QStringLiteral("empty"),
                QStringLiteral("initial presentation is not empty")) ||
         !check(!controller.open(QUrl(QStringLiteral("https://example.invalid/dataset.json"))),
@@ -186,6 +188,15 @@ int main(int argc, char **argv)
 
     if (!check(controller.open(QUrl::fromLocalFile(manifestPath)), controller.errorMessage()) ||
         !check(!controller.canUndo(), QStringLiteral("reopen retained undo state")) ||
+        !check(controller.classNames() == QVariantList{QStringLiteral("Class 0"),
+                                                       QStringLiteral("Class 1"),
+                                                       QStringLiteral("Class 2")},
+               QStringLiteral("class-name projection is incorrect")) ||
+        !check(!controller.renameClass(3, QStringLiteral("Unexpected")),
+               QStringLiteral("out-of-range class rename was accepted")) ||
+        !check(controller.renameClass(1, QStringLiteral("Single cell")), controller.errorMessage()) ||
+        !check(controller.classNames().at(1).toString() == QStringLiteral("Single cell"),
+               QStringLiteral("class-name rename projection is incorrect")) ||
         !check(controller.setFilter(QStringLiteral("all")), controller.errorMessage()) ||
         !check(controller.select(QStringLiteral("r1")), controller.errorMessage()) ||
         !check(controller.assignClass(QStringLiteral("0")), controller.errorMessage()) ||

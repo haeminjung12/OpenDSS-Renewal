@@ -27,6 +27,7 @@ class DatasetLabelController final : public QObject
     Q_PROPERTY(int class0Count READ class0Count NOTIFY changed)
     Q_PROPERTY(int class1Count READ class1Count NOTIFY changed)
     Q_PROPERTY(int class2Count READ class2Count NOTIFY changed)
+    Q_PROPERTY(QVariantList classNames READ classNames NOTIFY changed)
     Q_PROPERTY(bool class2Enabled READ class2Enabled NOTIFY changed)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
     Q_PROPERTY(QVariantList records READ records NOTIFY changed)
@@ -52,6 +53,7 @@ public:
     int class0Count() const;
     int class1Count() const;
     int class2Count() const;
+    QVariantList classNames() const;
     bool class2Enabled() const;
     bool canUndo() const;
     QVariantList records() const;
@@ -64,6 +66,7 @@ public:
 
     Q_INVOKABLE bool open(const QUrl &manifestUrl);
     Q_INVOKABLE bool configureClassCount(int classCount);
+    Q_INVOKABLE bool renameClass(int index, const QString &name);
     Q_INVOKABLE bool assignClass(const QString &classId);
     Q_INVOKABLE bool exclude();
     Q_INVOKABLE bool undo();

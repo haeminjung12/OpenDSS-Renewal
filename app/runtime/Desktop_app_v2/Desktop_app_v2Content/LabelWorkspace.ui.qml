@@ -15,6 +15,17 @@ Rectangle {
     property string datasetName: qsTr("Droplet Dataset")
     property int totalCount: 18072
     property int labeledCount: 18072
+    property int class0Count: 12000
+    property int class1Count: 6072
+    property int class2Count: 0
+    property int excludedCount: 0
+    property int unreviewedCount: 0
+    property var classNames: [qsTr("Class 0"), qsTr("Class 1"), qsTr("Class 2")]
+    property var filteredCropRecords: []
+    property string selectedCropId: ""
+    property int selectedCropIndex: -1
+    property bool canUndo: false
+    property string errorMessage: ""
     property bool rightPanelExpanded: true
     property bool datasetSummaryExpanded: true
     property bool labelExpanded: true
@@ -40,6 +51,11 @@ Rectangle {
     property alias class2FilterButton: class2FilterButton
     property alias excludedFilterButton: excludedFilterButton
     property alias unreviewedFilterButton: unreviewedFilterButton
+    property alias cropGridHost: cropGridHost
+    property alias class0NameField: class0NameField
+    property alias class1NameField: class1NameField
+    property alias class2NameField: class2NameField
+    property alias errorMessageText: errorMessageText.text
 
     Column {
         anchors.fill: parent
@@ -65,7 +81,7 @@ Rectangle {
                     visible: root.presentation !== "empty"
                     height: Math.max(pageSpinBox.implicitHeight, imagesPerPageSelector.implicitHeight)
                     spacing: Constants.spacing
-                    anchors.top: cropGridTitle.bottom
+                    anchors.top: errorMessageText.visible ? errorMessageText.bottom : cropGridTitle.bottom
                     anchors.topMargin: Constants.spacing
                     anchors.left: parent.left
                     anchors.leftMargin: Constants.spacing
@@ -73,6 +89,20 @@ Rectangle {
                     AppSpinBox { id: pageSpinBox; from: 1; to: 1; value: 1; height: Constants.appStandardControlHeight }
                     Text { text: qsTr("Images per page"); color: Constants.textColor; font: Constants.font; anchors.verticalCenter: parent.verticalCenter }
                     AppComboBox { id: imagesPerPageSelector; model: ["100", "200", "500"]; currentIndex: 2; width: Math.round(96 * Constants.textScale); height: Constants.appStandardControlHeight }
+                }
+                Text {
+                    id: errorMessageText
+                    visible: root.errorMessage !== ""
+                    text: root.errorMessage
+                    color: Constants.faultColor
+                    font: Constants.font
+                    wrapMode: Text.WordWrap
+                    anchors.top: cropGridTitle.bottom
+                    anchors.topMargin: Constants.spacing
+                    anchors.left: parent.left
+                    anchors.right: parent.right
+                    anchors.leftMargin: Constants.spacing
+                    anchors.rightMargin: Constants.spacing
                 }
                 ScrollView {
                     id: cropGridScroll
@@ -83,29 +113,16 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.margins: Constants.spacing
                     contentWidth: availableWidth
-                    contentHeight: Math.max(availableHeight, cropGrid.implicitHeight)
+                    contentHeight: Math.max(availableHeight, cropGridHost.implicitHeight)
                     clip: true
 
                 Grid {
-                    id: cropGrid
+                    id: cropGridHost
                     columns: Math.max(1, Math.floor((cropGridScroll.availableWidth + spacing) / (106 + spacing)))
                     spacing: Constants.spacing
                     width: columns * 106 + Math.max(0, columns - 1) * spacing
                     x: Math.max(0, (cropGridScroll.availableWidth - width) / 2)
                     y: Math.max(0, (parent.height - height) / 2)
-                    Repeater {
-                        model: 24
-                        Rectangle {
-                            required property int index
-                            readonly property int globalIndex: index
-                            readonly property int classIndex: (globalIndex * 37 + 11) % 3
-                            width: 106
-                            height: 82
-                            color: classIndex === 0 ? "#dbeafe" : classIndex === 1 ? "#ffedd5" : "#ede9fe"
-                            border.width: 4
-                            border.color: classIndex === 0 ? "#2b6cb0" : classIndex === 1 ? "#e07a24" : "#7652b8"
-                        }
-                    }
                 }
                 }
                 Text {
@@ -216,6 +233,10 @@ Rectangle {
                                 AppRadioButton { id: threeClassChoice; text: qsTr("3 classes"); checked: root.classCount === 3; height: Constants.appStandardControlHeight }
                             }
                             Text { text: qsTr("Configured schema: %1 classes").arg(root.classCount); color: Constants.mutedTextColor; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { text: qsTr("Class names"); font: Constants.font; color: Constants.textColor }
+                            AppTextField { id: class0NameField; width: parent.width; height: Constants.appStandardControlHeight; enabled: root.classCount > 0; text: root.classNames.length > 0 ? root.classNames[0] : ""; Accessible.name: qsTr("Class 0 name") }
+                            AppTextField { id: class1NameField; width: parent.width; height: Constants.appStandardControlHeight; enabled: root.classCount > 0; text: root.classNames.length > 1 ? root.classNames[1] : ""; Accessible.name: qsTr("Class 1 name") }
+                            AppTextField { id: class2NameField; width: parent.width; height: Constants.appStandardControlHeight; enabled: root.classCount === 3; text: root.classNames.length > 2 ? root.classNames[2] : ""; Accessible.name: qsTr("Class 2 name") }
                         }
                     }
 
@@ -265,7 +286,7 @@ Rectangle {
                                     }
                                     AppButton { id: excludeButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Exclude") }
                                     Row { width: parent.width; spacing: 6
-                                        AppButton { id: undoButton; width: (parent.width - 12) / 3; height: Constants.appStandardControlHeight; text: qsTr("↶  Undo") }
+                                        AppButton { id: undoButton; width: (parent.width - 12) / 3; height: Constants.appStandardControlHeight; text: qsTr("↶  Undo"); enabled: root.canUndo }
                                         AppButton { id: previousButton; width: (parent.width - 12) / 3; height: Constants.appStandardControlHeight; text: qsTr("←  Previous") }
                                         AppButton { id: nextButton; width: (parent.width - 12) / 3; height: Constants.appStandardControlHeight; text: qsTr("Next  →") }
                                     }
@@ -285,11 +306,11 @@ Rectangle {
                             height: implicitHeight
                             spacing: 4
                             AppButton { id: allFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("All (%1)").arg(root.totalCount) }
-                            AppButton { id: class0FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 0 (12000)") }
-                            AppButton { id: class1FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 1 (6072)") }
-                            AppButton { id: class2FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: root.classCount === 3 ? qsTr("Class 2 (0)") : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3 }
-                            AppButton { id: excludedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Excluded (0)") }
-                            AppButton { id: unreviewedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Unreviewed (%1)").arg(root.totalCount - root.labeledCount) }
+                            AppButton { id: class0FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 0 (%1)").arg(root.class0Count) }
+                            AppButton { id: class1FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 1 (%1)").arg(root.class1Count) }
+                            AppButton { id: class2FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: root.classCount === 3 ? qsTr("Class 2 (%1)").arg(root.class2Count) : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3 }
+                            AppButton { id: excludedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Excluded (%1)").arg(root.excludedCount) }
+                            AppButton { id: unreviewedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Unreviewed (%1)").arg(root.unreviewedCount) }
                         }
                     }
 

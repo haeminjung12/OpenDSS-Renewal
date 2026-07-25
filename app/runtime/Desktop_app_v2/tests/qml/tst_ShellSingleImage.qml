@@ -11,10 +11,23 @@ Item {
         id: textSizeController
         property int textSizePercent: 100
         property int lastRequestedTextSizePercent: -1
+        property url storageRoot: "file:///C:/OpenDSS/Settings%20Root"
+        property int openStorageRootCallCount: 0
+        property string openStorageRootError: ""
 
         function setTextSizePercent(value) {
             lastRequestedTextSizePercent = value
             textSizePercent = value
+        }
+
+        function setStorageRoot(value) {
+            storageRoot = value
+            return ""
+        }
+
+        function openStorageRoot() {
+            ++openStorageRootCallCount
+            return openStorageRootError
         }
     }
 
@@ -36,12 +49,17 @@ Item {
 
     function init() {
         closeSpy.clear()
+        shell.settingsController = textSizeController
+        shell.settingsActionError = ""
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
         shell.mockState.daqAvailable = true
         textSizeController.textSizePercent = 100
         textSizeController.lastRequestedTextSizePercent = -1
+        textSizeController.storageRoot = "file:///C:/OpenDSS/Settings%20Root"
+        textSizeController.openStorageRootCallCount = 0
+        textSizeController.openStorageRootError = ""
         shell.mockState.activeModelId = ""
         shell.mockState.hardwareDrawerOpen = false
         shell.mockState.capturePanelExpanded = true
@@ -580,6 +598,27 @@ Item {
         shell.form.settingsWorkspace.textSizeSelector.activated(2)
         compare(textSizeController.lastRequestedTextSizePercent, 125)
         compare(Constants.textSizePercent, 125)
+    }
+
+    function test_settingsStorageControllerWiring() {
+        compare(shell.form.settingsWorkspace.defaultDataRoot, "C:/OpenDSS/Settings Root")
+
+        shell.form.settingsWorkspace.openDataRootButton.clicked()
+        compare(textSizeController.openStorageRootCallCount, 1)
+        compare(shell.form.settingsWorkspace.settingsPresentation, "ready")
+
+        textSizeController.openStorageRootError = "Unable to request opening the storage root."
+        shell.form.settingsWorkspace.openDataRootButton.clicked()
+        compare(textSizeController.openStorageRootCallCount, 2)
+        compare(shell.form.settingsWorkspace.settingsPresentation, "error")
+
+        shell.settingsController = null
+        shell.mockState.settingsPresentation = "settingsError"
+        compare(shell.form.settingsWorkspace.settingsPresentation, "error")
+        compare(shell.form.settingsWorkspace.defaultDataRoot,
+                "C:/Users/Scientist/Documents/OpenDropletSortingSuite")
+        shell.form.settingsWorkspace.openDataRootButton.clicked()
+        compare(textSizeController.openStorageRootCallCount, 2)
     }
 
     function test_sequenceViewerTransitions() {

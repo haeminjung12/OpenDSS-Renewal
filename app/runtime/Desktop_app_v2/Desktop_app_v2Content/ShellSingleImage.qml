@@ -11,6 +11,7 @@ Item {
     property var settingsController
     property var runsResultsController
     property var sequenceViewerController
+    property string settingsActionError: ""
     signal closeRequested()
 
     function focusCameraPrompt() {
@@ -175,9 +176,10 @@ Item {
     Binding { target: screen.runsWorkspace; property: "loadedRunStopReasonText"; value: state.loadedRunStopReasonText }
     Binding { target: screen.runsWorkspace; property: "run042RowStatusText"; value: state.run042RowStatusText }
 
-    Binding { target: screen.settingsWorkspace; property: "settingsPresentation"; value: state.settingsPresentation === "settingsError" ? "error" : "ready" }
-    Binding { target: screen.settingsWorkspace; property: "textSizePercent"; value: root.settingsController.textSizePercent }
-    Binding { target: Constants; property: "textSizePercent"; value: root.settingsController.textSizePercent }
+    Binding { target: screen.settingsWorkspace; property: "settingsPresentation"; value: root.settingsController ? (root.settingsActionError === "" ? "ready" : "error") : (state.settingsPresentation === "settingsError" ? "error" : "ready") }
+    Binding { target: screen.settingsWorkspace; property: "defaultDataRoot"; value: root.settingsController ? root.localFilePath(String(root.settingsController.storageRoot)) : ""; when: !!root.settingsController }
+    Binding { target: screen.settingsWorkspace; property: "textSizePercent"; value: root.settingsController ? root.settingsController.textSizePercent : 100; when: !!root.settingsController }
+    Binding { target: Constants; property: "textSizePercent"; value: root.settingsController ? root.settingsController.textSizePercent : 100; when: !!root.settingsController }
 
     Connections {
         target: state
@@ -252,6 +254,16 @@ Item {
         }
     }
 
+    FolderDialog {
+        id: settingsStorageRootDialog
+        title: qsTr("Choose Default Data Root")
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
+        onAccepted: {
+            if (root.settingsController)
+                root.settingsActionError = root.settingsController.setStorageRoot(selectedFolder)
+        }
+    }
+
     Connections { target: screen.trainWorkspace.selectDatasetButton; function onClicked() { state.selectTrainDataset() } }
     Connections { target: screen.trainWorkspace.modelNameField; function onTextEdited() { state.trainModelNameDraft = screen.trainWorkspace.modelNameField.text } }
     Connections { target: screen.trainWorkspace.saveLocationField; function onTextEdited() { state.trainSaveLocationDraft = screen.trainWorkspace.saveLocationField.text } }
@@ -307,9 +319,12 @@ Item {
     Connections {
         target: screen.settingsWorkspace.textSizeSelector
         function onActivated() {
-            root.settingsController.setTextSizePercent([80, 100, 125][screen.settingsWorkspace.textSizeSelector.currentIndex])
+            if (root.settingsController)
+                root.settingsController.setTextSizePercent([80, 100, 125][screen.settingsWorkspace.textSizeSelector.currentIndex])
         }
     }
+    Connections { target: screen.settingsWorkspace.chooseDataRootButton; function onClicked() { if (root.settingsController) settingsStorageRootDialog.open() } }
+    Connections { target: screen.settingsWorkspace.openDataRootButton; function onClicked() { if (root.settingsController) root.settingsActionError = root.settingsController.openStorageRoot() } }
     Connections { target: screen.runsWorkspace.cancelNotesButton; function onClicked() { state.finishRunNotesEditing() } }
 
     Component {

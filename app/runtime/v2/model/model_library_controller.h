@@ -8,6 +8,8 @@
 
 namespace desktop_app::v2 {
 
+class OperationCoordinator;
+
 class ModelLibraryController final : public QObject
 {
     Q_OBJECT
@@ -20,7 +22,9 @@ class ModelLibraryController final : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
 
 public:
-    explicit ModelLibraryController(QString registryFilePath, QObject *parent = nullptr);
+    ModelLibraryController(QString registryFilePath,
+                           OperationCoordinator &operations,
+                           QObject *parent = nullptr);
 
     QVariantList modelRows() const;
     int selectedIndex() const;
@@ -41,6 +45,7 @@ signals:
 private:
     bool fail(const QString &message);
 
+    OperationCoordinator &operations_;
     QString registryFilePath_;
     QJsonArray entries_;
     int selectedIndex_ = -1;

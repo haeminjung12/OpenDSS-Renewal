@@ -19,6 +19,20 @@ Rectangle {
     property bool showCompleted: false
     property bool showError: false
     property bool threeClassResult: false
+    property bool serviceFactsOnly: false
+    property int processedCount: 360
+    property int eligibleCount: 1200
+    property real progressValue: 0.3
+    property string overallAccuracyText: ""
+    property string perClassAccuracyText: ""
+    property string confusionMatrixText: ""
+    property string predictionSummaryText: ""
+    property string fallbackWarningText: ""
+    property string summaryPathText: ""
+    property string predictionsPathText: ""
+    property string actionErrorText: ""
+    readonly property bool resultFactsVisible: !serviceFactsOnly || showCompleted
+    readonly property bool setupVisible: !showRunning && !showCompleted && !showError
     property bool operationPanelExpanded: true
     property bool modelTestSetupExpanded: true
     property bool modelTestStatusExpanded: true
@@ -77,6 +91,7 @@ Rectangle {
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
                 Column {
+                    visible: root.resultFactsVisible
                     anchors.fill: parent
                     anchors.margins: Constants.spacing * 2
                     spacing: Constants.spacing
@@ -84,18 +99,33 @@ Rectangle {
                     Row {
                         width: parent.width
                         spacing: Constants.spacing
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall Accuracy") } }
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-Class Accuracy") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Overall Accuracy\n%1").arg(root.overallAccuracyText) : qsTr("Overall Accuracy") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Per-Class Accuracy\n%1").arg(root.perClassAccuracyText) : qsTr("Per-Class Accuracy") } }
                     }
-                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: root.threeClassResult ? qsTr("Confusion Matrix (3 classes)") : qsTr("Confusion Matrix (2 classes)") } }
-                    Rectangle { width: parent.width; height: 72; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Prediction summary") } }
+                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Confusion Matrix\n%1").arg(root.confusionMatrixText) : root.threeClassResult ? qsTr("Confusion Matrix (3 classes)") : qsTr("Confusion Matrix (2 classes)") } }
+                    Rectangle {
+                        width: parent.width
+                        height: root.serviceFactsOnly ? 132 : 72
+                        color: Constants.backgroundColor
+                        border.color: Constants.borderColor
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: Constants.spacing
+                            spacing: 2
+                            Text { text: root.serviceFactsOnly ? root.predictionSummaryText : qsTr("Prediction summary"); wrapMode: Text.Wrap; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.fallbackWarningText !== ""; text: root.fallbackWarningText; color: Constants.warningColor; wrapMode: Text.Wrap; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.predictionsPathText !== ""; text: qsTr("Predictions: %1").arg(root.predictionsPathText); elide: Text.ElideMiddle; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.summaryPathText !== ""; text: qsTr("Summary: %1").arg(root.summaryPathText); elide: Text.ElideMiddle; width: parent.width }
+                        }
+                    }
                     Row {
                         visible: root.showCompleted
                         spacing: Constants.spacing
-                        AppButton { id: openPredictionsButton; text: qsTr("Open Predictions CSV"); height: Constants.appStandardControlHeight }
-                        AppButton { id: openSummaryButton; text: qsTr("Open Summary"); height: Constants.appStandardControlHeight }
-                        AppButton { id: startAnotherButton; text: qsTr("Start Another"); height: Constants.appStandardControlHeight }
+                        AppButton { id: openPredictionsButton; text: qsTr("Open Predictions CSV"); enabled: !root.serviceFactsOnly || root.predictionsPathText !== ""; height: Constants.appStandardControlHeight }
+                        AppButton { id: openSummaryButton; text: qsTr("Open Summary"); enabled: !root.serviceFactsOnly || root.summaryPathText !== ""; height: Constants.appStandardControlHeight }
+                        AppButton { id: startAnotherButton; text: qsTr("Start Another"); visible: !root.serviceFactsOnly; height: Constants.appStandardControlHeight }
                     }
+                    Text { visible: root.serviceFactsOnly && root.actionErrorText !== ""; text: root.actionErrorText; color: Constants.faultColor; wrapMode: Text.Wrap; width: parent.width }
                 }
             }
         }
@@ -149,7 +179,7 @@ Rectangle {
 
                 AppAccordion {
                     id: modelTestSetupSection
-                    visible: !root.showRunning && !root.showCompleted && !root.showError
+                    visible: root.setupVisible
                     width: parent.width
                     sectionTitle: qsTr("Test Setup")
                     expanded: root.modelTestSetupExpanded
@@ -166,8 +196,8 @@ Rectangle {
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
                             AppButton { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.appStandardControlHeight }
-                            Text { text: qsTr("Output Location"); font: Constants.font }
-                            Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: outputLocationField; text: root.outputLocationText; width: parent.width - browseButton.width - Constants.spacing; height: Constants.appStandardControlHeight } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }
+                            Text { text: root.serviceFactsOnly ? qsTr("Output Parent Folder") : qsTr("Output Location"); font: Constants.font }
+                            Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: outputLocationField; text: root.outputLocationText; readOnly: root.serviceFactsOnly; width: parent.width - browseButton.width - Constants.spacing; height: Constants.appStandardControlHeight } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }
                             Text { visible: !root.startEnabled; text: root.blockerText; color: Constants.warningColor }
                             Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; color: Constants.mutedTextColor }
                             AppButton { id: startButton; text: qsTr("Start Model Test"); visualRole: "primary"; enabled: root.startEnabled; height: Constants.appPrimaryButtonHeight }
@@ -194,8 +224,8 @@ Rectangle {
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
                             Text { text: qsTr("Device: ") + root.deviceText }
-                            Text { text: qsTr("Processed: 360 of 1,200") }
-                            AppProgressBar { value: 0.3; width: parent.width }
+                            Text { text: qsTr("Processed: %1 of %2").arg(root.processedCount).arg(root.eligibleCount) }
+                            AppProgressBar { value: root.progressValue; width: parent.width }
                             AppButton { id: stopButton; text: qsTr("Stop Model Test"); visualRole: "destructive"; height: Constants.appPrimaryButtonHeight }
                         }
                     }
@@ -207,7 +237,7 @@ Rectangle {
                     height: 130
                     color: Constants.errorSurfaceColor
                     border.color: Constants.faultColor
-                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Text { text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText } AppButton { text: qsTr("Start Model Test"); enabled: root.presentation === "interrupted"; height: Constants.appStandardControlHeight } }
+                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Text { text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText } AppButton { text: qsTr("Start Model Test"); visible: !root.serviceFactsOnly; enabled: root.presentation === "interrupted"; height: Constants.appStandardControlHeight } }
                 }
             }
         }

@@ -2,7 +2,9 @@
 
 #include "../../desktop_app/json_persistence.h"
 #include "../../desktop_app/model_registry_service.h"
+#ifndef OPENDSS_MODEL_LOAD_NO_PIPELINE
 #include "../../desktop_app/pipeline_runner.h"
+#endif
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -282,6 +284,53 @@ namespace desktop_app::v2 {
 ModelLoadService::ModelLoadService(QString registryFilePath)
     : registryFilePath_(std::move(registryFilePath)) {}
 
+PersistedActiveModelInspection ModelLoadService::inspectPersistedActive() const {
+    PersistedActiveModelInspection result;
+    QString readError;
+    const QJsonObject registry = registryObject(registryFilePath_, &readError);
+    if (registry.isEmpty()) {
+        result.error = readError;
+        return result;
+    }
+
+    QJsonObject activeEntry;
+    int activeCount = 0;
+    for (const QJsonValue& value : registry.value("entries").toArray()) {
+        const QJsonObject entry = value.toObject();
+        if (entry.value("active").toBool(false)) {
+            activeEntry = entry;
+            ++activeCount;
+        }
+    }
+    if (activeCount != 1) {
+        result.error =
+            QStringLiteral("Model registry must contain exactly one active entry; found %1.")
+                .arg(activeCount);
+        return result;
+    }
+
+    result.id = registryString(activeEntry, "registry_entry_id").trimmed();
+    result.displayName = registryString(activeEntry, "display_name").trimmed();
+    const ModelPackageInspection package = inspectModelPackage(activeEntry);
+    result.classCount = package.classCount;
+    if (result.id.isEmpty()) {
+        result.error = QStringLiteral("The Active Model registry ID is invalid.");
+    } else if (result.displayName.isEmpty()) {
+        result.error =
+            QStringLiteral("The Active Model registry display name is invalid.");
+    } else if (!package.canActivate) {
+        result.error = package.message;
+    } else if (result.classCount != 2 && result.classCount != 3) {
+        result.error =
+            QStringLiteral("The Active Model must define two or three classes.");
+    } else {
+        result.plannedDevice =
+            QString::fromStdString(OnnxClassifier::plannedAutomaticDevice());
+        result.loadable = true;
+    }
+    return result;
+}
+
 std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::prepare(const QString& registryEntryId,
                                                                 const QString& requestedDevice,
                                                                 QString* warning,
@@ -352,6 +401,7 @@ std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::preparePersistedActive(c
     return candidate;
 }
 
+#ifndef OPENDSS_MODEL_LOAD_NO_PIPELINE
 bool ModelLoadService::activateAndInstall(std::unique_ptr<OnnxInferenceAdapter> candidate,
                                           PipelineRunner& pipeline,
                                           QString* error) const {
@@ -494,5 +544,6 @@ void ModelLoadService::installPersisted(std::unique_ptr<OnnxInferenceAdapter> ca
                                         PipelineRunner& pipeline) const noexcept {
     pipeline.installInference(std::move(candidate));
 }
+#endif
 
 } // namespace desktop_app::v2

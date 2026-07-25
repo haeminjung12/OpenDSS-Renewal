@@ -25,6 +25,12 @@ class ModelTestController final : public QObject {
                    NOTIFY changed)
     Q_PROPERTY(QString presentation READ presentation NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
+    Q_PROPERTY(QString actionError READ actionError NOTIFY changed)
+    Q_PROPERTY(bool canStart READ canStart NOTIFY changed)
+    Q_PROPERTY(QString activeModelId READ activeModelId NOTIFY changed)
+    Q_PROPERTY(QString activeModelName READ activeModelName NOTIFY changed)
+    Q_PROPERTY(bool activeModelReady READ activeModelReady NOTIFY changed)
+    Q_PROPERTY(QString plannedDeviceText READ plannedDeviceText NOTIFY changed)
     Q_PROPERTY(qint64 processedImages READ processedImages NOTIFY changed)
     Q_PROPERTY(qint64 eligibleImages READ eligibleImages NOTIFY changed)
     Q_PROPERTY(double progress READ progress NOTIFY changed)
@@ -48,6 +54,12 @@ class ModelTestController final : public QObject {
 
     QString presentation() const;
     QString errorMessage() const;
+    QString actionError() const;
+    bool canStart() const;
+    QString activeModelId() const;
+    QString activeModelName() const;
+    bool activeModelReady() const;
+    QString plannedDeviceText() const;
     qint64 processedImages() const;
     qint64 eligibleImages() const;
     double progress() const;
@@ -58,6 +70,11 @@ class ModelTestController final : public QObject {
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE bool stop();
+    Q_INVOKABLE bool openSummary();
+    Q_INVOKABLE bool openPredictions();
+
+  public slots:
+    void refreshPreflight();
 
   signals:
     void changed();
@@ -65,16 +82,25 @@ class ModelTestController final : public QObject {
   private:
     bool active() const;
     void clearOutcome();
-    void updateReadyPresentation();
+    void updatePreflight();
     void postProgress(qint64 processed, qint64 eligible);
     void finishRun(bool succeeded, const QString& serviceError,
                    const QString& outputPath);
+    bool openLocalArtifact(const QUrl& url, const QString& label);
 
+    OperationCoordinator& operations_;
+    ModelLoadService& modelLoader_;
     QString opendssVersion_;
     QUrl datasetManifestUrl_;
     QUrl outputFolderUrl_;
     QString presentation_ = QStringLiteral("empty");
     QString errorMessage_;
+    QString actionError_;
+    bool canStart_ = false;
+    QString activeModelId_;
+    QString activeModelName_;
+    bool activeModelReady_ = false;
+    QString plannedDeviceText_;
     qint64 processedImages_ = 0;
     qint64 eligibleImages_ = 0;
     QVariantMap resultSummary_;

@@ -10,6 +10,7 @@ Window {
     property var datasetLabelController: null
     property var trainingController: null
     property var modelLibraryController: null
+    property var modelTestController: null
 
     width: Constants.width
     height: Constants.height
@@ -28,6 +29,7 @@ Window {
         datasetLabelController: window.datasetLabelController
         trainingController: window.trainingController
         modelLibraryController: window.modelLibraryController
+        modelTestController: window.modelTestController
         onCloseRequested: window.close()
     }
 

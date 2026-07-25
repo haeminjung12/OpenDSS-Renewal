@@ -204,6 +204,17 @@ int main(int argc, char** argv) {
     PipelineRunner pipeline;
     QString error;
 
+    qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1");
+    const auto activeInspection = service.inspectPersistedActive();
+    if (!activeInspection.loadable || activeInspection.id != kInitialId ||
+        activeInspection.displayName != kInitialId ||
+        activeInspection.classCount != 3 ||
+        activeInspection.plannedDevice != "CPU" ||
+        !activeInspection.error.isEmpty()) {
+        return fail(73, "Persisted Active Model inspection did not publish loadable identity.");
+    }
+    qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
+
     QString activeDisplayName;
     auto persisted = service.preparePersistedActive(
         "cpu", nullptr, &error, &activeDisplayName);

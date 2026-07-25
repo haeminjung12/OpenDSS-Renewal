@@ -12,6 +12,8 @@
 #include "../../desktop_app/model_registry_service.h"
 #include "../../v2/dataset/dataset_label_controller.h"
 #include "../../v2/model/model_library_controller.h"
+#include "../../v2/model/model_load_service.h"
+#include "../../v2/model_test/model_test_controller.h"
 #include "../../v2/operation/operation_coordinator.h"
 #include "../../v2/settings/settings_controller.h"
 #include "../../v2/settings/settings_repository.h"
@@ -62,6 +64,7 @@ int main(int argc, char *argv[])
 {
     set_qt_environment();
     QApplication app(argc, argv);
+    QCoreApplication::setApplicationVersion(QStringLiteral("2.0"));
 
     desktop_app::v2::ApplicationStateStore applicationStateStore;
     desktop_app::v2::OperationCoordinator operationCoordinator;
@@ -78,7 +81,16 @@ int main(int argc, char *argv[])
     desktop_app::v2::training::TrainingController trainingController(
         operationCoordinator, applicationStateStore, trainingPythonExecutable(), repositoryRoot());
     loadModelRegistry();
-    desktop_app::v2::ModelLibraryController modelLibraryController(modelRegistryPath());
+    const QString registryFilePath = modelRegistryPath();
+    desktop_app::v2::ModelLibraryController modelLibraryController(
+        registryFilePath, operationCoordinator);
+    desktop_app::v2::ModelLoadService modelLoadService(registryFilePath);
+    desktop_app::v2::model_test::ModelTestController modelTestController(
+        operationCoordinator, modelLoadService, QCoreApplication::applicationVersion());
+    QObject::connect(&modelLibraryController,
+                     &desktop_app::v2::ModelLibraryController::changed,
+                     &modelTestController,
+                     &desktop_app::v2::model_test::ModelTestController::refreshPreflight);
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("sequence-frame"),
@@ -98,7 +110,8 @@ int main(int argc, char *argv[])
                                  {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)},
                                  {QStringLiteral("datasetLabelController"), QVariant::fromValue(&datasetLabelController)},
                                  {QStringLiteral("trainingController"), QVariant::fromValue(&trainingController)},
-                                 {QStringLiteral("modelLibraryController"), QVariant::fromValue(&modelLibraryController)}});
+                                 {QStringLiteral("modelLibraryController"), QVariant::fromValue(&modelLibraryController)},
+                                 {QStringLiteral("modelTestController"), QVariant::fromValue(&modelTestController)}});
     engine.load(url);
 
     if (engine.rootObjects().isEmpty())

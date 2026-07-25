@@ -1,5 +1,6 @@
 #include "model_library_controller.h"
 
+#include "../operation/operation_coordinator.h"
 #include "../../desktop_app/model_registry_service.h"
 
 #include <QFile>
@@ -115,8 +116,11 @@ QVariantMap rowMap(const QJsonObject &entry)
 
 } // namespace
 
-ModelLibraryController::ModelLibraryController(QString registryFilePath, QObject *parent)
+ModelLibraryController::ModelLibraryController(QString registryFilePath,
+                                               OperationCoordinator &operations,
+                                               QObject *parent)
     : QObject(parent)
+    , operations_(operations)
     , registryFilePath_(std::move(registryFilePath))
 {
 }
@@ -231,6 +235,11 @@ bool ModelLibraryController::setActive()
     if (id.compare(activeId(), Qt::CaseInsensitive) == 0)
         return fail(QStringLiteral("Selected model is already Active."));
 
+    auto lock = operations_.acquireMomentary(ResourceLock::Model);
+    if (!lock.acquired())
+        return fail(lock.fault
+                        ? lock.fault->reason
+                        : QStringLiteral("The Model resource is in use."));
     QString error;
     if (!activateModelRegistryEntry(registryFilePath_, id, &error))
         return fail(error);
@@ -243,6 +252,11 @@ bool ModelLibraryController::renameSelected(const QString &displayName)
     if (id.isEmpty())
         return fail(QStringLiteral("No model is selected."));
 
+    auto lock = operations_.acquireMomentary(ResourceLock::Model);
+    if (!lock.acquired())
+        return fail(lock.fault
+                        ? lock.fault->reason
+                        : QStringLiteral("The Model resource is in use."));
     QString error;
     if (!renameRegistryEntryDisplayName(registryFilePath_, id, displayName, &error))
         return fail(error);

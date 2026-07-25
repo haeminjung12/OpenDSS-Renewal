@@ -3,9 +3,10 @@
 #include "../v2/model/model_load_service.h"
 #include "../v2/model_test/model_test_controller.h"
 #include "../v2/operation/operation_coordinator.h"
+#include "../desktop_app/model_registry_service.h"
 
-#include <QCoreApplication>
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -163,9 +164,21 @@ void testValidationAndCompletedResult() {
                                     {"active", true}}}}});
     const QByteArray registryBefore = bytes(registryPath);
 
+    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
+            "set deterministic preflight CUDA override");
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
     ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    require(!controller.openSummary() &&
+                controller.actionError().contains("unavailable") &&
+                controller.presentation() == "empty",
+            "missing summary artifact rejected");
+    require(controller.activeModelReady() &&
+                controller.activeModelId() == "active-model" &&
+                controller.activeModelName() == "Active Test Model" &&
+                controller.plannedDeviceText() == "CPU (automatic)" &&
+                !controller.canStart(),
+            "persisted Active Model facts projected before execution");
     controller.setDatasetManifestUrl(QUrl(QStringLiteral("https://example.test/dataset.json")));
     controller.setOutputFolderUrl(
         QUrl::fromLocalFile(QDir(temporary.path()).filePath("invalid-output")));
@@ -174,12 +187,27 @@ void testValidationAndCompletedResult() {
             "non-local Dataset URL rejected synchronously");
 
     const QString manifest = makeDataset(temporary.path());
-    const QString output = QDir(temporary.path()).filePath("result");
     controller.setDatasetManifestUrl(QUrl::fromLocalFile(manifest));
-    controller.setOutputFolderUrl(QUrl::fromLocalFile(output));
-    require(controller.presentation() == "ready", "valid inputs become ready");
-    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
-            "set deterministic CUDA override");
+    require(!controller.canStart() &&
+                controller.errorMessage().contains("writable directory"),
+            "nonexistent output parent rejected by preflight");
+    const QString outputParent =
+        QDir(temporary.path()).filePath("model-test-results");
+    require(QDir().mkpath(QDir(outputParent).filePath("model-test")),
+            "create colliding Model Test run directory");
+    const QString output = QDir(outputParent).filePath("model-test-2");
+    auto busy =
+        operations.acquire(OperationKind::Training, ResourceLock::Model);
+    require(busy.acquired(), "create operation preflight conflict");
+    controller.setOutputFolderUrl(QUrl::fromLocalFile(outputParent));
+    require(!controller.canStart() &&
+                controller.errorMessage().contains("operation"),
+            "operation availability blocks preflight");
+    busy.lease.release();
+    controller.setOutputFolderUrl({});
+    controller.setOutputFolderUrl(QUrl::fromLocalFile(outputParent));
+    require(controller.presentation() == "ready" && controller.canStart(),
+            "valid preflight inputs become ready");
     require(controller.start(), "start accepted");
     require(waitUntil([&] {
                 return controller.presentation() == "completed" ||
@@ -218,6 +246,16 @@ void testValidationAndCompletedResult() {
                 controller.artifactOutputFolderUrl() ==
                     QUrl::fromLocalFile(output),
             "artifact URLs published");
+    require(QFileInfo(controller.artifactOutputFolderUrl().toLocalFile())
+                    .absolutePath() == QFileInfo(outputParent).absoluteFilePath(),
+            "unique Model Test run directory remains contained by output parent");
+    require(QFile::remove(controller.summaryUrl().toLocalFile()),
+            "remove summary for artifact action failure");
+    require(!controller.openSummary() &&
+                controller.actionError().contains("unavailable") &&
+                controller.presentation() == "completed" &&
+                !controller.resultSummary().isEmpty(),
+            "artifact action failure preserves completed results");
     require(bytes(registryPath) == registryBefore,
             "Model Test did not mutate Active Model registry");
 }
@@ -238,15 +276,16 @@ void testImmediateStop() {
                                     {"package_path",
                                      QDir::cleanPath(packagePath)},
                                     {"active", true}}}}});
+    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
+            "set deterministic stop preflight CUDA override");
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
     ModelTestController controller(operations, loader, QStringLiteral("2.0"));
     controller.setDatasetManifestUrl(
         QUrl::fromLocalFile(makeDataset(temporary.path())));
-    controller.setOutputFolderUrl(
-        QUrl::fromLocalFile(QDir(temporary.path()).filePath("stopped")));
-    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
-            "set stop CUDA override");
+    controller.setOutputFolderUrl(QUrl::fromLocalFile(temporary.path()));
+    require(controller.plannedDeviceText() == "CPU (automatic)",
+            "stop preflight publishes planned CPU");
     require(controller.start() && controller.stop(),
             "immediate Stop accepted");
     require(waitUntil([&] {
@@ -262,11 +301,74 @@ void testImmediateStop() {
             "immediate Stop remains effective after service startup");
 }
 
+void testRegistryMutationRefresh() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create refresh temporary directory");
+    const QString packagePath = copyBundledModelPackage(temporary.path());
+    const QString registryPath =
+        QDir(temporary.path()).filePath("registry/model_registry.json");
+    writeJson(
+        registryPath,
+        QJsonObject{
+            {"schema_version", "model-registry-v3-simple"},
+            {"entries",
+             QJsonArray{
+                 QJsonObject{{"registry_entry_id", "first-model"},
+                             {"display_name", "First Model"},
+                             {"package_path", QDir::cleanPath(packagePath)},
+                             {"active", true}},
+                 QJsonObject{{"registry_entry_id", "second-model"},
+                             {"display_name", "Second Model"},
+                             {"package_path", QDir::cleanPath(packagePath)},
+                             {"active", false}}}}});
+    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
+            "set deterministic refresh CUDA override");
+    OperationCoordinator operations;
+    ModelLoadService loader(registryPath);
+    ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    int changedCount = 0;
+    QObject::connect(&controller, &ModelTestController::changed,
+                     [&changedCount] { ++changedCount; });
+    require(controller.activeModelId() == "first-model" &&
+                controller.activeModelName() == "First Model" &&
+                controller.plannedDeviceText() == "CPU (automatic)" &&
+                controller.datasetManifestUrl().isEmpty() &&
+                controller.outputFolderUrl().isEmpty() &&
+                !controller.canStart(),
+            "initial preflight facts");
+
+    QString error;
+    require(activateModelRegistryEntry(registryPath, "second-model", &error),
+            qPrintable(error));
+    controller.refreshPreflight();
+    require(controller.activeModelId() == "second-model" &&
+                controller.activeModelName() == "Second Model" &&
+                controller.plannedDeviceText() == "CPU (automatic)" &&
+                controller.datasetManifestUrl().isEmpty() &&
+                controller.outputFolderUrl().isEmpty() &&
+                !controller.canStart() && changedCount == 1,
+            "Active switch refreshes preflight without Start inputs");
+
+    require(renameRegistryEntryDisplayName(
+                registryPath, "second-model", "Renamed Active Model", &error),
+            qPrintable(error));
+    controller.refreshPreflight();
+    qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
+    require(controller.activeModelId() == "second-model" &&
+                controller.activeModelName() == "Renamed Active Model" &&
+                controller.plannedDeviceText() == "CPU (automatic)" &&
+                controller.datasetManifestUrl().isEmpty() &&
+                controller.outputFolderUrl().isEmpty() &&
+                !controller.canStart() && changedCount == 2,
+            "Active rename refreshes preflight without Start inputs");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testValidationAndCompletedResult();
     testImmediateStop();
+    testRegistryMutationRefresh();
     return 0;
 }

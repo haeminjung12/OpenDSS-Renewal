@@ -15,6 +15,7 @@ Item {
     property var datasetLabelController
     property var trainingController
     property var modelLibraryController
+    property var modelTestController
     property string settingsActionError: ""
     property alias modelRenameDialog: modelRenameDialog
     property alias modelRenameField: modelRenameField
@@ -40,6 +41,51 @@ Item {
         } catch (error) {
             return ""
         }
+    }
+
+    function modelTestPresentation() {
+        if (!root.modelTestController)
+            return state.modelTestPresentation
+        if (root.modelTestController.presentation === "empty")
+            return "empty"
+        if (root.modelTestController.presentation === "ready")
+            return "readyCpu"
+        if (root.modelTestController.presentation === "starting"
+                || root.modelTestController.presentation === "running"
+                || root.modelTestController.presentation === "stopping")
+            return "running"
+        if (root.modelTestController.presentation === "completed")
+            return root.modelTestController.resultSummary.perClass
+                    && root.modelTestController.resultSummary.perClass.length === 3
+                    ? "completedThreeClass" : "completedTwoClass"
+        return root.modelTestController.presentation
+    }
+
+    function modelTestAccuracyText(value) {
+        return typeof value === "number"
+                ? qsTr("%1%").arg((value * 100).toFixed(1)) : qsTr("—")
+    }
+
+    function modelTestPerClassText() {
+        if (!root.modelTestController)
+            return ""
+        const metrics = root.modelTestController.resultSummary.perClass || []
+        const lines = []
+        for (let index = 0; index < metrics.length; ++index) {
+            lines.push(qsTr("Class %1: %2").arg(metrics[index].classId)
+                       .arg(root.modelTestAccuracyText(metrics[index].accuracy)))
+        }
+        return lines.join("\n")
+    }
+
+    function modelTestConfusionText() {
+        if (!root.modelTestController)
+            return ""
+        const matrix = root.modelTestController.resultSummary.confusionMatrix || []
+        const lines = []
+        for (let index = 0; index < matrix.length; ++index)
+            lines.push(matrix[index].join("  "))
+        return lines.join("\n")
     }
 
     Component.onCompleted: {
@@ -240,7 +286,7 @@ Item {
     Binding { target: screen.modelLibraryWorkspace; property: "presentation"; value: root.modelLibraryController ? root.modelLibraryController.presentation : state.modelLibraryPresentation }
     Binding { target: screen.modelLibraryWorkspace; property: "hasSelection"; value: root.modelLibraryController ? root.modelLibraryController.selectedIndex >= 0 : state.modelLibraryPresentation !== "empty" && state.modelLibraryPresentation !== "error" }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedActive"; value: root.modelLibraryController ? root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId : state.modelLibraryPresentation === "readyActive" || state.modelLibraryPresentation === "locked" }
-    Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: root.modelLibraryController ? false : state.modelLibraryPresentation === "locked" }
+    Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: root.modelTestController ? root.modelTestController.presentation === "starting" || root.modelTestController.presentation === "running" || root.modelTestController.presentation === "stopping" : state.modelLibraryPresentation === "locked" }
     Binding { target: screen.modelLibraryWorkspace; property: "showError"; value: root.modelLibraryController ? root.modelLibraryController.errorMessage !== "" : state.modelLibraryPresentation === "error" }
     Binding { target: screen.modelLibraryWorkspace; property: "modelRows"; value: root.modelLibraryController ? root.modelLibraryController.modelRows : [] }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelIndex"; value: root.modelLibraryController ? root.modelLibraryController.selectedIndex : -1 }
@@ -284,17 +330,29 @@ Item {
         }
     }
 
-    Binding { target: screen.modelTestWorkspace; property: "presentation"; value: state.modelTestPresentation }
-    Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: root.modelLibraryController ? root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId ? root.modelLibraryController.selectedDetail.name || root.modelLibraryController.activeId : root.modelLibraryController.activeId : state.activeModelText }
-    Binding { target: screen.modelTestWorkspace; property: "datasetText"; value: state.modelTestDatasetSelected ? qsTr("Dataset-042") : qsTr("No Dataset selected") }
-    Binding { target: screen.modelTestWorkspace; property: "deviceText"; value: state.modelTestPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
-    Binding { target: screen.modelTestWorkspace; property: "outputLocationText"; value: state.modelTestOutputLocationDraft }
-    Binding { target: screen.modelTestWorkspace; property: "blockerText"; value: state.activeOperation !== "" ? qsTr("Another operation is active") : root.modelLibraryController ? root.modelLibraryController.activeId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" : state.activeModelId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" }
-    Binding { target: screen.modelTestWorkspace; property: "startEnabled"; value: (state.modelTestPresentation === "readyCpu" || state.modelTestPresentation === "readyGpu") && state.activeOperation === "" }
-    Binding { target: screen.modelTestWorkspace; property: "showRunning"; value: state.modelTestPresentation === "running" }
-    Binding { target: screen.modelTestWorkspace; property: "showCompleted"; value: state.modelTestPresentation === "completedTwoClass" || state.modelTestPresentation === "completedThreeClass" }
-    Binding { target: screen.modelTestWorkspace; property: "showError"; value: state.modelTestPresentation === "interrupted" || state.modelTestPresentation === "error" }
-    Binding { target: screen.modelTestWorkspace; property: "threeClassResult"; value: state.modelTestPresentation === "completedThreeClass" }
+    Binding { target: screen.modelTestWorkspace; property: "presentation"; value: root.modelTestPresentation() }
+    Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: root.modelTestController ? root.modelTestController.activeModelName || root.modelTestController.activeModelId || qsTr("No Active Model") : root.modelLibraryController ? root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId ? root.modelLibraryController.selectedDetail.name || root.modelLibraryController.activeId : root.modelLibraryController.activeId : state.activeModelText }
+    Binding { target: screen.modelTestWorkspace; property: "datasetText"; value: root.modelTestController ? root.modelTestController.datasetManifestUrl.toString() === "" ? qsTr("No Dataset selected") : root.localFilePath(root.modelTestController.datasetManifestUrl) : state.modelTestDatasetSelected ? qsTr("Dataset-042") : qsTr("No Dataset selected") }
+    Binding { target: screen.modelTestWorkspace; property: "deviceText"; value: root.modelTestController && root.modelTestController.resultSummary.effectiveDevice ? root.modelTestController.resultSummary.effectiveDevice : root.modelTestController ? root.modelTestController.plannedDeviceText : state.modelTestPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
+    Binding { target: screen.modelTestWorkspace; property: "outputLocationText"; value: root.modelTestController ? root.localFilePath(root.modelTestController.outputFolderUrl) : state.modelTestOutputLocationDraft }
+    Binding { target: screen.modelTestWorkspace; property: "blockerText"; value: root.modelTestController ? root.modelTestController.errorMessage : state.activeOperation !== "" ? qsTr("Another operation is active") : root.modelLibraryController ? root.modelLibraryController.activeId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" : state.activeModelId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" }
+    Binding { target: screen.modelTestWorkspace; property: "startEnabled"; value: root.modelTestController ? root.modelTestController.canStart : (state.modelTestPresentation === "readyCpu" || state.modelTestPresentation === "readyGpu") && state.activeOperation === "" }
+    Binding { target: screen.modelTestWorkspace; property: "showRunning"; value: root.modelTestController ? root.modelTestController.presentation === "starting" || root.modelTestController.presentation === "running" || root.modelTestController.presentation === "stopping" : state.modelTestPresentation === "running" }
+    Binding { target: screen.modelTestWorkspace; property: "showCompleted"; value: root.modelTestController ? root.modelTestController.presentation === "completed" && root.modelTestController.resultSummary.status === "completed" : state.modelTestPresentation === "completedTwoClass" || state.modelTestPresentation === "completedThreeClass" }
+    Binding { target: screen.modelTestWorkspace; property: "showError"; value: root.modelTestController ? root.modelTestController.presentation === "interrupted" || root.modelTestController.presentation === "error" : state.modelTestPresentation === "interrupted" || state.modelTestPresentation === "error" }
+    Binding { target: screen.modelTestWorkspace; property: "threeClassResult"; value: root.modelTestController ? root.modelTestController.resultSummary.perClass && root.modelTestController.resultSummary.perClass.length === 3 : state.modelTestPresentation === "completedThreeClass" }
+    Binding { target: screen.modelTestWorkspace; property: "processedCount"; value: root.modelTestController ? root.modelTestController.processedImages : 360 }
+    Binding { target: screen.modelTestWorkspace; property: "eligibleCount"; value: root.modelTestController ? root.modelTestController.eligibleImages : 1200 }
+    Binding { target: screen.modelTestWorkspace; property: "progressValue"; value: root.modelTestController ? root.modelTestController.progress : 0.3 }
+    Binding { target: screen.modelTestWorkspace; property: "overallAccuracyText"; value: root.modelTestController ? root.modelTestAccuracyText(root.modelTestController.resultSummary.overallAccuracy) : "" }
+    Binding { target: screen.modelTestWorkspace; property: "perClassAccuracyText"; value: root.modelTestController ? root.modelTestPerClassText() : "" }
+    Binding { target: screen.modelTestWorkspace; property: "confusionMatrixText"; value: root.modelTestController ? root.modelTestConfusionText() : "" }
+    Binding { target: screen.modelTestWorkspace; property: "predictionSummaryText"; value: root.modelTestController && root.modelTestController.resultSummary.status === "completed" ? qsTr("Processed %1 of %2; correct %3").arg(root.modelTestController.resultSummary.processedImages).arg(root.modelTestController.resultSummary.eligibleImages).arg(root.modelTestController.resultSummary.correctPredictions) : "" }
+    Binding { target: screen.modelTestWorkspace; property: "fallbackWarningText"; value: root.modelTestController ? root.modelTestController.resultSummary.fallbackWarning || "" : "" }
+    Binding { target: screen.modelTestWorkspace; property: "summaryPathText"; value: root.modelTestController ? root.localFilePath(root.modelTestController.summaryUrl) : "" }
+    Binding { target: screen.modelTestWorkspace; property: "predictionsPathText"; value: root.modelTestController ? root.localFilePath(root.modelTestController.predictionsCsvUrl) : "" }
+    Binding { target: screen.modelTestWorkspace; property: "actionErrorText"; value: root.modelTestController ? root.modelTestController.actionError : "" }
+    Binding { target: screen.modelTestWorkspace; property: "serviceFactsOnly"; value: !!root.modelTestController }
     Binding { target: screen.modelTestWorkspace; property: "modelTestSetupExpanded"; value: state.modelTestSetupExpanded }
     Binding { target: screen.modelTestWorkspace; property: "modelTestStatusExpanded"; value: state.modelTestStatusExpanded }
     Binding { target: screen.modelTestWorkspace; property: "operationPanelExpanded"; value: state.modelTestOperationPanelExpanded }
@@ -483,7 +541,7 @@ Item {
     }
     Connections { target: screen.modelLibraryWorkspace.activeModelRowButton; function onClicked() { if (!root.modelLibraryController) state.selectActiveLibraryModel() } }
     Connections { target: screen.modelLibraryWorkspace.candidateModelRowButton; function onClicked() { if (!root.modelLibraryController) state.selectCandidateLibraryModel() } }
-    Connections { target: screen.modelLibraryWorkspace.setActiveButton; function onClicked() { if (root.modelLibraryController) root.modelLibraryController.setActive(); else state.setCandidateModelActive() } }
+    Connections { target: screen.modelLibraryWorkspace.setActiveButton; function onClicked() { if (root.modelLibraryController && !screen.modelLibraryWorkspace.modelLocked) root.modelLibraryController.setActive(); else if (!root.modelLibraryController) state.setCandidateModelActive() } }
     Connections {
         target: screen.modelLibraryWorkspace.openInModelTestButton
         function onClicked() {
@@ -499,14 +557,37 @@ Item {
             }
         }
     }
-    Connections { target: screen.modelLibraryWorkspace.renameButton; function onClicked() { if (root.modelLibraryController) modelRenameDialog.open() } }
+    Connections { target: screen.modelLibraryWorkspace.renameButton; function onClicked() { if (root.modelLibraryController && !screen.modelLibraryWorkspace.modelLocked) modelRenameDialog.open() } }
     Connections { target: screen.modelLibraryWorkspace.selectedModelHeadingButton; function onClicked() { state.toggleSelectedModel() } }
     Connections { target: screen.modelLibraryWorkspace.rightPanelToggleButton; function onClicked() { state.toggleModelLibraryRightPanel() } }
+
+    FileDialog {
+        id: modelTestDatasetFileDialog
+        title: qsTr("Open Dataset")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("OpenDSS Dataset (dataset.json)")]
+        onAccepted: {
+            if (root.modelTestController && selectedFile.toString() !== "")
+                root.modelTestController.datasetManifestUrl = selectedFile
+        }
+    }
+
+    FolderDialog {
+        id: modelTestOutputFolderDialog
+        title: qsTr("Choose Model Test Output Parent Folder")
+        currentFolder: root.modelTestController ? root.modelTestController.outputFolderUrl : ""
+        onAccepted: {
+            if (root.modelTestController && selectedFolder.toString() !== "")
+                root.modelTestController.outputFolderUrl = selectedFolder
+        }
+    }
 
     Connections {
         target: screen.modelTestWorkspace.selectDatasetButton
         function onClicked() {
-            if (root.modelLibraryController && root.modelLibraryController.activeId !== "") {
+            if (root.modelTestController) {
+                modelTestDatasetFileDialog.open()
+            } else if (root.modelLibraryController && root.modelLibraryController.activeId !== "") {
                 state.modelTestDatasetSelected = true
                 state.modelTestPresentation = "readyGpu"
             } else {
@@ -514,13 +595,13 @@ Item {
             }
         }
     }
-    Connections { target: screen.modelTestWorkspace.outputLocationField; function onTextEdited() { state.modelTestOutputLocationDraft = screen.modelTestWorkspace.outputLocationField.text } }
-    Connections { target: screen.modelTestWorkspace.browseButton; function onClicked() { state.browseModelTestOutput() } }
-    Connections { target: screen.modelTestWorkspace.startButton; function onClicked() { state.startModelTest() } }
-    Connections { target: screen.modelTestWorkspace.stopButton; function onClicked() { state.stopModelTest() } }
-    Connections { target: screen.modelTestWorkspace.openPredictionsButton; function onClicked() { state.openModelTestArtifact() } }
-    Connections { target: screen.modelTestWorkspace.openSummaryButton; function onClicked() { state.openModelTestArtifact() } }
-    Connections { target: screen.modelTestWorkspace.startAnotherButton; function onClicked() { state.startAnotherModelTest() } }
+    Connections { target: screen.modelTestWorkspace.outputLocationField; function onTextEdited() { if (!root.modelTestController) state.modelTestOutputLocationDraft = screen.modelTestWorkspace.outputLocationField.text } }
+    Connections { target: screen.modelTestWorkspace.browseButton; function onClicked() { if (root.modelTestController) modelTestOutputFolderDialog.open(); else state.browseModelTestOutput() } }
+    Connections { target: screen.modelTestWorkspace.startButton; function onClicked() { if (root.modelTestController) root.modelTestController.start(); else state.startModelTest() } }
+    Connections { target: screen.modelTestWorkspace.stopButton; function onClicked() { if (root.modelTestController) root.modelTestController.stop(); else state.stopModelTest() } }
+    Connections { target: screen.modelTestWorkspace.openPredictionsButton; function onClicked() { if (root.modelTestController) root.modelTestController.openPredictions(); else state.openModelTestArtifact() } }
+    Connections { target: screen.modelTestWorkspace.openSummaryButton; function onClicked() { if (root.modelTestController) root.modelTestController.openSummary(); else state.openModelTestArtifact() } }
+    Connections { target: screen.modelTestWorkspace.startAnotherButton; function onClicked() { if (!root.modelTestController) state.startAnotherModelTest() } }
     Connections { target: screen.modelTestWorkspace.modelTestSetupHeadingButton; function onClicked() { state.toggleModelTestSetup() } }
     Connections { target: screen.modelTestWorkspace.modelTestStatusHeadingButton; function onClicked() { state.toggleModelTestStatus() } }
     Connections { target: screen.modelTestWorkspace.operationPanelToggleButton; function onClicked() { state.toggleModelTestOperationPanel() } }

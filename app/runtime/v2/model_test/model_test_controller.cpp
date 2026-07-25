@@ -1,12 +1,15 @@
 #include "model_test_controller.h"
 
 #include "model_test_summary_v2.h"
+#include "../dataset/dataset_manifest_v2.h"
 #include "../model/model_load_service.h"
 #include "../operation/operation_coordinator.h"
 
 #include <QDir>
+#include <QDesktopServices>
 #include <QFileInfo>
 #include <QMetaObject>
+#include <QTemporaryFile>
 #include <QVariantList>
 
 #include <utility>
@@ -25,6 +28,15 @@ QString localPath(const QUrl& url, const QString& label, QString* error) {
     if (path.trimmed().isEmpty())
         *error = label + QStringLiteral(" must contain a local path.");
     return path;
+}
+
+QString uniqueRunPath(const QString& parentPath) {
+    const QDir parent(parentPath);
+    QString name = QStringLiteral("model-test");
+    int suffix = 2;
+    while (QFileInfo::exists(parent.filePath(name)))
+        name = QStringLiteral("model-test-%1").arg(suffix++);
+    return QDir::cleanPath(parent.filePath(name));
 }
 
 QString statusText(ModelTestStatus status) {
@@ -89,13 +101,16 @@ ModelTestController::ModelTestController(OperationCoordinator& operations,
                                          ModelLoadService& modelLoader,
                                          QString opendssVersion,
                                          QObject* parent)
-    : QObject(parent), opendssVersion_(std::move(opendssVersion)),
+    : QObject(parent), operations_(operations), modelLoader_(modelLoader),
+      opendssVersion_(std::move(opendssVersion)),
       service_(operations, &modelLoader, {},
                [this](qint64 processed, qint64 eligible) {
                    if (stopRequested_.load(std::memory_order_acquire))
                        service_.requestStop();
                    postProgress(processed, eligible);
-               }) {}
+               }) {
+    updatePreflight();
+}
 
 ModelTestController::~ModelTestController() {
     stopRequested_.store(true, std::memory_order_release);
@@ -113,8 +128,7 @@ void ModelTestController::setDatasetManifestUrl(const QUrl& url) {
         return;
     datasetManifestUrl_ = url;
     clearOutcome();
-    updateReadyPresentation();
-    emit changed();
+    refreshPreflight();
 }
 
 QUrl ModelTestController::outputFolderUrl() const {
@@ -126,8 +140,7 @@ void ModelTestController::setOutputFolderUrl(const QUrl& url) {
         return;
     outputFolderUrl_ = url;
     clearOutcome();
-    updateReadyPresentation();
-    emit changed();
+    refreshPreflight();
 }
 
 QString ModelTestController::presentation() const {
@@ -136,6 +149,30 @@ QString ModelTestController::presentation() const {
 
 QString ModelTestController::errorMessage() const {
     return errorMessage_;
+}
+
+QString ModelTestController::actionError() const {
+    return actionError_;
+}
+
+bool ModelTestController::canStart() const {
+    return canStart_;
+}
+
+QString ModelTestController::activeModelId() const {
+    return activeModelId_;
+}
+
+QString ModelTestController::activeModelName() const {
+    return activeModelName_;
+}
+
+bool ModelTestController::activeModelReady() const {
+    return activeModelReady_;
+}
+
+QString ModelTestController::plannedDeviceText() const {
+    return plannedDeviceText_;
 }
 
 qint64 ModelTestController::processedImages() const {
@@ -176,29 +213,20 @@ bool ModelTestController::start() {
         worker_.join();
 
     clearOutcome();
-    QString validationError;
-    const QString datasetPath =
-        localPath(datasetManifestUrl_, QStringLiteral("Dataset manifest"),
-                  &validationError);
-    const QFileInfo datasetInfo(datasetPath);
-    if (validationError.isEmpty() &&
-        (!datasetInfo.isFile() || !datasetInfo.isReadable()))
-        validationError = QStringLiteral("Dataset manifest is not a readable file.");
-    const QString outputPath =
-        validationError.isEmpty()
-            ? localPath(outputFolderUrl_, QStringLiteral("Output folder"),
-                        &validationError)
-            : QString();
-    if (validationError.isEmpty() && QFileInfo::exists(outputPath))
-        validationError = QStringLiteral("Output folder already exists.");
-    if (validationError.isEmpty() && opendssVersion_.trimmed().isEmpty())
-        validationError = QStringLiteral("OpenDSS version is unavailable.");
-    if (!validationError.isEmpty()) {
+    updatePreflight();
+    if (!canStart_) {
         presentation_ = QStringLiteral("error");
-        errorMessage_ = validationError;
         emit changed();
         return false;
     }
+    QString ignoredError;
+    const QString datasetPath =
+        localPath(datasetManifestUrl_, QStringLiteral("Dataset manifest"),
+                  &ignoredError);
+    const QString outputParentPath =
+        localPath(outputFolderUrl_, QStringLiteral("Output parent folder"),
+                  &ignoredError);
+    const QString outputPath = uniqueRunPath(outputParentPath);
 
     presentation_ = QStringLiteral("starting");
     stopRequested_.store(false, std::memory_order_release);
@@ -237,6 +265,15 @@ bool ModelTestController::stop() {
     return true;
 }
 
+bool ModelTestController::openSummary() {
+    return openLocalArtifact(summaryUrl_, QStringLiteral("Model Test summary"));
+}
+
+bool ModelTestController::openPredictions() {
+    return openLocalArtifact(predictionsCsvUrl_,
+                             QStringLiteral("Model Test predictions"));
+}
+
 bool ModelTestController::active() const {
     return presentation_ == QStringLiteral("starting") ||
            presentation_ == QStringLiteral("running") ||
@@ -245,6 +282,7 @@ bool ModelTestController::active() const {
 
 void ModelTestController::clearOutcome() {
     errorMessage_.clear();
+    actionError_.clear();
     processedImages_ = 0;
     eligibleImages_ = 0;
     resultSummary_.clear();
@@ -253,11 +291,105 @@ void ModelTestController::clearOutcome() {
     artifactOutputFolderUrl_.clear();
 }
 
-void ModelTestController::updateReadyPresentation() {
+void ModelTestController::refreshPreflight() {
+    if (active())
+        return;
+    updatePreflight();
+    emit changed();
+}
+
+void ModelTestController::updatePreflight() {
+    canStart_ = false;
+    activeModelId_.clear();
+    activeModelName_.clear();
+    activeModelReady_ = false;
+    plannedDeviceText_.clear();
+
+    const auto activeModel = modelLoader_.inspectPersistedActive();
+    activeModelId_ = activeModel.id;
+    activeModelName_ = activeModel.displayName;
+    activeModelReady_ = activeModel.loadable;
+    if (!activeModel.plannedDevice.isEmpty()) {
+        plannedDeviceText_ =
+            activeModel.plannedDevice + QStringLiteral(" (automatic)");
+    }
+
+    QString error;
+    if (opendssVersion_.trimmed().isEmpty()) {
+        error = QStringLiteral("OpenDSS version is unavailable.");
+    } else if (!activeModel.loadable) {
+        error = activeModel.error.isEmpty()
+                    ? QStringLiteral("The Active Model is unavailable or invalid.")
+                    : activeModel.error;
+    } else if (activeModel.plannedDevice.isEmpty()) {
+        error = QStringLiteral("Automatic execution provider is unavailable.");
+    } else if (datasetManifestUrl_.isEmpty()) {
+        error = QStringLiteral("Select a Dataset manifest.");
+    }
+
+    QString datasetPath;
+    std::optional<dataset::DatasetManifestV2> datasetManifest;
+    if (error.isEmpty()) {
+        datasetPath =
+            localPath(datasetManifestUrl_, QStringLiteral("Dataset manifest"),
+                      &error);
+        const QFileInfo datasetInfo(datasetPath);
+        if (error.isEmpty() &&
+            (!datasetInfo.isFile() || !datasetInfo.isReadable())) {
+            error =
+                QStringLiteral("Dataset manifest is not a readable file.");
+        }
+    }
+    if (error.isEmpty()) {
+        datasetManifest = dataset::DatasetManifestV2::load(datasetPath, &error);
+    }
+    if (error.isEmpty()) {
+        const auto samples = datasetManifest->trainingSamples(&error);
+        if (error.isEmpty() && samples.isEmpty()) {
+            error =
+                QStringLiteral("The Dataset has no eligible labeled crops.");
+        } else if (error.isEmpty() &&
+                   datasetManifest->classes().size() !=
+                       activeModel.classCount) {
+            error =
+                QStringLiteral("The Active Model has %1 output classes, but the "
+                               "Dataset defines %2 classes.")
+                    .arg(activeModel.classCount)
+                    .arg(datasetManifest->classes().size());
+        }
+    }
+
+    if (error.isEmpty() && outputFolderUrl_.isEmpty())
+        error = QStringLiteral("Select an output parent folder.");
+    QString outputParentPath;
+    if (error.isEmpty()) {
+        outputParentPath =
+            localPath(outputFolderUrl_, QStringLiteral("Output parent folder"),
+                      &error);
+        const QFileInfo parentInfo(outputParentPath);
+        if (error.isEmpty() && (!parentInfo.isDir() || !parentInfo.isWritable())) {
+            error =
+                QStringLiteral("Output parent folder is not a writable directory.");
+        }
+    }
+    if (error.isEmpty()) {
+        QTemporaryFile probe(
+            QDir(outputParentPath)
+                .filePath(QStringLiteral(".opendss-model-test-write-XXXXXX")));
+        if (!probe.open()) {
+            error =
+                QStringLiteral("Output parent folder is not writable.");
+        }
+    }
+
+    if (error.isEmpty() && operations_.snapshot().kind) {
+        error = QStringLiteral("Another operation is active.");
+    }
+
+    errorMessage_ = error;
+    canStart_ = error.isEmpty();
     presentation_ =
-        datasetManifestUrl_.isEmpty() || outputFolderUrl_.isEmpty()
-            ? QStringLiteral("empty")
-            : QStringLiteral("ready");
+        canStart_ ? QStringLiteral("ready") : QStringLiteral("empty");
 }
 
 void ModelTestController::postProgress(qint64 processed, qint64 eligible) {
@@ -308,6 +440,25 @@ void ModelTestController::finishRun(bool succeeded,
     else if (!summary)
         errorMessage_ = summaryError;
     emit changed();
+}
+
+bool ModelTestController::openLocalArtifact(const QUrl& url,
+                                            const QString& label) {
+    if (!url.isValid() || !url.isLocalFile() || url.hasQuery() ||
+        url.hasFragment() || !QFileInfo(url.toLocalFile()).isFile()) {
+        actionError_ = label + QStringLiteral(" is unavailable.");
+        emit changed();
+        return false;
+    }
+    if (!QDesktopServices::openUrl(url)) {
+        actionError_ =
+            QStringLiteral("Could not request opening %1.").arg(label);
+        emit changed();
+        return false;
+    }
+    actionError_.clear();
+    emit changed();
+    return true;
 }
 
 } // namespace desktop_app::v2::model_test

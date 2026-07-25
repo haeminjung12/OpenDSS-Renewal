@@ -158,6 +158,8 @@ qt_add_executable(model_library_controller_test
   ../desktop_app/json_persistence.cpp
   ../desktop_app/model_registry_service.cpp
   ../v2/model/model_library_controller.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/operation/operation_coordinator.h
 )
 target_compile_definitions(model_library_controller_test PRIVATE
   OPENDSS_TEST_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."

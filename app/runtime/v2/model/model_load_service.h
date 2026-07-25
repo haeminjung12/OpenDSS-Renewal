@@ -10,10 +10,20 @@ class PipelineRunner;
 
 namespace desktop_app::v2 {
 
+struct PersistedActiveModelInspection {
+    bool loadable = false;
+    QString id;
+    QString displayName;
+    int classCount = 0;
+    QString plannedDevice;
+    QString error;
+};
+
 class ModelLoadService {
 public:
     explicit ModelLoadService(QString registryFilePath);
 
+    PersistedActiveModelInspection inspectPersistedActive() const;
     std::unique_ptr<OnnxInferenceAdapter> prepare(const QString& registryEntryId,
                                                   const QString& requestedDevice,
                                                   QString* warning = nullptr,

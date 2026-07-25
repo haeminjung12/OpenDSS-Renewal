@@ -249,6 +249,75 @@ Item {
         }
     }
 
+    QtObject {
+        id: modelTestController
+        property url datasetManifestUrl: "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
+        property url outputFolderUrl: "file:///C:/OpenDSS/Model%20Tests"
+        property string presentation: "ready"
+        property string errorMessage: ""
+        property string actionError: ""
+        property bool canStart: true
+        property string activeModelId: "active-model"
+        property string activeModelName: "Active Test Model"
+        property bool activeModelReady: true
+        property string plannedDeviceText: "Determined at start"
+        property int processedImages: 0
+        property int eligibleImages: 2
+        property real progress: 0
+        property var resultSummary: ({})
+        property url summaryUrl: ""
+        property url predictionsCsvUrl: ""
+        property url artifactOutputFolderUrl: ""
+        property int startCallCount: 0
+        property int stopCallCount: 0
+        property int openSummaryCallCount: 0
+        property int openPredictionsCallCount: 0
+
+        function reset() {
+            datasetManifestUrl = "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
+            outputFolderUrl = "file:///C:/OpenDSS/Model%20Tests"
+            presentation = "ready"
+            errorMessage = ""
+            actionError = ""
+            canStart = true
+            activeModelId = "active-model"
+            activeModelName = "Active Test Model"
+            activeModelReady = true
+            plannedDeviceText = "Determined at start"
+            processedImages = 0
+            eligibleImages = 2
+            progress = 0
+            resultSummary = ({})
+            summaryUrl = ""
+            predictionsCsvUrl = ""
+            artifactOutputFolderUrl = ""
+            startCallCount = 0
+            stopCallCount = 0
+            openSummaryCallCount = 0
+            openPredictionsCallCount = 0
+        }
+
+        function start() {
+            ++startCallCount
+            return true
+        }
+
+        function stop() {
+            ++stopCallCount
+            return true
+        }
+
+        function openSummary() {
+            ++openSummaryCallCount
+            return true
+        }
+
+        function openPredictions() {
+            ++openPredictionsCallCount
+            return true
+        }
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
@@ -272,8 +341,10 @@ Item {
         shell.datasetLabelController = null
         shell.trainingController = null
         shell.modelLibraryController = null
+        shell.modelTestController = null
         shell.settingsActionError = ""
         modelLibraryController.reset()
+        modelTestController.reset()
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
@@ -1209,6 +1280,94 @@ Item {
         shell.form.modelTestWorkspace.stopButton.clicked()
         compare(shell.mockState.activeOperation, "")
         compare(shell.mockState.modelTestPresentation, "interrupted")
+        verify(shell.form.modelTestWorkspace.showError)
+        verify(!shell.form.modelTestWorkspace.setupVisible)
+    }
+
+    function test_modelTestControllerDirectWiring() {
+        shell.modelLibraryController = null
+        shell.modelTestController = modelTestController
+        shell.form.navModelTestButton.clicked()
+
+        verify(shell.form.modelTestWorkspace.serviceFactsOnly)
+        compare(shell.form.modelTestWorkspace.activeModelText, "Active Test Model")
+        compare(shell.form.modelTestWorkspace.datasetText,
+                "C:/OpenDSS/Datasets/fixture/dataset.json")
+        compare(shell.form.modelTestWorkspace.outputLocationText,
+                "C:/OpenDSS/Model Tests")
+        compare(shell.form.modelTestWorkspace.deviceText,
+                "Determined at start")
+        verify(shell.form.modelTestWorkspace.startEnabled)
+        verify(!shell.form.modelTestWorkspace.resultFactsVisible)
+        verify(shell.form.modelTestWorkspace.outputLocationField.readOnly)
+        verify(!shell.form.modelTestWorkspace.startAnotherButton.visible)
+
+        shell.form.modelTestWorkspace.startButton.clicked()
+        compare(modelTestController.startCallCount, 1)
+        modelTestController.presentation = "running"
+        modelTestController.processedImages = 1
+        modelTestController.eligibleImages = 2
+        modelTestController.progress = 0.5
+        verify(shell.form.modelTestWorkspace.showRunning)
+        shell.modelLibraryController = modelLibraryController
+        modelLibraryController.select(1)
+        verify(shell.form.modelLibraryWorkspace.modelLocked)
+        verify(!shell.form.modelLibraryWorkspace.setActiveButton.enabled)
+        shell.form.modelLibraryWorkspace.setActiveButton.clicked()
+        compare(modelLibraryController.setActiveCallCount, 0)
+        compare(shell.form.modelTestWorkspace.processedCount, 1)
+        compare(shell.form.modelTestWorkspace.eligibleCount, 2)
+        compare(shell.form.modelTestWorkspace.progressValue, 0.5)
+        shell.form.modelTestWorkspace.stopButton.clicked()
+        compare(modelTestController.stopCallCount, 1)
+
+        modelTestController.resultSummary = {
+            status: "completed",
+            activeModelId: "model-active",
+            activeModelName: "Active Model",
+            datasetId: "fixture",
+            effectiveDevice: "CPU",
+            fallbackWarning: "CUDA unavailable; Auto mode used CPU.",
+            eligibleImages: 2,
+            processedImages: 2,
+            correctPredictions: 1,
+            overallAccuracy: 0.5,
+            perClass: [
+                {classId: "0", support: 1, correct: 1, accuracy: 1.0},
+                {classId: "1", support: 1, correct: 0, accuracy: 0.0}
+            ],
+            confusionMatrix: [[1, 0], [1, 0]]
+        }
+        modelTestController.summaryUrl =
+                "file:///C:/OpenDSS/Model%20Tests/result-001/model_test_summary.json"
+        modelTestController.predictionsCsvUrl =
+                "file:///C:/OpenDSS/Model%20Tests/result-001/predictions.csv"
+        modelTestController.presentation = "completed"
+        verify(shell.form.modelTestWorkspace.showCompleted)
+        compare(shell.form.modelTestWorkspace.deviceText, "CPU")
+        compare(shell.form.modelTestWorkspace.overallAccuracyText, "50.0%")
+        verify(shell.form.modelTestWorkspace.perClassAccuracyText.indexOf(
+                   "Class 0: 100.0%") >= 0)
+        compare(shell.form.modelTestWorkspace.confusionMatrixText, "1  0\n1  0")
+        compare(shell.form.modelTestWorkspace.predictionSummaryText,
+                "Processed 2 of 2; correct 1")
+        verify(shell.form.modelTestWorkspace.openSummaryButton.enabled)
+        verify(shell.form.modelTestWorkspace.openPredictionsButton.enabled)
+        shell.form.modelTestWorkspace.openSummaryButton.clicked()
+        shell.form.modelTestWorkspace.openPredictionsButton.clicked()
+        compare(modelTestController.openSummaryCallCount, 1)
+        compare(modelTestController.openPredictionsCallCount, 1)
+        modelTestController.actionError = "Model Test summary is unavailable."
+        compare(shell.form.modelTestWorkspace.actionErrorText,
+                "Model Test summary is unavailable.")
+        verify(shell.form.modelTestWorkspace.showCompleted)
+        verify(shell.form.modelTestWorkspace.resultFactsVisible)
+
+        modelTestController.errorMessage = "No Active Model is available."
+        modelTestController.presentation = "error"
+        verify(shell.form.modelTestWorkspace.showError)
+        compare(shell.form.modelTestWorkspace.blockerText,
+                "No Active Model is available.")
     }
 
     function test_sequenceTestAndRunsStates() {

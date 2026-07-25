@@ -1,4 +1,5 @@
 #include "../v2/model/model_library_controller.h"
+#include "../v2/operation/operation_coordinator.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -12,6 +13,9 @@
 #include <iostream>
 
 using desktop_app::v2::ModelLibraryController;
+using desktop_app::v2::OperationCoordinator;
+using desktop_app::v2::OperationKind;
+using desktop_app::v2::ResourceLock;
 
 namespace {
 
@@ -27,6 +31,13 @@ bool copyFile(const QString &source, const QString &destination)
 {
     QFile::remove(destination);
     return QFile::copy(source, destination);
+}
+
+QByteArray bytes(const QString &path)
+{
+    QFile file(path);
+    require(file.open(QIODevice::ReadOnly), "read registry bytes");
+    return file.readAll();
 }
 
 QString createPackage(const QString &root, const QString &architecture)
@@ -119,7 +130,9 @@ void testRefreshSelectionActivationAndRename()
 {
     QTemporaryDir temporary;
     require(temporary.isValid(), "temporary directory");
-    ModelLibraryController controller(createRegistry(temporary.path()));
+    const QString registryPath = createRegistry(temporary.path());
+    OperationCoordinator operations;
+    ModelLibraryController controller(registryPath, operations);
 
     require(controller.refresh(), qPrintable(controller.errorMessage()));
     require(controller.presentation() == QStringLiteral("ready"), "ready presentation");
@@ -173,6 +186,22 @@ void testRefreshSelectionActivationAndRename()
                     == QStringLiteral("Empty, Single, MoreThanOne"),
             "selected factual detail");
 
+    const QByteArray registryBeforeLock = bytes(registryPath);
+    auto modelTest =
+        operations.acquire(OperationKind::ModelTest, ResourceLock::Model);
+    require(modelTest.acquired(), "hold Model Test Model lock");
+    require(!controller.renameSelected(QStringLiteral("Blocked Rename")) &&
+                controller.errorMessage().contains(
+                    QStringLiteral("Model Test")) &&
+                bytes(registryPath) == registryBeforeLock,
+            "Model Test lock rejects rename without registry change");
+    require(!controller.setActive() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("Model Test")) &&
+                bytes(registryPath) == registryBeforeLock,
+            "Model Test lock rejects activation without registry change");
+    modelTest.lease.release();
+
     require(controller.renameSelected(QStringLiteral("Renamed Model")),
             qPrintable(controller.errorMessage()));
     require(controller.selectedId()
@@ -196,8 +225,10 @@ void testErrorsAndEmptyPresentation()
 {
     QTemporaryDir temporary;
     require(temporary.isValid(), "temporary error directory");
+    OperationCoordinator operations;
     ModelLibraryController missing(
-        QDir(temporary.path()).filePath(QStringLiteral("missing-registry.json")));
+        QDir(temporary.path()).filePath(QStringLiteral("missing-registry.json")),
+        operations);
     require(!missing.refresh() && missing.presentation() == QStringLiteral("error")
                 && !missing.errorMessage().isEmpty(),
             "missing registry error");
@@ -210,7 +241,7 @@ void testErrorsAndEmptyPresentation()
             "write empty registry");
     file.close();
 
-    ModelLibraryController empty(emptyRegistry);
+    ModelLibraryController empty(emptyRegistry, operations);
     require(empty.refresh() && empty.presentation() == QStringLiteral("empty"),
             "empty presentation");
     require(!empty.select(0)

@@ -152,7 +152,7 @@ Rectangle {
         id: navigationPanel
         SplitView.preferredWidth: Constants.navigationWidth
         SplitView.minimumWidth: Constants.navigationWidth * 0.65
-        SplitView.maximumWidth: parent.width * 0.4
+        SplitView.maximumWidth: Math.max(Constants.navigationWidth * 0.65, parent.width * 0.4)
         color: Constants.backgroundColor
         border.color: Constants.borderColor
         SplitView {
@@ -382,7 +382,7 @@ Rectangle {
                 id: capturePanel
                 SplitView.preferredWidth: Constants.operationPanelWidth
                 SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
-                SplitView.maximumWidth: root.capturePanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
+                SplitView.maximumWidth: root.capturePanelExpanded ? Math.max(Constants.collapsedOperationPanelWidth, parent.width * 0.75) : Constants.collapsedOperationPanelWidth
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
                 Rectangle {

@@ -109,7 +109,7 @@ Rectangle {
             id: rightPanel
             SplitView.preferredWidth: Constants.operationPanelWidth
             SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
-            SplitView.maximumWidth: root.rightPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
+            SplitView.maximumWidth: root.rightPanelExpanded ? Math.max(Constants.collapsedOperationPanelWidth, parent.width * 0.75) : Constants.collapsedOperationPanelWidth
             color: root.showError ? Constants.errorSurfaceColor : Constants.surfaceColor
             border.color: root.showError ? Constants.faultColor : Constants.borderColor
 

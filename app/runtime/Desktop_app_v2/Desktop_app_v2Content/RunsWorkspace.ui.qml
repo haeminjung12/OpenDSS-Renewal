@@ -259,7 +259,7 @@ Rectangle {
             id: runsPanel
             SplitView.preferredWidth: Constants.operationPanelWidth
             SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
-            SplitView.maximumWidth: root.rightPanelExpanded ? parent.width * 0.75 : Constants.collapsedOperationPanelWidth
+            SplitView.maximumWidth: root.rightPanelExpanded ? Math.max(Constants.collapsedOperationPanelWidth, parent.width * 0.75) : Constants.collapsedOperationPanelWidth
 
             Rectangle {
                 id: panelTopStrip

@@ -11,6 +11,7 @@ Item {
     property var settingsController
     property var runsResultsController
     property var sequenceViewerController
+    property var datasetLabelController
     property string settingsActionError: ""
     signal closeRequested()
 
@@ -94,15 +95,86 @@ Item {
         captureStartsAvailable: state.activeOperation === ""
     }
 
-    Binding { target: screen.labelWorkspace; property: "presentation"; value: state.labelPresentation }
-    Binding { target: screen.labelWorkspace; property: "classCount"; value: state.labelClassCount }
-    Binding { target: screen.labelWorkspace; property: "datasetName"; value: state.labelDatasetName }
-    Binding { target: screen.labelWorkspace; property: "totalCount"; value: state.labelTotalCount }
-    Binding { target: screen.labelWorkspace; property: "labeledCount"; value: state.labelLabeledCount }
+    Binding { target: screen.labelWorkspace; property: "presentation"; value: root.datasetLabelController ? root.datasetLabelController.presentation : state.labelPresentation }
+    Binding { target: screen.labelWorkspace; property: "currentFilter"; value: root.datasetLabelController ? root.datasetLabelController.filter : state.selectedLabelFilter }
+    Binding { target: screen.labelWorkspace; property: "classCount"; value: root.datasetLabelController ? root.datasetLabelController.classCount : state.labelClassCount }
+    Binding { target: screen.labelWorkspace; property: "datasetName"; value: root.datasetLabelController ? root.datasetLabelController.datasetId : state.labelDatasetName }
+    Binding { target: screen.labelWorkspace; property: "totalCount"; value: root.datasetLabelController ? root.datasetLabelController.totalCount : state.labelTotalCount }
+    Binding { target: screen.labelWorkspace; property: "labeledCount"; value: root.datasetLabelController ? root.datasetLabelController.labeledCount : state.labelLabeledCount }
+    Binding { target: screen.labelWorkspace; property: "class0Count"; value: root.datasetLabelController ? root.datasetLabelController.class0Count : 0; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "class1Count"; value: root.datasetLabelController ? root.datasetLabelController.class1Count : 0; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "class2Count"; value: root.datasetLabelController ? root.datasetLabelController.class2Count : 0; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "excludedCount"; value: root.datasetLabelController ? root.datasetLabelController.excludedCount : 0; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "unreviewedCount"; value: root.datasetLabelController ? root.datasetLabelController.unreviewedCount : 0; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "classNames"; value: root.datasetLabelController ? root.datasetLabelController.classNames : []; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "filteredCropRecords"; value: root.datasetLabelController ? root.datasetLabelController.filteredRecords : []; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "selectedCropId"; value: root.datasetLabelController ? root.datasetLabelController.selectedRecordId : ""; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "selectedCropIndex"; value: root.datasetLabelController ? root.datasetLabelController.selectedIndex : -1; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "selectedCropSource"; value: root.datasetLabelController ? root.datasetLabelController.selectedCropUrl : ""; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "canUndo"; value: root.datasetLabelController ? root.datasetLabelController.canUndo : false; when: !!root.datasetLabelController }
+    Binding { target: screen.labelWorkspace; property: "errorMessage"; value: root.datasetLabelController ? root.datasetLabelController.errorMessage : ""; when: !!root.datasetLabelController }
     Binding { target: screen.labelWorkspace; property: "rightPanelExpanded"; value: state.labelRightPanelExpanded }
     Binding { target: screen.labelWorkspace; property: "datasetSummaryExpanded"; value: state.labelDatasetSummaryExpanded }
     Binding { target: screen.labelWorkspace; property: "labelExpanded"; value: state.labelExpanded }
     Binding { target: screen.labelWorkspace; property: "filterExpanded"; value: state.labelFilterExpanded }
+
+    Component {
+        id: labelCropDelegate
+
+        Rectangle {
+            id: cropDelegate
+            required property var modelData
+            readonly property bool selected: modelData.recordId === screen.labelWorkspace.selectedCropId
+            width: 106
+            height: 82
+            color: modelData.state === "excluded" ? "#d1d5db" : Constants.backgroundColor
+            border.width: activeFocus || selected ? 4 : 2
+            border.color: activeFocus || selected ? Constants.accentColor
+                                                  : modelData.state === "class0" ? Constants.appClass0Color
+                                                  : modelData.state === "class1" ? Constants.appClass1Color
+                                                  : modelData.state === "class2" ? Constants.appClass2Color
+                                                  : Constants.borderColor
+            activeFocusOnTab: !!root.datasetLabelController
+            Accessible.name: qsTr("Droplet Crop %1").arg(modelData.recordId)
+            Accessible.role: Accessible.Button
+
+            Image {
+                anchors.fill: parent
+                anchors.margins: 5
+                source: cropDelegate.modelData.cropUrl
+                fillMode: Image.PreserveAspectFit
+                sourceSize: Qt.size(Math.round(width), Math.round(height))
+                asynchronous: true
+                cache: false
+            }
+
+            Text {
+                visible: cropDelegate.modelData.state === "excluded"
+                anchors.centerIn: parent
+                text: "×"
+                color: Constants.textColor
+                font: Constants.largeFont
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                enabled: !!root.datasetLabelController
+                onClicked: {
+                    cropDelegate.forceActiveFocus()
+                    root.datasetLabelController.select(cropDelegate.modelData.recordId)
+                }
+            }
+            Keys.onReturnPressed: root.datasetLabelController.select(modelData.recordId)
+            Keys.onSpacePressed: root.datasetLabelController.select(modelData.recordId)
+            Keys.enabled: !!root.datasetLabelController
+        }
+    }
+
+    Repeater {
+        parent: screen.labelWorkspace.cropGridHost
+        model: root.datasetLabelController ? root.datasetLabelController.filteredRecords : []
+        delegate: labelCropDelegate
+    }
 
     Binding { target: screen.sequenceViewerWorkspace; property: "presentation"; value: root.sequenceViewerController ? root.sequenceViewerController.presentation : state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? state.sequenceViewerPresentation : "ready" }
     Binding { target: screen.sequenceViewerWorkspace; property: "currentFrame"; value: root.sequenceViewerController ? root.sequenceViewerController.currentFrame : state.sequenceViewerPresentation === "firstFrame" ? 1 : state.sequenceViewerPresentation === "middleFrame" ? 60 : state.sequenceViewerPresentation === "finalFrame" ? 120 : 0 }
@@ -215,27 +287,50 @@ Item {
     Connections { target: screen.datasetNewButton; function onClicked() { state.startNewDataset() } }
     Connections { target: screen.capturePanelToggleButton; function onClicked() { state.toggleCapturePanel() } }
 
-    Connections { target: screen.labelWorkspace.openDatasetButton; function onClicked() { state.openLabelDataset() } }
-    Connections { target: screen.labelWorkspace.twoClassChoice; function onClicked() { state.defineLabelClasses(2) } }
-    Connections { target: screen.labelWorkspace.threeClassChoice; function onClicked() { state.defineLabelClasses(3) } }
+    Connections { target: screen.labelWorkspace.openDatasetButton; function onClicked() { if (root.datasetLabelController) labelDatasetFileDialog.open(); else state.openLabelDataset() } }
+    Connections { target: screen.labelWorkspace.twoClassChoice; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.configureClassCount(2); else state.defineLabelClasses(2) } }
+    Connections { target: screen.labelWorkspace.threeClassChoice; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.configureClassCount(3); else state.defineLabelClasses(3) } }
     Connections { target: screen.labelWorkspace.rightPanelToggleButton; function onClicked() { state.toggleLabelPanel() } }
     Connections { target: screen.labelWorkspace.datasetSummaryHeadingButton; function onClicked() { state.toggleLabelDatasetSummary() } }
     Connections { target: screen.labelWorkspace.labelHeadingButton; function onClicked() { state.toggleLabelSection() } }
     Connections { target: screen.labelWorkspace.filterHeadingButton; function onClicked() { state.toggleLabelFilter() } }
-    Connections { target: screen.labelWorkspace.allFilterButton; function onClicked() { state.selectLabelFilter("all") } }
-    Connections { target: screen.labelWorkspace.class0FilterButton; function onClicked() { state.selectLabelFilter("class0") } }
-    Connections { target: screen.labelWorkspace.class1FilterButton; function onClicked() { state.selectLabelFilter("class1") } }
-    Connections { target: screen.labelWorkspace.class2FilterButton; function onClicked() { state.selectLabelFilter("class2") } }
-    Connections { target: screen.labelWorkspace.excludedFilterButton; function onClicked() { state.selectLabelFilter("excluded") } }
-    Connections { target: screen.labelWorkspace.unreviewedFilterButton; function onClicked() { state.selectLabelFilter("unreviewed") } }
-    Connections { target: screen.labelWorkspace.class0Button; function onClicked() { state.recordLabel() } }
-    Connections { target: screen.labelWorkspace.class1Button; function onClicked() { state.recordLabel() } }
-    Connections { target: screen.labelWorkspace.class2Button; function onClicked() { state.recordLabel() } }
-    Connections { target: screen.labelWorkspace.excludeButton; function onClicked() { state.recordLabel() } }
-    Connections { target: screen.labelWorkspace.undoButton; function onClicked() { state.undoLabel() } }
-    Connections { target: screen.labelWorkspace.previousButton; function onClicked() { state.moveLabelSelection(-1) } }
-    Connections { target: screen.labelWorkspace.nextButton; function onClicked() { state.moveLabelSelection(1) } }
-    Connections { target: screen.labelWorkspace.saveAsButton; function onClicked() { state.saveLabelDatasetAs() } }
+    Connections { target: screen.labelWorkspace.allFilterButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.setFilter("all"); else state.selectLabelFilter("all") } }
+    Connections { target: screen.labelWorkspace.class0FilterButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.setFilter("class0"); else state.selectLabelFilter("class0") } }
+    Connections { target: screen.labelWorkspace.class1FilterButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.setFilter("class1"); else state.selectLabelFilter("class1") } }
+    Connections { target: screen.labelWorkspace.class2FilterButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.setFilter("class2"); else state.selectLabelFilter("class2") } }
+    Connections { target: screen.labelWorkspace.excludedFilterButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.setFilter("excluded"); else state.selectLabelFilter("excluded") } }
+    Connections { target: screen.labelWorkspace.unreviewedFilterButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.setFilter("unreviewed"); else state.selectLabelFilter("unreviewed") } }
+    Connections { target: screen.labelWorkspace.class0Button; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.assignClass("0"); else state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.class1Button; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.assignClass("1"); else state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.class2Button; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.assignClass("2"); else state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.excludeButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.exclude(); else state.recordLabel() } }
+    Connections { target: screen.labelWorkspace.undoButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.undo(); else state.undoLabel() } }
+    Connections { target: screen.labelWorkspace.previousButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.previous(); else state.moveLabelSelection(-1) } }
+    Connections { target: screen.labelWorkspace.nextButton; function onClicked() { if (root.datasetLabelController) root.datasetLabelController.next(); else state.moveLabelSelection(1) } }
+    Connections { target: screen.labelWorkspace.class0NameField; function onEditingFinished() { if (root.datasetLabelController) root.datasetLabelController.renameClass(0, screen.labelWorkspace.class0NameField.text) } }
+    Connections { target: screen.labelWorkspace.class1NameField; function onEditingFinished() { if (root.datasetLabelController) root.datasetLabelController.renameClass(1, screen.labelWorkspace.class1NameField.text) } }
+    Connections { target: screen.labelWorkspace.class2NameField; function onEditingFinished() { if (root.datasetLabelController) root.datasetLabelController.renameClass(2, screen.labelWorkspace.class2NameField.text) } }
+    Connections { target: screen.labelWorkspace.saveAsButton; function onClicked() { if (root.datasetLabelController) labelDatasetSaveAsDialog.open(); else state.saveLabelDatasetAs() } }
+
+    FileDialog {
+        id: labelDatasetFileDialog
+        title: qsTr("Open Dataset")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("OpenDSS Dataset (dataset.json)")]
+        onAccepted: {
+            if (root.datasetLabelController && selectedFile.toString() !== "")
+                root.datasetLabelController.open(selectedFile)
+        }
+    }
+
+    FolderDialog {
+        id: labelDatasetSaveAsDialog
+        title: qsTr("Save Dataset As")
+        onAccepted: {
+            if (root.datasetLabelController && selectedFolder.toString() !== "")
+                root.datasetLabelController.saveAs(selectedFolder)
+        }
+    }
 
     Connections { target: screen.sequenceViewerWorkspace.openSequenceButton; function onClicked() { if (root.sequenceViewerController) sequenceFileDialog.open(); else state.openViewerSequence() } }
     Connections { target: screen.sequenceViewerWorkspace.previousButton; function onClicked() { if (root.sequenceViewerController) root.sequenceViewerController.previous(); else state.previousViewerFrame() } }

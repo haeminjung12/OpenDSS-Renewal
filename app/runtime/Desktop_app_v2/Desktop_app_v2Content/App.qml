@@ -23,6 +23,7 @@ Window {
         settingsController: window.settingsController
         property var runsResultsController: window.runsResultsController
         sequenceViewerController: window.sequenceViewerController
+        datasetLabelController: window.datasetLabelController
         onCloseRequested: window.close()
     }
 

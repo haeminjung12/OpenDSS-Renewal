@@ -31,6 +31,66 @@ Item {
         }
     }
 
+    QtObject {
+        id: labelController
+        property string presentation: "ready"
+        property url manifestUrl: "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
+        property string datasetId: "fixture-dataset"
+        property int totalCount: 2
+        property int labeledCount: 1
+        property int unreviewedCount: 1
+        property int excludedCount: 0
+        property int classCount: 3
+        property int class0Count: 1
+        property int class1Count: 0
+        property int class2Count: 0
+        property var classNames: ["Empty", "Single cell", "Multiple cells"]
+        property bool class2Enabled: true
+        property bool canUndo: true
+        property var filteredRecords: [
+            { recordId: "r1", cropUrl: "", state: "class0" },
+            { recordId: "r2", cropUrl: "", state: "unreviewed" }
+        ]
+        property string selectedRecordId: "r1"
+        property url selectedCropUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        property int selectedIndex: 0
+        property string filter: "all"
+        property string errorMessage: ""
+        property int configuredClassCount: -1
+        property string assignedClassId: ""
+        property int excludeCallCount: 0
+        property int undoCallCount: 0
+        property int previousCallCount: 0
+        property int nextCallCount: 0
+        property string selectedRecordArgument: ""
+        property int selectCallCount: 0
+        property string filterArgument: ""
+        property int renamedClassIndex: -1
+        property string renamedClassName: ""
+        property url openArgument
+        property url saveAsArgument
+
+        function open(url) { openArgument = url; return true }
+        function configureClassCount(count) { configuredClassCount = count; classCount = count; return true }
+        function renameClass(index, name) {
+            renamedClassIndex = index
+            renamedClassName = name
+            return true
+        }
+        function assignClass(classId) { assignedClassId = classId; return true }
+        function exclude() { ++excludeCallCount; return true }
+        function undo() { ++undoCallCount; return true }
+        function previous() { ++previousCallCount; return true }
+        function next() { ++nextCallCount; return true }
+        function select(recordId) {
+            selectedRecordArgument = recordId
+            ++selectCallCount
+            return true
+        }
+        function setFilter(filterName) { filterArgument = filterName; filter = filterName; return true }
+        function saveAs(url) { saveAsArgument = url; return true }
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
@@ -50,6 +110,7 @@ Item {
     function init() {
         closeSpy.clear()
         shell.settingsController = textSizeController
+        shell.datasetLabelController = null
         shell.settingsActionError = ""
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
@@ -60,6 +121,21 @@ Item {
         textSizeController.storageRoot = "file:///C:/OpenDSS/Settings%20Root"
         textSizeController.openStorageRootCallCount = 0
         textSizeController.openStorageRootError = ""
+        labelController.classCount = 3
+        labelController.configuredClassCount = -1
+        labelController.assignedClassId = ""
+        labelController.excludeCallCount = 0
+        labelController.undoCallCount = 0
+        labelController.previousCallCount = 0
+        labelController.nextCallCount = 0
+        labelController.selectedRecordArgument = ""
+        labelController.selectCallCount = 0
+        labelController.filter = "all"
+        labelController.filterArgument = ""
+        labelController.renamedClassIndex = -1
+        labelController.renamedClassName = ""
+        labelController.openArgument = ""
+        labelController.saveAsArgument = ""
         shell.mockState.activeModelId = ""
         shell.mockState.hardwareDrawerOpen = false
         shell.mockState.capturePanelExpanded = true
@@ -124,6 +200,38 @@ Item {
         shell.mockState.sequenceFrameCount = 0
         shell.mockState.datasetFrameCount = 0
         shell.mockState.datasetCropCount = 0
+    }
+
+    function labelCropDelegate(recordId) {
+        const children = shell.form.labelWorkspace.cropGridHost.children
+        for (let index = 0; index < children.length; ++index) {
+            const child = children[index]
+            if (child.modelData !== undefined && child.modelData.recordId === recordId)
+                return child
+        }
+        return null
+    }
+
+    function verifyLabelFilterSelection(expectedFilter, expectedButton) {
+        const workspace = shell.form.labelWorkspace
+        const buttons = [
+            workspace.allFilterButton,
+            workspace.class0FilterButton,
+            workspace.class1FilterButton,
+            workspace.class2FilterButton,
+            workspace.excludedFilterButton,
+            workspace.unreviewedFilterButton
+        ]
+        let checkedCount = 0
+        compare(workspace.currentFilter, expectedFilter)
+        for (let index = 0; index < buttons.length; ++index) {
+            const selected = buttons[index] === expectedButton
+            compare(buttons[index].checked, selected)
+            compare(buttons[index].visualRole, selected ? "primary" : "secondary")
+            if (buttons[index].checked)
+                ++checkedCount
+        }
+        compare(checkedCount, 1)
     }
 
     function test_startupPromptAndNavigation() {
@@ -497,12 +605,14 @@ Item {
         compare(shell.mockState.selectedLabelFilter, "class1")
         shell.form.labelWorkspace.class2FilterButton.clicked()
         compare(shell.mockState.selectedLabelFilter, "class2")
+        verifyLabelFilterSelection("class2", shell.form.labelWorkspace.class2FilterButton)
         shell.form.labelWorkspace.excludedFilterButton.clicked()
         compare(shell.mockState.selectedLabelFilter, "excluded")
         shell.form.labelWorkspace.unreviewedFilterButton.clicked()
         compare(shell.mockState.selectedLabelFilter, "unreviewed")
         shell.form.labelWorkspace.allFilterButton.clicked()
         compare(shell.mockState.selectedLabelFilter, "all")
+        verifyLabelFilterSelection("all", shell.form.labelWorkspace.allFilterButton)
         shell.form.labelWorkspace.rightPanelToggleButton.clicked()
         verify(!shell.form.labelWorkspace.rightPanelExpanded)
         shell.form.labelWorkspace.rightPanelToggleButton.clicked()
@@ -512,6 +622,79 @@ Item {
         verify(typeof shell.form.labelWorkspace.classesFilterHeadingButton === "undefined")
         verify(typeof shell.form.trainWorkspace.trainingResultsHeadingButton === "undefined")
         verify(typeof shell.form.modelTestWorkspace.modelTestResultsHeadingButton === "undefined")
+    }
+
+    function test_labelControllerDirectWiring() {
+        shell.datasetLabelController = labelController
+        shell.form.navLabelButton.clicked()
+
+        tryCompare(shell.form.labelWorkspace, "presentation", "ready")
+        compare(shell.form.labelWorkspace.datasetName, "fixture-dataset")
+        compare(shell.form.labelWorkspace.totalCount, 2)
+        compare(shell.form.labelWorkspace.labeledCount, 1)
+        compare(shell.form.labelWorkspace.class0Count, 1)
+        compare(shell.form.labelWorkspace.unreviewedCount, 1)
+        compare(shell.form.labelWorkspace.classNames[1], "Single cell")
+        compare(shell.form.labelWorkspace.filteredCropRecords.length, 2)
+        compare(shell.form.labelWorkspace.selectedCropId, "r1")
+        compare(shell.form.labelWorkspace.selectedCropIndex, 0)
+        compare(shell.form.labelWorkspace.selectedCropSource.toString(),
+                labelController.selectedCropUrl.toString())
+        verify(shell.form.labelWorkspace.canUndo)
+
+        labelController.errorMessage = "Dataset is in use by Training"
+        compare(shell.form.labelWorkspace.errorMessage, "Dataset is in use by Training")
+        labelController.errorMessage = ""
+
+        shell.form.labelWorkspace.twoClassChoice.clicked()
+        compare(labelController.configuredClassCount, 2)
+        shell.form.labelWorkspace.threeClassChoice.clicked()
+        compare(labelController.configuredClassCount, 3)
+
+        shell.form.labelWorkspace.class1Button.clicked()
+        compare(labelController.assignedClassId, "1")
+        shell.form.labelWorkspace.excludeButton.clicked()
+        compare(labelController.excludeCallCount, 1)
+        shell.form.labelWorkspace.undoButton.clicked()
+        compare(labelController.undoCallCount, 1)
+        shell.form.labelWorkspace.previousButton.clicked()
+        compare(labelController.previousCallCount, 1)
+        shell.form.labelWorkspace.nextButton.clicked()
+        compare(labelController.nextCallCount, 1)
+        labelController.filter = "excluded"
+        verifyLabelFilterSelection("excluded",
+                                   shell.form.labelWorkspace.excludedFilterButton)
+        shell.form.labelWorkspace.unreviewedFilterButton.clicked()
+        compare(labelController.filterArgument, "unreviewed")
+        verifyLabelFilterSelection("unreviewed",
+                                   shell.form.labelWorkspace.unreviewedFilterButton)
+        mouseClick(shell.form.labelWorkspace.unreviewedFilterButton)
+        compare(labelController.filter, "unreviewed")
+        compare(labelController.filterArgument, "unreviewed")
+        verifyLabelFilterSelection("unreviewed",
+                                   shell.form.labelWorkspace.unreviewedFilterButton)
+        shell.form.labelWorkspace.unreviewedFilterButton.forceActiveFocus()
+        keyClick(Qt.Key_Space)
+        compare(labelController.filter, "unreviewed")
+        compare(labelController.filterArgument, "unreviewed")
+        verifyLabelFilterSelection("unreviewed",
+                                   shell.form.labelWorkspace.unreviewedFilterButton)
+
+        shell.form.labelWorkspace.class1NameField.text = "Single"
+        shell.form.labelWorkspace.class1NameField.editingFinished()
+        compare(labelController.renamedClassIndex, 1)
+        compare(labelController.renamedClassName, "Single")
+
+        tryVerify(function() { return labelCropDelegate("r1") !== null })
+        const crop = labelCropDelegate("r1")
+        const pointerArea = crop.childAt(crop.width / 2, crop.height / 2)
+        verify(pointerArea)
+        pointerArea.clicked(null)
+        compare(labelController.selectedRecordArgument, "r1")
+        compare(labelController.selectCallCount, 1)
+        crop.forceActiveFocus()
+        keyClick(Qt.Key_Return)
+        compare(labelController.selectCallCount, 2)
     }
 
     function test_outerPanelToggleKeepsWorkspace() {

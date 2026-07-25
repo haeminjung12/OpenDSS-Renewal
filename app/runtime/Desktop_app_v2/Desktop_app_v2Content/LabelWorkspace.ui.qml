@@ -11,6 +11,7 @@ Rectangle {
     color: Constants.backgroundColor
 
     property string presentation: "ready"
+    property string currentFilter: "all"
     property int classCount: 3
     property string datasetName: qsTr("Droplet Dataset")
     property int totalCount: 18072
@@ -56,6 +57,7 @@ Rectangle {
     property alias class1NameField: class1NameField
     property alias class2NameField: class2NameField
     property alias errorMessageText: errorMessageText.text
+    property alias selectedCropSource: selectedCropImage.source
 
     Column {
         anchors.fill: parent
@@ -267,7 +269,23 @@ Rectangle {
                                     anchors.centerIn: parent
                                     color: Constants.viewerColor
                                     border.color: Constants.borderColor
-                                    Text { anchors.centerIn: parent; text: qsTr("Selected Crop\n64 × 64"); horizontalAlignment: Text.AlignHCenter; color: Constants.surfaceColor; font: Constants.headingFont }
+                                    Image {
+                                        id: selectedCropImage
+                                        anchors.fill: parent
+                                        anchors.margins: Constants.spacing
+                                        fillMode: Image.PreserveAspectFit
+                                        sourceSize: Qt.size(Math.round(width), Math.round(height))
+                                        asynchronous: true
+                                        cache: false
+                                    }
+                                    Text {
+                                        visible: selectedCropImage.source.toString() === ""
+                                        anchors.centerIn: parent
+                                        text: qsTr("Selected Crop\n64 × 64")
+                                        horizontalAlignment: Text.AlignHCenter
+                                        color: Constants.surfaceColor
+                                        font: Constants.headingFont
+                                    }
                                 }
                             }
 
@@ -305,12 +323,12 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             spacing: 4
-                            AppButton { id: allFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("All (%1)").arg(root.totalCount) }
-                            AppButton { id: class0FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 0 (%1)").arg(root.class0Count) }
-                            AppButton { id: class1FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 1 (%1)").arg(root.class1Count) }
-                            AppButton { id: class2FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: root.classCount === 3 ? qsTr("Class 2 (%1)").arg(root.class2Count) : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3 }
-                            AppButton { id: excludedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Excluded (%1)").arg(root.excludedCount) }
-                            AppButton { id: unreviewedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Unreviewed (%1)").arg(root.unreviewedCount) }
+                            AppButton { id: allFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("All (%1)").arg(root.totalCount); checked: root.currentFilter === "all"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: class0FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 0 (%1)").arg(root.class0Count); checked: root.currentFilter === "class0"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: class1FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 1 (%1)").arg(root.class1Count); checked: root.currentFilter === "class1"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: class2FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: root.classCount === 3 ? qsTr("Class 2 (%1)").arg(root.class2Count) : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3; checked: root.currentFilter === "class2"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: excludedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Excluded (%1)").arg(root.excludedCount); checked: root.currentFilter === "excluded"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: unreviewedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Unreviewed (%1)").arg(root.unreviewedCount); checked: root.currentFilter === "unreviewed"; visualRole: checked ? "primary" : "secondary" }
                         }
                     }
 

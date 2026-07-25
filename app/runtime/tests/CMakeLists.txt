@@ -239,6 +239,30 @@ add_test(
 )
 set_tests_properties(dataset_label_service_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(dataset_label_controller_test
+  dataset_label_controller_test.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/dataset/dataset_label_controller.cpp
+  ../v2/dataset/dataset_label_service.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(dataset_label_controller_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(dataset_label_controller_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+)
+add_test(
+  NAME dataset_label_controller_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:dataset_label_controller_test>
+)
+set_tests_properties(dataset_label_controller_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(crop_golden_test
   crop_golden_test.cpp
   ../crops/crop_service.cpp

@@ -12,6 +12,8 @@
 #include "../../v2/settings/settings_repository.h"
 #include "../../v2/results/run_repository.h"
 #include "../../v2/results/runs_results_controller.h"
+#include "../../v2/sequence/sequence_viewer_controller.h"
+#include "../../v2/sequence/sequence_viewer_image_provider.h"
 #include "../../v2/state/application_state_store.h"
 
 int main(int argc, char *argv[])
@@ -27,8 +29,11 @@ int main(int argc, char *argv[])
     desktop_app::v2::SettingsController settingsController(settingsRepository, applicationStateStore);
     desktop_app::v2::results::RunRepository runRepository(applicationStateStore);
     desktop_app::v2::results::RunsResultsController runsResultsController(runRepository, applicationStateStore);
+    desktop_app::v2::sequence::SequenceViewerController sequenceViewerController;
 
     QQmlApplicationEngine engine;
+    engine.addImageProvider(QStringLiteral("sequence-frame"),
+                            new desktop_app::v2::sequence::SequenceViewerImageProvider(sequenceViewerController));
     const QUrl url(mainQmlFile);
     QObject::connect(
                 &engine, &QQmlApplicationEngine::objectCreated, &app,
@@ -40,7 +45,8 @@ int main(int argc, char *argv[])
     engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
     engine.addImportPath(":/");
     engine.setInitialProperties({{QStringLiteral("settingsController"), QVariant::fromValue(&settingsController)},
-                                 {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)}});
+                                 {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)},
+                                 {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)}});
     engine.load(url);
 
     if (engine.rootObjects().isEmpty())

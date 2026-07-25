@@ -1,9 +1,11 @@
 #include "../v2/sequence/sequence_manifest_v2.h"
 #include "../v2/sequence/sequence_viewer_controller.h"
+#include "../v2/sequence/sequence_viewer_image_provider.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QImage>
+#include <QQmlEngine>
 #include <QTemporaryDir>
 
 #include <iostream>
@@ -54,10 +56,13 @@ int main(int argc, char** argv) {
     }
 
     SequenceViewerController controller;
+    QQmlEngine engine;
+    engine.addImageProvider("sequence-frame", new SequenceViewerImageProvider(controller));
     int presentationChanges = 0;
     int currentFrameChanges = 0;
     int totalFramesChanges = 0;
     int errorChanges = 0;
+    int imageUrlChanges = 0;
     QObject::connect(&controller, &SequenceViewerController::presentationChanged,
                      [&presentationChanges] { ++presentationChanges; });
     QObject::connect(&controller, &SequenceViewerController::currentFrameChanged,
@@ -66,21 +71,43 @@ int main(int argc, char** argv) {
                      [&totalFramesChanges] { ++totalFramesChanges; });
     QObject::connect(&controller, &SequenceViewerController::errorChanged,
                      [&errorChanges] { ++errorChanges; });
+    QObject::connect(&controller, &SequenceViewerController::currentFrameImageUrlChanged,
+                     [&imageUrlChanges] { ++imageUrlChanges; });
 
     if (controller.presentation() != "empty" || controller.currentFrame() != 0 ||
-        controller.totalFrames() != 0 || !controller.error().isEmpty()) {
+        controller.totalFrames() != 0 || !controller.error().isEmpty() ||
+        !controller.currentFrameImageUrl().isEmpty() || imageUrlChanges != 0) {
         return fail(3, "Initial controller properties are not empty.");
     }
 
     if (!controller.open(manifestPath) || controller.presentation() != "ready" ||
         controller.currentFrame() != 1 || controller.totalFrames() != 3 ||
         !controller.error().isEmpty() || presentationChanges != 1 ||
-        currentFrameChanges != 1 || totalFramesChanges != 1 || errorChanges != 0) {
+        currentFrameChanges != 1 || totalFramesChanges != 1 || errorChanges != 0 ||
+        imageUrlChanges != 1) {
         return fail(4, "Open did not publish factual properties.");
     }
 
-    if (!controller.next() || controller.currentFrame() != 3 || currentFrameChanges != 2 ||
-        controller.next() || currentFrameChanges != 2 ||
+    const QUrl firstFrameUrl = controller.currentFrameImageUrl();
+    auto* provider = dynamic_cast<SequenceViewerImageProvider*>(engine.imageProvider("sequence-frame"));
+    QSize imageSize;
+    if (!provider || firstFrameUrl.isEmpty() ||
+        provider->requestImage("current/1", &imageSize, {}).pixel(0, 0) != qRgb(1, 2, 3) ||
+        imageSize != QSize(2, 2)) {
+        return fail(9, "Image provider did not return the current frame.");
+    }
+
+    if (!controller.next() || controller.currentFrame() != 3 || currentFrameChanges != 2) {
+        return fail(5, "Navigation did not skip missing frames or respect bounds.");
+    }
+
+    const QUrl thirdFrameUrl = controller.currentFrameImageUrl();
+    if (thirdFrameUrl == firstFrameUrl ||
+        provider->requestImage("current/2", nullptr, {}).pixel(0, 0) != qRgb(3, 4, 5)) {
+        return fail(10, "Image URL revision or provider pixels did not change after navigation.");
+    }
+
+    if (controller.next() || currentFrameChanges != 2 ||
         !controller.previous() || controller.currentFrame() != 1 ||
         controller.previous() || currentFrameChanges != 3) {
         return fail(5, "Navigation did not skip missing frames or respect bounds.");
@@ -96,7 +123,8 @@ int main(int argc, char** argv) {
     if (controller.presentation() != "empty" || controller.currentFrame() != 0 ||
         controller.totalFrames() != 0 || !controller.error().isEmpty() ||
         presentationChanges != 2 || currentFrameChanges != 5 ||
-        totalFramesChanges != 2 || errorChanges != 2) {
+        totalFramesChanges != 2 || errorChanges != 2 ||
+        !controller.currentFrameImageUrl().isEmpty() || imageUrlChanges != 5) {
         return fail(7, "Clear did not restore empty presentation and notify changed properties.");
     }
 
@@ -106,6 +134,9 @@ int main(int argc, char** argv) {
         presentationChanges != 3 || errorChanges != 3) {
         return fail(8, "Open failure did not expose the model error.");
     }
+
+    if (!controller.currentFrameImageUrl().isEmpty())
+        return fail(11, "Failure did not clear the image URL.");
 
     return 0;
 }

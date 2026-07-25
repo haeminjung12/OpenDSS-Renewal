@@ -6,6 +6,7 @@ Window {
 
     property var settingsController: null
     property var runsResultsController: null
+    property var sequenceViewerController: null
 
     width: Constants.width
     height: Constants.height

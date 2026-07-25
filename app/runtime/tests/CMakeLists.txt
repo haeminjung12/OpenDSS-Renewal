@@ -330,12 +330,15 @@ add_test(
 )
 set_tests_properties(sequence_viewer_model_test PROPERTIES TIMEOUT 15)
 
+find_package(Qt6 6.8 REQUIRED COMPONENTS Qml Quick)
+
 qt_add_executable(sequence_viewer_controller_test
   sequence_viewer_controller_test.cpp
   ../desktop_app/json_persistence.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
   ../v2/sequence/sequence_viewer_model.cpp
   ../v2/sequence/sequence_viewer_controller.cpp
+  ../v2/sequence/sequence_viewer_image_provider.cpp
 )
 target_include_directories(sequence_viewer_controller_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -343,6 +346,8 @@ target_include_directories(sequence_viewer_controller_test PRIVATE
 target_link_libraries(sequence_viewer_controller_test PRIVATE
   Qt6::Core
   Qt6::Gui
+  Qt6::Qml
+  Qt6::Quick
 )
 add_test(
   NAME sequence_viewer_controller_test

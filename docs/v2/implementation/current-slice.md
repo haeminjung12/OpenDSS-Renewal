@@ -1,54 +1,55 @@
-# OpenDSS v2 functional slice — Dataset Load + read-only Dataset Summary
+# OpenDSS v2 functional slice — accepted headless backend integration
 
 ## Status
 
-**Opened:** July 23, 2026  
-**Authorization:** The user accepted the current visual/mock baseline on July 23, 2026. Appearance and graphics refinements continue in a separate design thread; acceptance does not claim that every visual imperfection is fixed or that manual review found no issues.
+**Accepted:** July 24, 2026  
+**Authorization:** The user explicitly authorized integrating accepted backend tip `3ed8025016a14dcb0b7e7fe5cf6f0c7738f99720` onto accepted GUI/design baseline `ea48ec3078adc068d57dd58e563e24f642289480` in a clean worktree, without requiring GUI completion.  
+**Integrated commit:** `0b5bda6bc0373b3fd8927db103d535f388d9c5f3`
 
-The visual navigation scaffold and Mock Single Image slice is closed as accepted. Its accepted forms, exported aliases, and frozen visual/runtime seam are the functional contract by default. A design-thread change requires exact named form ownership and an alias/interface handoff before functional integration; no functional work order may silently adapt an unannounced form change.
+The merge was conflict-free and has exactly those two parents. Independent review confirmed an empty remerge diff: the result is the direct union of the accepted GUI and backend parents with no manual resolution delta.
 
-**Prerequisite gate — passed:** integrated main commit `5dfcf0f` restored durable `qds.cmake` integration, and `176b84e` corrected the test-module import. A clean Qt 6.11.1 MinGW/Ninja configure passed; `Desktop_app_v2App` and `tst_ShellSingleImage` built; the direct offscreen JUnit run passed 21 cases with zero failures, errors, or skips; and `ShellSingleImage` CTest passed 1/1. Bounded production work orders for this slice may now launch.
+## Integrated functional baseline
 
-Preserve the sole dirty Qt Design Studio-generated reorder in `Desktop_app_v2Content/CMakeLists.txt` and the protected locally excluded `Desktop_app_v2.qmlproject.qtds`; do not absorb, overwrite, or hand-edit either as part of this slice.
+The accepted headless backend lineage now supplies:
 
-## Current objective
+- authoritative application state and operation/resource ownership;
+- Camera and Single Image service contracts;
+- Dataset, Sequence, Run, and model-package artifact contracts;
+- Image Sequence and Droplet Dataset Capture services;
+- Dataset Label and Sequence Viewer services;
+- Training, model activation/loading, and Model Test services;
+- software Sequence Test, Run persistence/recovery, and Results repository state;
+- bounded Live sorting with silent dropped-frame continuation and factual integrity metadata;
+- DAQ-LIVE binding with DAQ Output OFF by default, approved `Dev1/ao0`, 1 kHz, 5 ms, 0 ms delay, and fixed 5 Vpp mapped to 2.5 V peak; and
+- application Settings persistence for storage root and Text Size.
 
-Implement exactly one first production capability: select and load an existing OpenDSS v2 Dataset artifact through its `dataset.json` manifest, then project its authoritative read-only summary in **Data > Label**.
+These are backend/service contracts. They are not yet production GUI/controller wiring.
 
-## Required reading
+## Protected integration boundary
 
-1. [Repository agent policy](../../../AGENTS.md).
-2. [Implementation context](../CONTEXT.md).
-3. [Approved Product Model](../canonical/product-model.md), §7.2 **Data > Label**, §8 **Artifact model**, §15 **Persistence and provenance**, and D-012.
-4. [Information Architecture](../canonical/information-architecture.md), §0 **Amendment-controlled screen inventory** and §4.5 **Data > Label**.
-5. [Interaction and Application-State Specification](../canonical/interaction-and-state.md), §0 and its authoritative-state/error rules.
-6. [Detailed Workflow Specification](../canonical/detailed-workflows.md), §§14.3–14.4, 14.10, 25, 73.2, and 74.1–74.2.
-7. [User-approved visual-review amendment](../OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md), **Label** and **Implementation consequence**, only for the accepted composition and scope boundary.
-8. [Visual scaffold first-two-round plan](visual-scaffold-two-round-plan.md), as the accepted visual-contract record.
+- Accepted `*.ui.qml` forms, ordinary QML wrappers, `MockDatas`, visual assets/tokens, `qds.cmake`, generated content CMake, `.qmlproject`, and `.qtds` files match the `ea48ec3` parent exactly.
+- Backend paths match the `3ed8025` parent exactly.
+- Protected `live_data_collection_writer.*` changes are inherited unchanged from the previously accepted backend lineage.
+- No shared dirty working-tree file was staged, overwritten, absorbed, or cleaned.
 
-## In scope
+## Validation
 
-- real selection of an existing v2 `dataset.json` manifest and authoritative loading of that Dataset artifact;
-- a single authoritative read-only projection for Label: Dataset identity, selected path, load status, total and labeled counts, configured two- or three-class schema, and class metadata/counts defined by the Dataset contract;
-- deterministic direct errors and recovery for unreadable, unsupported, missing, or locked Dataset artifacts;
-- targeted tests and only the narrow controller/backend/ordinary-QML-wrapper integration named by later exact work orders.
-
-The selected schema is displayed only. Numeric Class IDs and class metadata are read from the artifact; this slice does not change them.
+- Independent merge review: no findings.
+- Fresh Qt 6.11.1 MSVC/Ninja configure: passed with the qualified Qt, vcpkg/OpenCV/Protobuf, ONNX Runtime, and DCAM SDK paths; NI-DAQmx was disabled.
+- Focused targets built: `daq_service_test`, `live_sorting_service_test`, `operation_coordinator_test`, and `settings_repository_test`.
+- Focused CTest result: 4/4 passed.
+- No GUI was launched and no physical hardware was accessed.
 
 ## Out of scope
 
-- changing class schema; class-name edits; labeling, relabeling, exclusion, undo, navigation, or any other label mutation/action;
-- filters that mutate data; Dataset Save As/copy; capture; Training; Model Test; hardware; TIFF; Camera; DAQ; detector; inference; Results; and broad persistence work;
-- edits to accepted `*.ui.qml` forms, visual assets, or tokens;
-- changes to protected reusable technical assets or generated CMake files;
-- any later functional slice.
+- GUI/controller or ordinary-QML integration;
+- any accepted visual-form alias, signal, property, state, layout, token, or asset change;
+- physical DAQ output, camera operation, or other HIL;
+- Setup Profile schema/persistence;
+- model-export or protected vendor-mechanics changes;
+- broad legacy, Python, GUI, or hardware test suites; and
+- selection or implementation of another slice.
 
-## Work-order and validation boundary
+## Next gate
 
-Each implementation work order must name exact writable controller/backend, wrapper QML, test, and durable CMake files; keep all other forms and generated files read-only. It must preserve one authoritative Dataset state owner and must not add a speculative framework, duplicate state, or a compatibility path.
-
-Validation remains proportional: focused loader/summary tests, the focused Qt Quick test, and one directly relevant configure/build when required. Do not run full legacy, Python, or hardware suites.
-
-## Simplest complete approach
-
-Use one Dataset-loading owner to parse and validate the selected `dataset.json`, expose one immutable summary projection to the existing Label wrapper, and test valid and invalid manifests. Do not implement write paths, schema switching, label actions, or a general persistence framework.
+This slice is complete. A later slice requires explicit user authorization and must name its exact interface and write boundaries. The simplest accepted integration is the direct two-parent merge plus these durable records; no integration-specific source, adapter, compatibility path, or framework was added.

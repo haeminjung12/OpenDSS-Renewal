@@ -12,6 +12,7 @@ Rectangle {
     property string selectedRunId: ""
     property string loadedRunId: ""
     property bool runsError: false
+    property bool hasRuns: false
     property bool runsPanelExpanded: true
     property bool rightPanelExpanded: true
     property bool notesEditing: false
@@ -25,6 +26,7 @@ Rectangle {
     property alias loadedRunStatusText: loadedRunStatusText.text
     property alias loadedRunStopReasonText: loadedRunStopReasonText.text
     property alias run042RowStatusText: run042RowStatusText.text
+    property alias runsRowsHost: runsRowsHost
 
     Text {
         id: workspaceHeading
@@ -315,35 +317,15 @@ Rectangle {
                         anchors.margins: Constants.spacing
                         spacing: 6
 
-                    Rectangle { visible: root.selectedRunId === "" && root.loadedRunId === "" && !root.runsError; width: parent.width; height: 70; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("No Runs found"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent } }
-                    Rectangle {
-                        visible: root.selectedRunId !== "" || root.loadedRunId !== ""
+                    Rectangle { visible: !root.hasRuns && !root.runsError; width: parent.width; height: 70; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("No Runs found"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent } }
+                    Column {
+                        id: runsRowsHost
                         width: parent.width
-                        height: 94
-                        color: root.selectedRunId === "Run-042" ? "#e8f0fa" : Constants.backgroundColor
-                        border.color: root.selectedRunId === "Run-042" ? Constants.accentColor : Constants.borderColor
-                        Column {
-                            anchors.fill: parent
-                            anchors.margins: 7
-                            Text { text: qsTr("Run Name: Run-042"); color: Constants.textColor; font: Constants.smallFont }
-                            Text { id: run042RowStatusText; text: qsTr("Live Sorting  |  Completed"); color: Constants.textColor; font: Constants.smallFont }
-                            Text { text: qsTr("Started: 2026-07-23 10:41  |  Duration: 00:03:12"); color: Constants.mutedTextColor; font: Constants.smallFont }
-                            Text { text: qsTr("Total Droplets: 1,248  |  Model: DropletNet-04"); color: Constants.mutedTextColor; font: Constants.smallFont }
-                        }
-                    }
-                    Rectangle {
-                        visible: root.selectedRunId !== "" || root.loadedRunId !== ""
-                        width: parent.width
-                        height: 94
-                        color: Constants.backgroundColor
-                        border.color: Constants.borderColor
-                        Column {
-                            anchors.fill: parent
-                            anchors.margins: 7
-                            Text { text: qsTr("Run Name: Run-043"); color: Constants.textColor; font: Constants.smallFont }
-                            Text { text: qsTr("Sequence Test  |  Stopped"); color: Constants.textColor; font: Constants.smallFont }
-                            Text { text: qsTr("Started: 2026-07-23 11:08  |  Duration: 00:02:26"); color: Constants.mutedTextColor; font: Constants.smallFont }
-                            Text { text: qsTr("Total Droplets: 876  |  Model: No model"); color: Constants.mutedTextColor; font: Constants.smallFont }
+                        spacing: 6
+
+                        Text {
+                            id: run042RowStatusText
+                            visible: false
                         }
                     }
                     Rectangle { visible: root.runsError; width: parent.width; height: 46; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent } }

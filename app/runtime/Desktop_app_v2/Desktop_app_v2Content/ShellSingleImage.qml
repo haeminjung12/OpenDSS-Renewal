@@ -8,6 +8,7 @@ Item {
     property alias mockState: state
     property alias form: screen
     property var settingsController
+    property var runsResultsController
     signal closeRequested()
 
     function focusCameraPrompt() {
@@ -15,7 +16,11 @@ Item {
             screen.cameraPromptYesButton.forceActiveFocus()
     }
 
-    Component.onCompleted: focusCameraPrompt()
+    Component.onCompleted: {
+        focusCameraPrompt()
+        if (root.runsResultsController)
+            root.runsResultsController.refresh()
+    }
 
     MockAppState {
         id: state
@@ -139,9 +144,10 @@ Item {
     Binding { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; property: "checked"; value: state.physicalDaqOutputChecked }
     Binding { target: screen.sequenceTestWorkspace.startStopButton; property: "enabled"; value: state.sequenceTestPresentation === "running" || state.sequenceTestStartEnabled }
 
-    Binding { target: screen.runsWorkspace; property: "selectedRunId"; value: state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? "" : "Run-042" }
-    Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }
-    Binding { target: screen.runsWorkspace; property: "runsError"; value: state.runsPresentation === "runsError" }
+    Binding { target: screen.runsWorkspace; property: "selectedRunId"; value: root.runsResultsController ? root.runsResultsController.selectedRunId : state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? "" : "Run-042" }
+    Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: root.runsResultsController ? root.runsResultsController.loadedRun.id || "" : state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }
+    Binding { target: screen.runsWorkspace; property: "runsError"; value: root.runsResultsController ? root.runsResultsController.errorMessage !== "" : state.runsPresentation === "runsError" }
+    Binding { target: screen.runsWorkspace; property: "hasRuns"; value: root.runsResultsController ? root.runsResultsController.runs.length > 0 : state.runsPresentation !== "runsEmpty" && state.runsPresentation !== "runsError" }
     Binding { target: screen.runsWorkspace; property: "runsPanelExpanded"; value: state.runsPanelExpanded }
     Binding { target: screen.runsWorkspace; property: "rightPanelExpanded"; value: state.runsRightPanelExpanded }
     Binding { target: screen.runsWorkspace; property: "notesEditing"; value: state.runsPresentation === "runsNotesEditing" }
@@ -263,7 +269,7 @@ Item {
 
     Connections { target: screen.runsWorkspace.runsPanelToggleButton; function onClicked() { state.toggleRunsPanel() } }
     Connections { target: screen.runsWorkspace.rightPanelToggleButton; function onClicked() { state.toggleRunsRightPanel() } }
-    Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { state.loadSelectedRun() } }
+    Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { if (root.runsResultsController) root.runsResultsController.loadSelected(); else state.loadSelectedRun() } }
     Connections { target: screen.runsWorkspace.editNotesButton; function onClicked() { state.editRunNotes() } }
     Connections { target: screen.runsWorkspace.saveNotesButton; function onClicked() { state.finishRunNotesEditing() } }
     Connections {
@@ -273,6 +279,69 @@ Item {
         }
     }
     Connections { target: screen.runsWorkspace.cancelNotesButton; function onClicked() { state.finishRunNotesEditing() } }
+
+    Component {
+        id: runRowDelegate
+
+        Rectangle {
+            id: runRow
+            required property var modelData
+            readonly property var run: modelData
+            readonly property bool selected: screen.runsWorkspace.selectedRunId === run.id
+            width: parent.width
+            height: 94
+            color: selected ? "#e8f0fa" : Constants.backgroundColor
+            border.color: activeFocus || selected ? Constants.accentColor : Constants.borderColor
+            activeFocusOnTab: root.runsResultsController && run.loadable
+            Accessible.name: run.runName
+            Accessible.role: Accessible.ListItem
+
+            Column {
+                anchors.fill: parent
+                anchors.margins: 7
+                Text { text: qsTr("Run Name: %1").arg(run.runName); color: Constants.textColor; font: Constants.smallFont }
+                Text { text: run.loadable ? run.statusText || qsTr("%1  |  %2").arg(run.operation).arg(run.status) : qsTr("Unavailable"); color: Constants.textColor; font: Constants.smallFont }
+                Text { text: run.loadable ? run.timingText || qsTr("Started: %1  |  Duration: %2 s").arg(run.startedAt).arg(run.durationSeconds) : run.reason; color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
+                Text { text: run.loadable ? run.summaryText || qsTr("Total Droplets: %1  |  Model: %2").arg(run.totalCount).arg(run.modelName === "" ? qsTr("No model") : run.modelName) : ""; color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
+            }
+
+            TapHandler {
+                enabled: root.runsResultsController && runRow.run.loadable
+                onTapped: {
+                    runRow.forceActiveFocus()
+                    root.runsResultsController.selectRun(runRow.run.id)
+                }
+            }
+            Keys.onReturnPressed: root.runsResultsController.selectRun(run.id)
+            Keys.onSpacePressed: root.runsResultsController.selectRun(run.id)
+            Keys.enabled: root.runsResultsController && run.loadable
+        }
+    }
+
+    Repeater {
+        parent: screen.runsWorkspace.runsRowsHost
+        model: root.runsResultsController ? root.runsResultsController.runs
+                                          : state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? []
+                                          : [
+                                                {
+                                                    id: "Run-042",
+                                                    runName: "Run-042",
+                                                    loadable: true,
+                                                    statusText: state.run042RowStatusText,
+                                                    timingText: qsTr("Started: 2026-07-23 10:41  |  Duration: 00:03:12"),
+                                                    summaryText: qsTr("Total Droplets: 1,248  |  Model: DropletNet-04")
+                                                },
+                                                {
+                                                    id: "Run-043",
+                                                    runName: "Run-043",
+                                                    loadable: true,
+                                                    statusText: qsTr("Sequence Test  |  Stopped"),
+                                                    timingText: qsTr("Started: 2026-07-23 11:08  |  Duration: 00:02:26"),
+                                                    summaryText: qsTr("Total Droplets: 876  |  Model: No model")
+                                                }
+                                            ]
+        delegate: runRowDelegate
+    }
 
     Connections {
         target: screen.hardwareButton

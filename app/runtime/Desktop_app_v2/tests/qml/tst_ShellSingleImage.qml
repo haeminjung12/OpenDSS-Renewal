@@ -595,6 +595,18 @@ Item {
         compare(shell.mockState.sequenceViewerPresentation, "middleFrame")
     }
 
+    function test_sequenceViewerLocalFilePaths() {
+        compare(shell.localFilePath("file:///C:/OpenDSS/sequence.json"),
+                "C:/OpenDSS/sequence.json")
+        compare(shell.localFilePath("file:///C:/Open%20DSS/sequence.json"),
+                "C:/Open DSS/sequence.json")
+        compare(shell.localFilePath("file://server/share/sequence.json"),
+                "//server/share/sequence.json")
+        compare(shell.localFilePath("file:///tmp/OpenDSS/sequence.json"),
+                "/tmp/OpenDSS/sequence.json")
+        compare(shell.localFilePath("https://example.com/sequence.json"), "")
+    }
+
     function test_trainStartRequirementsAndInterrupt() {
         shell.form.navTrainButton.clicked()
         shell.form.trainWorkspace.selectDatasetButton.clicked()

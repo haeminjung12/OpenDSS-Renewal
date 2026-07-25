@@ -21,6 +21,7 @@ Window {
         anchors.fill: parent
         settingsController: window.settingsController
         property var runsResultsController: window.runsResultsController
+        sequenceViewerController: window.sequenceViewerController
         onCloseRequested: window.close()
     }
 

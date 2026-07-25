@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Dialogs
 import Desktop_app_v2
 
 Item {
@@ -9,11 +10,29 @@ Item {
     property alias form: screen
     property var settingsController
     property var runsResultsController
+    property var sequenceViewerController
     signal closeRequested()
 
     function focusCameraPrompt() {
         if (state.cameraPromptVisible)
             screen.cameraPromptYesButton.forceActiveFocus()
+    }
+
+    function localFilePath(fileUrl) {
+        try {
+            const parsed = new URL(fileUrl)
+            if (parsed.protocol !== "file:")
+                return ""
+
+            const path = decodeURIComponent(parsed.pathname)
+            if (parsed.hostname !== "")
+                return "//" + decodeURIComponent(parsed.hostname) + path
+            if (/^\/[A-Za-z]:\//.test(path))
+                return path.substring(1)
+            return path
+        } catch (error) {
+            return ""
+        }
     }
 
     Component.onCompleted: {
@@ -84,9 +103,10 @@ Item {
     Binding { target: screen.labelWorkspace; property: "labelExpanded"; value: state.labelExpanded }
     Binding { target: screen.labelWorkspace; property: "filterExpanded"; value: state.labelFilterExpanded }
 
-    Binding { target: screen.sequenceViewerWorkspace; property: "presentation"; value: state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? state.sequenceViewerPresentation : "ready" }
-    Binding { target: screen.sequenceViewerWorkspace; property: "currentFrame"; value: state.sequenceViewerPresentation === "firstFrame" ? 1 : state.sequenceViewerPresentation === "middleFrame" ? 60 : state.sequenceViewerPresentation === "finalFrame" ? 120 : 0 }
-    Binding { target: screen.sequenceViewerWorkspace; property: "totalFrames"; value: state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? 0 : 120 }
+    Binding { target: screen.sequenceViewerWorkspace; property: "presentation"; value: root.sequenceViewerController ? root.sequenceViewerController.presentation : state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? state.sequenceViewerPresentation : "ready" }
+    Binding { target: screen.sequenceViewerWorkspace; property: "currentFrame"; value: root.sequenceViewerController ? root.sequenceViewerController.currentFrame : state.sequenceViewerPresentation === "firstFrame" ? 1 : state.sequenceViewerPresentation === "middleFrame" ? 60 : state.sequenceViewerPresentation === "finalFrame" ? 120 : 0 }
+    Binding { target: screen.sequenceViewerWorkspace; property: "totalFrames"; value: root.sequenceViewerController ? root.sequenceViewerController.totalFrames : state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? 0 : 120 }
+    Binding { target: screen.sequenceViewerWorkspace; property: "currentFrameSource"; value: root.sequenceViewerController ? root.sequenceViewerController.currentFrameImageUrl : "" }
 
     Binding { target: screen.trainWorkspace; property: "presentation"; value: state.trainPresentation }
     Binding { target: screen.trainWorkspace; property: "datasetText"; value: state.trainPresentation === "empty" ? qsTr("No Dataset selected") : qsTr("Dataset-042") }
@@ -215,10 +235,22 @@ Item {
     Connections { target: screen.labelWorkspace.nextButton; function onClicked() { state.moveLabelSelection(1) } }
     Connections { target: screen.labelWorkspace.saveAsButton; function onClicked() { state.saveLabelDatasetAs() } }
 
-    Connections { target: screen.sequenceViewerWorkspace.openSequenceButton; function onClicked() { state.openViewerSequence() } }
-    Connections { target: screen.sequenceViewerWorkspace.previousButton; function onClicked() { state.previousViewerFrame() } }
-    Connections { target: screen.sequenceViewerWorkspace.nextButton; function onClicked() { state.nextViewerFrame() } }
-    Connections { target: screen.sequenceViewerWorkspace.directSeekField; function onAccepted() { state.seekViewerFrame(screen.sequenceViewerWorkspace.directSeekField.text) } }
+    Connections { target: screen.sequenceViewerWorkspace.openSequenceButton; function onClicked() { if (root.sequenceViewerController) sequenceFileDialog.open(); else state.openViewerSequence() } }
+    Connections { target: screen.sequenceViewerWorkspace.previousButton; function onClicked() { if (root.sequenceViewerController) root.sequenceViewerController.previous(); else state.previousViewerFrame() } }
+    Connections { target: screen.sequenceViewerWorkspace.nextButton; function onClicked() { if (root.sequenceViewerController) root.sequenceViewerController.next(); else state.nextViewerFrame() } }
+    Connections { target: screen.sequenceViewerWorkspace.directSeekField; function onAccepted() { if (root.sequenceViewerController) root.sequenceViewerController.seek(Number(screen.sequenceViewerWorkspace.directSeekField.text)); else state.seekViewerFrame(screen.sequenceViewerWorkspace.directSeekField.text) } }
+
+    FileDialog {
+        id: sequenceFileDialog
+        title: qsTr("Open Image Sequence")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("OpenDSS Image Sequence (sequence.json)")]
+        onAccepted: {
+            const path = root.localFilePath(selectedFile)
+            if (root.sequenceViewerController && path !== "")
+                root.sequenceViewerController.open(path)
+        }
+    }
 
     Connections { target: screen.trainWorkspace.selectDatasetButton; function onClicked() { state.selectTrainDataset() } }
     Connections { target: screen.trainWorkspace.modelNameField; function onTextEdited() { state.trainModelNameDraft = screen.trainWorkspace.modelNameField.text } }

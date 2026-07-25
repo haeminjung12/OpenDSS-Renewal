@@ -1,12 +1,17 @@
 #include "model_library_controller.h"
+#include "model_load_service.h"
 
 #include "../operation/operation_coordinator.h"
 #include "../../desktop_app/model_registry_service.h"
 
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QSaveFile>
 #include <QStringList>
+#include <QTemporaryDir>
 
 #include <utility>
 
@@ -114,6 +119,12 @@ QVariantMap rowMap(const QJsonObject &entry)
             {QStringLiteral("canActivate"), inspection.canActivate}};
 }
 
+QString localPath(const QUrl &url)
+{
+    return url.isLocalFile() ? QFileInfo(url.toLocalFile()).absoluteFilePath()
+                             : QString{};
+}
+
 } // namespace
 
 ModelLibraryController::ModelLibraryController(QString registryFilePath,
@@ -123,6 +134,8 @@ ModelLibraryController::ModelLibraryController(QString registryFilePath,
     , operations_(operations)
     , registryFilePath_(std::move(registryFilePath))
 {
+    connect(&operations_, &OperationCoordinator::resourcesChanged,
+            this, &ModelLibraryController::changed);
 }
 
 QVariantList ModelLibraryController::modelRows() const
@@ -196,6 +209,37 @@ QString ModelLibraryController::errorMessage() const
     return errorMessage_;
 }
 
+bool ModelLibraryController::operationInProgress() const
+{
+    return operationInProgress_;
+}
+
+bool ModelLibraryController::canImport() const
+{
+    return !operationInProgress_;
+}
+
+bool ModelLibraryController::canExport() const
+{
+    return !operationInProgress_ && !selectedPackagePath().isEmpty()
+           && selectedPackageAvailable(ModelAccess::Read);
+}
+
+bool ModelLibraryController::canDuplicate() const
+{
+    return canExport();
+}
+
+bool ModelLibraryController::canDelete() const
+{
+    if (operationInProgress_ || selectedPackagePath().isEmpty())
+        return false;
+    if (selectedId().compare(activeId(), Qt::CaseInsensitive) == 0
+        && !activeModelCleared_)
+        return false;
+    return selectedPackageAvailable(ModelAccess::Write);
+}
+
 bool ModelLibraryController::refresh()
 {
     const QString priorSelection = selectedId();
@@ -235,11 +279,33 @@ bool ModelLibraryController::setActive()
     if (id.compare(activeId(), Qt::CaseInsensitive) == 0)
         return fail(QStringLiteral("Selected model is already Active."));
 
-    auto lock = operations_.acquireMomentary(ResourceLock::Model);
-    if (!lock.acquired())
-        return fail(lock.fault
-                        ? lock.fault->reason
-                        : QStringLiteral("The Model resource is in use."));
+    const QString selectedPath = selectedPackagePath();
+    auto selectedLock = operations_.acquireModel(selectedPath, ModelAccess::Write);
+    if (!selectedLock.acquired())
+        return fail(selectedLock.fault
+                        ? selectedLock.fault->reason
+                        : QStringLiteral("The selected Model Package is in use."));
+    const QString priorActiveId = activeId();
+    ModelAcquireResult activeLock;
+    bool activeLockRequired = false;
+    if (!priorActiveId.isEmpty()) {
+        for (const QJsonValue &value : entries_) {
+            const QJsonObject entry = value.toObject();
+            if (entryId(entry).compare(priorActiveId, Qt::CaseInsensitive) == 0) {
+                const QString activePath = inspectModelPackage(entry).packagePath;
+                if (activePath.compare(selectedPath, Qt::CaseInsensitive) != 0) {
+                    activeLockRequired = true;
+                    activeLock = operations_.acquireModel(activePath, ModelAccess::Write);
+                }
+                break;
+            }
+        }
+        if (activeLockRequired && !activeLock.acquired() && !activeLock.fault.has_value()) {
+            return fail(QStringLiteral("The Active Model Package is unavailable."));
+        }
+        if (activeLock.fault)
+            return fail(activeLock.fault->reason);
+    }
     QString error;
     if (!activateModelRegistryEntry(registryFilePath_, id, &error))
         return fail(error);
@@ -252,15 +318,222 @@ bool ModelLibraryController::renameSelected(const QString &displayName)
     if (id.isEmpty())
         return fail(QStringLiteral("No model is selected."));
 
-    auto lock = operations_.acquireMomentary(ResourceLock::Model);
+    auto lock = operations_.acquireModel(selectedPackagePath(), ModelAccess::Write);
     if (!lock.acquired())
         return fail(lock.fault
                         ? lock.fault->reason
-                        : QStringLiteral("The Model resource is in use."));
+                        : QStringLiteral("The selected Model Package is in use."));
     QString error;
     if (!renameRegistryEntryDisplayName(registryFilePath_, id, displayName, &error))
         return fail(error);
     return refresh();
+}
+
+bool ModelLibraryController::importModel(const QUrl &packageUrl)
+{
+    if (operationInProgress_)
+        return fail(QStringLiteral("A Model Library operation is already in progress."));
+    const QString packagePath = localPath(packageUrl);
+    if (packagePath.isEmpty())
+        return fail(QStringLiteral("Choose a local OpenDSS v2 Model Package folder."));
+
+    setOperationInProgress(true);
+    QString error;
+    if (!validateCompleteV2ModelPackage(packagePath, &error)
+        || !validateLoadablePackage(packagePath, &error)) {
+        setOperationInProgress(false);
+        return fail(error);
+    }
+    auto lock = operations_.acquireModel(packagePath, ModelAccess::Read);
+    if (!lock.acquired()) {
+        setOperationInProgress(false);
+        return fail(lock.fault ? lock.fault->reason
+                               : QStringLiteral("The Model Package is in use."));
+    }
+
+    QString importedId;
+    QString importedPath;
+    QString recoveryPath;
+    const bool imported = importCompleteModelPackage(
+        registryFilePath_, packagePath, &importedId, &importedPath, &recoveryPath, &error);
+    setOperationInProgress(false);
+    if (!imported)
+        return fail(QStringLiteral("Import failed: ") + error);
+    return refreshAndSelect(importedId);
+}
+
+bool ModelLibraryController::exportSelected(const QUrl &destinationRootUrl)
+{
+    if (operationInProgress_)
+        return fail(QStringLiteral("A Model Library operation is already in progress."));
+    const QString packagePath = selectedPackagePath();
+    const QString destinationRoot = localPath(destinationRootUrl);
+    if (packagePath.isEmpty())
+        return fail(QStringLiteral("No model is selected."));
+    if (destinationRoot.isEmpty())
+        return fail(QStringLiteral("Choose a local export destination folder."));
+
+    setOperationInProgress(true);
+    auto lock = operations_.acquireModel(packagePath, ModelAccess::Read);
+    if (!lock.acquired()) {
+        setOperationInProgress(false);
+        return fail(lock.fault ? lock.fault->reason
+                               : QStringLiteral("The Model Package is in use."));
+    }
+    QString exportedPath;
+    QString error;
+    const bool exported =
+        exportCompleteModelPackage(packagePath, destinationRoot, &exportedPath, &error);
+    setOperationInProgress(false);
+    if (!exported)
+        return fail(QStringLiteral("Export failed: ") + error);
+    errorMessage_.clear();
+    emit changed();
+    return true;
+}
+
+bool ModelLibraryController::duplicateSelected(const QString &displayName,
+                                               const QUrl &destinationRootUrl)
+{
+    if (operationInProgress_)
+        return fail(QStringLiteral("A Model Library operation is already in progress."));
+    const QString packagePath = selectedPackagePath();
+    const QString destinationRoot = localPath(destinationRootUrl);
+    if (packagePath.isEmpty())
+        return fail(QStringLiteral("No model is selected."));
+    if (destinationRoot.isEmpty())
+        return fail(QStringLiteral("Choose a local duplicate destination folder."));
+
+    setOperationInProgress(true);
+    auto lock = operations_.acquireModel(packagePath, ModelAccess::Read);
+    if (!lock.acquired()) {
+        setOperationInProgress(false);
+        return fail(lock.fault ? lock.fault->reason
+                               : QStringLiteral("The Model Package is in use."));
+    }
+    QString duplicatedId;
+    QString duplicatedPath;
+    QString recoveryPath;
+    QString error;
+    const bool duplicated = duplicateCompleteModelPackage(
+        registryFilePath_, packagePath, displayName, destinationRoot,
+        &duplicatedId, &duplicatedPath, &recoveryPath, &error);
+    setOperationInProgress(false);
+    if (!duplicated)
+        return fail(QStringLiteral("Duplicate failed: ") + error);
+    return refreshAndSelect(duplicatedId);
+}
+
+bool ModelLibraryController::deleteSelected()
+{
+    if (operationInProgress_)
+        return fail(QStringLiteral("A Model Library operation is already in progress."));
+    const QString id = selectedId();
+    const QString packagePath = selectedPackagePath();
+    if (id.isEmpty() || packagePath.isEmpty())
+        return fail(QStringLiteral("No model is selected."));
+    const bool active = id.compare(activeId(), Qt::CaseInsensitive) == 0;
+    if (active && !activeModelCleared_)
+        return fail(QStringLiteral("Active Model clearing is unavailable."));
+
+    setOperationInProgress(true);
+    auto lock = operations_.acquireModel(packagePath, ModelAccess::Write);
+    if (!lock.acquired()) {
+        setOperationInProgress(false);
+        return fail(lock.fault ? lock.fault->reason
+                               : QStringLiteral("The Model Package is in use."));
+    }
+    bool registryCommitted = false;
+    bool deletedActive = false;
+    QString recoveryPath;
+    QString error;
+    const bool deleted = deleteRegisteredModelPackage(
+        registryFilePath_, id, &registryCommitted, &deletedActive, &recoveryPath, &error);
+    if (registryCommitted && deletedActive)
+        activeModelCleared_();
+    setOperationInProgress(false);
+    if (registryCommitted)
+        refresh();
+    if (!deleted)
+        return fail(QStringLiteral("Delete failed: ") + error);
+    errorMessage_ = error;
+    emit changed();
+    return true;
+}
+
+void ModelLibraryController::setActiveModelClearedCallback(std::function<void()> callback)
+{
+    activeModelCleared_ = std::move(callback);
+    emit changed();
+}
+
+bool ModelLibraryController::selectedPackageAvailable(ModelAccess access) const
+{
+    auto lock = operations_.acquireModel(selectedPackagePath(), access);
+    return lock.acquired();
+}
+
+QString ModelLibraryController::selectedPackagePath() const
+{
+    if (selectedIndex_ < 0 || selectedIndex_ >= entries_.size())
+        return {};
+    return inspectModelPackage(entries_.at(selectedIndex_).toObject()).packagePath;
+}
+
+bool ModelLibraryController::validateLoadablePackage(const QString &packagePath,
+                                                     QString *error) const
+{
+    QTemporaryDir temporary;
+    if (!temporary.isValid()) {
+        if (error)
+            *error = QStringLiteral("Could not create temporary package validation state.");
+        return false;
+    }
+    const QString validationId = QStringLiteral("package-import-validation");
+    const QString validationRegistry =
+        QDir(temporary.path()).filePath(QStringLiteral("model_registry.json"));
+    const QJsonObject registry{
+        {QStringLiteral("schema_version"), QStringLiteral("model-registry-v3-simple")},
+        {QStringLiteral("entries"),
+         QJsonArray{QJsonObject{{QStringLiteral("registry_entry_id"), validationId},
+                                {QStringLiteral("display_name"),
+                                 QStringLiteral("Package validation")},
+                                {QStringLiteral("package_path"), packagePath},
+                                {QStringLiteral("active"), false}}}}};
+    QSaveFile file(validationRegistry);
+    const QByteArray bytes = QJsonDocument(registry).toJson(QJsonDocument::Compact);
+    if (!file.open(QIODevice::WriteOnly) || file.write(bytes) != bytes.size()
+        || !file.commit()) {
+        if (error)
+            *error = QStringLiteral("Could not prepare temporary package validation state.");
+        return false;
+    }
+    ModelLoadService loader(validationRegistry);
+    QString warning;
+    return static_cast<bool>(loader.prepare(validationId, QStringLiteral("cpu"),
+                                            &warning, error));
+}
+
+bool ModelLibraryController::refreshAndSelect(const QString &entryIdToSelect)
+{
+    if (!refresh())
+        return false;
+    for (int index = 0; index < entries_.size(); ++index) {
+        if (entryId(entries_.at(index).toObject()).compare(
+                entryIdToSelect, Qt::CaseInsensitive) == 0)
+            return select(index);
+    }
+    return fail(QStringLiteral("The completed Model Package was not found after refresh."));
+}
+
+void ModelLibraryController::setOperationInProgress(bool inProgress)
+{
+    if (operationInProgress_ == inProgress)
+        return;
+    operationInProgress_ = inProgress;
+    if (inProgress)
+        errorMessage_.clear();
+    emit changed();
 }
 
 bool ModelLibraryController::fail(const QString &message)

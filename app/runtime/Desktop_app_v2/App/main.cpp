@@ -122,6 +122,12 @@ int main(int argc, char *argv[])
         registryFilePath, operationCoordinator);
     desktop_app::v2::ModelLoadService modelLoadService(registryFilePath);
     PipelineRunner pipeline;
+    modelLibraryController.setActiveModelClearedCallback([&applicationStateStore,
+                                                          &pipeline]() {
+        pipeline.clear();
+        pipeline.installInference(nullptr);
+        applicationStateStore.publishActiveModel({});
+    });
     desktop_app::v2::training::TrainingController trainingController(
         operationCoordinator, applicationStateStore, modelLoadService, pipeline,
         modelLibraryController, trainingPythonExecutable(), repositoryRoot());

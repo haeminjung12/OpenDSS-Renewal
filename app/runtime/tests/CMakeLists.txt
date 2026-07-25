@@ -157,25 +157,33 @@ qt_add_executable(model_library_controller_test
   ../desktop_app/app_utils.cpp
   ../desktop_app/json_persistence.cpp
   ../desktop_app/model_registry_service.cpp
+  ../inference/onnx_inference_adapter.cpp
   ../v2/model/model_library_controller.cpp
+  ../v2/model/model_load_service.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/operation/operation_coordinator.h
 )
 target_compile_definitions(model_library_controller_test PRIVATE
   OPENDSS_TEST_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."
+  OPENDSS_MODEL_LOAD_NO_PIPELINE
 )
 target_include_directories(model_library_controller_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(model_library_controller_test PRIVATE
+  opendss_runtime
   Qt6::Core
   Qt6::Widgets
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
 )
 add_test(
   NAME model_library_controller_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
     $<TARGET_FILE:model_library_controller_test>
 )
 set_tests_properties(model_library_controller_test PROPERTIES TIMEOUT 15)

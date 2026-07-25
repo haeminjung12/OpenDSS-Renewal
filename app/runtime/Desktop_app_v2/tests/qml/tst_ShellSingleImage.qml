@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Dialogs
 import QtTest
 import Desktop_app_v2
 import Desktop_app_v2Content
@@ -128,10 +129,23 @@ Item {
         } : ({})
         property string presentation: "ready"
         property string errorMessage: ""
+        property bool operationInProgress: false
+        readonly property bool canImport: !operationInProgress
+        readonly property bool canExport: !operationInProgress && selectedIndex >= 0
+        readonly property bool canDuplicate: canExport
+        readonly property bool canDelete: !operationInProgress && selectedIndex >= 0
         property int refreshCallCount: 0
         property int selectCallCount: 0
         property int setActiveCallCount: 0
         property int renameCallCount: 0
+        property int importCallCount: 0
+        property int exportCallCount: 0
+        property int duplicateCallCount: 0
+        property int deleteCallCount: 0
+        property url importArgument
+        property url exportArgument
+        property url duplicateDestinationArgument
+        property string duplicateNameArgument: ""
         property string renamedTo: ""
 
         function reset() {
@@ -151,9 +165,18 @@ Item {
             activeId = "model-active"
             presentation = "ready"
             errorMessage = ""
+            operationInProgress = false
             selectCallCount = 0
             setActiveCallCount = 0
             renameCallCount = 0
+            importCallCount = 0
+            exportCallCount = 0
+            duplicateCallCount = 0
+            deleteCallCount = 0
+            importArgument = ""
+            exportArgument = ""
+            duplicateDestinationArgument = ""
+            duplicateNameArgument = ""
             renamedTo = ""
         }
 
@@ -197,6 +220,30 @@ Item {
                     classSummary: "Empty, Single, MoreThanOne", active: false
                 }
             ]
+            return true
+        }
+
+        function importModel(url) {
+            ++importCallCount
+            importArgument = url
+            return true
+        }
+
+        function exportSelected(url) {
+            ++exportCallCount
+            exportArgument = url
+            return true
+        }
+
+        function duplicateSelected(name, url) {
+            ++duplicateCallCount
+            duplicateNameArgument = name
+            duplicateDestinationArgument = url
+            return true
+        }
+
+        function deleteSelected() {
+            ++deleteCallCount
             return true
         }
     }
@@ -517,16 +564,27 @@ Item {
     function test_modelLibraryControllerWiring() {
         compare(modelLibraryController.refreshCallCount, 1)
         shell.modelLibraryController = modelLibraryController
+        shell.modelImportFolderDialog.options = FolderDialog.DontUseNativeDialog
+        shell.modelExportFolderDialog.options = FolderDialog.DontUseNativeDialog
+        shell.modelDuplicateFolderDialog.options = FolderDialog.DontUseNativeDialog
         shell.form.navLibraryButton.clicked()
 
         tryCompare(shell.form.modelLibraryWorkspace.modelListView, "count", 2)
         compare(shell.form.modelLibraryWorkspace.presentation, "ready")
         compare(shell.form.modelLibraryWorkspace.modelRows[1].name, "Candidate Model")
         verify(!shell.form.modelLibraryWorkspace.hasSelection)
-        verify(!shell.form.modelLibraryWorkspace.importButton.enabled)
+        verify(shell.form.modelLibraryWorkspace.importButton.enabled)
         verify(!shell.form.modelLibraryWorkspace.exportButton.enabled)
         verify(!shell.form.modelLibraryWorkspace.duplicateButton.enabled)
         verify(!shell.form.modelLibraryWorkspace.deleteButton.enabled)
+
+        shell.form.modelLibraryWorkspace.importButton.clicked()
+        tryVerify(function() { return shell.modelImportFolderDialog.visible })
+        shell.modelImportFolderDialog.close()
+        shell.importModelPackage("file:///C:/Packages/imported-model")
+        compare(modelLibraryController.importCallCount, 1)
+        compare(modelLibraryController.importArgument.toString(),
+                "file:///C:/Packages/imported-model")
 
         shell.mockState.selectedWorkspace = "library"
         shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
@@ -553,6 +611,41 @@ Item {
         compare(shell.form.modelLibraryWorkspace.selectedModelPackageLocation,
                 "C:/OpenDSS/Models/model-candidate")
         compare(shell.form.modelLibraryWorkspace.selectedModelTrainingMetrics, "")
+        verify(shell.form.modelLibraryWorkspace.exportButton.enabled)
+        verify(shell.form.modelLibraryWorkspace.duplicateButton.enabled)
+        verify(shell.form.modelLibraryWorkspace.deleteButton.enabled)
+        modelLibraryController.operationInProgress = true
+        verify(!shell.form.modelLibraryWorkspace.importButton.enabled)
+        verify(!shell.form.modelLibraryWorkspace.exportButton.enabled)
+        verify(!shell.form.modelLibraryWorkspace.duplicateButton.enabled)
+        verify(!shell.form.modelLibraryWorkspace.deleteButton.enabled)
+        modelLibraryController.operationInProgress = false
+
+        shell.form.modelLibraryWorkspace.exportButton.clicked()
+        tryVerify(function() { return shell.modelExportFolderDialog.visible })
+        shell.modelExportFolderDialog.close()
+        shell.exportSelectedModel("file:///C:/Exports")
+        compare(modelLibraryController.exportCallCount, 1)
+        compare(modelLibraryController.exportArgument.toString(),
+                "file:///C:/Exports")
+
+        shell.form.modelLibraryWorkspace.duplicateButton.clicked()
+        tryVerify(function() { return shell.modelDuplicateDialog.opened })
+        compare(shell.modelDuplicateNameField.text, "Candidate Model Copy")
+        shell.modelDuplicateNameField.text = "Independent Copy"
+        shell.modelDuplicateDialog.accept()
+        tryVerify(function() { return shell.modelDuplicateFolderDialog.visible })
+        shell.modelDuplicateFolderDialog.close()
+        shell.duplicateSelectedModel("Independent Copy", "file:///C:/Duplicates")
+        compare(modelLibraryController.duplicateCallCount, 1)
+        compare(modelLibraryController.duplicateNameArgument, "Independent Copy")
+        compare(modelLibraryController.duplicateDestinationArgument.toString(),
+                "file:///C:/Duplicates")
+
+        shell.form.modelLibraryWorkspace.deleteButton.clicked()
+        tryVerify(function() { return shell.modelDeleteDialog.opened })
+        shell.modelDeleteDialog.accept()
+        compare(modelLibraryController.deleteCallCount, 1)
 
         shell.form.modelLibraryWorkspace.renameButton.clicked()
         tryVerify(function() { return shell.modelRenameDialog.opened })
@@ -574,6 +667,7 @@ Item {
         compare(modelLibraryController.setActiveCallCount, 1)
         compare(modelLibraryController.activeId, "model-candidate")
         verify(shell.form.modelLibraryWorkspace.selectedActive)
+        verify(shell.form.modelLibraryWorkspace.deleteButton.enabled)
         verify(shell.form.modelLibraryWorkspace.openInModelTestButton.enabled)
 
         shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()

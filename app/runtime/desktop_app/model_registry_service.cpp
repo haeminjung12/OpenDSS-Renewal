@@ -9,7 +9,9 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QSet>
 #include <QStandardPaths>
+#include <QUuid>
 
 #include "app_utils.h"
 #include "json_persistence.h"
@@ -2071,6 +2073,601 @@ bool renameRegistryEntryDisplayName(const QString& registryFilePath, const QStri
     registry["entries"] = entries;
     registry["updated_at"] = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
     return writeRegistryFile(path, registry, error);
+}
+
+namespace {
+
+bool readRegistryForPackageMutation(const QString& registryFilePath, QJsonObject* registry, QString* error) {
+    QFile file(registryFilePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        if (error)
+            *error = "Registry file not readable: " + registryFilePath;
+        return false;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        if (error)
+            *error = "Model registry parse failed: " + parseError.errorString();
+        return false;
+    }
+    *registry = document.object();
+    return repairRegistryBeforeWrite(registryFilePath, registry, error);
+}
+
+bool safePackageFileName(const QString& name) {
+    return !name.trimmed().isEmpty() && name != "." && name != ".." &&
+           QFileInfo(name).fileName() == name;
+}
+
+QString resolvedPathForComparison(const QString& path) {
+    const QString absolutePath = absoluteCleanPath(path);
+    if (absolutePath.isEmpty())
+        return {};
+
+    QString existingPath = absolutePath;
+    QStringList missingSegments;
+    while (!QFileInfo::exists(existingPath)) {
+        const QFileInfo missing(existingPath);
+        const QString segment = missing.fileName();
+        const QString parent = missing.absolutePath();
+        if (segment.isEmpty() || parent == existingPath)
+            return normalizedPathForComparison(absolutePath);
+        missingSegments.prepend(segment);
+        existingPath = parent;
+    }
+
+    const QFileInfo existing(existingPath);
+    QString resolved;
+    if (existing.isJunction())
+        resolved = QFileInfo(existing.junctionTarget()).canonicalFilePath();
+    else if (existing.isSymLink() || existing.isAlias())
+        resolved = QFileInfo(existing.symLinkTarget()).canonicalFilePath();
+    else
+        resolved = existing.canonicalFilePath();
+    if (resolved.isEmpty())
+        resolved = absoluteCleanPath(existingPath);
+    for (const QString& segment : missingSegments)
+        resolved = QDir(resolved).filePath(segment);
+    return normalizedPathForComparison(resolved);
+}
+
+bool pathsOverlap(const QString& first, const QString& second) {
+    const QString firstResolved = resolvedPathForComparison(first);
+    const QString secondResolved = resolvedPathForComparison(second);
+    if (firstResolved.isEmpty() || secondResolved.isEmpty())
+        return false;
+    return firstResolved == secondResolved ||
+           firstResolved.startsWith(secondResolved + '/') ||
+           secondResolved.startsWith(firstResolved + '/');
+}
+
+bool registryEntriesHaveUniqueIdsAndPaths(const QJsonArray& entries, QString* error) {
+    QSet<QString> ids;
+    QSet<QString> paths;
+    for (const QJsonValue& value : entries) {
+        const QJsonObject entry = value.toObject();
+        const QString id =
+            registryString(entry, "registry_entry_id").trimmed().toLower();
+        const QString path = resolvedPathForComparison(
+            resolvePackagedPathFromRegistryPath(registryString(entry, "package_path")));
+        if (id.isEmpty() || ids.contains(id)) {
+            if (error)
+                *error = "The Model registry contains duplicate or empty Model IDs.";
+            return false;
+        }
+        if (path.isEmpty() || paths.contains(path)) {
+            if (error)
+                *error = "The Model registry contains duplicate or empty package paths.";
+            return false;
+        }
+        ids.insert(id);
+        paths.insert(path);
+    }
+    return true;
+}
+
+bool copyPackageTree(const QString& sourcePath, const QString& destinationPath, QString* error) {
+    const QDir source(sourcePath);
+    if (!source.exists()) {
+        if (error)
+            *error = "Model package folder does not exist: " + sourcePath;
+        return false;
+    }
+    if (!QDir().mkpath(destinationPath)) {
+        if (error)
+            *error = "Could not create package staging folder: " + destinationPath;
+        return false;
+    }
+
+    QDirIterator iterator(sourcePath, QDir::AllEntries | QDir::NoDotAndDotDot,
+                          QDirIterator::Subdirectories);
+    while (iterator.hasNext()) {
+        const QString sourceItemPath = iterator.next();
+        const QFileInfo sourceItem(sourceItemPath);
+        if (sourceItem.isSymLink()) {
+            if (error)
+                *error = "Model packages cannot contain symbolic links: " + sourceItemPath;
+            return false;
+        }
+        const QString relativePath = source.relativeFilePath(sourceItemPath);
+        const QString destinationItemPath = QDir(destinationPath).filePath(relativePath);
+        if (sourceItem.isDir()) {
+            if (!QDir().mkpath(destinationItemPath)) {
+                if (error)
+                    *error = "Could not create package folder: " + destinationItemPath;
+                return false;
+            }
+        } else if (!QFile::copy(sourceItemPath, destinationItemPath)) {
+            if (error)
+                *error = "Could not copy package file: " + sourceItemPath;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool createPackageStagingCopy(const QString& sourcePackagePath, const QString& destinationRoot,
+                              const QString& finalFolderName, QString* stagingPath,
+                              QString* finalPath, QString* error) {
+    const QString rootPath = absoluteCleanPath(destinationRoot);
+    if (rootPath.isEmpty() || !safePackageFileName(finalFolderName)) {
+        if (error)
+            *error = "The model destination is invalid.";
+        return false;
+    }
+
+    *finalPath = QDir(rootPath).filePath(finalFolderName);
+    if (pathsOverlap(sourcePackagePath, *finalPath)) {
+        if (error)
+            *error = "The source and destination Model Package paths overlap.";
+        return false;
+    }
+    if (QFileInfo::exists(*finalPath)) {
+        if (error)
+            *error = "A model package already exists at: " + *finalPath;
+        return false;
+    }
+    if (!QDir().mkpath(rootPath)) {
+        if (error)
+            *error = "Could not create the model destination folder: " + rootPath;
+        return false;
+    }
+    *stagingPath = QDir(rootPath).filePath(
+        ".opendss-model-staging-" + QUuid::createUuid().toString(QUuid::WithoutBraces));
+    if (!copyPackageTree(absoluteCleanPath(sourcePackagePath), *stagingPath, error)) {
+        QDir(*stagingPath).removeRecursively();
+        return false;
+    }
+    return true;
+}
+
+bool commitPackageStagingCopy(const QString& stagingPath, const QString& finalPath, QString* error) {
+    if (QDir().rename(stagingPath, finalPath))
+        return true;
+    if (error)
+        *error = "Could not commit the complete model package at: " + finalPath;
+    QDir(stagingPath).removeRecursively();
+    return false;
+}
+
+QString packageEntryId(const QJsonObject& metadata) {
+    return "trained_" + registryIdToken(metadata.value("model_id").toString());
+}
+
+bool registryHasEntryOrPath(const QJsonArray& entries, const QString& entryId,
+                            const QString& packagePath) {
+    const QString normalizedPackage = resolvedPathForComparison(packagePath);
+    for (const QJsonValue& value : entries) {
+        const QJsonObject entry = value.toObject();
+        if (registryString(entry, "registry_entry_id").trimmed().compare(
+                entryId, Qt::CaseInsensitive) == 0)
+            return true;
+        if (resolvedPathForComparison(
+                resolvePackagedPathFromRegistryPath(registryString(entry, "package_path")))
+                .compare(normalizedPackage, Qt::CaseInsensitive) == 0)
+            return true;
+    }
+    return false;
+}
+
+QJsonObject simplePackageEntry(const QString& entryId, const QString& displayName,
+                               const QString& packagePath) {
+    return {{"registry_entry_id", entryId},
+            {"display_name", displayName},
+            {"package_path", absoluteCleanPath(packagePath)},
+            {"active", false}};
+}
+
+bool removeUnregisteredPackage(const QString& packagePath, QString* recoveryPath,
+                               QString* error) {
+    if (QDir(packagePath).removeRecursively())
+        return true;
+    if (recoveryPath)
+        *recoveryPath = packagePath;
+    if (error)
+        *error += " The unregistered complete package was retained for recovery at: " +
+                  packagePath;
+    return false;
+}
+
+} // namespace
+
+bool validateCompleteV2ModelPackage(const QString& packagePath, QString* error) {
+    if (error)
+        error->clear();
+    const QString cleanPackagePath = absoluteCleanPath(packagePath);
+    if (!QFileInfo(cleanPackagePath).isDir()) {
+        if (error)
+            *error = "Choose an OpenDSS v2 Model Package folder.";
+        return false;
+    }
+
+    QString metadataError;
+    const QJsonObject metadata =
+        readJsonObjectFile(QDir(cleanPackagePath).filePath("metadata.json"), &metadataError);
+    if (metadata.isEmpty()) {
+        if (error)
+            *error = metadataError.isEmpty() ? "metadata.json is malformed." : metadataError;
+        return false;
+    }
+    if (metadata.value("schema_version").toString() != "model-metadata-v2") {
+        if (error)
+            *error = "Only the current OpenDSS v2 Model Package contract is supported.";
+        return false;
+    }
+    if (metadata.value("model_id").toString().trimmed().isEmpty() ||
+        metadata.value("model_name").toString().trimmed().isEmpty()) {
+        if (error)
+            *error = "Model metadata must contain Model ID and Model Name.";
+        return false;
+    }
+    if (metadata.value("status").toString().compare("trained", Qt::CaseInsensitive) != 0) {
+        if (error)
+            *error = "Only complete trained OpenDSS v2 Model Packages can be imported.";
+        return false;
+    }
+
+    const QJsonArray classes = metadata.value("classes").toArray();
+    QSet<QString> classIds;
+    for (const QJsonValue& value : classes) {
+        const QString id = value.toString().trimmed();
+        if (id.isEmpty() || classIds.contains(id)) {
+            if (error)
+                *error = "Model metadata contains invalid or duplicate Class IDs.";
+            return false;
+        }
+        classIds.insert(id);
+    }
+    if (classes.size() != 2 && classes.size() != 3) {
+        if (error)
+            *error = "A v2 Model Package must contain two or three classes.";
+        return false;
+    }
+
+    const QJsonObject architecture = metadata.value("architecture").toObject();
+    if (architecture.value("id").toString().trimmed().isEmpty() ||
+        architecture.value("num_classes").toInt(-1) != classes.size()) {
+        if (error)
+            *error = "Model architecture and metadata class count do not agree.";
+        return false;
+    }
+    const QJsonArray inputSize = metadata.value("input_size").toArray();
+    const QJsonObject normalization = metadata.value("normalization").toObject();
+    if (inputSize.size() < 2 || inputSize.at(0).toInt() <= 0 || inputSize.at(1).toInt() <= 0 ||
+        normalization.value("mean").toArray().isEmpty() ||
+        normalization.value("std").toArray().isEmpty()) {
+        if (error)
+            *error = "Required preprocessing and input dimensions are missing.";
+        return false;
+    }
+
+    const QJsonObject artifact = metadata.value("artifact").toObject();
+    const QString onnxName = artifact.value("onnx_file").toString();
+    const QString checkpointName = artifact.value("checkpoint_file").toString();
+    if (!safePackageFileName(onnxName) || !safePackageFileName(checkpointName)) {
+        if (error)
+            *error = "Model artifact filenames are invalid.";
+        return false;
+    }
+    const QFileInfo onnx(QDir(cleanPackagePath).filePath(onnxName));
+    const QFileInfo checkpoint(QDir(cleanPackagePath).filePath(checkpointName));
+    if (!onnx.isFile() || onnx.size() <= 0 || !checkpoint.isFile() ||
+        checkpoint.size() <= 0) {
+        if (error)
+            *error = "A complete v2 Model Package requires metadata.json, model.onnx, and checkpoint.pth.";
+        return false;
+    }
+    const QJsonArray outputShape =
+        artifact.value("output_tensor").toObject().value("shape").toArray();
+    if (outputShape.isEmpty() ||
+        outputShape.at(outputShape.size() - 1).toInt(-1) != classes.size()) {
+        if (error)
+            *error = "Metadata class count and declared ONNX output dimension do not agree.";
+        return false;
+    }
+    return true;
+}
+
+bool importCompleteModelPackage(const QString& registryFilePath, const QString& sourcePackagePath,
+                                QString* importedEntryId, QString* importedPackagePath,
+                                QString* recoveryPath, QString* error) {
+    if (importedEntryId)
+        importedEntryId->clear();
+    if (importedPackagePath)
+        importedPackagePath->clear();
+    if (recoveryPath)
+        recoveryPath->clear();
+    if (!validateCompleteV2ModelPackage(sourcePackagePath, error))
+        return false;
+
+    QJsonObject registry;
+    if (!readRegistryForPackageMutation(registryFilePath, &registry, error))
+        return false;
+    if (!registryEntriesHaveUniqueIdsAndPaths(registry.value("entries").toArray(), error))
+        return false;
+    QString metadataError;
+    const QJsonObject metadata = readJsonObjectFile(
+        QDir(absoluteCleanPath(sourcePackagePath)).filePath("metadata.json"), &metadataError);
+    const QString entryId = packageEntryId(metadata);
+    const QString displayName = metadata.value("model_name").toString().trimmed();
+    const QString destinationRoot = QFileInfo(registryFilePath).absolutePath();
+    QString stagingPath;
+    QString finalPath;
+    const QString folderName = modelFolderName(displayName);
+    finalPath = QDir(destinationRoot).filePath(folderName);
+    if (registryHasEntryOrPath(registry.value("entries").toArray(), entryId, finalPath)) {
+        if (error)
+            *error = "The Model ID or destination package is already registered.";
+        return false;
+    }
+    if (!createPackageStagingCopy(sourcePackagePath, destinationRoot, folderName,
+                                  &stagingPath, &finalPath, error) ||
+        !commitPackageStagingCopy(stagingPath, finalPath, error))
+        return false;
+
+    QJsonArray entries = registry.value("entries").toArray();
+    entries.append(simplePackageEntry(entryId, displayName, finalPath));
+    registry["entries"] = entries;
+    registry["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    if (!writeRegistryFile(registryFilePath, registry, error)) {
+        removeUnregisteredPackage(finalPath, recoveryPath, error);
+        return false;
+    }
+    if (importedEntryId)
+        *importedEntryId = entryId;
+    if (importedPackagePath)
+        *importedPackagePath = finalPath;
+    return true;
+}
+
+bool exportCompleteModelPackage(const QString& sourcePackagePath, const QString& destinationRoot,
+                                QString* exportedPackagePath, QString* error) {
+    if (exportedPackagePath)
+        exportedPackagePath->clear();
+    if (!validateCompleteV2ModelPackage(sourcePackagePath, error))
+        return false;
+    QString stagingPath;
+    QString finalPath;
+    if (!createPackageStagingCopy(sourcePackagePath, destinationRoot,
+                                  QFileInfo(absoluteCleanPath(sourcePackagePath)).fileName(),
+                                  &stagingPath, &finalPath, error) ||
+        !commitPackageStagingCopy(stagingPath, finalPath, error))
+        return false;
+    if (exportedPackagePath)
+        *exportedPackagePath = finalPath;
+    return true;
+}
+
+bool duplicateCompleteModelPackage(const QString& registryFilePath, const QString& sourcePackagePath,
+                                   const QString& displayName, const QString& destinationRoot,
+                                   QString* duplicatedEntryId, QString* duplicatedPackagePath,
+                                   QString* recoveryPath, QString* error) {
+    if (duplicatedEntryId)
+        duplicatedEntryId->clear();
+    if (duplicatedPackagePath)
+        duplicatedPackagePath->clear();
+    if (recoveryPath)
+        recoveryPath->clear();
+    const QString newDisplayName = displayName.trimmed();
+    if (newDisplayName.isEmpty()) {
+        if (error)
+            *error = "Model name cannot be empty.";
+        return false;
+    }
+    if (!validateCompleteV2ModelPackage(sourcePackagePath, error))
+        return false;
+
+    QJsonObject registry;
+    if (!readRegistryForPackageMutation(registryFilePath, &registry, error))
+        return false;
+    if (!registryEntriesHaveUniqueIdsAndPaths(registry.value("entries").toArray(), error))
+        return false;
+    const QString newModelId =
+        "model_" + QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-');
+    const QString newEntryId = "trained_" + registryIdToken(newModelId);
+    QString stagingPath;
+    QString finalPath;
+    if (!createPackageStagingCopy(sourcePackagePath, destinationRoot,
+                                  modelFolderName(newDisplayName), &stagingPath, &finalPath, error))
+        return false;
+
+    const QString stagedMetadataPath = QDir(stagingPath).filePath("metadata.json");
+    QString metadataError;
+    QJsonObject metadata = readJsonObjectFile(stagedMetadataPath, &metadataError);
+    metadata["model_id"] = newModelId;
+    metadata["model_name"] = newDisplayName;
+    metadata["created_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    metadata["updated_at"] = metadata.value("created_at");
+    if (!desktop_app::writeJsonObjectAtomically(stagedMetadataPath, metadata, error) ||
+        !validateCompleteV2ModelPackage(stagingPath, error)) {
+        QDir(stagingPath).removeRecursively();
+        return false;
+    }
+    if (registryHasEntryOrPath(registry.value("entries").toArray(), newEntryId, finalPath)) {
+        QDir(stagingPath).removeRecursively();
+        if (error)
+            *error = "The duplicate Model ID or destination package already exists.";
+        return false;
+    }
+    if (!commitPackageStagingCopy(stagingPath, finalPath, error))
+        return false;
+
+    QJsonArray entries = registry.value("entries").toArray();
+    entries.append(simplePackageEntry(newEntryId, newDisplayName, finalPath));
+    registry["entries"] = entries;
+    registry["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    if (!writeRegistryFile(registryFilePath, registry, error)) {
+        removeUnregisteredPackage(finalPath, recoveryPath, error);
+        return false;
+    }
+    if (duplicatedEntryId)
+        *duplicatedEntryId = newEntryId;
+    if (duplicatedPackagePath)
+        *duplicatedPackagePath = finalPath;
+    return true;
+}
+
+bool deleteRegisteredModelPackage(const QString& registryFilePath, const QString& registryEntryId,
+                                  bool* registryCommitted, bool* deletedActive,
+                                  QString* recoveryPath, QString* error) {
+    if (registryCommitted)
+        *registryCommitted = false;
+    if (deletedActive)
+        *deletedActive = false;
+    if (recoveryPath)
+        recoveryPath->clear();
+    if (error)
+        error->clear();
+
+    QJsonObject registry;
+    if (!readRegistryForPackageMutation(registryFilePath, &registry, error))
+        return false;
+    QJsonArray entries = registry.value("entries").toArray();
+    int selectedIndex = -1;
+    QJsonObject selectedEntry;
+    for (int index = 0; index < entries.size(); ++index) {
+        const QJsonObject entry = entries.at(index).toObject();
+        if (registryString(entry, "registry_entry_id").trimmed().compare(
+                registryEntryId.trimmed(), Qt::CaseInsensitive) == 0) {
+            if (selectedIndex >= 0) {
+                if (error)
+                    *error = "The selected Model ID is duplicated in the registry.";
+                return false;
+            }
+            selectedIndex = index;
+            selectedEntry = entry;
+        }
+    }
+    if (selectedIndex < 0) {
+        if (error)
+            *error = "Selected model is not present in the registry.";
+        return false;
+    }
+    if (registry.value("schema_version").toString() != "model-registry-v3-simple" ||
+        registryString(selectedEntry, "registry_entry_id").trimmed().isEmpty() ||
+        registryString(selectedEntry, "display_name").trimmed().isEmpty() ||
+        registryString(selectedEntry, "package_path").trimmed().isEmpty() ||
+        !selectedEntry.value("active").isBool()) {
+        if (error)
+            *error = "The selected Model registry record does not satisfy the current registry schema.";
+        return false;
+    }
+
+    const QString registryPackagePath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(
+        registryString(selectedEntry, "package_path")));
+    const QFileInfo packageInfo(registryPackagePath);
+    const QString canonicalPackagePath = packageInfo.canonicalFilePath();
+    if (!packageInfo.isDir()) {
+        if (error)
+            *error = "Selected Model Package folder is unavailable: " + registryPackagePath;
+        return false;
+    }
+    if (canonicalPackagePath.isEmpty() || packageInfo.isSymLink() ||
+        packageInfo.isJunction() || packageInfo.isAlias() ||
+        normalizedPathForComparison(registryPackagePath) !=
+            normalizedPathForComparison(canonicalPackagePath)) {
+        if (error)
+            *error = "The selected Model Package path is an alias or reparse point.";
+        return false;
+    }
+    if (!validateCompleteV2ModelPackage(canonicalPackagePath, error))
+        return false;
+    const ModelPackageInspection inspection = inspectModelPackage(selectedEntry);
+    if (resolvedPathForComparison(inspection.packagePath) !=
+            normalizedPathForComparison(canonicalPackagePath) ||
+        QFileInfo(inspection.metadataPath).canonicalPath().compare(
+            canonicalPackagePath, Qt::CaseInsensitive) != 0 ||
+        QFileInfo(inspection.onnxPath).canonicalPath().compare(
+            canonicalPackagePath, Qt::CaseInsensitive) != 0 ||
+        QFileInfo(inspection.checkpointPath).canonicalPath().compare(
+            canonicalPackagePath, Qt::CaseInsensitive) != 0) {
+        if (error)
+            *error = "The selected registry record does not resolve to one exact Model Package.";
+        return false;
+    }
+    const QString selectedCanonical =
+        normalizedPathForComparison(canonicalPackagePath);
+    for (int index = 0; index < entries.size(); ++index) {
+        if (index == selectedIndex)
+            continue;
+        const QString otherPath = resolvedPathForComparison(
+            resolvePackagedPathFromRegistryPath(
+                registryString(entries.at(index).toObject(), "package_path")));
+        if (!otherPath.isEmpty() && otherPath == selectedCanonical) {
+            if (error)
+                *error = "The selected Model Package path is registered to another Model ID.";
+            return false;
+        }
+    }
+    const QString recoveryRoot =
+        QDir(QFileInfo(canonicalPackagePath).absolutePath()).filePath(".opendss-model-recovery");
+    if (!QDir().mkpath(recoveryRoot)) {
+        if (error)
+            *error = "Could not create the model deletion recovery folder.";
+        return false;
+    }
+    const QString stagedRecoveryPath = QDir(recoveryRoot).filePath(
+        QFileInfo(canonicalPackagePath).fileName() + "-" +
+        QUuid::createUuid().toString(QUuid::WithoutBraces));
+    if (!QDir().rename(canonicalPackagePath, stagedRecoveryPath)) {
+        if (error)
+            *error = "Could not stage the Model Package for recoverable deletion.";
+        return false;
+    }
+
+    const bool wasActive = selectedEntry.value("active").toBool(false);
+    entries.removeAt(selectedIndex);
+    registry["entries"] = entries;
+    registry["updated_at"] = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+    if (!writeRegistryFile(registryFilePath, registry, error)) {
+        if (!QDir().rename(stagedRecoveryPath, canonicalPackagePath)) {
+            QString copyError;
+            if (!copyPackageTree(stagedRecoveryPath, canonicalPackagePath, &copyError)) {
+                if (recoveryPath)
+                    *recoveryPath = stagedRecoveryPath;
+                if (error)
+                    *error += " Registry rollback left the complete package at: " +
+                              stagedRecoveryPath + ". " + copyError;
+            }
+        }
+        return false;
+    }
+    if (registryCommitted)
+        *registryCommitted = true;
+    if (deletedActive)
+        *deletedActive = wasActive;
+
+    if (!QDir(stagedRecoveryPath).removeRecursively()) {
+        if (recoveryPath)
+            *recoveryPath = stagedRecoveryPath;
+        if (error)
+            *error = "Model deletion committed, but its recovery copy could not be removed. "
+                     "The retained recovery path is: " + stagedRecoveryPath;
+        return true;
+    }
+    QDir().rmdir(recoveryRoot);
+    return true;
 }
 
 QString runtimePathFromRegistryPath(const QString& path) {

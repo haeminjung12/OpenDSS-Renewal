@@ -29,6 +29,12 @@ Item {
     property string settingsActionError: ""
     property alias modelRenameDialog: modelRenameDialog
     property alias modelRenameField: modelRenameField
+    property alias modelImportFolderDialog: modelImportFolderDialog
+    property alias modelExportFolderDialog: modelExportFolderDialog
+    property alias modelDuplicateDialog: modelDuplicateDialog
+    property alias modelDuplicateNameField: modelDuplicateNameField
+    property alias modelDuplicateFolderDialog: modelDuplicateFolderDialog
+    property alias modelDeleteDialog: modelDeleteDialog
     signal closeRequested()
 
     function focusCameraPrompt() {
@@ -51,6 +57,21 @@ Item {
         } catch (error) {
             return ""
         }
+    }
+
+    function importModelPackage(packageUrl) {
+        return root.modelLibraryController
+                ? root.modelLibraryController.importModel(packageUrl) : false
+    }
+
+    function exportSelectedModel(destinationUrl) {
+        return root.modelLibraryController
+                ? root.modelLibraryController.exportSelected(destinationUrl) : false
+    }
+
+    function duplicateSelectedModel(name, destinationUrl) {
+        return root.modelLibraryController
+                ? root.modelLibraryController.duplicateSelected(name, destinationUrl) : false
     }
 
     function modelTestPresentation() {
@@ -335,7 +356,7 @@ Item {
     Binding { target: screen.modelLibraryWorkspace; property: "presentation"; value: root.modelLibraryController ? root.modelLibraryController.presentation : state.modelLibraryPresentation }
     Binding { target: screen.modelLibraryWorkspace; property: "hasSelection"; value: root.modelLibraryController ? root.modelLibraryController.selectedIndex >= 0 : state.modelLibraryPresentation !== "empty" && state.modelLibraryPresentation !== "error" }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedActive"; value: root.modelLibraryController ? root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId : state.modelLibraryPresentation === "readyActive" || state.modelLibraryPresentation === "locked" }
-    Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: root.modelTestController ? root.modelTestController.presentation === "starting" || root.modelTestController.presentation === "running" || root.modelTestController.presentation === "stopping" : state.modelLibraryPresentation === "locked" }
+    Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: (root.modelTestController ? root.modelTestController.presentation === "starting" || root.modelTestController.presentation === "running" || root.modelTestController.presentation === "stopping" : state.modelLibraryPresentation === "locked") || (root.modelLibraryController ? root.modelLibraryController.operationInProgress || (root.modelLibraryController.selectedId !== "" && !root.modelLibraryController.canDelete) : false) }
     Binding { target: screen.modelLibraryWorkspace; property: "showError"; value: root.modelLibraryController ? root.modelLibraryController.errorMessage !== "" : state.modelLibraryPresentation === "error" }
     Binding { target: screen.modelLibraryWorkspace; property: "modelRows"; value: root.modelLibraryController ? root.modelLibraryController.modelRows : [] }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelIndex"; value: root.modelLibraryController ? root.modelLibraryController.selectedIndex : -1 }
@@ -347,10 +368,10 @@ Item {
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelCreationDate"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.createdAt || "" : "" }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelPackageLocation"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.packageLocation || "" : "" }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelTrainingMetrics"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.trainingMetrics || "" : "" }
-    Binding { target: screen.modelLibraryWorkspace.importButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
-    Binding { target: screen.modelLibraryWorkspace.exportButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
-    Binding { target: screen.modelLibraryWorkspace.duplicateButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
-    Binding { target: screen.modelLibraryWorkspace.deleteButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.importButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canImport; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.exportButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canExport; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.duplicateButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canDuplicate; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.deleteButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canDelete; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace.openInModelTestButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelExpanded"; value: state.selectedModelExpanded }
     Binding { target: screen.modelLibraryWorkspace; property: "rightPanelExpanded"; value: state.modelLibraryRightPanelExpanded }
@@ -376,6 +397,76 @@ Item {
             id: modelRenameField
             width: Math.round(320 * Constants.textScale)
             placeholderText: qsTr("Model Name")
+        }
+    }
+
+    FolderDialog {
+        id: modelImportFolderDialog
+        title: qsTr("Import OpenDSS v2 Model Package")
+        onAccepted: {
+            if (selectedFolder.toString() !== "")
+                root.importModelPackage(selectedFolder)
+        }
+    }
+
+    FolderDialog {
+        id: modelExportFolderDialog
+        title: qsTr("Choose Model Export Destination")
+        onAccepted: {
+            if (selectedFolder.toString() !== "")
+                root.exportSelectedModel(selectedFolder)
+        }
+    }
+
+    Dialog {
+        id: modelDuplicateDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Duplicate Model")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            modelDuplicateNameField.text = root.modelLibraryController
+                    ? qsTr("%1 Copy").arg(
+                          root.modelLibraryController.selectedDetail.name || "") : ""
+            modelDuplicateNameField.selectAll()
+            modelDuplicateNameField.forceActiveFocus()
+        }
+        onAccepted: modelDuplicateFolderDialog.open()
+
+        TextField {
+            id: modelDuplicateNameField
+            width: Math.round(320 * Constants.textScale)
+            placeholderText: qsTr("Model Name")
+        }
+    }
+
+    FolderDialog {
+        id: modelDuplicateFolderDialog
+        title: qsTr("Choose Duplicate Model Location")
+        onAccepted: {
+            if (selectedFolder.toString() !== "")
+                root.duplicateSelectedModel(modelDuplicateNameField.text,
+                                            selectedFolder)
+        }
+    }
+
+    Dialog {
+        id: modelDeleteDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Delete Model")
+        standardButtons: Dialog.Yes | Dialog.No
+        onAccepted: {
+            if (root.modelLibraryController)
+                root.modelLibraryController.deleteSelected()
+        }
+
+        Label {
+            text: qsTr("Delete Model Package “%1”?").arg(
+                      root.modelLibraryController
+                      ? root.modelLibraryController.selectedDetail.name || "" : "")
+            wrapMode: Text.WordWrap
+            width: Math.round(360 * Constants.textScale)
         }
     }
 
@@ -639,6 +730,10 @@ Item {
             }
         }
     }
+    Connections { target: screen.modelLibraryWorkspace.importButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canImport) modelImportFolderDialog.open() } }
+    Connections { target: screen.modelLibraryWorkspace.exportButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canExport) modelExportFolderDialog.open() } }
+    Connections { target: screen.modelLibraryWorkspace.duplicateButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canDuplicate) modelDuplicateDialog.open() } }
+    Connections { target: screen.modelLibraryWorkspace.deleteButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canDelete) modelDeleteDialog.open() } }
     Connections { target: screen.modelLibraryWorkspace.renameButton; function onClicked() { if (root.modelLibraryController && !screen.modelLibraryWorkspace.modelLocked) modelRenameDialog.open() } }
     Connections { target: screen.modelLibraryWorkspace.selectedModelHeadingButton; function onClicked() { state.toggleSelectedModel() } }
     Connections { target: screen.modelLibraryWorkspace.rightPanelToggleButton; function onClicked() { state.toggleModelLibraryRightPanel() } }

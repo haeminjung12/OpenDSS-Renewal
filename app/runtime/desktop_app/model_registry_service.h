@@ -91,6 +91,19 @@ bool updateModelRegistryImageValidationSummary(const QString& registryFilePath, 
                                                QString* updatedEntryId = nullptr, QString* error = nullptr);
 bool renameRegistryEntryDisplayName(const QString& registryFilePath, const QString& registryEntryId,
                                     const QString& displayName, QString* error = nullptr);
+bool validateCompleteV2ModelPackage(const QString& packagePath, QString* error = nullptr);
+bool importCompleteModelPackage(const QString& registryFilePath, const QString& sourcePackagePath,
+                                QString* importedEntryId = nullptr, QString* importedPackagePath = nullptr,
+                                QString* recoveryPath = nullptr, QString* error = nullptr);
+bool exportCompleteModelPackage(const QString& sourcePackagePath, const QString& destinationRoot,
+                                QString* exportedPackagePath = nullptr, QString* error = nullptr);
+bool duplicateCompleteModelPackage(const QString& registryFilePath, const QString& sourcePackagePath,
+                                   const QString& displayName, const QString& destinationRoot,
+                                   QString* duplicatedEntryId = nullptr, QString* duplicatedPackagePath = nullptr,
+                                   QString* recoveryPath = nullptr, QString* error = nullptr);
+bool deleteRegisteredModelPackage(const QString& registryFilePath, const QString& registryEntryId,
+                                  bool* registryCommitted = nullptr, bool* deletedActive = nullptr,
+                                  QString* recoveryPath = nullptr, QString* error = nullptr);
 QString runtimePathFromRegistryPath(const QString& path);
 QString registryEntrySummary(const QJsonObject& entry, const QString& registryPath, const QString& warning);
 QString resolvePackagedPathFromRegistryPath(const QString& registryPath);

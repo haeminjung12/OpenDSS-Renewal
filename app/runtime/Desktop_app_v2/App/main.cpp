@@ -3,6 +3,7 @@
 
 #include <QApplication>
 #include <QDir>
+#include <QFileInfo>
 #include <QQmlApplicationEngine>
 #include <QStandardPaths>
 #include <QVariant>
@@ -19,6 +20,43 @@
 #include "../../v2/sequence/sequence_viewer_controller.h"
 #include "../../v2/sequence/sequence_viewer_image_provider.h"
 #include "../../v2/state/application_state_store.h"
+#include "../../v2/training/training_controller.h"
+
+namespace {
+
+QString repositoryRoot()
+{
+    QDir directory(QCoreApplication::applicationDirPath());
+    for (int level = 0; level < 10; ++level) {
+        if (QFileInfo(directory.filePath(
+                          QStringLiteral("training/python/droplet_trainer/__main__.py")))
+                .isFile()) {
+            return directory.absolutePath();
+        }
+        if (!directory.cdUp())
+            break;
+    }
+    return {};
+}
+
+QString trainingPythonExecutable()
+{
+    const QString localAppData = qEnvironmentVariable("LOCALAPPDATA").trimmed();
+    if (localAppData.isEmpty())
+        return {};
+
+    const QDir root(localAppData);
+    const QString gpuPython = root.filePath(
+        QStringLiteral("OpenVisualDropletSorter/training-venv-gpu/Scripts/python.exe"));
+    if (QFileInfo(gpuPython).isFile())
+        return gpuPython;
+
+    const QString cpuPython = root.filePath(
+        QStringLiteral("OpenVisualDropletSorter/training-venv/Scripts/python.exe"));
+    return QFileInfo(cpuPython).isFile() ? cpuPython : QString{};
+}
+
+} // namespace
 
 int main(int argc, char *argv[])
 {
@@ -37,6 +75,8 @@ int main(int argc, char *argv[])
     desktop_app::v2::sequence::SequenceViewerController sequenceViewerController;
     desktop_app::v2::dataset::DatasetLabelController datasetLabelController(operationCoordinator,
                                                                             applicationStateStore);
+    desktop_app::v2::training::TrainingController trainingController(
+        operationCoordinator, applicationStateStore, trainingPythonExecutable(), repositoryRoot());
     loadModelRegistry();
     desktop_app::v2::ModelLibraryController modelLibraryController(modelRegistryPath());
 
@@ -57,6 +97,7 @@ int main(int argc, char *argv[])
                                  {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)},
                                  {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)},
                                  {QStringLiteral("datasetLabelController"), QVariant::fromValue(&datasetLabelController)},
+                                 {QStringLiteral("trainingController"), QVariant::fromValue(&trainingController)},
                                  {QStringLiteral("modelLibraryController"), QVariant::fromValue(&modelLibraryController)}});
     engine.load(url);
 

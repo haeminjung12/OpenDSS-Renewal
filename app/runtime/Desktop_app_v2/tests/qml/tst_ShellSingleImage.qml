@@ -201,6 +201,54 @@ Item {
         }
     }
 
+    QtObject {
+        id: trainingController
+        property url datasetManifestUrl: "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
+        property string architecture: "mobilenet"
+        property string modelName: "DropletNet-Test"
+        property url outputDirectoryUrl: "file:///C:/OpenDSS/Training%20Output"
+        property string requestedDevice: "gpu"
+        property string presentation: "ready"
+        property string errorMessage: ""
+        property string stage: "fine_tune"
+        property int stageEpochs: 20
+        property int epoch: 5
+        property int globalEpoch: 15
+        property url resultDirectoryUrl: ""
+        property url modelOnnxUrl: ""
+        property url metadataUrl: ""
+        property int startCallCount: 0
+        property int stopCallCount: 0
+
+        function reset() {
+            datasetManifestUrl = "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
+            architecture = "mobilenet"
+            modelName = "DropletNet-Test"
+            outputDirectoryUrl = "file:///C:/OpenDSS/Training%20Output"
+            requestedDevice = "gpu"
+            presentation = "ready"
+            errorMessage = ""
+            stage = "fine_tune"
+            stageEpochs = 20
+            epoch = 5
+            globalEpoch = 15
+            resultDirectoryUrl = ""
+            modelOnnxUrl = ""
+            metadataUrl = ""
+            startCallCount = 0
+            stopCallCount = 0
+        }
+
+        function start() {
+            ++startCallCount
+            return true
+        }
+
+        function stop() {
+            ++stopCallCount
+        }
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
@@ -222,6 +270,7 @@ Item {
         closeSpy.clear()
         shell.settingsController = textSizeController
         shell.datasetLabelController = null
+        shell.trainingController = null
         shell.modelLibraryController = null
         shell.settingsActionError = ""
         modelLibraryController.reset()
@@ -249,6 +298,7 @@ Item {
         labelController.renamedClassName = ""
         labelController.openArgument = ""
         labelController.saveAsArgument = ""
+        trainingController.reset()
         shell.mockState.activeModelId = ""
         shell.mockState.hardwareDrawerOpen = false
         shell.mockState.capturePanelExpanded = true
@@ -1031,6 +1081,8 @@ Item {
 
     function test_trainStartRequirementsAndInterrupt() {
         shell.form.navTrainButton.clicked()
+        verify(shell.form.trainWorkspace.datasetClassesPlaceholder.visible)
+        verify(shell.form.trainWorkspace.eligibleCropsPlaceholder.visible)
         shell.form.trainWorkspace.selectDatasetButton.clicked()
         compare(shell.mockState.trainPresentation, "readyGpu")
         verify(!shell.form.trainWorkspace.startEnabled)
@@ -1061,6 +1113,79 @@ Item {
         compare(shell.mockState.trainPresentation, "completed")
         compare(shell.mockState.activeModelId, "DropletNet-04")
         compare(shell.mockState.activeModelText, shell.mockState.activeModelId)
+    }
+
+    function test_trainingControllerDirectWiring() {
+        shell.trainingController = trainingController
+        shell.form.navTrainButton.clicked()
+
+        compare(shell.form.trainWorkspace.presentation, "readyGpu")
+        compare(shell.form.trainWorkspace.datasetText,
+                "C:/OpenDSS/Datasets/fixture/dataset.json")
+        compare(shell.form.trainWorkspace.modelNameText, "DropletNet-Test")
+        compare(shell.form.trainWorkspace.saveLocationText,
+                "C:/OpenDSS/Training Output")
+        compare(shell.form.trainWorkspace.requestedDeviceText, "GPU")
+        compare(shell.form.trainWorkspace.effectiveDeviceText, "")
+        compare(shell.form.trainWorkspace.stageText, "fine_tune")
+        compare(shell.form.trainWorkspace.currentEpoch, 5)
+        compare(shell.form.trainWorkspace.totalEpochs, 20)
+        compare(shell.form.trainWorkspace.overallProgress, 0.25)
+        verify(shell.form.trainWorkspace.startEnabled)
+        verify(!shell.form.trainWorkspace.weightsSelector.enabled)
+        verify(shell.form.trainWorkspace.weightsSelector.visible)
+        verify(!shell.form.trainWorkspace.loadWeightsButton.enabled)
+        verify(shell.form.trainWorkspace.loadWeightsButton.visible)
+        verify(!shell.form.trainWorkspace.showMetrics)
+        verify(!shell.form.trainWorkspace.showTiming)
+        verify(!shell.form.trainWorkspace.showActiveModelConfirmation)
+        verify(!shell.form.trainWorkspace.showRetrySave)
+        verify(!shell.form.trainWorkspace.datasetClassesPlaceholder.visible)
+        verify(!shell.form.trainWorkspace.eligibleCropsPlaceholder.visible)
+
+        shell.form.trainWorkspace.architectureSelector.activated(1)
+        compare(trainingController.architecture, "efficientnet")
+        shell.form.trainWorkspace.trainingDeviceSelector.activated(1)
+        compare(trainingController.requestedDevice, "cpu")
+        shell.form.trainWorkspace.modelNameField.text = "Renamed Model"
+        shell.form.trainWorkspace.modelNameField.textEdited()
+        compare(trainingController.modelName, "Renamed Model")
+        shell.form.trainWorkspace.startButton.clicked()
+        compare(trainingController.startCallCount, 1)
+
+        trainingController.presentation = "running"
+        verify(shell.form.trainWorkspace.showRunning)
+        verify(!shell.form.trainWorkspace.selectDatasetButton.enabled)
+        verify(!shell.form.trainWorkspace.architectureSelector.enabled)
+        verify(!shell.form.trainWorkspace.trainingDeviceSelector.enabled)
+        verify(!shell.form.trainWorkspace.modelNameField.enabled)
+        verify(!shell.form.trainWorkspace.saveLocationField.enabled)
+        verify(!shell.form.trainWorkspace.browseButton.enabled)
+        verify(shell.form.trainWorkspace.stopButton.enabled)
+        shell.form.trainWorkspace.stopButton.clicked()
+        compare(trainingController.stopCallCount, 1)
+
+        trainingController.resultDirectoryUrl =
+                "file:///C:/OpenDSS/Training%20Output/run-001"
+        trainingController.modelOnnxUrl =
+                "file:///C:/OpenDSS/Training%20Output/run-001/model.onnx"
+        trainingController.metadataUrl =
+                "file:///C:/OpenDSS/Training%20Output/run-001/metadata.json"
+        trainingController.presentation = "completed"
+        verify(shell.form.trainWorkspace.showCompleted)
+        compare(shell.form.trainWorkspace.resultPath,
+                "C:/OpenDSS/Training Output/run-001")
+        compare(shell.form.trainWorkspace.modelOnnxPath,
+                "C:/OpenDSS/Training Output/run-001/model.onnx")
+        compare(shell.form.trainWorkspace.metadataPath,
+                "C:/OpenDSS/Training Output/run-001/metadata.json")
+        verify(!shell.form.trainWorkspace.openInModelTestButton.visible)
+
+        trainingController.errorMessage = "Trainer failed."
+        trainingController.presentation = "failed"
+        verify(shell.form.trainWorkspace.showError)
+        compare(shell.form.trainWorkspace.errorText, "Trainer failed.")
+        verify(!shell.form.trainWorkspace.retrySaveButton.visible)
     }
 
     function test_modelTestStartAndInterrupt() {

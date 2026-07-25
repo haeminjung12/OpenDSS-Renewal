@@ -16,6 +16,8 @@ Rectangle {
     property string modelNameText: ""
     property string saveLocationText: ""
     property string resultPath: qsTr("C:/OpenDSS/Models/DropletNet-04.opendssmodel")
+    property string modelOnnxPath: ""
+    property string metadataPath: ""
     property bool startEnabled: false
     property bool showRunning: false
     property bool showCompleted: false
@@ -23,6 +25,7 @@ Rectangle {
     property bool showInterrupted: false
     property string requestedDeviceText: ""
     property string effectiveDeviceText: ""
+    property string stageText: ""
     property string elapsedText: qsTr("00:04:12")
     property string remainingText: qsTr("00:08:36")
     property int currentEpoch: 12
@@ -32,6 +35,11 @@ Rectangle {
     property var lossSeries: []
     property var accuracySeries: []
     property var resultMetrics: []
+    property bool showMetrics: true
+    property bool showTiming: true
+    property bool showActiveModelConfirmation: true
+    property bool showRetrySave: true
+    property bool serviceFactsOnly: false
     property bool operationPanelExpanded: true
     property bool trainingSetupExpanded: true
     property bool trainingStatusExpanded: true
@@ -47,6 +55,8 @@ Rectangle {
     property alias weightsSelector: weightsSelector
     property alias loadWeightsButton: loadWeightsButton
     property alias trainingDeviceSelector: trainingDeviceSelector
+    property alias datasetClassesPlaceholder: datasetClassesPlaceholder
+    property alias eligibleCropsPlaceholder: eligibleCropsPlaceholder
     property alias lossPlotHost: lossPlotHost
     property alias accuracyPlotHost: accuracyPlotHost
     property alias overallResultsHost: overallResultsHost
@@ -96,8 +106,8 @@ Rectangle {
                     spacing: Constants.spacing
                     Text { text: qsTr("Dataset Summary"); font: Constants.headingFont }
                     Text { text: root.datasetText; wrapMode: Text.WordWrap; width: parent.width }
-                    Text { text: qsTr("Classes: 2 or 3"); color: Constants.mutedTextColor }
-                    Text { text: qsTr("Eligible labeled crops: factual count"); color: Constants.mutedTextColor }
+                    Text { id: datasetClassesPlaceholder; visible: !root.serviceFactsOnly; text: qsTr("Classes: 2 or 3"); color: Constants.mutedTextColor }
+                    Text { id: eligibleCropsPlaceholder; visible: !root.serviceFactsOnly; text: qsTr("Eligible labeled crops: factual count"); color: Constants.mutedTextColor }
                     AppButton { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.appStandardControlHeight }
                 }
             }
@@ -115,6 +125,7 @@ Rectangle {
                     spacing: Constants.spacing
                     Text { text: qsTr("Results"); font: Constants.headingFont }
                     Flow {
+                        visible: root.showMetrics
                         width: parent.width
                         height: childrenRect.height
                         spacing: Constants.spacing
@@ -148,22 +159,22 @@ Rectangle {
                         }
                     }
                     Row {
-                        visible: root.showCompleted
+                        visible: root.showCompleted && root.showMetrics
                         width: parent.width
                         spacing: Constants.spacing
                         Rectangle { id: overallResultsHost; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall results") } }
                         Rectangle { id: perClassResultsHost; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class results") } }
                     }
                     Row {
-                        visible: root.showCompleted
+                        visible: root.showCompleted && root.showMetrics
                         width: parent.width
                         spacing: Constants.spacing
                         Rectangle { id: macroF1Host; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Macro F1") } }
                         Rectangle { id: perClassAccuracyHost; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class validation accuracy") } }
                     }
-                    Text { visible: root.showCompleted; text: qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width }
-                    Text { visible: root.showCompleted; text: qsTr("Active Model confirmed"); color: Constants.readyColor }
-                    AppButton { id: openInModelTestButton; visible: root.showCompleted; text: qsTr("Open in Model Test"); height: Constants.appStandardControlHeight }
+                    Text { visible: root.showCompleted; text: root.serviceFactsOnly ? qsTr("Training output: %1").arg(root.resultPath) : qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width }
+                    Text { visible: root.showCompleted && (root.showActiveModelConfirmation || root.modelOnnxPath !== "" || root.metadataPath !== ""); text: root.showActiveModelConfirmation ? qsTr("Active Model confirmed") : qsTr("Model: %1\nMetadata: %2").arg(root.modelOnnxPath).arg(root.metadataPath); color: root.showActiveModelConfirmation ? Constants.readyColor : Constants.textColor; wrapMode: Text.WordWrap; width: parent.width }
+                    AppButton { id: openInModelTestButton; visible: root.showCompleted && root.showActiveModelConfirmation; text: qsTr("Open in Model Test"); height: Constants.appStandardControlHeight }
                 }
             }
         }
@@ -369,12 +380,12 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
-                            Text { text: root.requestedDeviceText === "" ? qsTr("Device: %1").arg(root.effectiveDeviceText !== "" ? root.effectiveDeviceText : root.deviceText) : qsTr("Device: requested %1; effective %2").arg(root.requestedDeviceText).arg(root.effectiveDeviceText !== "" ? root.effectiveDeviceText : root.deviceText) }
-                            Text { text: qsTr("Elapsed: %1").arg(root.elapsedText) }
-                            Text { text: qsTr("Estimated Remaining: %1").arg(root.remainingText) }
-                            Text { text: qsTr("Epoch: %1 of %2").arg(root.currentEpoch).arg(root.totalEpochs) }
+                            Text { text: root.serviceFactsOnly ? root.effectiveDeviceText === "" ? qsTr("Requested device: %1").arg(root.requestedDeviceText !== "" ? root.requestedDeviceText : root.deviceText) : qsTr("Device: requested %1; effective %2").arg(root.requestedDeviceText).arg(root.effectiveDeviceText) : root.requestedDeviceText === "" ? qsTr("Device: %1").arg(root.effectiveDeviceText !== "" ? root.effectiveDeviceText : root.deviceText) : qsTr("Device: requested %1; effective %2").arg(root.requestedDeviceText).arg(root.effectiveDeviceText !== "" ? root.effectiveDeviceText : root.deviceText) }
+                            Text { visible: root.showTiming; text: qsTr("Elapsed: %1").arg(root.elapsedText) }
+                            Text { visible: root.showTiming; text: qsTr("Estimated Remaining: %1").arg(root.remainingText) }
+                            Text { text: root.totalEpochs > 0 ? qsTr("Epoch: %1 of %2").arg(root.currentEpoch).arg(root.totalEpochs) : qsTr("Epoch: %1").arg(root.currentEpoch) }
                             AppProgressBar { value: root.overallProgress; width: parent.width }
-                            Text { text: qsTr("Overall progress") }
+                            Text { text: root.stageText === "" ? qsTr("Overall progress") : qsTr("Stage: %1").arg(root.stageText) }
                             AppButton { id: stopButton; text: qsTr("Stop Training"); visualRole: "destructive"; height: Constants.appPrimaryButtonHeight; width: parent.width }
                         }
                     }
@@ -386,7 +397,7 @@ Rectangle {
                     height: 150
                     color: Constants.errorSurfaceColor
                     border.color: Constants.faultColor
-                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: root.errorText; font: Constants.headingFont; color: Constants.faultColor } AppButton { id: retrySaveButton; text: qsTr("Retry Save"); height: Constants.appStandardControlHeight } }
+                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: root.errorText; font: Constants.headingFont; color: Constants.faultColor } AppButton { id: retrySaveButton; visible: root.showRetrySave; text: qsTr("Retry Save"); height: Constants.appStandardControlHeight } }
                 }
             }
         }

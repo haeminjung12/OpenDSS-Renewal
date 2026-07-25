@@ -796,6 +796,7 @@ target_include_directories(settings_controller_test PRIVATE
 )
 target_link_libraries(settings_controller_test PRIVATE
   Qt6::Core
+  Qt6::Gui
 )
 add_test(
   NAME settings_controller_test

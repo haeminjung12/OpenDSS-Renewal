@@ -23,6 +23,7 @@ public:
     Q_INVOKABLE void setTextSizePercent(int textSizePercent);
     QUrl storageRoot() const;
     Q_INVOKABLE QString setStorageRoot(const QUrl &storageRoot);
+    Q_INVOKABLE QString openStorageRoot() const;
 
 signals:
     void textSizePercentChanged();

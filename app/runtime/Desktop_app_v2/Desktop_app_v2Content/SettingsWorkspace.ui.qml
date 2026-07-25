@@ -13,6 +13,8 @@ Rectangle {
     property string defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite")
     property int textSizePercent: 100
     property alias textSizeSelector: textSizeSelector
+    property alias chooseDataRootButton: chooseDataRootButton
+    property alias openDataRootButton: openDataRootButton
 
     Text {
         id: workspaceTitle

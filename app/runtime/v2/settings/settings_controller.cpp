@@ -3,6 +3,9 @@
 #include "settings_repository.h"
 #include "../state/application_state_store.h"
 
+#include <QDesktopServices>
+#include <QFileInfo>
+
 namespace desktop_app::v2 {
 
 SettingsController::SettingsController(SettingsRepository &repository, ApplicationStateStore &stateStore,
@@ -55,6 +58,21 @@ QString SettingsController::setStorageRoot(const QUrl &storageRoot)
     QString error;
     if (!repository_.setStorageRoot(localStorageRoot, &error))
         return error;
+    return {};
+}
+
+QString SettingsController::openStorageRoot() const
+{
+    const QUrl root = storageRoot();
+    if (root.isEmpty() || !root.isValid() || !root.isLocalFile())
+        return QStringLiteral("Storage root is unavailable.");
+
+    const QFileInfo rootInfo(root.toLocalFile());
+    if (!rootInfo.exists() || !rootInfo.isDir())
+        return QStringLiteral("Storage root is not an existing directory.");
+
+    if (!QDesktopServices::openUrl(root))
+        return QStringLiteral("Unable to request opening the storage root.");
     return {};
 }
 

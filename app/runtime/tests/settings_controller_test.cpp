@@ -3,6 +3,7 @@
 #include "../v2/state/application_state_store.h"
 
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -17,6 +18,20 @@ int fail(int code, const char *message)
     std::cerr << message << '\n';
     return code;
 }
+
+class UrlCaptureHandler final : public QObject
+{
+    Q_OBJECT
+
+public:
+    QUrl capturedUrl;
+
+public slots:
+    void capture(const QUrl &url)
+    {
+        capturedUrl = url;
+    }
+};
 
 } // namespace
 
@@ -34,6 +49,8 @@ int main(int argc, char **argv)
         return fail(2, "Unable to establish test preferences.");
 
     desktop_app::v2::SettingsController controller(repository, store);
+    if (desktop_app::v2::SettingsController::staticMetaObject.indexOfMethod("openStorageRoot()") < 0)
+        return fail(2, "Controller did not expose the storage-root opening API.");
     int textSizeChangedCount = 0;
     int storageRootChangedCount = 0;
     QObject::connect(&controller, &desktop_app::v2::SettingsController::textSizePercentChanged,
@@ -78,6 +95,24 @@ int main(int argc, char **argv)
         return fail(5, "Controller accepted a nonlocal storage-root URL.");
     }
 
+    UrlCaptureHandler urlCaptureHandler;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &urlCaptureHandler, "capture");
+    const QString openStorageRootError = controller.openStorageRoot();
+    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
+    if (!openStorageRootError.isEmpty() || urlCaptureHandler.capturedUrl != controller.storageRoot())
+        return fail(5, "Controller did not forward the authoritative storage-root URL.");
+
+    desktop_app::v2::ApplicationStateStore invalidRootStore;
+    desktop_app::v2::SettingsRepository invalidRootRepository(
+        temporaryDirectory.filePath(QStringLiteral("invalid-preferences.json")), invalidRootStore);
+    desktop_app::v2::SettingsController invalidRootController(invalidRootRepository, invalidRootStore);
+    if (invalidRootController.openStorageRoot().isEmpty())
+        return fail(5, "Controller attempted to open an empty storage root.");
+    invalidRootStore.publishPreferences(
+        {temporaryDirectory.filePath(QStringLiteral("missing-root")), 100});
+    if (invalidRootController.openStorageRoot().isEmpty())
+        return fail(5, "Controller attempted to open a nonexistent storage root.");
+
     controller.setTextSizePercent(80);
     if (controller.textSizePercent() != 80 || textSizeChangedCount != 1)
         return fail(6, "Controller did not publish a supported text size.");
@@ -103,3 +138,5 @@ int main(int argc, char **argv)
 
     return 0;
 }
+
+#include "settings_controller_test.moc"

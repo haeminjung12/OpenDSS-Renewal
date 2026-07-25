@@ -11,7 +11,7 @@
 #include "../detection/droplet_detector.h"
 #include "../fast_event_detector.h"
 #include "../metadata_loader.h"
-#include "../onnx_classifier.h"
+#include "../inference/onnx_inference_adapter.h"
 
 struct PipelineConfig {
     std::string onnxPath;
@@ -61,6 +61,9 @@ class PipelineRunner {
     PipelineRunner() = default;
     ~PipelineRunner();
     bool init(const PipelineConfig& cfg, std::string& err);
+    bool init(const PipelineConfig& cfg, std::unique_ptr<OnnxInferenceAdapter> candidate, std::string& err);
+    bool configureInstalled(const PipelineConfig& cfg, std::string& err);
+    void installInference(std::unique_ptr<OnnxInferenceAdapter> candidate) noexcept;
     void clear();
     void reset();
     bool isReady() const;
@@ -73,14 +76,18 @@ class PipelineRunner {
     std::string targetDisplayLabel() const;
     std::string targetDisplayText() const;
     std::string executionProvider() const;
+    std::string loadedModelId() const;
+    std::string loadedModelPath() const;
+    std::string loadedMetadataPath() const;
+    std::string loadedModelSha256() const;
+    std::string loadedMetadataSha256() const;
 
   private:
     static std::string toLowerAscii(const std::string& s);
     static cv::Rect makeSquareRect(const cv::Rect& bbox, const cv::Size& size);
 
     PipelineConfig cfg_;
-    Metadata meta_;
-    OnnxClassifier classifier_;
+    std::unique_ptr<OnnxInferenceAdapter> classifier_;
     std::unique_ptr<IDropletDetector> detector_;
     DaqTrigger trigger_;
     bool ready_ = false;

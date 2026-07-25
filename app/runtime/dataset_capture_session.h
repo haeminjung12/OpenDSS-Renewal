@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -48,6 +49,21 @@ struct DatasetCropCandidate {
     std::filesystem::path overlayPath;
 };
 
+struct DatasetCaptureIntegrityRange {
+    std::uint64_t first = 0;
+    std::uint64_t last = 0;
+};
+
+struct DatasetCaptureIntegrity {
+    std::uint64_t handoffAccepted = 0;
+    std::uint64_t sourceGapCount = 0;
+    std::uint64_t queueRejectedCount = 0;
+    std::uint64_t consumerFailureCount = 0;
+    std::vector<DatasetCaptureIntegrityRange> sourceGaps;
+    std::vector<DatasetCaptureIntegrityRange> queueRejected;
+    std::vector<DatasetCaptureIntegrityRange> consumerFailures;
+};
+
 class DatasetCaptureSession {
   public:
     bool start(const DatasetCaptureConfig& config, std::string& err);
@@ -55,6 +71,7 @@ class DatasetCaptureSession {
     void extendBatchTarget();
     void recordBatchPrompt(const std::string& decision);
     void setStopReason(const std::string& reason);
+    void setIntegrity(DatasetCaptureIntegrity integrity);
     bool finalize(std::string& err);
 
     bool isStarted() const {
@@ -127,4 +144,5 @@ class DatasetCaptureSession {
     std::string createdAt_;
     std::vector<std::string> batchPromptAudit_;
     std::vector<CapturedItem> items_;
+    DatasetCaptureIntegrity integrity_;
 };

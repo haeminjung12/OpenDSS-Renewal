@@ -55,6 +55,7 @@
   },
   "artifact": {
     "onnx_file": "model.onnx",
+    "onnx_sha256": "fedb774c07007b01d1985eae03ffbda6b3ac1b86a5d1172f6e2e156fc96a18cd",
     "checkpoint_file": "checkpoint.pth",
     "external_data_files": [],
     "format": "onnx",

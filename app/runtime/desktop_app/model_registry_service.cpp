@@ -1492,6 +1492,21 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
                                const QString& metricsJsonPath, const QString& classMetricsCsvPath,
                                const QString& confusionMatrixCsvPath, const QString& modelName,
                                QString* registeredEntryId, QString* error) {
+    return saveTrainedModelArtifacts(
+        registryFilePath, runDir, modelOnnxPath, metadataJsonPath, metricsCsvPath,
+        trainingConfigJsonPath, metricsJsonPath, classMetricsCsvPath, confusionMatrixCsvPath,
+        modelName, modelsRootPath(), nullptr, registeredEntryId, error);
+}
+
+bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& runDir,
+                               const QString& modelOnnxPath, const QString& metadataJsonPath,
+                               const QString& metricsCsvPath, const QString& trainingConfigJsonPath,
+                               const QString& metricsJsonPath, const QString& classMetricsCsvPath,
+                               const QString& confusionMatrixCsvPath, const QString& modelName,
+                               const QString& destinationRoot, QString* savedPackagePath,
+                               QString* registeredEntryId, QString* error) {
+    if (savedPackagePath)
+        savedPackagePath->clear();
     if (registeredEntryId)
         registeredEntryId->clear();
     if (error)
@@ -1512,7 +1527,12 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
         return false;
     }
 
-    const QString rootPath = modelsRootPath();
+    const QString rootPath = absoluteCleanPath(destinationRoot);
+    if (rootPath.isEmpty()) {
+        if (error)
+            *error = "No model destination folder is available.";
+        return false;
+    }
     QDir root(rootPath);
     if (!root.exists() && !QDir().mkpath(rootPath)) {
         if (error)
@@ -1589,7 +1609,7 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
     QJsonObject artifact = metadata.value("artifact").toObject();
     artifact["onnx_file"] = "model.onnx";
     artifact["checkpoint_file"] = "checkpoint.pth";
-    artifact.remove("onnx_sha256");
+    artifact["onnx_sha256"] = sha256FileHex(promotedModelPath);
     artifact["format"] = "onnx";
     QJsonArray externalDataFiles;
     for (const QString& sidecarName : sidecarNames) {
@@ -1627,6 +1647,8 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
     }
 
     createdDestination = false;
+    if (savedPackagePath)
+        *savedPackagePath = QFileInfo(destinationDirPath).absoluteFilePath();
     if (registeredEntryId)
         *registeredEntryId = entryId;
     return true;

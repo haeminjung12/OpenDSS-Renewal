@@ -76,6 +76,13 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
                                const QString& metricsJsonPath, const QString& classMetricsCsvPath,
                                const QString& confusionMatrixCsvPath, const QString& modelName,
                                QString* registeredEntryId = nullptr, QString* error = nullptr);
+bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& runDir,
+                               const QString& modelOnnxPath, const QString& metadataJsonPath,
+                               const QString& metricsCsvPath, const QString& trainingConfigJsonPath,
+                               const QString& metricsJsonPath, const QString& classMetricsCsvPath,
+                               const QString& confusionMatrixCsvPath, const QString& modelName,
+                               const QString& destinationRoot, QString* savedPackagePath = nullptr,
+                               QString* registeredEntryId = nullptr, QString* error = nullptr);
 ActiveModelReadiness evaluateActiveModelReadiness(const QJsonObject& entry);
 ModelPackageInspection inspectModelPackage(const QJsonObject& entry);
 bool activateModelRegistryEntry(const QString& registryFilePath, const QString& registryEntryId,

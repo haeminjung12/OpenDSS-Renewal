@@ -256,6 +256,7 @@ Item {
     Binding { target: screen.modelLibraryWorkspace.exportButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace.duplicateButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace.deleteButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.openInModelTestButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelExpanded"; value: state.selectedModelExpanded }
     Binding { target: screen.modelLibraryWorkspace; property: "rightPanelExpanded"; value: state.modelLibraryRightPanelExpanded }
 
@@ -284,11 +285,11 @@ Item {
     }
 
     Binding { target: screen.modelTestWorkspace; property: "presentation"; value: state.modelTestPresentation }
-    Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: root.modelLibraryController && root.modelLibraryController.selectedId !== "" ? root.modelLibraryController.selectedDetail.name || root.modelLibraryController.selectedId : state.activeModelText }
+    Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: root.modelLibraryController ? root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId ? root.modelLibraryController.selectedDetail.name || root.modelLibraryController.activeId : root.modelLibraryController.activeId : state.activeModelText }
     Binding { target: screen.modelTestWorkspace; property: "datasetText"; value: state.modelTestDatasetSelected ? qsTr("Dataset-042") : qsTr("No Dataset selected") }
     Binding { target: screen.modelTestWorkspace; property: "deviceText"; value: state.modelTestPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
     Binding { target: screen.modelTestWorkspace; property: "outputLocationText"; value: state.modelTestOutputLocationDraft }
-    Binding { target: screen.modelTestWorkspace; property: "blockerText"; value: state.activeOperation !== "" ? qsTr("Another operation is active") : root.modelLibraryController ? root.modelLibraryController.selectedId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" : state.activeModelId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" }
+    Binding { target: screen.modelTestWorkspace; property: "blockerText"; value: state.activeOperation !== "" ? qsTr("Another operation is active") : root.modelLibraryController ? root.modelLibraryController.activeId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" : state.activeModelId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" }
     Binding { target: screen.modelTestWorkspace; property: "startEnabled"; value: (state.modelTestPresentation === "readyCpu" || state.modelTestPresentation === "readyGpu") && state.activeOperation === "" }
     Binding { target: screen.modelTestWorkspace; property: "showRunning"; value: state.modelTestPresentation === "running" }
     Binding { target: screen.modelTestWorkspace; property: "showCompleted"; value: state.modelTestPresentation === "completedTwoClass" || state.modelTestPresentation === "completedThreeClass" }
@@ -487,7 +488,8 @@ Item {
         target: screen.modelLibraryWorkspace.openInModelTestButton
         function onClicked() {
             if (root.modelLibraryController) {
-                if (root.modelLibraryController.selectedId !== "") {
+                if (root.modelLibraryController.selectedId !== ""
+                        && root.modelLibraryController.selectedId === root.modelLibraryController.activeId) {
                     state.modelTestDatasetSelected = false
                     state.modelTestPresentation = "modelOnly"
                     state.selectWorkspace("modelTest")
@@ -504,7 +506,7 @@ Item {
     Connections {
         target: screen.modelTestWorkspace.selectDatasetButton
         function onClicked() {
-            if (root.modelLibraryController && root.modelLibraryController.selectedId !== "") {
+            if (root.modelLibraryController && root.modelLibraryController.activeId !== "") {
                 state.modelTestDatasetSelected = true
                 state.modelTestPresentation = "readyGpu"
             } else {

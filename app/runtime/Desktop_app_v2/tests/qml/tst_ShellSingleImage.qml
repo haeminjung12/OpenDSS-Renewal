@@ -415,9 +415,10 @@ Item {
         shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
         compare(shell.mockState.selectedWorkspace, "library")
 
-        const candidate =
-                shell.form.modelLibraryWorkspace.modelListView.itemAtIndex(1)
-        verify(candidate)
+        tryVerify(function() {
+            return shell.form.modelLibraryWorkspace.modelListView.itemAtIndex(1) !== null
+        })
+        const candidate = shell.form.modelLibraryWorkspace.modelListView.itemAtIndex(1)
         mouseClick(candidate)
         compare(modelLibraryController.selectCallCount, 1)
         compare(modelLibraryController.selectedIndex, 1)
@@ -445,22 +446,30 @@ Item {
         compare(modelLibraryController.renamedTo, "Renamed Candidate")
         compare(shell.form.modelLibraryWorkspace.selectedModelName, "Renamed Candidate")
 
+        verify(!shell.form.modelLibraryWorkspace.openInModelTestButton.enabled)
+        shell.mockState.selectedWorkspace = "library"
         shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
-        compare(shell.mockState.selectedWorkspace, "modelTest")
-        compare(shell.form.modelTestWorkspace.activeModelText, "Renamed Candidate")
-        compare(modelLibraryController.activeId, "model-active")
-        compare(shell.form.modelTestWorkspace.blockerText, "No dataset selected")
-
-        shell.form.modelTestWorkspace.selectDatasetButton.clicked()
-        compare(shell.form.modelTestWorkspace.activeModelText, "Renamed Candidate")
-        compare(shell.form.modelTestWorkspace.presentation, "readyGpu")
-        compare(shell.form.modelTestWorkspace.blockerText, "")
+        compare(shell.mockState.selectedWorkspace, "library")
+        compare(shell.form.modelTestWorkspace.activeModelText, "model-active")
         compare(modelLibraryController.activeId, "model-active")
 
         shell.form.modelLibraryWorkspace.setActiveButton.clicked()
         compare(modelLibraryController.setActiveCallCount, 1)
         compare(modelLibraryController.activeId, "model-candidate")
         verify(shell.form.modelLibraryWorkspace.selectedActive)
+        verify(shell.form.modelLibraryWorkspace.openInModelTestButton.enabled)
+
+        shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
+        compare(shell.mockState.selectedWorkspace, "modelTest")
+        compare(shell.form.modelTestWorkspace.activeModelText, "Renamed Candidate")
+        compare(shell.form.modelTestWorkspace.blockerText, "No dataset selected")
+        compare(modelLibraryController.activeId, "model-candidate")
+
+        shell.form.modelTestWorkspace.selectDatasetButton.clicked()
+        compare(shell.form.modelTestWorkspace.activeModelText, "Renamed Candidate")
+        compare(shell.form.modelTestWorkspace.presentation, "readyGpu")
+        compare(shell.form.modelTestWorkspace.blockerText, "")
+        compare(modelLibraryController.activeId, "model-candidate")
 
         modelLibraryController.errorMessage = "Registry unavailable"
         modelLibraryController.presentation = "error"

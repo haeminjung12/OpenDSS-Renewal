@@ -7,6 +7,7 @@ Window {
     property var settingsController: null
     property var runsResultsController: null
     property var sequenceViewerController: null
+    property var datasetLabelController: null
 
     width: Constants.width
     height: Constants.height

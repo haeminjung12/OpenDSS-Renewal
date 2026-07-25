@@ -8,6 +8,8 @@
 #include <QVariant>
 
 #include "autogen/environment.h"
+#include "../../v2/dataset/dataset_label_controller.h"
+#include "../../v2/operation/operation_coordinator.h"
 #include "../../v2/settings/settings_controller.h"
 #include "../../v2/settings/settings_repository.h"
 #include "../../v2/results/run_repository.h"
@@ -22,6 +24,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
 
     desktop_app::v2::ApplicationStateStore applicationStateStore;
+    desktop_app::v2::OperationCoordinator operationCoordinator;
     const QString preferencesFilePath = QDir(QStandardPaths::writableLocation(QStandardPaths::AppConfigLocation))
                                             .filePath(QStringLiteral("preferences.json"));
     desktop_app::v2::SettingsRepository settingsRepository(preferencesFilePath, applicationStateStore);
@@ -30,6 +33,8 @@ int main(int argc, char *argv[])
     desktop_app::v2::results::RunRepository runRepository(applicationStateStore);
     desktop_app::v2::results::RunsResultsController runsResultsController(runRepository, applicationStateStore);
     desktop_app::v2::sequence::SequenceViewerController sequenceViewerController;
+    desktop_app::v2::dataset::DatasetLabelController datasetLabelController(operationCoordinator,
+                                                                            applicationStateStore);
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("sequence-frame"),
@@ -46,7 +51,8 @@ int main(int argc, char *argv[])
     engine.addImportPath(":/");
     engine.setInitialProperties({{QStringLiteral("settingsController"), QVariant::fromValue(&settingsController)},
                                  {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)},
-                                 {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)}});
+                                 {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)},
+                                 {QStringLiteral("datasetLabelController"), QVariant::fromValue(&datasetLabelController)}});
     engine.load(url);
 
     if (engine.rootObjects().isEmpty())

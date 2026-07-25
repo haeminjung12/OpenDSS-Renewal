@@ -1,6 +1,14 @@
 
 target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "main.cpp"
+    "../../v2/dataset/dataset_label_controller.cpp"
+    "../../v2/dataset/dataset_label_controller.h"
+    "../../v2/dataset/dataset_label_service.cpp"
+    "../../v2/dataset/dataset_label_service.h"
+    "../../v2/dataset/dataset_manifest_v2.cpp"
+    "../../v2/dataset/dataset_manifest_v2.h"
+    "../../v2/operation/operation_coordinator.cpp"
+    "../../v2/operation/operation_coordinator.h"
     "../../v2/settings/settings_controller.cpp"
     "../../v2/settings/settings_controller.h"
     "../../v2/settings/settings_repository.cpp"

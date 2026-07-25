@@ -57,6 +57,7 @@ bool sameSettings(const DaqAppliedSettings &left,
                   const DaqAppliedSettings &right)
 {
     return left.outputChannel == right.outputChannel
+        && left.amplitudeVpp == right.amplitudeVpp
         && left.frequencyHz == right.frequencyHz
         && left.durationMs == right.durationMs
         && left.delayMs == right.delayMs;
@@ -180,7 +181,8 @@ int main(int argc, char **argv)
 
     const DaqAppliedSettings defaults;
     ok &= check(defaults.outputChannel == QStringLiteral("Dev1/ao0")
-                    && defaults.frequencyHz == 1000.0
+                    && defaults.amplitudeVpp == 5.0
+                    && defaults.frequencyHz == 10000.0
                     && defaults.durationMs == 5.0
                     && defaults.delayMs == 0.0,
                 "DAQ settings must use the approved defaults.");
@@ -198,16 +200,16 @@ int main(int argc, char **argv)
     ok &= check(snapshot.value(QStringLiteral("channel")).toString()
                         == QStringLiteral("Dev1/ao0")
                     && snapshot.value(QStringLiteral("frequency_hz")).toDouble()
-                        == 1000.0
+                        == 10000.0
                     && snapshot.value(QStringLiteral("duration_ms")).toDouble()
                         == 5.0
                     && snapshot.value(QStringLiteral("delay_ms")).toDouble()
                         == 0.0
                     && snapshot.value(QStringLiteral("amplitude_vpp")).toDouble()
                         == 5.0,
-                "DAQ snapshot must record the approved settings and fixed Vpp.");
-    ok &= check(fake.channel == "Dev1/ao0" && fake.timingRate == 50000.0
-                    && fake.timingSamples == 251,
+                "DAQ snapshot must record the approved unit-explicit settings.");
+    ok &= check(fake.channel == "Dev1/ao0" && fake.timingRate == 500000.0
+                    && fake.timingSamples == 2501,
                 "Defaults must pass channel, frequency, and duration unchanged.");
 
     ok &= check(daq.issueLiveHit(false, &error)
@@ -216,7 +218,7 @@ int main(int argc, char **argv)
                 "DAQ Output OFF must suppress the Hit without an NI write.");
     ok &= check(daq.issueLiveHit(true, &error)
                         == run::DaqPulseStatus::Issued
-                    && fake.writeCalls == 1 && fake.waveform.size() == 251
+                    && fake.writeCalls == 1 && fake.waveform.size() == 2501
                     && fake.waveform.back() == 0.0,
                 "DAQ Output ON must issue the qualified waveform with a final zero.");
     const auto extrema =
@@ -227,11 +229,37 @@ int main(int argc, char **argv)
                     && *extrema.second > 2.49,
                 "Fixed 5 Vpp must map to a zero-centered 2.5 V peak waveform.");
 
-    DaqAppliedSettings invalid = defaults;
-    invalid.frequencyHz = std::numeric_limits<double>::quiet_NaN();
-    ok &= check(!daq.applySettings(invalid, &error) && daq.ready()
-                    && sameSettings(store.snapshot().daq.appliedSettings, defaults),
-                "Invalid settings must preserve the prior applied state.");
+    std::vector<DaqAppliedSettings> invalidSettings;
+    for (double amplitude : {-0.1, 10.1,
+                             std::numeric_limits<double>::quiet_NaN()}) {
+        DaqAppliedSettings invalid = defaults;
+        invalid.amplitudeVpp = amplitude;
+        invalidSettings.push_back(invalid);
+    }
+    for (double frequency : {999.0, 1000001.0}) {
+        DaqAppliedSettings invalid = defaults;
+        invalid.frequencyHz = frequency;
+        invalidSettings.push_back(invalid);
+    }
+    for (double duration : {0.9, 500.1}) {
+        DaqAppliedSettings invalid = defaults;
+        invalid.durationMs = duration;
+        invalidSettings.push_back(invalid);
+    }
+    for (double delay : {-0.1, 500.1}) {
+        DaqAppliedSettings invalid = defaults;
+        invalid.delayMs = delay;
+        invalidSettings.push_back(invalid);
+    }
+    const int createsBeforeInvalid = fake.createCalls;
+    for (const DaqAppliedSettings &invalid : invalidSettings) {
+        ok &= check(!daq.applySettings(invalid, &error) && daq.ready()
+                        && sameSettings(store.snapshot().daq.appliedSettings,
+                                        defaults),
+                    "Out-of-range settings must preserve prior applied state.");
+    }
+    ok &= check(fake.createCalls == createsBeforeInvalid,
+                "Range validation must reject before touching output.");
 
     fake.createStatus = -1;
     DaqAppliedSettings candidate = defaults;
@@ -247,13 +275,27 @@ int main(int argc, char **argv)
     auto held = operations.acquire(OperationKind::LiveSorting,
                                    ResourceLock::Daq);
     const int createsBeforeConflict = fake.createCalls;
+    const int clearsBeforeConflict = fake.clearCalls;
     ok &= check(held.acquired() && !daq.applySettings(candidate, &error)
                     && fake.createCalls == createsBeforeConflict
                     && daq.ready(),
                 "A DAQ lock conflict must reject apply before touching NI.");
+    const int writesBeforeUnavailable = fake.writeCalls;
+    daq.markUnavailable(QStringLiteral("Injected discovery fault."));
+    ok &= check(!daq.ready()
+                    && store.snapshot().daq.status == DaqStatus::Faulted
+                    && store.snapshot().daq.fault
+                           == QStringLiteral("Injected discovery fault.")
+                    && fake.clearCalls == clearsBeforeConflict
+                    && daq.issueLiveHit(true, &error)
+                           == run::DaqPulseStatus::Failed
+                    && fake.writeCalls == writesBeforeUnavailable
+                    && fake.clearCalls == clearsBeforeConflict,
+                "Factual loss must suppress output immediately while teardown is lease-blocked.");
     held.lease.release();
 
     DaqAppliedSettings custom = defaults;
+    custom.amplitudeVpp = 8.0;
     custom.frequencyHz = 2000.0;
     custom.durationMs = 4.0;
     custom.delayMs = 3.0;
@@ -266,6 +308,14 @@ int main(int argc, char **argv)
                         == run::DaqPulseStatus::Issued
                     && std::abs(fake.waitTimeout - 5.007) < 1e-12,
                 "Custom duration and delay must pass unchanged to firing.");
+    const auto customExtrema =
+        std::minmax_element(fake.waveform.begin(), fake.waveform.end());
+    ok &= check(customExtrema.first != fake.waveform.end()
+                    && *customExtrema.first >= -4.0
+                    && *customExtrema.second <= 4.0
+                    && *customExtrema.first < -3.98
+                    && *customExtrema.second > 3.98,
+                "8 Vpp must map to a zero-centered 4 V peak waveform.");
 
     fake.writeStatus = -1;
     const int writesBeforeFailure = fake.writeCalls;
@@ -343,6 +393,13 @@ int main(int argc, char **argv)
                     && store.snapshot().daq.status == DaqStatus::Disabled
                     && applyReturned.load() && shutdownReturned.load(),
                 "Shutdown must publish Disabled after the earlier apply publication.");
+    const int clearsAfterShutdown = fake.clearCalls;
+    const int publicationsAfterShutdown = observerCalls;
+    daq.shutdown();
+    ok &= check(fake.clearCalls == clearsAfterShutdown
+                    && observerCalls == publicationsAfterShutdown
+                    && store.snapshot().daq.status == DaqStatus::Disabled,
+                "Repeated shutdown must be idempotent.");
 
     QObject::disconnect(observerConnection);
     return ok ? 0 : 1;

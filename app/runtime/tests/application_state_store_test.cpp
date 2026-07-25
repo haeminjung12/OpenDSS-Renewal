@@ -22,6 +22,13 @@ int main(int argc, char **argv)
 {
     QCoreApplication application(argc, argv);
     ApplicationStateStore store;
+    const DaqAppliedSettings daqDefaults;
+    if (daqDefaults.amplitudeVpp != 5.0
+        || daqDefaults.frequencyHz != 10000.0
+        || daqDefaults.durationMs != 5.0
+        || daqDefaults.delayMs != 0.0) {
+        return fail(1, "DAQ settings did not use the approved unit-explicit defaults.");
+    }
     std::atomic_int changedCount = 0;
     QObject::connect(
         &store,

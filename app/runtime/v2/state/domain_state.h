@@ -26,7 +26,8 @@ enum class DaqStatus {
 
 struct DaqAppliedSettings {
     QString outputChannel = QStringLiteral("Dev1/ao0");
-    double frequencyHz = 1000.0;
+    double amplitudeVpp = 5.0;
+    double frequencyHz = 10000.0;
     double durationMs = 5.0;
     double delayMs = 0.0;
 };

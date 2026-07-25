@@ -8,23 +8,27 @@
 #include <memory>
 #include <mutex>
 
-class DaqTrigger;
-
 namespace desktop_app::v2 {
 
 class ApplicationStateStore;
+class IDaqOutput;
 class OperationCoordinator;
 
 class DaqService final
 {
 public:
     DaqService(OperationCoordinator &operations, ApplicationStateStore &stateStore);
+    DaqService(OperationCoordinator &operations, ApplicationStateStore &stateStore,
+               std::unique_ptr<IDaqOutput> output);
     ~DaqService();
 
     DaqService(const DaqService &) = delete;
     DaqService &operator=(const DaqService &) = delete;
 
+    static QString settingsValidationError(const DaqAppliedSettings &settings);
+
     bool applySettings(const DaqAppliedSettings &settings, QString *error = nullptr);
+    void markUnavailable(const QString &reason);
     bool ready() const;
     QJsonObject settingsSnapshot() const;
     run::DaqPulseStatus issueLiveHit(bool outputEnabled, QString *error = nullptr);
@@ -37,7 +41,7 @@ private:
     ApplicationStateStore &stateStore_;
     std::mutex operationOrderMutex_;
     mutable std::mutex stateMutex_;
-    std::unique_ptr<DaqTrigger> trigger_;
+    std::unique_ptr<IDaqOutput> output_;
     DaqState state_;
 };
 

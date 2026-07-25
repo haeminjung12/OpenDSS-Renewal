@@ -678,6 +678,32 @@ Item {
         compare(shell.form.disabledReason, "Another operation is active")
     }
 
+    function test_cameraPreviewSourcePort() {
+        const selectedWorkspace = shell.form.selectedWorkspace
+        const capturePanelExpanded = shell.form.capturePanelExpanded
+        const singleImageOpen = shell.form.singleImageOpen
+        const cameraStatus = shell.form.cameraStatus
+        const captureEnabled = shell.form.captureEnabled
+
+        compare(shell.form.cameraPreviewSource, "")
+        verify(!shell.form.cameraPreviewImage.visible)
+        verify(shell.form.cameraPreviewPlaceholder.visible)
+        compare(shell.form.cameraPreviewPlaceholder.text, "Camera preview")
+
+        shell.form.cameraPreviewSource = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        verify(shell.form.cameraPreviewImage.visible)
+        verify(!shell.form.cameraPreviewPlaceholder.visible)
+        compare(shell.form.selectedWorkspace, selectedWorkspace)
+        compare(shell.form.capturePanelExpanded, capturePanelExpanded)
+        compare(shell.form.singleImageOpen, singleImageOpen)
+        compare(shell.form.cameraStatus, cameraStatus)
+        compare(shell.form.captureEnabled, captureEnabled)
+
+        shell.form.cameraPreviewSource = ""
+        verify(!shell.form.cameraPreviewImage.visible)
+        verify(shell.form.cameraPreviewPlaceholder.visible)
+    }
+
     function test_workspaceHandoffs() {
         shell.form.navLibraryButton.clicked()
         shell.form.modelLibraryWorkspace.candidateModelRowButton.clicked()

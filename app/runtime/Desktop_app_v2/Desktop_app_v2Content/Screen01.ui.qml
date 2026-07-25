@@ -9,6 +9,7 @@ Rectangle {
     height: Constants.height
     color: Constants.backgroundColor
     property string cameraStatus: qsTr("Unavailable")
+    property string cameraPreviewSource: ""
     property string daqStatus: qsTr("Ready")
     property string activeModelText: qsTr("No Active Model")
     property string activityText: qsTr("Idle")
@@ -93,6 +94,8 @@ Rectangle {
     property alias cameraResolutionSelector: cameraResolutionSelector
     property alias cameraCustomWidthField: cameraCustomWidthField
     property alias cameraCustomHeightField: cameraCustomHeightField
+    property alias cameraPreviewImage: cameraPreviewImage
+    property alias cameraPreviewPlaceholder: cameraPreviewPlaceholder
     property alias cameraExposureField: cameraExposureField
     property alias cameraLutSelector: cameraLutSelector
     property alias daqChannelSelector: daqChannelSelector
@@ -376,7 +379,25 @@ Rectangle {
                 SplitView.fillWidth: true
                 color: Constants.viewerColor
                 border.color: Constants.borderColor
-                Text { text: root.cameraStatus === qsTr("Unavailable") ? qsTr("Camera unavailable") : qsTr("Camera preview"); color: Constants.surfaceColor; font: Constants.largeFont; anchors.centerIn: parent }
+                Image {
+                    id: cameraPreviewImage
+                    anchors.fill: parent
+                    source: root.cameraPreviewSource
+                    sourceSize.width: width
+                    sourceSize.height: height
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: false
+                    visible: root.cameraPreviewSource !== ""
+                }
+                Text {
+                    id: cameraPreviewPlaceholder
+                    text: root.cameraStatus === qsTr("Unavailable") ? qsTr("Camera unavailable") : qsTr("Camera preview")
+                    color: Constants.surfaceColor
+                    font: Constants.largeFont
+                    anchors.centerIn: parent
+                    visible: root.cameraPreviewSource === ""
+                }
             }
             Rectangle {
                 id: capturePanel

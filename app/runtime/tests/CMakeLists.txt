@@ -152,6 +152,32 @@ add_test(
     $<TARGET_FILE:model_load_activation_test>
 )
 
+qt_add_executable(model_library_controller_test
+  model_library_controller_test.cpp
+  ../desktop_app/app_utils.cpp
+  ../desktop_app/json_persistence.cpp
+  ../desktop_app/model_registry_service.cpp
+  ../v2/model/model_library_controller.cpp
+)
+target_compile_definitions(model_library_controller_test PRIVATE
+  OPENDSS_TEST_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."
+)
+target_include_directories(model_library_controller_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+)
+target_link_libraries(model_library_controller_test PRIVATE
+  Qt6::Core
+  Qt6::Widgets
+)
+add_test(
+  NAME model_library_controller_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:model_library_controller_test>
+)
+set_tests_properties(model_library_controller_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(dataset_manifest_v2_test
   dataset_manifest_v2_test.cpp
   ../desktop_app/json_persistence.cpp

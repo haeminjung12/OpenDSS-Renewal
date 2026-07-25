@@ -226,16 +226,16 @@ Rectangle {
                         Flow { id: filesNotesFlow; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: Constants.spacing
                             Column { width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width; height: implicitHeight; spacing: 6
                                 Text { text: qsTr("Files and Notes"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
-                                Button { text: qsTr("Open Droplet Log"); width: parent.width; height: Constants.controlHeight }
-                                Button { text: qsTr("Open Run Folder"); width: parent.width; height: Constants.controlHeight }
+                                AppButton { text: qsTr("Open Droplet Log"); width: parent.width; height: Constants.appStandardControlHeight }
+                                AppButton { text: qsTr("Open Run Folder"); width: parent.width; height: Constants.appStandardControlHeight }
                                 Row { width: parent.width; spacing: 6
-                                    Button { text: qsTr("Open Droplet Crop"); width: (parent.width - parent.spacing) / 2; height: Constants.controlHeight }
-                                    Button { text: qsTr("Open Saved Sequence"); width: (parent.width - parent.spacing) / 2; height: Constants.controlHeight }
+                                    AppButton { text: qsTr("Open Droplet Crop"); width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
+                                    AppButton { text: qsTr("Open Saved Sequence"); width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
                                 }
                             }
                             Column { width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width; height: implicitHeight; spacing: 6
                                 Text { text: qsTr("Notes"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
-                                TextArea {
+                                AppTextArea {
                                     id: notesEditor
                                     width: parent.width
                                     height: Math.max(implicitHeight, Math.round(80 * Constants.textScale))
@@ -244,9 +244,9 @@ Rectangle {
                                     wrapMode: TextEdit.Wrap
                                 }
                                 Row { spacing: 6
-                                    Button { id: editNotesButton; visible: !root.notesEditing; text: qsTr("Edit Notes"); height: Constants.controlHeight }
-                                    Button { id: saveNotesButton; visible: root.notesEditing; text: qsTr("Save Notes"); height: Constants.controlHeight }
-                                    Button { id: cancelNotesButton; visible: root.notesEditing; text: qsTr("Cancel"); height: Constants.controlHeight }
+                                    AppButton { id: editNotesButton; visible: !root.notesEditing; text: qsTr("Edit Notes"); height: Constants.appStandardControlHeight }
+                                    AppButton { id: saveNotesButton; visible: root.notesEditing; text: qsTr("Save Notes"); height: Constants.appStandardControlHeight }
+                                    AppButton { id: cancelNotesButton; visible: root.notesEditing; text: qsTr("Cancel"); height: Constants.appStandardControlHeight }
                                 }
                             }
                         }
@@ -282,20 +282,16 @@ Rectangle {
                     elide: Text.ElideRight
                 }
             }
-            Button {
+            AppInspectorRail {
                 id: rightPanelToggleButton
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
-                width: Math.round(30 * Constants.textScale)
-                height: panelTopStrip.height
                 text: root.rightPanelExpanded ? "›" : "‹"
                 z: 1
                 Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Runs panel") : qsTr("Expand Runs panel")
-                background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
-                contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
-            CollapsibleSection {
+            AppAccordion {
                 id: runsSection
                 visible: root.rightPanelExpanded
                 anchors.top: panelTopStrip.bottom
@@ -352,14 +348,13 @@ Rectangle {
                     }
                     Rectangle { visible: root.runsError; width: parent.width; height: 46; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent } }
 
-                        Button {
+                        AppButton {
                             id: loadSelectedRunButton
                             width: parent.width
-                            height: Constants.controlHeight
+                            height: Constants.appPrimaryButtonHeight
                             text: qsTr("Load selected Run")
+                            visualRole: "primary"
                             enabled: root.selectedRunId !== "" && !root.runsError
-                            palette.buttonText: Constants.surfaceColor
-                            background: Rectangle { color: loadSelectedRunButton.enabled ? Constants.accentColor : Constants.borderColor }
                         }
                     }
                 }

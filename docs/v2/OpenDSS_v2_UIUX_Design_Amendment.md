@@ -91,7 +91,7 @@ Settings
 
 No Home screen shall be added.
 
-Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. Their directly draggable default width is approximately **536 px at 100% Text Size**, not fixed, and scales with Text Size.
+Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. The outer toggle is a fixed **28 × 36 px** icon control with a **14 px** chevron and does not grow with Text Size. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. Their directly draggable default width is approximately **536 px at 100% Text Size**, not fixed, and scales with Text Size.
 
 Right-panel typography uses a consistent hierarchy: workspace/outer-panel titles are strongest, disclosure headers are secondary, and ordinary setting labels use the same normal font baseline as control content and buttons. Smaller muted typography is reserved for intentional supporting, warning, or status text.
 
@@ -881,7 +881,9 @@ Visuals
 
 Camera and DAQ controls do not appear in Settings.
 
-Visuals contains only application-wide **Text Size**, presented as one dropdown with exactly **80%**, **100%**, **125%**, **150%**, **175%**, and **200%**. The default is **100%**, with an approximately **22 px** body-text baseline. No other setting is added.
+Visuals contains only application-wide **Text Size**, presented as one dropdown with exactly **Small (80%)**, **Medium (100%)**, and **Large (125%)**. **Medium (100%)** is the default. **200%** is a validation-only condition and is not exposed as a selectable Text Size preference. At Medium, body text, standard control text, and button text use **16 px**. Body and standard controls retain approximately **20 px** line height; buttons retain approximately **18–20 px** line height. Ordinary field and settings labels use **15 px** with approximately **18 px** line height. Captions, status, warning, and metadata use **13 px** with approximately **16–18 px** line height. SettingsRepository and the UI integration must expose only 80, 100, and 125. Before publication or persistence, legacy persisted values must normalize as 90 → 100 and 150/175/200 → 125. The UI must never silently expose an unsupported value. No other setting is added.
+
+OpenDSS has one light application theme. There is no application dark mode or theme selector. Dark surfaces are limited to Camera, image, crop, and sequence-viewer canvases where image contrast requires them.
 
 ---
 

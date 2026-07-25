@@ -111,17 +111,13 @@ Item {
                         elide: Text.ElideRight
                     }
                 }
-                Button {
+                AppInspectorRail {
                     id: rightPanelToggleButton
                     text: root.rightPanelExpanded ? "›" : "‹"
-                    width: Math.round(30 * Constants.textScale)
-                    height: panelTopStrip.height
                     anchors.right: parent.right
                     anchors.verticalCenter: parent.verticalCenter
                     z: 1
                     Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Sequence Test panel") : qsTr("Expand Sequence Test panel")
-                    background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
-                    contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
                 }
 
                 ScrollView {
@@ -140,7 +136,7 @@ Item {
                         height: implicitHeight
                         spacing: Constants.spacing
 
-                        CollapsibleSection {
+                        AppAccordion {
                         id: sequenceTestSection
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Sequence Test")
@@ -162,10 +158,10 @@ Item {
                                 Row {
                                     width: parent.width
                                     spacing: Constants.spacing
-                                    Button { id: loadSequenceButton; text: qsTr("Load Sequence"); enabled: !root.running && !root.error; width: (parent.width - parent.spacing) / 2 }
-                                    Button { id: loadToMemoryButton; text: qsTr("Load to Memory"); enabled: root.presentation === "selected"; width: (parent.width - parent.spacing) / 2 }
+                                    AppButton { id: loadSequenceButton; text: qsTr("Load Sequence"); enabled: !root.running && !root.error; width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
+                                    AppButton { id: loadToMemoryButton; text: qsTr("Load to Memory"); enabled: root.presentation === "selected"; width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
                                 }
-                                CheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output"); enabled: !root.running }
+                                AppCheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output"); enabled: !root.running }
                                 Text {
                                     visible: !root.running && root.presentation !== "ready"
                                     text: root.activeModelText === qsTr("No Active Model") ? qsTr("Start requires an Active Model.") : (root.presentation === "selected" ? qsTr("Load the selected Sequence to memory before Start.") : (root.error ? qsTr("Resolve the current Error before Start.") : qsTr("Load a Sequence before Start.")))
@@ -174,7 +170,7 @@ Item {
                                     wrapMode: Text.WordWrap
                                     width: parent.width
                                 }
-                                Button { id: startStopButton; text: root.running ? qsTr("Stop") : qsTr("Start Sequence Test"); enabled: root.running || root.presentation === "ready"; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: root.running ? Constants.faultColor : (startStopButton.enabled ? Constants.accentColor : Constants.borderColor) } }
+                                AppButton { id: startStopButton; text: root.running ? qsTr("Stop") : qsTr("Start Sequence Test"); visualRole: root.running ? "destructive" : "primary"; enabled: root.running || root.presentation === "ready"; height: Constants.appPrimaryButtonHeight }
                             }
                         }
                         }

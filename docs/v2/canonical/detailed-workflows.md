@@ -32,7 +32,7 @@ This document is normative for the first public release unless a later approved 
 
 The Approved v2 Product Model remains controlling. The July 23, 2026 UI/UX Design Amendment controls every workflow matter it explicitly changes. The following flows replace conflicting older flow fragments in this document.
 
-Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. Their directly draggable default width is approximately **536 px at 100% Text Size**, not fixed, and scales with Text Size.
+Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. The outer toggle is a fixed **28 × 36 px** icon control with a **14 px** chevron and does not grow with Text Size. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. Their directly draggable default width is approximately **536 px at 100% Text Size**, not fixed, and scales with Text Size.
 
 The docked Hardware panel has the visible title **Hardware Configuration**, not an illustrative-mock label. It contains two titled collapsible groups, **Camera** and **DAQ**. **Output Configuration** is nested inside DAQ and contains Output Channel, Amplitude, Frequency, Event Duration, Decision-to-trigger Delay, and Continuous configured waveform controls. This is visual/product hierarchy only; actual clickable group collapse must use the existing DESIGN/FUNCTIONAL seam and does not authorize new runtime handlers.
 
@@ -2433,9 +2433,9 @@ Diagnostics SHALL provide access to the diagnostic folder. Technical detail rema
 
 Visuals SHALL contain only **Text Size**.
 
-Text Size SHALL be one application-wide dropdown containing exactly **80%**, **100%**, **125%**, **150%**, **175%**, and **200%**, with a default of **100%**. The 100% setting SHALL use an approximately **22 px** body-text baseline. No other setting SHALL be added.
+Text Size SHALL be one application-wide dropdown containing exactly **Small (80%)**, **Medium (100%)**, and **Large (125%)**, with **Medium** as the default. **200% SHALL remain a validation-only condition and SHALL NOT appear as a selectable preference.** At Medium, body text, standard control text, and button text SHALL use **16 px**. Body and standard controls SHALL retain approximately **20 px** line height; buttons SHALL retain approximately **18–20 px** line height. Ordinary field and settings labels SHALL use **15 px** with approximately **18 px** line height. Captions, status, warning, and metadata SHALL use **13 px** with approximately **16–18 px** line height. No other setting SHALL be added.
 
-Storage and Text Size preference state SHALL have one authoritative owner consistent with **SettingsRepository**; workspaces SHALL NOT duplicate that authority.
+Storage and Text Size preference state SHALL have one authoritative owner consistent with **SettingsRepository**; workspaces SHALL NOT duplicate that authority. SettingsRepository and the UI integration SHALL expose only 80, 100, and 125. Before publication or persistence, legacy persisted values SHALL normalize as 90 → 100 and 150/175/200 → 125. The UI SHALL NOT silently expose an unsupported value.
 
 ---
 

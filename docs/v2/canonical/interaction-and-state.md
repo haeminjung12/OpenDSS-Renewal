@@ -136,7 +136,7 @@ The diagrams do not define color, typography, iconography, animation, exact dime
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
-Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. This outer-panel composition is distinct from titled inner disclosure headers and does not change existing exported toggle aliases or wrapper ownership.
+Workspace outer right panels use a light top strip with the exact visible title **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, or **Runs**, left-aligned while expanded, and the existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. The outer toggle is a fixed **28 × 36 px** icon control with a **14 px** chevron and does not grow with Text Size. When collapsed width is insufficient, only the fixed chevron may remain visible. Settings has no outer collapsible panel. This outer-panel composition is distinct from titled inner disclosure headers and does not change existing exported toggle aliases or wrapper ownership.
 
 ### 2.2 Primary navigation behavior
 
@@ -1631,7 +1631,7 @@ Settings
 │ [ Open Diagnostic Folder ]                                           │
 │                                                                      │
 │ VISUALS                                                              │
-│ Text Size [ 100% ▼ ]                                                 │
+│ Text Size [ Medium (100%) ▼ ]                                        │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -1643,7 +1643,7 @@ Settings
 - Open Data Root and Open Diagnostic Folder invoke Windows Explorer.
 - Application and runtime information is read-only.
 - Camera and DAQ settings do not appear in Settings; they remain in the hardware panel.
-- Text Size is one dropdown containing exactly 80%, 100%, 125%, 150%, 175%, and 200%. The default is 100%, with an approximately 22 px body-text baseline.
+- Text Size is one dropdown containing exactly **Small (80%)**, **Medium (100%)**, and **Large (125%)**. **Medium (100%)** is the default. **200%** is a validation-only condition and is not exposed as a selectable Text Size preference. At Medium, body text, standard control text, and button text use 16 px. Body and standard controls retain approximately 20 px line height; buttons retain approximately 18–20 px line height. Ordinary field and settings labels use 15 px with approximately 18 px line height. Captions, status, warning, and metadata use 13 px with approximately 16–18 px line height. SettingsRepository and the UI integration must expose only 80, 100, and 125. Before publication or persistence, legacy persisted values must normalize as 90 → 100 and 150/175/200 → 125. The UI must never silently expose an unsupported value.
 - No detector, crop, routing, timing, training, cloud, account, telemetry, update, or legacy-migration controls appear.
 
 ---

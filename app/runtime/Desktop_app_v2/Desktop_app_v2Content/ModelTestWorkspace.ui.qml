@@ -92,9 +92,9 @@ Rectangle {
                     Row {
                         visible: root.showCompleted
                         spacing: Constants.spacing
-                        Button { id: openPredictionsButton; text: qsTr("Open Predictions CSV"); height: Constants.controlHeight }
-                        Button { id: openSummaryButton; text: qsTr("Open Summary"); height: Constants.controlHeight }
-                        Button { id: startAnotherButton; text: qsTr("Start Another"); height: Constants.controlHeight }
+                        AppButton { id: openPredictionsButton; text: qsTr("Open Predictions CSV"); height: Constants.appStandardControlHeight }
+                        AppButton { id: openSummaryButton; text: qsTr("Open Summary"); height: Constants.appStandardControlHeight }
+                        AppButton { id: startAnotherButton; text: qsTr("Start Another"); height: Constants.appStandardControlHeight }
                     }
                 }
             }
@@ -129,16 +129,12 @@ Rectangle {
                     elide: Text.ElideRight
                 }
             }
-            Button {
+            AppInspectorRail {
                 id: operationPanelToggleButton
                 text: root.operationPanelExpanded ? "›" : "‹"
-                width: Math.round(30 * Constants.textScale)
-                height: panelTopStrip.height
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 z: 1
-                background: Rectangle { color: Constants.backgroundColor; border.color: operationPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: operationPanelToggleButton.activeFocus ? 2 : 1 }
-                contentItem: Text { text: operationPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
             Column {
@@ -151,7 +147,7 @@ Rectangle {
                 anchors.leftMargin: Constants.spacing
                 spacing: 2
 
-                CollapsibleSection {
+                AppAccordion {
                     id: modelTestSetupSection
                     visible: !root.showRunning && !root.showCompleted && !root.showError
                     width: parent.width
@@ -169,17 +165,17 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
-                            Button { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.controlHeight }
+                            AppButton { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Output Location"); font: Constants.font }
-                            Row { width: parent.width; spacing: Constants.spacing; TextField { id: outputLocationField; text: root.outputLocationText; width: parent.width - browseButton.width - Constants.spacing; height: Constants.controlHeight } Button { id: browseButton; text: qsTr("Browse"); height: Constants.controlHeight } }
+                            Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: outputLocationField; text: root.outputLocationText; width: parent.width - browseButton.width - Constants.spacing; height: Constants.appStandardControlHeight } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }
                             Text { visible: !root.startEnabled; text: root.blockerText; color: Constants.warningColor }
                             Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; color: Constants.mutedTextColor }
-                            Button { id: startButton; text: qsTr("Start Model Test"); enabled: root.startEnabled; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: startButton.enabled ? Constants.accentColor : Constants.borderColor } }
+                            AppButton { id: startButton; text: qsTr("Start Model Test"); visualRole: "primary"; enabled: root.startEnabled; height: Constants.appPrimaryButtonHeight }
                         }
                     }
                 }
 
-                CollapsibleSection {
+                AppAccordion {
                     id: modelTestStatusSection
                     visible: root.showRunning
                     width: parent.width
@@ -199,8 +195,8 @@ Rectangle {
                             spacing: Constants.spacing
                             Text { text: qsTr("Device: ") + root.deviceText }
                             Text { text: qsTr("Processed: 360 of 1,200") }
-                            ProgressBar { value: 0.3; width: parent.width }
-                            Button { id: stopButton; text: qsTr("Stop Model Test"); height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.faultColor } }
+                            AppProgressBar { value: 0.3; width: parent.width }
+                            AppButton { id: stopButton; text: qsTr("Stop Model Test"); visualRole: "destructive"; height: Constants.appPrimaryButtonHeight }
                         }
                     }
                 }
@@ -211,7 +207,7 @@ Rectangle {
                     height: 130
                     color: Constants.errorSurfaceColor
                     border.color: Constants.faultColor
-                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Text { text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText } Button { text: qsTr("Start Model Test"); enabled: root.presentation === "interrupted" } }
+                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Text { text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText } AppButton { text: qsTr("Start Model Test"); enabled: root.presentation === "interrupted"; height: Constants.appStandardControlHeight } }
                 }
             }
         }

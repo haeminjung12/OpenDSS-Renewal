@@ -575,15 +575,19 @@ A neutral, highly legible sans-serif SHOULD be used throughout the application. 
 
 | Role | Recommended style | Typical size / line height |
 |---|---|---|
-| Application/product title | Semibold | 20–22 / 28–30 logical px |
-| Workspace title | Semibold | 18–20 / 26–28 |
-| Section title | Semibold | 14–16 / 20–24 |
-| Body and controls | Regular or medium | 13–14 / 19–21 |
-| Field label | Medium | 12–13 / 18 |
-| Caption and metadata | Regular | 11–12 / 16–18 |
-| Metric value | Semibold, tabular figures | 22–32 / 28–38 |
-| Table data | Regular, tabular figures where numeric | 12–13 / 18–20 |
-| Path, filename, log, schema, channel | Monospace fallback | 12–13 / 18 |
+| Application/product title | Semibold | 22–24 / 30–32 logical px |
+| Workspace title | Regular | 22–24 / 30–32 |
+| Major section title | Semibold | 16–18 / 22–26 |
+| Section title | Semibold | 14–16 / 20–22 |
+| Body and controls | Regular or medium | 16 / 20 |
+| Ordinary setting label | Regular | 15 / 18 |
+| Button text | Semibold | 16 / 18–20 |
+| Caption, status, warning, and metadata | Regular | 13 / 16–18 |
+| Metric value | Semibold, tabular figures | 22–32 / context |
+| Table data | Regular, tabular figures where numeric | 13–14 / 18–20 |
+| Path, filename, log, schema, channel | Monospace fallback | 13–14 / 18–20 |
+
+Text Size offers exactly **Small (80%)**, **Medium (100%, default)**, and **Large (125%)**. **200% remains validation-only and is not selectable.** SettingsRepository and the UI integration must expose only 80, 100, and 125. Before publication or persistence, legacy persisted values must normalize as 90 → 100 and 150/175/200 → 125. The UI must never silently expose an unsupported value.
 
 Numeric counters, timestamps, frame indices, Class Scores, Inference Time, FPS, and matrices SHOULD use tabular figures. Monospace must be limited to values that benefit from fixed-width alignment; it is not a general status typeface.
 
@@ -3753,7 +3757,7 @@ The appendix is not an alternative-design menu. Rejected ideas do not remain ava
 | **Droplet-and-branch visual identity** | **Adopted** | Retained as a restrained brand concept because it does not change product behavior. A dedicated small mark is required rather than mechanically shrinking detailed artwork. |
 | **Navy, blue, teal, and neutral palette direction** | **Adapted** | Retained as the palette direction, with semantic roles separated and contrast validation required. Exact values are review tokens, not inherited mandates. |
 | **Dark live-view canvas** | **Adopted** | Used for Camera, Droplet Crop, and Sequence viewing while the application shell remains light. |
-| **Typography direction** | **Adapted** | Legible sans-serif, 13–14 px balanced control/body baseline, tabular metrics, and limited monospace retained. Typeface choice remains subject to bundling/rendering validation. |
+| **Typography direction** | **Adapted** | Legible sans-serif using the approved Medium (100%) typography ramp: 16 px / 20 px body and standard controls, 16 px / 18–20 px buttons, 15 px / 18 px ordinary labels, 13 px / 16–18 px captions, status, warning, and metadata, and 22–32 px metrics. Tabular figures and limited monospace remain. Typeface choice remains subject to bundling/rendering validation. |
 | **Spacing and geometry scale** | **Adapted** | 4-based spacing, balanced 36 px controls, restrained radii, and flat surfaces retained as recommendations; dimensions are adjusted to the approved shell and accessibility needs. |
 | **Compact and expanded navigation presentation** | **Adapted** | Permitted for the approved Data/Models/Sort/Results/Settings rail. The old navigation labels and hierarchy are not retained. |
 | **One summarized system-status control** | **Adapted** | The intent to avoid redundant status clutter is retained, but PM requires four explicit header areas: Camera, DAQ, Active Model, Current Activity. Hardware detail uses the bottom Hardware panel rather than one opaque summary control. |

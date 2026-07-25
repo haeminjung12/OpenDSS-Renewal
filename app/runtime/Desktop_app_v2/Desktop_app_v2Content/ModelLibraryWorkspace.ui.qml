@@ -57,7 +57,7 @@ Rectangle {
                 height: implicitHeight
                 spacing: Constants.spacing
                 Text { text: qsTr("Models"); font: Constants.headingFont }
-                Button { id: importButton; text: qsTr("Import Model"); height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: Constants.accentColor } }
+                AppButton { id: importButton; text: qsTr("Import Model"); visualRole: "primary"; height: Constants.appPrimaryButtonHeight }
                 Column {
                     id: modelList
                     visible: root.presentation !== "empty"
@@ -134,17 +134,13 @@ Rectangle {
                     elide: Text.ElideRight
                 }
             }
-            Button {
+            AppInspectorRail {
                 id: rightPanelToggleButton
                 text: root.rightPanelExpanded ? "›" : "‹"
-                width: Math.round(30 * Constants.textScale)
-                height: panelTopStrip.height
                 anchors.right: parent.right
                 anchors.verticalCenter: parent.verticalCenter
                 z: 1
                 Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Library panel") : qsTr("Expand Library panel")
-                background: Rectangle { color: Constants.backgroundColor; border.color: rightPanelToggleButton.activeFocus ? Constants.accentColor : Constants.borderColor; border.width: rightPanelToggleButton.activeFocus ? 2 : 1 }
-                contentItem: Text { text: rightPanelToggleButton.text; color: Constants.textColor; font: Constants.headingFont; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter }
             }
 
             ScrollView {
@@ -159,7 +155,7 @@ Rectangle {
                 contentWidth: availableWidth
                 clip: true
 
-                CollapsibleSection {
+                AppAccordion {
                     id: selectedModelSection
                     width: selectedModelScroll.availableWidth
                     sectionTitle: qsTr("Selected Model")
@@ -181,9 +177,9 @@ Rectangle {
                             Text { visible: root.hasSelection && !root.showError; text: qsTr("Active state: %1").arg(root.selectedActive ? qsTr("Active Model") : qsTr("Not Active")) }
                             Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: 2026-07-23\nDataset: Dataset-042\nArchitecture: MobileNetV3-Small\nFaster\nLabels: Class 0, Class 1\nTraining results: Accuracy 0.94\nPackage: C:/OpenDSS/Models/DropletNet-03.opendssmodel"); wrapMode: Text.WordWrap; width: parent.width }
                             Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor; wrapMode: Text.WordWrap; width: parent.width }
-                            Button { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.controlHeight; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: setActiveButton.enabled ? Constants.accentColor : Constants.borderColor } }
-                            Button { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.controlHeight }
-                            Flow { visible: root.hasSelection; width: parent.width; height: implicitHeight; spacing: Constants.spacing; Button { id: exportButton; text: qsTr("Export") } Button { id: duplicateButton; text: qsTr("Duplicate") } Button { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked } Button { id: deleteButton; text: qsTr("Delete"); enabled: !root.selectedActive && !root.modelLocked; palette.buttonText: Constants.surfaceColor; background: Rectangle { color: deleteButton.enabled ? Constants.faultColor : Constants.borderColor } } }
+                            AppButton { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); visualRole: "primary"; enabled: !root.selectedActive && !root.modelLocked; height: Constants.appPrimaryButtonHeight }
+                            AppButton { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.appStandardControlHeight }
+                            Flow { visible: root.hasSelection; width: parent.width; height: implicitHeight; spacing: Constants.spacing; AppButton { id: exportButton; text: qsTr("Export"); height: Constants.appStandardControlHeight } AppButton { id: duplicateButton; text: qsTr("Duplicate"); height: Constants.appStandardControlHeight } AppButton { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.appStandardControlHeight } AppButton { id: deleteButton; text: qsTr("Delete"); visualRole: "destructive"; enabled: !root.selectedActive && !root.modelLocked; height: Constants.appStandardControlHeight } }
                         }
                     }
                 }

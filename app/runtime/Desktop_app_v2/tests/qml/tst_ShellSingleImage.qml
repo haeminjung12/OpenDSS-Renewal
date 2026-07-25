@@ -91,10 +91,121 @@ Item {
         function saveAs(url) { saveAsArgument = url; return true }
     }
 
+    QtObject {
+        id: modelLibraryController
+        property var modelRows: [
+            {
+                id: "model-active", name: "Active Model",
+                architecture: "efficientnet_b0", performanceLabel: "More Accurate",
+                classSummary: "Empty, Single", active: true
+            },
+            {
+                id: "model-candidate", name: "Candidate Model",
+                architecture: "mobilenet_v3_small", performanceLabel: "Faster",
+                classSummary: "Empty, Single, MoreThanOne", active: false
+            }
+        ]
+        property int selectedIndex: -1
+        readonly property string selectedId: selectedIndex >= 0
+                                                     ? modelRows[selectedIndex].id : ""
+        property string activeId: "model-active"
+        readonly property var selectedDetail: selectedIndex >= 0 ? {
+            id: modelRows[selectedIndex].id,
+            name: modelRows[selectedIndex].name,
+            active: modelRows[selectedIndex].active,
+            architecture: modelRows[selectedIndex].architecture,
+            userFacingLabel: modelRows[selectedIndex].architecture === "mobilenet_v3_small"
+                             ? "MobileNetV3-Small — Faster"
+                             : "EfficientNet-B0 — More Accurate",
+            performanceLabel: modelRows[selectedIndex].performanceLabel,
+            classCount: modelRows[selectedIndex].classSummary.split(",").length,
+            classSummary: modelRows[selectedIndex].classSummary,
+            createdAt: "2026-07-25",
+            packageLocation: "C:/OpenDSS/Models/model-candidate",
+            status: "ready",
+            message: "",
+            canActivate: true
+        } : ({})
+        property string presentation: "ready"
+        property string errorMessage: ""
+        property int refreshCallCount: 0
+        property int selectCallCount: 0
+        property int setActiveCallCount: 0
+        property int renameCallCount: 0
+        property string renamedTo: ""
+
+        function reset() {
+            modelRows = [
+                {
+                    id: "model-active", name: "Active Model",
+                    architecture: "efficientnet_b0", performanceLabel: "More Accurate",
+                    classSummary: "Empty, Single", active: true
+                },
+                {
+                    id: "model-candidate", name: "Candidate Model",
+                    architecture: "mobilenet_v3_small", performanceLabel: "Faster",
+                    classSummary: "Empty, Single, MoreThanOne", active: false
+                }
+            ]
+            selectedIndex = -1
+            activeId = "model-active"
+            presentation = "ready"
+            errorMessage = ""
+            selectCallCount = 0
+            setActiveCallCount = 0
+            renameCallCount = 0
+            renamedTo = ""
+        }
+
+        function refresh() {
+            ++refreshCallCount
+            return true
+        }
+
+        function select(index) {
+            ++selectCallCount
+            selectedIndex = index
+            return true
+        }
+
+        function setActive() {
+            ++setActiveCallCount
+            activeId = selectedId
+            modelRows = [
+                {
+                    id: "model-active", name: "Active Model",
+                    architecture: "efficientnet_b0", performanceLabel: "More Accurate",
+                    classSummary: "Empty, Single", active: false
+                },
+                {
+                    id: "model-candidate", name: renamedTo || "Candidate Model",
+                    architecture: "mobilenet_v3_small", performanceLabel: "Faster",
+                    classSummary: "Empty, Single, MoreThanOne", active: true
+                }
+            ]
+            return true
+        }
+
+        function renameSelected(name) {
+            ++renameCallCount
+            renamedTo = name
+            modelRows = [
+                modelRows[0],
+                {
+                    id: "model-candidate", name: name,
+                    architecture: "mobilenet_v3_small", performanceLabel: "Faster",
+                    classSummary: "Empty, Single, MoreThanOne", active: false
+                }
+            ]
+            return true
+        }
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
         settingsController: textSizeController
+        modelLibraryController: modelLibraryController
     }
 
     TestCase {
@@ -111,7 +222,9 @@ Item {
         closeSpy.clear()
         shell.settingsController = textSizeController
         shell.datasetLabelController = null
+        shell.modelLibraryController = null
         shell.settingsActionError = ""
+        modelLibraryController.reset()
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
@@ -232,6 +345,93 @@ Item {
                 ++checkedCount
         }
         compare(checkedCount, 1)
+    }
+
+    function test_modelLibraryControllerWiring() {
+        compare(modelLibraryController.refreshCallCount, 1)
+        shell.modelLibraryController = modelLibraryController
+        shell.form.navLibraryButton.clicked()
+
+        tryCompare(shell.form.modelLibraryWorkspace.modelListView, "count", 2)
+        compare(shell.form.modelLibraryWorkspace.presentation, "ready")
+        compare(shell.form.modelLibraryWorkspace.modelRows[1].name, "Candidate Model")
+        verify(!shell.form.modelLibraryWorkspace.hasSelection)
+        verify(!shell.form.modelLibraryWorkspace.importButton.enabled)
+        verify(!shell.form.modelLibraryWorkspace.exportButton.enabled)
+        verify(!shell.form.modelLibraryWorkspace.duplicateButton.enabled)
+        verify(!shell.form.modelLibraryWorkspace.deleteButton.enabled)
+
+        shell.mockState.selectedWorkspace = "library"
+        shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
+        compare(shell.mockState.selectedWorkspace, "library")
+
+        const candidate =
+                shell.form.modelLibraryWorkspace.modelListView.itemAtIndex(1)
+        verify(candidate)
+        mouseClick(candidate)
+        compare(modelLibraryController.selectCallCount, 1)
+        compare(modelLibraryController.selectedIndex, 1)
+        compare(shell.form.modelLibraryWorkspace.selectedModelIndex, 1)
+        compare(shell.form.modelLibraryWorkspace.selectedModelName, "Candidate Model")
+        compare(shell.form.modelLibraryWorkspace.selectedModelArchitecture,
+                "mobilenet_v3_small")
+        compare(shell.form.modelLibraryWorkspace.selectedModelPerformanceLabel, "Faster")
+        compare(shell.form.modelLibraryWorkspace.selectedModelClassSummary,
+                "Empty, Single, MoreThanOne")
+        verify(typeof modelLibraryController.selectedDetail.sourceDataset === "undefined")
+        verify(typeof modelLibraryController.selectedDetail.trainingMetrics === "undefined")
+        compare(shell.form.modelLibraryWorkspace.selectedModelSourceDataset, "")
+        compare(shell.form.modelLibraryWorkspace.selectedModelCreationDate, "2026-07-25")
+        compare(shell.form.modelLibraryWorkspace.selectedModelPackageLocation,
+                "C:/OpenDSS/Models/model-candidate")
+        compare(shell.form.modelLibraryWorkspace.selectedModelTrainingMetrics, "")
+
+        shell.form.modelLibraryWorkspace.renameButton.clicked()
+        tryVerify(function() { return shell.modelRenameDialog.opened })
+        compare(shell.modelRenameField.text, "Candidate Model")
+        shell.modelRenameField.text = "Renamed Candidate"
+        shell.modelRenameDialog.accept()
+        compare(modelLibraryController.renameCallCount, 1)
+        compare(modelLibraryController.renamedTo, "Renamed Candidate")
+        compare(shell.form.modelLibraryWorkspace.selectedModelName, "Renamed Candidate")
+
+        shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
+        compare(shell.mockState.selectedWorkspace, "modelTest")
+        compare(shell.form.modelTestWorkspace.activeModelText, "Renamed Candidate")
+        compare(modelLibraryController.activeId, "model-active")
+        compare(shell.form.modelTestWorkspace.blockerText, "No dataset selected")
+
+        shell.form.modelTestWorkspace.selectDatasetButton.clicked()
+        compare(shell.form.modelTestWorkspace.activeModelText, "Renamed Candidate")
+        compare(shell.form.modelTestWorkspace.presentation, "readyGpu")
+        compare(shell.form.modelTestWorkspace.blockerText, "")
+        compare(modelLibraryController.activeId, "model-active")
+
+        shell.form.modelLibraryWorkspace.setActiveButton.clicked()
+        compare(modelLibraryController.setActiveCallCount, 1)
+        compare(modelLibraryController.activeId, "model-candidate")
+        verify(shell.form.modelLibraryWorkspace.selectedActive)
+
+        modelLibraryController.errorMessage = "Registry unavailable"
+        modelLibraryController.presentation = "error"
+        compare(shell.form.modelLibraryWorkspace.presentation, "error")
+        verify(shell.form.modelLibraryWorkspace.showError)
+    }
+
+    function test_modelLibraryNullControllerFallback() {
+        shell.modelLibraryController = null
+        shell.form.navLibraryButton.clicked()
+        verify(shell.form.modelLibraryWorkspace.importButton.enabled)
+        verify(shell.form.modelLibraryWorkspace.exportButton.enabled)
+        verify(shell.form.modelLibraryWorkspace.duplicateButton.enabled)
+        verify(shell.form.modelLibraryWorkspace.deleteButton.enabled)
+
+        shell.form.modelLibraryWorkspace.candidateModelRowButton.clicked()
+        compare(shell.mockState.modelLibraryPresentation, "readySelected")
+        shell.form.modelLibraryWorkspace.setActiveButton.clicked()
+        compare(shell.mockState.activeModelId, "DropletNet-03")
+        shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
+        compare(shell.mockState.selectedWorkspace, "modelTest")
     }
 
     function test_startupPromptAndNavigation() {

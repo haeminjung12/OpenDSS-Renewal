@@ -8,7 +8,9 @@
 #include <QVariant>
 
 #include "autogen/environment.h"
+#include "../../desktop_app/model_registry_service.h"
 #include "../../v2/dataset/dataset_label_controller.h"
+#include "../../v2/model/model_library_controller.h"
 #include "../../v2/operation/operation_coordinator.h"
 #include "../../v2/settings/settings_controller.h"
 #include "../../v2/settings/settings_repository.h"
@@ -35,6 +37,8 @@ int main(int argc, char *argv[])
     desktop_app::v2::sequence::SequenceViewerController sequenceViewerController;
     desktop_app::v2::dataset::DatasetLabelController datasetLabelController(operationCoordinator,
                                                                             applicationStateStore);
+    loadModelRegistry();
+    desktop_app::v2::ModelLibraryController modelLibraryController(modelRegistryPath());
 
     QQmlApplicationEngine engine;
     engine.addImageProvider(QStringLiteral("sequence-frame"),
@@ -52,7 +56,8 @@ int main(int argc, char *argv[])
     engine.setInitialProperties({{QStringLiteral("settingsController"), QVariant::fromValue(&settingsController)},
                                  {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)},
                                  {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)},
-                                 {QStringLiteral("datasetLabelController"), QVariant::fromValue(&datasetLabelController)}});
+                                 {QStringLiteral("datasetLabelController"), QVariant::fromValue(&datasetLabelController)},
+                                 {QStringLiteral("modelLibraryController"), QVariant::fromValue(&modelLibraryController)}});
     engine.load(url);
 
     if (engine.rootObjects().isEmpty())

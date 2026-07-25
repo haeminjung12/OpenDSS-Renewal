@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Dialogs
 import Desktop_app_v2
 
@@ -12,7 +13,10 @@ Item {
     property var runsResultsController
     property var sequenceViewerController
     property var datasetLabelController
+    property var modelLibraryController
     property string settingsActionError: ""
+    property alias modelRenameDialog: modelRenameDialog
+    property alias modelRenameField: modelRenameField
     signal closeRequested()
 
     function focusCameraPrompt() {
@@ -41,6 +45,8 @@ Item {
         focusCameraPrompt()
         if (root.runsResultsController)
             root.runsResultsController.refresh()
+        if (root.modelLibraryController)
+            root.modelLibraryController.refresh()
     }
 
     MockAppState {
@@ -196,20 +202,58 @@ Item {
     Binding { target: screen.trainWorkspace; property: "trainingStatusExpanded"; value: state.trainingStatusExpanded }
     Binding { target: screen.trainWorkspace; property: "operationPanelExpanded"; value: state.trainOperationPanelExpanded }
 
-    Binding { target: screen.modelLibraryWorkspace; property: "presentation"; value: state.modelLibraryPresentation }
-    Binding { target: screen.modelLibraryWorkspace; property: "hasSelection"; value: state.modelLibraryPresentation !== "empty" && state.modelLibraryPresentation !== "error" }
-    Binding { target: screen.modelLibraryWorkspace; property: "selectedActive"; value: state.modelLibraryPresentation === "readyActive" || state.modelLibraryPresentation === "locked" }
-    Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: state.modelLibraryPresentation === "locked" }
-    Binding { target: screen.modelLibraryWorkspace; property: "showError"; value: state.modelLibraryPresentation === "error" }
+    Binding { target: screen.modelLibraryWorkspace; property: "presentation"; value: root.modelLibraryController ? root.modelLibraryController.presentation : state.modelLibraryPresentation }
+    Binding { target: screen.modelLibraryWorkspace; property: "hasSelection"; value: root.modelLibraryController ? root.modelLibraryController.selectedIndex >= 0 : state.modelLibraryPresentation !== "empty" && state.modelLibraryPresentation !== "error" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedActive"; value: root.modelLibraryController ? root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId : state.modelLibraryPresentation === "readyActive" || state.modelLibraryPresentation === "locked" }
+    Binding { target: screen.modelLibraryWorkspace; property: "modelLocked"; value: root.modelLibraryController ? false : state.modelLibraryPresentation === "locked" }
+    Binding { target: screen.modelLibraryWorkspace; property: "showError"; value: root.modelLibraryController ? root.modelLibraryController.errorMessage !== "" : state.modelLibraryPresentation === "error" }
+    Binding { target: screen.modelLibraryWorkspace; property: "modelRows"; value: root.modelLibraryController ? root.modelLibraryController.modelRows : [] }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelIndex"; value: root.modelLibraryController ? root.modelLibraryController.selectedIndex : -1 }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelName"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.name || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelArchitecture"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.architecture || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelPerformanceLabel"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.performanceLabel || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelClassSummary"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.classSummary || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelSourceDataset"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.sourceDataset || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelCreationDate"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.createdAt || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelPackageLocation"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.packageLocation || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "selectedModelTrainingMetrics"; value: root.modelLibraryController ? root.modelLibraryController.selectedDetail.trainingMetrics || "" : "" }
+    Binding { target: screen.modelLibraryWorkspace.importButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.exportButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.duplicateButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace.deleteButton; property: "enabled"; value: false; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelExpanded"; value: state.selectedModelExpanded }
     Binding { target: screen.modelLibraryWorkspace; property: "rightPanelExpanded"; value: state.modelLibraryRightPanelExpanded }
 
+    Dialog {
+        id: modelRenameDialog
+        anchors.centerIn: parent
+        modal: true
+        title: qsTr("Rename Model")
+        standardButtons: Dialog.Ok | Dialog.Cancel
+        onOpened: {
+            modelRenameField.text = root.modelLibraryController
+                    ? root.modelLibraryController.selectedDetail.name || "" : ""
+            modelRenameField.selectAll()
+            modelRenameField.forceActiveFocus()
+        }
+        onAccepted: {
+            if (root.modelLibraryController)
+                root.modelLibraryController.renameSelected(modelRenameField.text)
+        }
+
+        TextField {
+            id: modelRenameField
+            width: Math.round(320 * Constants.textScale)
+            placeholderText: qsTr("Model Name")
+        }
+    }
+
     Binding { target: screen.modelTestWorkspace; property: "presentation"; value: state.modelTestPresentation }
-    Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: state.activeModelText }
+    Binding { target: screen.modelTestWorkspace; property: "activeModelText"; value: root.modelLibraryController && root.modelLibraryController.selectedId !== "" ? root.modelLibraryController.selectedDetail.name || root.modelLibraryController.selectedId : state.activeModelText }
     Binding { target: screen.modelTestWorkspace; property: "datasetText"; value: state.modelTestDatasetSelected ? qsTr("Dataset-042") : qsTr("No Dataset selected") }
     Binding { target: screen.modelTestWorkspace; property: "deviceText"; value: state.modelTestPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
     Binding { target: screen.modelTestWorkspace; property: "outputLocationText"; value: state.modelTestOutputLocationDraft }
-    Binding { target: screen.modelTestWorkspace; property: "blockerText"; value: state.activeOperation !== "" ? qsTr("Another operation is active") : state.activeModelId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" }
+    Binding { target: screen.modelTestWorkspace; property: "blockerText"; value: state.activeOperation !== "" ? qsTr("Another operation is active") : root.modelLibraryController ? root.modelLibraryController.selectedId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" : state.activeModelId === "" ? qsTr("No Active Model") : !state.modelTestDatasetSelected ? qsTr("No dataset selected") : "" }
     Binding { target: screen.modelTestWorkspace; property: "startEnabled"; value: (state.modelTestPresentation === "readyCpu" || state.modelTestPresentation === "readyGpu") && state.activeOperation === "" }
     Binding { target: screen.modelTestWorkspace; property: "showRunning"; value: state.modelTestPresentation === "running" }
     Binding { target: screen.modelTestWorkspace; property: "showCompleted"; value: state.modelTestPresentation === "completedTwoClass" || state.modelTestPresentation === "completedThreeClass" }
@@ -371,14 +415,45 @@ Item {
     Connections { target: screen.trainWorkspace.trainingStatusHeadingButton; function onClicked() { state.toggleTrainingStatus() } }
     Connections { target: screen.trainWorkspace.operationPanelToggleButton; function onClicked() { state.toggleTrainOperationPanel() } }
 
-    Connections { target: screen.modelLibraryWorkspace.activeModelRowButton; function onClicked() { state.selectActiveLibraryModel() } }
-    Connections { target: screen.modelLibraryWorkspace.candidateModelRowButton; function onClicked() { state.selectCandidateLibraryModel() } }
-    Connections { target: screen.modelLibraryWorkspace.setActiveButton; function onClicked() { state.setCandidateModelActive() } }
-    Connections { target: screen.modelLibraryWorkspace.openInModelTestButton; function onClicked() { state.openLibraryModelTest() } }
+    Connections {
+        target: screen.modelLibraryWorkspace.modelRowButtonGroup
+        function onClicked(button) {
+            if (root.modelLibraryController)
+                root.modelLibraryController.select(button.rowIndex)
+        }
+    }
+    Connections { target: screen.modelLibraryWorkspace.activeModelRowButton; function onClicked() { if (!root.modelLibraryController) state.selectActiveLibraryModel() } }
+    Connections { target: screen.modelLibraryWorkspace.candidateModelRowButton; function onClicked() { if (!root.modelLibraryController) state.selectCandidateLibraryModel() } }
+    Connections { target: screen.modelLibraryWorkspace.setActiveButton; function onClicked() { if (root.modelLibraryController) root.modelLibraryController.setActive(); else state.setCandidateModelActive() } }
+    Connections {
+        target: screen.modelLibraryWorkspace.openInModelTestButton
+        function onClicked() {
+            if (root.modelLibraryController) {
+                if (root.modelLibraryController.selectedId !== "") {
+                    state.modelTestDatasetSelected = false
+                    state.modelTestPresentation = "modelOnly"
+                    state.selectWorkspace("modelTest")
+                }
+            } else {
+                state.openLibraryModelTest()
+            }
+        }
+    }
+    Connections { target: screen.modelLibraryWorkspace.renameButton; function onClicked() { if (root.modelLibraryController) modelRenameDialog.open() } }
     Connections { target: screen.modelLibraryWorkspace.selectedModelHeadingButton; function onClicked() { state.toggleSelectedModel() } }
     Connections { target: screen.modelLibraryWorkspace.rightPanelToggleButton; function onClicked() { state.toggleModelLibraryRightPanel() } }
 
-    Connections { target: screen.modelTestWorkspace.selectDatasetButton; function onClicked() { state.selectModelTestDataset() } }
+    Connections {
+        target: screen.modelTestWorkspace.selectDatasetButton
+        function onClicked() {
+            if (root.modelLibraryController && root.modelLibraryController.selectedId !== "") {
+                state.modelTestDatasetSelected = true
+                state.modelTestPresentation = "readyGpu"
+            } else {
+                state.selectModelTestDataset()
+            }
+        }
+    }
     Connections { target: screen.modelTestWorkspace.outputLocationField; function onTextEdited() { state.modelTestOutputLocationDraft = screen.modelTestWorkspace.outputLocationField.text } }
     Connections { target: screen.modelTestWorkspace.browseButton; function onClicked() { state.browseModelTestOutput() } }
     Connections { target: screen.modelTestWorkspace.startButton; function onClicked() { state.startModelTest() } }

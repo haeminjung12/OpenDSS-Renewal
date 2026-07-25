@@ -7,6 +7,8 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "../../v2/dataset/dataset_label_service.h"
     "../../v2/dataset/dataset_manifest_v2.cpp"
     "../../v2/dataset/dataset_manifest_v2.h"
+    "../../v2/model/model_library_controller.cpp"
+    "../../v2/model/model_library_controller.h"
     "../../v2/operation/operation_coordinator.cpp"
     "../../v2/operation/operation_coordinator.h"
     "../../v2/settings/settings_controller.cpp"
@@ -30,8 +32,12 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "../../v2/state/application_state_store.cpp"
     "../../v2/state/application_state_store.h"
     "../../v2/state/domain_state.h"
+    "../../desktop_app/app_utils.cpp"
+    "../../desktop_app/app_utils.h"
     "../../desktop_app/json_persistence.cpp"
     "../../desktop_app/json_persistence.h"
+    "../../desktop_app/model_registry_service.cpp"
+    "../../desktop_app/model_registry_service.h"
 )
 
 target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE

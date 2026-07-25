@@ -8,6 +8,7 @@ Window {
     property var runsResultsController: null
     property var sequenceViewerController: null
     property var datasetLabelController: null
+    property var modelLibraryController: null
 
     width: Constants.width
     height: Constants.height
@@ -24,6 +25,7 @@ Window {
         property var runsResultsController: window.runsResultsController
         sequenceViewerController: window.sequenceViewerController
         datasetLabelController: window.datasetLabelController
+        modelLibraryController: window.modelLibraryController
         onCloseRequested: window.close()
     }
 

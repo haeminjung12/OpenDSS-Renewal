@@ -21,6 +21,17 @@ Rectangle {
     property bool showCompleted: false
     property bool showError: false
     property bool showInterrupted: false
+    property string requestedDeviceText: ""
+    property string effectiveDeviceText: ""
+    property string elapsedText: qsTr("00:04:12")
+    property string remainingText: qsTr("00:08:36")
+    property int currentEpoch: 12
+    property int totalEpochs: 40
+    property real overallProgress: 0.3
+    property string errorText: qsTr("Error")
+    property var lossSeries: []
+    property var accuracySeries: []
+    property var resultMetrics: []
     property bool operationPanelExpanded: true
     property bool trainingSetupExpanded: true
     property bool trainingStatusExpanded: true
@@ -32,6 +43,16 @@ Rectangle {
     property alias stopButton: stopButton
     property alias retrySaveButton: retrySaveButton
     property alias openInModelTestButton: openInModelTestButton
+    property alias architectureSelector: architectureSelector
+    property alias weightsSelector: weightsSelector
+    property alias loadWeightsButton: loadWeightsButton
+    property alias trainingDeviceSelector: trainingDeviceSelector
+    property alias lossPlotHost: lossPlotHost
+    property alias accuracyPlotHost: accuracyPlotHost
+    property alias overallResultsHost: overallResultsHost
+    property alias perClassResultsHost: perClassResultsHost
+    property alias macroF1Host: macroF1Host
+    property alias perClassAccuracyHost: perClassAccuracyHost
     property alias operationPanelToggleButton: operationPanelToggleButton
     property alias trainingSetupHeadingButton: trainingSetupSection.headingButton
     property alias trainingStatusHeadingButton: trainingStatusSection.headingButton
@@ -98,6 +119,7 @@ Rectangle {
                         height: childrenRect.height
                         spacing: Constants.spacing
                         Rectangle {
+                            id: lossPlotHost
                             width: parent.width >= Math.round(760 * Constants.textScale) ? (parent.width - parent.spacing) / 2 : parent.width
                             height: Math.round(180 * Constants.textScale)
                             color: Constants.backgroundColor
@@ -111,6 +133,7 @@ Rectangle {
                             Text { text: qsTr("Waiting for training data"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent }
                         }
                         Rectangle {
+                            id: accuracyPlotHost
                             width: parent.width >= Math.round(760 * Constants.textScale) ? (parent.width - parent.spacing) / 2 : parent.width
                             height: Math.round(180 * Constants.textScale)
                             color: Constants.backgroundColor
@@ -128,15 +151,15 @@ Rectangle {
                         visible: root.showCompleted
                         width: parent.width
                         spacing: Constants.spacing
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall results") } }
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class results") } }
+                        Rectangle { id: overallResultsHost; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Overall results") } }
+                        Rectangle { id: perClassResultsHost; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class results") } }
                     }
                     Row {
                         visible: root.showCompleted
                         width: parent.width
                         spacing: Constants.spacing
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Macro F1") } }
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class validation accuracy") } }
+                        Rectangle { id: macroF1Host; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Macro F1") } }
+                        Rectangle { id: perClassAccuracyHost; width: (parent.width - parent.spacing) / 2; height: 52; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.centerIn: parent; text: qsTr("Per-class validation accuracy") } }
                     }
                     Text { visible: root.showCompleted; text: qsTr("Saved: %1").arg(root.resultPath); wrapMode: Text.WordWrap; width: parent.width }
                     Text { visible: root.showCompleted; text: qsTr("Active Model confirmed"); color: Constants.readyColor }
@@ -346,11 +369,11 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
-                            Text { text: qsTr("Device: %1").arg(root.deviceText) }
-                            Text { text: qsTr("Elapsed: 00:04:12") }
-                            Text { text: qsTr("Estimated Remaining: 00:08:36") }
-                            Text { text: qsTr("Epoch: 12 of 40") }
-                            AppProgressBar { value: 0.3; width: parent.width }
+                            Text { text: root.requestedDeviceText === "" ? qsTr("Device: %1").arg(root.effectiveDeviceText !== "" ? root.effectiveDeviceText : root.deviceText) : qsTr("Device: requested %1; effective %2").arg(root.requestedDeviceText).arg(root.effectiveDeviceText !== "" ? root.effectiveDeviceText : root.deviceText) }
+                            Text { text: qsTr("Elapsed: %1").arg(root.elapsedText) }
+                            Text { text: qsTr("Estimated Remaining: %1").arg(root.remainingText) }
+                            Text { text: qsTr("Epoch: %1 of %2").arg(root.currentEpoch).arg(root.totalEpochs) }
+                            AppProgressBar { value: root.overallProgress; width: parent.width }
                             Text { text: qsTr("Overall progress") }
                             AppButton { id: stopButton; text: qsTr("Stop Training"); visualRole: "destructive"; height: Constants.appPrimaryButtonHeight; width: parent.width }
                         }
@@ -363,7 +386,7 @@ Rectangle {
                     height: 150
                     color: Constants.errorSurfaceColor
                     border.color: Constants.faultColor
-                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } AppButton { id: retrySaveButton; text: qsTr("Retry Save"); height: Constants.appStandardControlHeight } }
+                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: root.errorText; font: Constants.headingFont; color: Constants.faultColor } AppButton { id: retrySaveButton; text: qsTr("Retry Save"); height: Constants.appStandardControlHeight } }
                 }
             }
         }

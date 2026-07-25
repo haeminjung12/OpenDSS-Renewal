@@ -22,6 +22,12 @@ struct CameraFrame {
     QByteArray bytes;
 };
 
+enum class CameraFrameResult {
+    Frame,
+    NoFrame,
+    Error,
+};
+
 class ICameraDevice
 {
 public:
@@ -31,7 +37,8 @@ public:
     virtual bool open(QString *error) = 0;
     virtual bool start(QString *error) = 0;
     virtual bool stop(QString *error) = 0;
-    virtual bool latestFrame(CameraFrame &frame, QString *error) = 0;
+    virtual bool close(QString *error) = 0;
+    virtual CameraFrameResult latestFrame(CameraFrame &frame, QString *error) = 0;
 };
 
 } // namespace desktop_app::v2

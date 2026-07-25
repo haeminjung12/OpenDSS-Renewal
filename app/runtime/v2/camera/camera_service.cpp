@@ -47,6 +47,8 @@ bool CameraService::open(QString *error)
     QString deviceError;
     if (!device_->open(&deviceError)) {
         const QString message = factualError(QStringLiteral("open"), deviceError);
+        QString ignored;
+        device_->close(&ignored);
         publish(CameraStatus::Faulted, message);
         setError(error, message);
         return false;
@@ -70,6 +72,8 @@ bool CameraService::start(QString *error)
     QString deviceError;
     if (!device_->start(&deviceError)) {
         const QString message = factualError(QStringLiteral("start streaming"), deviceError);
+        QString ignored;
+        device_->close(&ignored);
         publish(CameraStatus::Faulted, message);
         setError(error, message);
         return false;
@@ -93,6 +97,8 @@ bool CameraService::stop(QString *error)
     QString deviceError;
     if (!device_->stop(&deviceError)) {
         const QString message = factualError(QStringLiteral("stop streaming"), deviceError);
+        QString ignored;
+        device_->close(&ignored);
         publish(CameraStatus::Faulted, message);
         setError(error, message);
         return false;
@@ -101,6 +107,52 @@ bool CameraService::stop(QString *error)
     publish(CameraStatus::Ready);
     setError(error, {});
     return true;
+}
+
+bool CameraService::close(QString *error)
+{
+    if (!device_) {
+        lastDeliveryId_.reset();
+        lastTimestampNs_.reset();
+        publish(CameraStatus::Unavailable);
+        setError(error, {});
+        return true;
+    }
+
+    QString firstError;
+    if (state_.status == CameraStatus::Streaming) {
+        QString stopError;
+        if (!device_->stop(&stopError)) {
+            firstError = factualError(QStringLiteral("stop streaming"), stopError);
+        }
+    }
+
+    QString closeError;
+    if (!device_->close(&closeError) && firstError.isEmpty()) {
+        firstError = factualError(QStringLiteral("close"), closeError);
+    }
+
+    lastDeliveryId_.reset();
+    lastTimestampNs_.reset();
+    if (!firstError.isEmpty()) {
+        publish(CameraStatus::Faulted, firstError);
+        setError(error, firstError);
+        return false;
+    }
+
+    publish(CameraStatus::Unavailable);
+    setError(error, {});
+    return true;
+}
+
+bool CameraService::recover(QString *error)
+{
+    QString closeError;
+    if (!close(&closeError)) {
+        setError(error, closeError);
+        return false;
+    }
+    return open(error);
 }
 
 std::optional<CameraFrame> CameraService::latestOwnedFrame(QString *error)
@@ -112,7 +164,12 @@ std::optional<CameraFrame> CameraService::latestOwnedFrame(QString *error)
 
     CameraFrame frame;
     QString deviceError;
-    if (!device_->latestFrame(frame, &deviceError)) {
+    const CameraFrameResult result = device_->latestFrame(frame, &deviceError);
+    if (result == CameraFrameResult::NoFrame) {
+        setError(error, {});
+        return std::nullopt;
+    }
+    if (result == CameraFrameResult::Error) {
         setError(error, factualError(QStringLiteral("provide a current frame"), deviceError));
         return std::nullopt;
     }

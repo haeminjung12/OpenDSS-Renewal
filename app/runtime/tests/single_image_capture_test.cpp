@@ -25,14 +25,15 @@ public:
     bool open(QString *) override { return true; }
     bool start(QString *) override { return true; }
     bool stop(QString *) override { return true; }
-    bool latestFrame(CameraFrame &output, QString *error) override
+    bool close(QString *) override { return true; }
+    CameraFrameResult latestFrame(CameraFrame &output, QString *error) override
     {
         if (!frameAvailable) {
             *error = QStringLiteral("No current frame is available.");
-            return false;
+            return CameraFrameResult::Error;
         }
         output = frame;
-        return true;
+        return CameraFrameResult::Frame;
     }
 
     bool frameAvailable = true;

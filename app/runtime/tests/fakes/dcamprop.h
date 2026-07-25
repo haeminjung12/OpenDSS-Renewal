@@ -1,3 +1,6 @@
 #pragma once
 
 constexpr int DCAMPROP_READOUTSPEED__FASTEST = 1;
+constexpr int DCAMPROP_TRIGGERSOURCE__INTERNAL = 1;
+constexpr int DCAMPROP_TRIGGER_MODE__NORMAL = 1;
+constexpr int DCAMPROP_TRIGGERACTIVE__EDGE = 1;

@@ -227,6 +227,7 @@ qt_add_executable(image_sequence_capture_service_test
   ../v2/state/application_state_store.cpp
 )
 target_include_directories(image_sequence_capture_service_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/fakes
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
   ${DCAM_SDK_DIR}/inc
@@ -552,6 +553,48 @@ add_test(
     $<TARGET_FILE:camera_service_contract_test>
 )
 set_tests_properties(camera_service_contract_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(camera_controller_test
+  camera_controller_test.cpp
+  ../v2/camera/camera_controller.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(camera_controller_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(camera_controller_test PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME camera_controller_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:camera_controller_test>
+)
+set_tests_properties(camera_controller_test PROPERTIES TIMEOUT 15)
+
+qt_add_executable(dcam_camera_device_test
+  dcam_camera_device_test.cpp
+  fakes/fake_dcam_camera.cpp
+  ../v2/camera/dcam_camera_device.cpp
+)
+target_include_directories(dcam_camera_device_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/fakes
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(dcam_camera_device_test PRIVATE
+  Qt6::Core
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME dcam_camera_device_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:opencv_core>\\;$ENV{PATH}"
+    $<TARGET_FILE:dcam_camera_device_test>
+)
+set_tests_properties(dcam_camera_device_test PROPERTIES TIMEOUT 15)
 
 qt_add_executable(frame_conversion_golden_test
   frame_conversion_golden_test.cpp

@@ -18,6 +18,8 @@ public:
     bool open(QString *error = nullptr);
     bool start(QString *error = nullptr);
     bool stop(QString *error = nullptr);
+    bool close(QString *error = nullptr);
+    bool recover(QString *error = nullptr);
     std::optional<CameraFrame> latestOwnedFrame(QString *error = nullptr);
 
     CameraState state() const;

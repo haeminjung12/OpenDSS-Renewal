@@ -60,7 +60,10 @@ class CameraDevice final : public ICameraDevice {
     bool open(QString*) override { return true; }
     bool start(QString*) override { return true; }
     bool stop(QString*) override { return true; }
-    bool latestFrame(CameraFrame&, QString*) override { return false; }
+    bool close(QString*) override { return true; }
+    CameraFrameResult latestFrame(CameraFrame&, QString*) override {
+        return CameraFrameResult::NoFrame;
+    }
 };
 
 struct Fixture {

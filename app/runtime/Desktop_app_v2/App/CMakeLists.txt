@@ -2,6 +2,9 @@
 find_package(OpenCV REQUIRED COMPONENTS core imgproc imgcodecs)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Concurrent)
 
+set(NIDAQMX_DIR "" CACHE PATH "Path to NI-DAQmx (optional)")
+option(ENABLE_NIDAQMX "Enable NI-DAQmx trigger support" ON)
+
 if (ONNXRUNTIME_DIR)
     if (NOT ONNXRUNTIME_INCLUDE_DIR)
         find_path(ONNXRUNTIME_INCLUDE_DIR onnxruntime_cxx_api.h
@@ -41,6 +44,12 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "../../v2/dataset/dataset_label_controller.h"
     "../../v2/dataset/dataset_label_service.cpp"
     "../../v2/dataset/dataset_label_service.h"
+    "../../v2/hardware/daq_controller.cpp"
+    "../../v2/hardware/daq_controller.h"
+    "../../v2/hardware/daq_output.cpp"
+    "../../v2/hardware/daq_output.h"
+    "../../v2/hardware/daq_service.cpp"
+    "../../v2/hardware/daq_service.h"
     "../../v2/dataset/dataset_manifest_v2.cpp"
     "../../v2/dataset/dataset_manifest_v2.h"
     "../../v2/model/model_library_controller.cpp"
@@ -88,6 +97,8 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "../../desktop_app/json_persistence.h"
     "../../desktop_app/model_registry_service.cpp"
     "../../desktop_app/model_registry_service.h"
+    "../../daq_trigger.cpp"
+    "../../daq_trigger.h"
     "../../inference/onnx_inference_adapter.cpp"
     "../../inference/onnx_inference_adapter.h"
     "../../metadata_loader.cpp"
@@ -122,3 +133,44 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     dcamapi
     ${ONNXRUNTIME_LIB}
     ${OpenCV_LIBS})
+
+if (ENABLE_NIDAQMX)
+    find_path(NIDAQMX_INCLUDE_DIR NIDAQmx.h
+        PATHS
+            "${NIDAQMX_DIR}/include"
+            "${NIDAQMX_DIR}/Include"
+            "${NIDAQMX_DIR}/ExternalCompilerSupport/C/include"
+            "C:/Program Files (x86)/National Instruments/Shared/ExternalCompilerSupport/C/include"
+            "C:/Program Files/National Instruments/NI-DAQ/DAQmx ANSI C Dev/include"
+            "C:/Program Files (x86)/National Instruments/NI-DAQ/DAQmx ANSI C Dev/include"
+    )
+    find_library(NIDAQMX_LIBRARY NAMES NIDAQmx
+        PATHS
+            "${NIDAQMX_DIR}/lib/x64/msvc"
+            "${NIDAQMX_DIR}/lib64/msvc"
+            "${NIDAQMX_DIR}/lib/msvc"
+            "${NIDAQMX_DIR}/ExternalCompilerSupport/C/lib64/msvc"
+            "${NIDAQMX_DIR}/ExternalCompilerSupport/C/lib/msvc"
+            "C:/Program Files (x86)/National Instruments/Shared/ExternalCompilerSupport/C/lib64/msvc"
+            "C:/Program Files/National Instruments/NI-DAQ/DAQmx ANSI C Dev/lib/msvc"
+            "C:/Program Files (x86)/National Instruments/NI-DAQ/DAQmx ANSI C Dev/lib/x64/msvc"
+            "C:/Program Files (x86)/National Instruments/NI-DAQ/DAQmx ANSI C Dev/lib/msvc"
+    )
+    if (NIDAQMX_INCLUDE_DIR AND NIDAQMX_LIBRARY)
+        message(STATUS "NI-DAQmx enabled: include='${NIDAQMX_INCLUDE_DIR}', library='${NIDAQMX_LIBRARY}'")
+        target_compile_definitions(${CMAKE_PROJECT_NAME} PRIVATE HAVE_NIDAQMX=1)
+        target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${NIDAQMX_INCLUDE_DIR})
+        target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ${NIDAQMX_LIBRARY})
+    else()
+        set(NIDAQMX_MISSING_REASON "")
+        if (NOT NIDAQMX_INCLUDE_DIR)
+            string(APPEND NIDAQMX_MISSING_REASON " missing NIDAQmx.h")
+        endif()
+        if (NOT NIDAQMX_LIBRARY)
+            string(APPEND NIDAQMX_MISSING_REASON " missing NIDAQmx.lib")
+        endif()
+        message(WARNING "NI-DAQmx requested but not enabled:${NIDAQMX_MISSING_REASON}. Set NIDAQMX_DIR to the NI-DAQmx C API root or install NI-DAQmx ANSI C support; building with stub trigger.")
+    endif()
+else()
+    message(STATUS "NI-DAQmx disabled by ENABLE_NIDAQMX=OFF; building with stub trigger.")
+endif()

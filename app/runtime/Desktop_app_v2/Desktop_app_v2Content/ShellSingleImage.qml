@@ -10,6 +10,7 @@ Item {
     property alias mockState: state
     property alias form: screen
     property var settingsController
+    property var daqController
     property var runsResultsController
     property var sequenceViewerController
     property var datasetLabelController

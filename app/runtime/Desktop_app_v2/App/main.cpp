@@ -23,6 +23,9 @@
 #include "../../v2/camera/single_image_capture_controller.h"
 #include "../../v2/camera/single_image_capture_service.h"
 #include "../../v2/dataset/dataset_label_controller.h"
+#include "../../v2/hardware/daq_controller.h"
+#include "../../v2/hardware/daq_output.h"
+#include "../../v2/hardware/daq_service.h"
 #include "../../v2/model/model_library_controller.h"
 #include "../../v2/model/model_load_service.h"
 #include "../../v2/model_test/model_test_controller.h"
@@ -80,6 +83,11 @@ int main(int argc, char *argv[])
 
     desktop_app::v2::ApplicationStateStore applicationStateStore;
     desktop_app::v2::OperationCoordinator operationCoordinator;
+    desktop_app::v2::DaqService daqService(
+        operationCoordinator, applicationStateStore,
+        std::make_unique<desktop_app::v2::DaqTriggerOutput>());
+    desktop_app::v2::DaqController daqController(
+        daqService, applicationStateStore, operationCoordinator);
     QThread cameraThread;
     auto *cameraService = new desktop_app::v2::CameraService(
         std::make_unique<desktop_app::v2::DcamCameraDevice>(), applicationStateStore);
@@ -140,6 +148,7 @@ int main(int argc, char *argv[])
     engine.addImportPath(QCoreApplication::applicationDirPath() + "/qml");
     engine.addImportPath(":/");
     engine.setInitialProperties({{QStringLiteral("settingsController"), QVariant::fromValue(&settingsController)},
+                                 {QStringLiteral("daqController"), QVariant::fromValue(&daqController)},
                                  {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)},
                                  {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)},
                                  {QStringLiteral("datasetLabelController"), QVariant::fromValue(&datasetLabelController)},
@@ -169,6 +178,7 @@ int main(int argc, char *argv[])
     waitForCameraCommand();
     if (cameraController.close())
         waitForCameraCommand();
+    daqService.shutdown();
     cameraThread.quit();
     cameraThread.wait();
     return exitCode;

@@ -5,6 +5,7 @@ Window {
     id: window
 
     property var settingsController: null
+    property var daqController: null
     property var runsResultsController: null
     property var sequenceViewerController: null
     property var datasetLabelController: null
@@ -24,6 +25,7 @@ Window {
     ShellSingleImage {
         anchors.fill: parent
         settingsController: window.settingsController
+        daqController: window.daqController
         property var runsResultsController: window.runsResultsController
         sequenceViewerController: window.sequenceViewerController
         datasetLabelController: window.datasetLabelController

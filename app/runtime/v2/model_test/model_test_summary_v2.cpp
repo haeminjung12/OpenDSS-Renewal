@@ -10,6 +10,7 @@
 #include <QRegularExpression>
 #include <QSaveFile>
 #include <QSet>
+#include <QThread>
 
 #include <cmath>
 
@@ -257,16 +258,27 @@ bool atomicWrite(const QString& path, const QByteArray& bytes, bool replace,
                  QString* error) {
     if (!replace && QFileInfo::exists(path))
         return fail(error, QString("Refusing to replace existing artifact '%1'.").arg(path));
-    QSaveFile file(path);
-    if (!file.open(QIODevice::WriteOnly))
-        return fail(error, QString("Could not open '%1': %2").arg(path, file.errorString()));
-    if (file.write(bytes) != bytes.size()) {
-        file.cancelWriting();
-        return fail(error, QString("Could not completely write '%1'.").arg(path));
+    constexpr int commitAttempts = 8;
+    constexpr unsigned long commitRetryDelayMs = 25;
+    const int attempts = replace ? commitAttempts : 1;
+    QString commitError;
+    for (int attempt = 0; attempt < attempts; ++attempt) {
+        QSaveFile file(path);
+        file.setDirectWriteFallback(false);
+        if (!file.open(QIODevice::WriteOnly))
+            return fail(error, QString("Could not open '%1': %2").arg(path, file.errorString()));
+        if (file.write(bytes) != bytes.size()) {
+            file.cancelWriting();
+            return fail(error, QString("Could not completely write '%1'.").arg(path));
+        }
+        if (file.commit())
+            return true;
+        commitError = file.errorString();
+        if (file.error() != QFileDevice::RenameError || attempt + 1 == attempts)
+            return fail(error, QString("Could not publish '%1': %2").arg(path, commitError));
+        QThread::msleep(commitRetryDelayMs);
     }
-    if (!file.commit())
-        return fail(error, QString("Could not publish '%1': %2").arg(path, file.errorString()));
-    return true;
+    return fail(error, QString("Could not publish '%1': %2").arg(path, commitError));
 }
 
 std::optional<QVector<QStringList>> parseCsvRecords(const QByteArray& bytes,

@@ -4,6 +4,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -12,7 +13,14 @@
 #include <QTemporaryDir>
 
 #include <cstdlib>
+#include <atomic>
+#include <chrono>
 #include <iostream>
+#include <thread>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#endif
 
 using namespace desktop_app::v2::model_test;
 
@@ -54,6 +62,23 @@ QByteArray readFile(const QString& path) {
     require(file.open(QIODevice::ReadOnly), "read file");
     return file.readAll();
 }
+
+#ifdef Q_OS_WIN
+HANDLE exclusiveReadLock(const QString& path) {
+    const QString nativePath = QDir::toNativeSeparators(path);
+    return CreateFileW(reinterpret_cast<LPCWSTR>(nativePath.utf16()), GENERIC_READ,
+                       0, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+}
+
+bool waitForLock(const std::atomic_bool& acquired) {
+    for (int attempt = 0; attempt < 1000; ++attempt) {
+        if (acquired.load())
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    return acquired.load();
+}
+#endif
 
 ModelTestSummaryData data(QTemporaryDir& temporary, int classCount,
                           qint64 eligible) {
@@ -190,6 +215,74 @@ void testRollbackAndFailedRecovery() {
             "failed test retains factual recovery and final artifacts");
 }
 
+void testPartialSummaryCommitRetryAndRollback() {
+    stage = "partial-summary-commit";
+#ifdef Q_OS_WIN
+    QTemporaryDir temporary;
+    QString error;
+    const QString root = QDir(temporary.path()).filePath("retry-output");
+    auto writer = ModelTestWriter::start(root, data(temporary, 2, 1), &error);
+    require(writer.has_value(), qPrintable(error));
+    const QString partialSummary =
+        QDir(root).filePath("model_test_summary.partial.json");
+    std::atomic_bool acquired = false;
+    std::atomic_bool lockFailed = false;
+    std::thread unlocker([&] {
+        const HANDLE handle = exclusiveReadLock(partialSummary);
+        if (handle == INVALID_HANDLE_VALUE) {
+            lockFailed = true;
+            acquired = true;
+            return;
+        }
+        acquired = true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        CloseHandle(handle);
+    });
+    const bool lockReady = waitForLock(acquired);
+    if (!lockReady || lockFailed) {
+        unlocker.join();
+        require(false, "acquire an exclusive partial summary lock");
+    }
+    QElapsedTimer elapsed;
+    elapsed.start();
+    const bool appended = writer->appendPrediction(
+        {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}}, &error);
+    const qint64 elapsedMs = elapsed.elapsed();
+    unlocker.join();
+    require(appended, qPrintable(error));
+    require(elapsedMs >= 25,
+            "partial summary sharing conflict was retried before publication");
+    auto recovered = ModelTestSummaryV2::load(partialSummary, &error);
+    require(recovered.has_value() &&
+                recovered->derivedResults().processedImages == 1 &&
+                readFile(QDir(root).filePath("predictions.partial.csv")).count('\n') == 2,
+            qPrintable(error));
+
+    const QString failedRoot = QDir(temporary.path()).filePath("failed-output");
+    auto failedWriter =
+        ModelTestWriter::start(failedRoot, data(temporary, 2, 1), &error);
+    require(failedWriter.has_value(), qPrintable(error));
+    const QString failedSummary =
+        QDir(failedRoot).filePath("model_test_summary.partial.json");
+    const QByteArray initialCsv =
+        readFile(QDir(failedRoot).filePath("predictions.partial.csv"));
+    const HANDLE handle = exclusiveReadLock(failedSummary);
+    require(handle != INVALID_HANDLE_VALUE,
+            "acquire a persistent exclusive partial summary lock");
+    const bool failedAppend = failedWriter->appendPrediction(
+        {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}}, &error);
+    CloseHandle(handle);
+    require(!failedAppend &&
+                failedWriter->predictions().isEmpty() &&
+                readFile(QDir(failedRoot).filePath("predictions.partial.csv")) == initialCsv,
+            "permanent partial summary failure rolls back the prediction CSV");
+    recovered = ModelTestSummaryV2::load(failedSummary, &error);
+    require(recovered.has_value() &&
+                recovered->derivedResults().processedImages == 0,
+            qPrintable(error));
+#endif
+}
+
 void testFinalSummaryLastAndRetry() {
     stage = "final-summary-last";
     QTemporaryDir temporary;
@@ -284,6 +377,7 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testCompletedEscapingRecoveryAndSourceUntouched();
     testRollbackAndFailedRecovery();
+    testPartialSummaryCommitRetryAndRollback();
     testFinalSummaryLastAndRetry();
     testUniqueFolderAndStoppedTwoClass();
     testCanonicalSuccessSurvivesCleanupFailure();

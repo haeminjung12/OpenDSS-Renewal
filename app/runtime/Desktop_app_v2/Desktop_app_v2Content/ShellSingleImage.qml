@@ -17,6 +17,8 @@ Item {
     property var trainingController
     property var modelLibraryController
     property var modelTestController
+    property var liveSortingController
+    property var sequenceTestController
     property bool daqDraftCommitInProgress: false
     property var cameraController: typeof cameraRuntimeController !== "undefined"
                                            ? cameraRuntimeController : null
@@ -27,6 +29,25 @@ Item {
         root.singleImageCaptureController
         ? root.singleImageCaptureController.presentation === "capturing"
         : state.capturing
+    readonly property bool realLiveOwnsOperation:
+        !!root.liveSortingController
+        && (root.liveSortingController.presentation === "starting"
+            || root.liveSortingController.presentation === "running"
+            || root.liveSortingController.presentation === "paused"
+            || root.liveSortingController.presentation === "stopping")
+    readonly property string effectiveLivePresentation:
+        root.liveSortingController
+        ? root.liveSortingController.presentation : state.livePresentation
+    readonly property bool effectiveLiveActive:
+        root.liveSortingController ? root.realLiveOwnsOperation : state.liveActive
+    readonly property bool effectiveLiveCompleted:
+        root.effectiveLivePresentation === "completed"
+    readonly property bool realSequenceDaqOwnsOperation:
+        !!root.sequenceTestController
+        && root.sequenceTestController.physicalDaqOutputEnabled
+        && (root.sequenceTestController.presentation === "starting"
+            || root.sequenceTestController.presentation === "running"
+            || root.sequenceTestController.presentation === "stopping")
     property string settingsActionError: ""
     property alias modelRenameDialog: modelRenameDialog
     property alias modelRenameField: modelRenameField
@@ -36,6 +57,8 @@ Item {
     property alias modelDuplicateNameField: modelDuplicateNameField
     property alias modelDuplicateFolderDialog: modelDuplicateFolderDialog
     property alias modelDeleteDialog: modelDeleteDialog
+    property alias sequenceTestFileDialog: sequenceTestFileDialog
+    property alias sequenceTestOutputFolderDialog: sequenceTestOutputFolderDialog
     signal closeRequested()
 
     function discoveredDaqDeviceText() {
@@ -160,6 +183,63 @@ Item {
         return lines.join("\n")
     }
 
+    function elapsedTimeText(seconds) {
+        const wholeSeconds = Math.max(0, Math.floor(Number(seconds)))
+        const hours = Math.floor(wholeSeconds / 3600)
+        const minutes = Math.floor((wholeSeconds % 3600) / 60)
+        const remainingSeconds = wholeSeconds % 60
+        return String(hours).padStart(2, "0") + ":"
+                + String(minutes).padStart(2, "0") + ":"
+                + String(remainingSeconds).padStart(2, "0")
+    }
+
+    function byteCountText(bytes) {
+        const value = Number(bytes)
+        if (!Number.isFinite(value) || value <= 0)
+            return qsTr("—")
+        if (value >= 1073741824)
+            return qsTr("%1 GiB").arg((value / 1073741824).toFixed(2))
+        if (value >= 1048576)
+            return qsTr("%1 MiB").arg((value / 1048576).toFixed(1))
+        return qsTr("%1 KiB").arg((value / 1024).toFixed(1))
+    }
+
+    function liveIntegrityText() {
+        if (!root.liveSortingController)
+            return ""
+        const integrity = root.liveSortingController.integrity || {}
+        const sourceFrameGaps = integrity.sourceFrameGaps
+                ? integrity.sourceFrameGaps.count : 0
+        const queueRejections = integrity.queueRejections
+                ? integrity.queueRejections.count : 0
+        const consumerFailures = integrity.consumerFailures
+                ? integrity.consumerFailures.count : 0
+        return qsTr("Source frame gaps: %1  |  Queue rejections: %2  |  Consumer failures: %3")
+                .arg(sourceFrameGaps).arg(queueRejections).arg(consumerFailures)
+    }
+
+    function modelIndexForId(model, selectedId) {
+        if (!model || String(selectedId) === "")
+            return -1
+        for (let index = 0; index < model.length; ++index) {
+            if (String(model[index].id) === String(selectedId))
+                return index
+        }
+        return -1
+    }
+
+    function sequenceTestPresentation() {
+        if (!root.sequenceTestController)
+            return state.sequenceTestPresentation
+        const presentation = root.sequenceTestController.presentation
+        if (presentation === "starting" || presentation === "running"
+                || presentation === "stopping")
+            return "running"
+        if (presentation === "interrupted")
+            return "error"
+        return presentation
+    }
+
     Component.onCompleted: {
         if (root.cameraController)
             state.cameraPromptHandled = true
@@ -233,7 +313,12 @@ Item {
         sequenceFrameCount: state.sequenceFrameCount
         datasetFrameCount: state.datasetFrameCount
         datasetCropCount: state.datasetCropCount
-        cameraLocked: state.cameraLocked
+        cameraLocked: (root.liveSortingController
+                       ? state.capturing
+                         || state.activeOperation === "imageSequence"
+                         || state.activeOperation === "dataset"
+                         || root.realLiveOwnsOperation
+                       : state.cameraLocked)
                       || (root.cameraController && root.cameraController.busy)
                       || root.singleImageCapturing
         cameraConfigurationAvailable: !root.cameraController
@@ -254,7 +339,9 @@ Item {
         sequenceLocationText: state.sequenceLocationDraft
         datasetLocationText: state.datasetLocationDraft
         datasetHandoffText: state.datasetHandoffText
-        hardwareActionEnabled: !state.liveOwnsOperation
+        hardwareActionEnabled: !(root.liveSortingController
+                                 ? root.realLiveOwnsOperation
+                                 : state.liveOwnsOperation)
         captureStartsAvailable: state.activeOperation === ""
     }
 
@@ -273,7 +360,18 @@ Item {
     Binding { target: screen.daqFrequencySpinBox; property: "value"; value: root.daqController ? root.daqController.frequencyHz / 1000 : 0; when: root.daqController !== null }
     Binding { target: screen.daqEventDurationSpinBox; property: "value"; value: root.daqController ? root.daqController.durationMs : 0; when: root.daqController !== null }
     Binding { target: screen.daqDecisionDelaySpinBox; property: "value"; value: root.daqController ? root.daqController.delayMs : 0; when: root.daqController !== null }
-    Binding { target: screen.daqRefreshDevicesButton; property: "enabled"; value: root.daqController !== null; when: root.daqController !== null }
+    Binding {
+        target: screen.daqRefreshDevicesButton
+        property: "enabled"
+        value: root.daqController !== null
+               && !(root.liveSortingController
+                    ? root.realLiveOwnsOperation : state.liveOwnsOperation)
+               && !(root.sequenceTestController
+                    ? root.realSequenceDaqOwnsOperation
+                    : state.activeOperation === "sequenceTest"
+                      && state.physicalDaqOutputChecked)
+        when: root.daqController !== null
+    }
     Binding { target: screen.daqChannelSelector; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
     Binding { target: screen.daqVppSpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
     Binding { target: screen.daqFrequencySpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
@@ -562,23 +660,63 @@ Item {
     Binding { target: screen.modelTestWorkspace; property: "modelTestStatusExpanded"; value: state.modelTestStatusExpanded }
     Binding { target: screen.modelTestWorkspace; property: "operationPanelExpanded"; value: state.modelTestOperationPanelExpanded }
 
-    Binding { target: screen.liveWorkspace; property: "presentation"; value: state.livePresentation }
-    Binding { target: screen.liveWorkspace; property: "cameraStreaming"; value: state.cameraStreaming }
-    Binding { target: screen.liveWorkspace; property: "startSortingEnabled"; value: state.liveStartSortingEnabled }
-    Binding { target: screen.liveWorkspace; property: "setupProfileExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveSetupProfileExpanded }
-    Binding { target: screen.liveWorkspace; property: "runInformationExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveRunInformationExpanded }
-    Binding { target: screen.liveWorkspace; property: "triggerTimingExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveTriggerTimingExpanded }
-    Binding { target: screen.liveWorkspace; property: "outputRecordingExpanded"; value: !state.liveActive && state.livePresentation !== "completed" && state.liveOutputRecordingExpanded }
-    Binding { target: screen.liveWorkspace; property: "runningExpanded"; value: (state.liveActive || state.livePresentation === "completed") && state.liveRunningExpanded }
-    Binding { target: screen.liveWorkspace; property: "runningHeadingEnabled"; value: state.liveActive || state.livePresentation === "completed" }
+    Binding { target: screen.liveWorkspace; property: "presentation"; value: root.liveSortingController ? root.liveSortingController.presentation : state.livePresentation }
+    Binding { target: screen.liveWorkspace; property: "cameraStreaming"; value: root.liveSortingController ? root.liveSortingController.cameraStreaming : state.cameraStreaming }
+    Binding { target: screen.liveWorkspace; property: "startSortingEnabled"; value: root.liveSortingController ? root.liveSortingController.startSortingEnabled : state.liveStartSortingEnabled }
+    Binding { target: screen.liveWorkspace; property: "activeModelText"; value: root.liveSortingController ? root.liveSortingController.activeModelText : state.activeModelText }
+    Binding { target: screen.liveWorkspace; property: "hitBoundaryText"; value: qsTr("Provisional midpoint route boundary; no user calibration is exposed yet."); when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace; property: "serviceDiagnosticText"; value: root.liveSortingController ? (root.liveSortingController.error || root.liveSortingController.diagnostic) : "" }
+    Binding { target: screen.liveWorkspace; property: "runArtifactPath"; value: root.liveSortingController ? root.liveSortingController.runFolder : "" }
+    Binding { target: screen.liveWorkspace; property: "elapsedTimeText"; value: root.liveSortingController ? root.elapsedTimeText(root.liveSortingController.elapsedSeconds) : "" }
+    Binding { target: screen.liveWorkspace; property: "persistedEventCountText"; value: root.liveSortingController ? String(root.liveSortingController.persistedEvents) : "" }
+    Binding { target: screen.liveWorkspace; property: "integrityStatusText"; value: root.liveSortingController ? root.liveIntegrityText() : "" }
+    Binding { target: screen.liveWorkspace; property: "finalOutcomeText"; value: root.liveSortingController ? root.liveSortingController.stopReason : "" }
+    Binding { target: screen.liveWorkspace; property: "outputStatusText"; value: root.liveSortingController && root.liveSortingController.recordFullImageSequence ? qsTr("Each detected event records a Droplet Crop and factual Droplet Log row; the full image sequence is also recorded.") : qsTr("Each detected event records a Droplet Crop and factual Droplet Log row."); when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.runNameField; property: "text"; value: root.liveSortingController ? root.liveSortingController.runName : ""; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.experimentTypeField; property: "text"; value: root.liveSortingController ? root.liveSortingController.experimentType : ""; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.notesField; property: "text"; value: root.liveSortingController ? root.liveSortingController.notes : ""; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.durationField; property: "text"; value: root.liveSortingController ? root.liveSortingController.duration : ""; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.saveLocationField; property: "text"; value: root.liveSortingController ? root.liveSortingController.saveLocation : ""; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.hitClassControl; property: "model"; value: root.liveSortingController ? root.liveSortingController.hitClassModel : []; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.hitClassControl; property: "textRole"; value: "name"; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.hitClassControl; property: "currentIndex"; value: root.liveSortingController ? root.modelIndexForId(root.liveSortingController.hitClassModel, root.liveSortingController.hitClassId) : -1; when: !!root.liveSortingController; delayed: true }
+    Binding { target: screen.liveWorkspace.triggerEveryDropletControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.triggerEveryDroplet : false; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.daqOutputControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.daqOutputEnabled : false; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.recordFullImageSequenceControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.recordFullImageSequence : false; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.sendTestPulseButton; property: "enabled"; value: false; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace; property: "setupProfileExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveSetupProfileExpanded }
+    Binding { target: screen.liveWorkspace; property: "runInformationExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveRunInformationExpanded }
+    Binding { target: screen.liveWorkspace; property: "triggerTimingExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveTriggerTimingExpanded }
+    Binding { target: screen.liveWorkspace; property: "outputRecordingExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveOutputRecordingExpanded }
+    Binding { target: screen.liveWorkspace; property: "runningExpanded"; value: (root.effectiveLiveActive || root.effectiveLiveCompleted) && state.liveRunningExpanded }
+    Binding { target: screen.liveWorkspace; property: "runningHeadingEnabled"; value: root.effectiveLiveActive || root.effectiveLiveCompleted }
     Binding { target: screen.liveWorkspace; property: "rightPanelExpanded"; value: state.liveRightPanelExpanded }
 
-    Binding { target: screen.sequenceTestWorkspace; property: "presentation"; value: state.sequenceTestPresentation }
-    Binding { target: screen.sequenceTestWorkspace; property: "activeModelText"; value: state.activeModelText }
+    Binding { target: screen.sequenceTestWorkspace; property: "presentation"; value: root.sequenceTestPresentation() }
+    Binding { target: screen.sequenceTestWorkspace; property: "activeModelText"; value: root.sequenceTestController ? (root.sequenceTestController.activeModelName || qsTr("No Active Model")) : state.activeModelText }
     Binding { target: screen.sequenceTestWorkspace; property: "sequenceTestExpanded"; value: state.sequenceTestExpanded }
     Binding { target: screen.sequenceTestWorkspace; property: "rightPanelExpanded"; value: state.sequenceTestRightPanelExpanded }
-    Binding { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; property: "checked"; value: state.physicalDaqOutputChecked }
-    Binding { target: screen.sequenceTestWorkspace.startStopButton; property: "enabled"; value: state.sequenceTestPresentation === "running" || state.sequenceTestStartEnabled }
+    Binding { target: screen.sequenceTestWorkspace.sequencePreviewImage; property: "source"; value: root.sequenceTestController ? root.sequenceTestController.previewUrl : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.sequenceNameField; property: "text"; value: root.sequenceTestController ? (root.sequenceTestController.sequenceName || qsTr("No sequence selected")) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.sequencePathField; property: "text"; value: root.sequenceTestController ? root.sequenceTestController.sequencePath : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.frameCountText; property: "text"; value: root.sequenceTestController ? qsTr("Frames: %1").arg(root.sequenceTestController.frameCount || "—") : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.recordedFpsText; property: "text"; value: root.sequenceTestController ? qsTr("Recorded FPS: %1").arg(root.sequenceTestController.recordedFps > 0 ? root.sequenceTestController.recordedFps.toFixed(2) : "—") : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.sequenceValidationText; property: "text"; value: root.sequenceTestController ? qsTr("Status: %1\nProvisional midpoint route boundary; no user calibration is exposed yet.").arg(root.sequenceTestController.errorMessage || root.sequenceTestController.sequenceValidation || qsTr("Not selected")) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.processingFpsField; property: "text"; value: root.sequenceTestController && root.sequenceTestController.requestedProcessingFps > 0 ? String(root.sequenceTestController.requestedProcessingFps) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.achievedFpsText; property: "text"; value: root.sequenceTestController ? qsTr("Achieved FPS: %1").arg(root.sequenceTestController.achievedProcessingFps > 0 ? root.sequenceTestController.achievedProcessingFps.toFixed(2) : "—") : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.outputStatusText; property: "text"; value: root.sequenceTestController ? qsTr("Output status: %1 (%2 of %3 frames)").arg(root.sequenceTestController.outputStatus || qsTr("Idle")).arg(root.sequenceTestController.processedFrames).arg(root.sequenceTestController.totalFrames) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.availableMemoryText; property: "text"; value: root.sequenceTestController ? qsTr("Available memory: %1").arg(root.byteCountText(root.sequenceTestController.availableMemoryBytes)) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.bufferSizeText; property: "text"; value: root.sequenceTestController ? qsTr("Buffer size: %1").arg(root.byteCountText(root.sequenceTestController.bufferBytes)) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.loadReadinessText; property: "text"; value: root.sequenceTestController ? qsTr("Load readiness: %1").arg(root.sequenceTestController.memoryReady ? qsTr("Ready in memory") : root.sequenceTestController.canLoadToMemory ? qsTr("Ready to load") : root.sequenceTestController.errorMessage || qsTr("Select a valid sequence")) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.loadStatusText; property: "text"; value: root.sequenceTestController ? qsTr("Load status: %1").arg(root.sequenceTestController.loadStatus) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.triggerEveryDropletControl; property: "checked"; value: root.sequenceTestController ? root.sequenceTestController.triggerEveryDroplet : false; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.hitClassControl; property: "model"; value: root.sequenceTestController ? root.sequenceTestController.hitClassModel : []; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.hitClassControl; property: "textRole"; value: "name"; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.hitClassControl; property: "currentIndex"; value: root.sequenceTestController ? root.modelIndexForId(root.sequenceTestController.hitClassModel, root.sequenceTestController.selectedHitClassId) : -1; when: !!root.sequenceTestController; delayed: true }
+    Binding { target: screen.sequenceTestWorkspace.saveLocationField; property: "text"; value: root.sequenceTestController ? root.localFilePath(root.sequenceTestController.outputFolderUrl) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; property: "checked"; value: root.sequenceTestController ? root.sequenceTestController.physicalDaqOutputEnabled : state.physicalDaqOutputChecked }
+    Binding { target: screen.sequenceTestWorkspace.loadToMemoryButton; property: "enabled"; value: root.sequenceTestController ? root.sequenceTestController.canLoadToMemory : state.sequenceTestPresentation === "selected" }
+    Binding { target: screen.sequenceTestWorkspace.startStopButton; property: "enabled"; value: root.sequenceTestController ? (root.sequenceTestPresentation() === "running" || root.sequenceTestController.canStart) : (state.sequenceTestPresentation === "running" || state.sequenceTestStartEnabled) }
 
     Binding { target: screen.runsWorkspace; property: "selectedRunId"; value: root.runsResultsController ? root.runsResultsController.selectedRunId : state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? "" : "Run-042" }
     Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: root.runsResultsController ? root.runsResultsController.loadedRun.id || "" : state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }
@@ -867,8 +1005,36 @@ Item {
     Connections { target: screen.modelTestWorkspace.modelTestStatusHeadingButton; function onClicked() { state.toggleModelTestStatus() } }
     Connections { target: screen.modelTestWorkspace.operationPanelToggleButton; function onClicked() { state.toggleModelTestOperationPanel() } }
 
-    Connections { target: screen.liveWorkspace.primaryActionButton; function onClicked() { state.livePrimaryAction() } }
-    Connections { target: screen.liveWorkspace.secondaryActionButton; function onClicked() { state.liveSecondaryAction() } }
+    Connections { target: screen.liveWorkspace.primaryActionButton; function onClicked() { if (root.liveSortingController) root.liveSortingController.primaryAction(); else state.livePrimaryAction() } }
+    Connections {
+        target: screen.liveWorkspace.secondaryActionButton
+        function onClicked() {
+            if (root.liveSortingController) {
+                if (root.liveSortingController.secondaryAction()
+                        && root.liveSortingController.presentation === "completed")
+                    state.selectWorkspace("runs")
+            } else {
+                state.liveSecondaryAction()
+            }
+        }
+    }
+    Connections { target: screen.liveWorkspace.runNameField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.runName = screen.liveWorkspace.runNameField.text } }
+    Connections { target: screen.liveWorkspace.experimentTypeField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.experimentType = screen.liveWorkspace.experimentTypeField.text } }
+    Connections { target: screen.liveWorkspace.notesField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.notes = screen.liveWorkspace.notesField.text } }
+    Connections { target: screen.liveWorkspace.durationField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.duration = screen.liveWorkspace.durationField.text } }
+    Connections { target: screen.liveWorkspace.saveLocationField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.saveLocation = screen.liveWorkspace.saveLocationField.text } }
+    Connections {
+        target: screen.liveWorkspace.hitClassControl
+        function onActivated(index) {
+            if (root.liveSortingController && index >= 0
+                    && index < root.liveSortingController.hitClassModel.length)
+                root.liveSortingController.hitClassId =
+                        root.liveSortingController.hitClassModel[index].id
+        }
+    }
+    Connections { target: screen.liveWorkspace.triggerEveryDropletControl; function onToggled() { if (root.liveSortingController) root.liveSortingController.triggerEveryDroplet = screen.liveWorkspace.triggerEveryDropletControl.checked } }
+    Connections { target: screen.liveWorkspace.daqOutputControl; function onToggled() { if (root.liveSortingController) root.liveSortingController.daqOutputEnabled = screen.liveWorkspace.daqOutputControl.checked } }
+    Connections { target: screen.liveWorkspace.recordFullImageSequenceControl; function onToggled() { if (root.liveSortingController) root.liveSortingController.recordFullImageSequence = screen.liveWorkspace.recordFullImageSequenceControl.checked } }
     Connections { target: screen.liveWorkspace.setupProfileHeadingButton; function onClicked() { state.toggleLiveSetupProfile() } }
     Connections { target: screen.liveWorkspace.runInformationHeadingButton; function onClicked() { state.toggleLiveRunInformation() } }
     Connections { target: screen.liveWorkspace.triggerTimingHeadingButton; function onClicked() { state.toggleLiveTriggerTiming() } }
@@ -876,10 +1042,56 @@ Item {
     Connections { target: screen.liveWorkspace.runningHeadingButton; function onClicked() { state.toggleLiveRunning() } }
     Connections { target: screen.liveWorkspace.rightPanelToggleButton; function onClicked() { state.toggleLiveRightPanel() } }
 
-    Connections { target: screen.sequenceTestWorkspace.loadSequenceButton; function onClicked() { state.loadSequenceTest() } }
-    Connections { target: screen.sequenceTestWorkspace.loadToMemoryButton; function onClicked() { state.loadSequenceTestToMemory() } }
-    Connections { target: screen.sequenceTestWorkspace.startStopButton; function onClicked() { state.startOrStopSequenceTest() } }
-    Connections { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; function onToggled() { state.physicalDaqOutputChecked = screen.sequenceTestWorkspace.physicalDaqOutputControl.checked } }
+    FileDialog {
+        id: sequenceTestFileDialog
+        title: qsTr("Open Image Sequence")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("OpenDSS Image Sequence (sequence.json)")]
+        onAccepted: {
+            if (root.sequenceTestController && selectedFile.toString() !== "")
+                root.sequenceTestController.selectSequence(selectedFile)
+        }
+    }
+
+    FolderDialog {
+        id: sequenceTestOutputFolderDialog
+        title: qsTr("Choose Sequence Test Output Parent Folder")
+        currentFolder: root.sequenceTestController
+                       ? root.sequenceTestController.outputFolderUrl : ""
+        onAccepted: {
+            if (root.sequenceTestController && selectedFolder.toString() !== "")
+                root.sequenceTestController.outputFolderUrl = selectedFolder
+        }
+    }
+
+    Connections { target: screen.sequenceTestWorkspace.loadSequenceButton; function onClicked() { if (root.sequenceTestController) sequenceTestFileDialog.open(); else state.loadSequenceTest() } }
+    Connections { target: screen.sequenceTestWorkspace.loadToMemoryButton; function onClicked() { if (root.sequenceTestController) root.sequenceTestController.loadToMemory(); else state.loadSequenceTestToMemory() } }
+    Connections {
+        target: screen.sequenceTestWorkspace.startStopButton
+        function onClicked() {
+            if (root.sequenceTestController) {
+                if (root.sequenceTestPresentation() === "running")
+                    root.sequenceTestController.stop()
+                else
+                    root.sequenceTestController.start()
+            } else {
+                state.startOrStopSequenceTest()
+            }
+        }
+    }
+    Connections { target: screen.sequenceTestWorkspace.processingFpsField; function onEditingFinished() { if (root.sequenceTestController) root.sequenceTestController.requestedProcessingFps = Number(screen.sequenceTestWorkspace.processingFpsField.text) } }
+    Connections { target: screen.sequenceTestWorkspace.triggerEveryDropletControl; function onToggled() { if (root.sequenceTestController) root.sequenceTestController.triggerEveryDroplet = screen.sequenceTestWorkspace.triggerEveryDropletControl.checked } }
+    Connections {
+        target: screen.sequenceTestWorkspace.hitClassControl
+        function onActivated(index) {
+            if (root.sequenceTestController && index >= 0
+                    && index < root.sequenceTestController.hitClassModel.length)
+                root.sequenceTestController.selectedHitClassId =
+                        root.sequenceTestController.hitClassModel[index].id
+        }
+    }
+    Connections { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; function onToggled() { if (root.sequenceTestController) root.sequenceTestController.physicalDaqOutputEnabled = screen.sequenceTestWorkspace.physicalDaqOutputControl.checked; else state.physicalDaqOutputChecked = screen.sequenceTestWorkspace.physicalDaqOutputControl.checked } }
+    Connections { target: screen.sequenceTestWorkspace.browseSaveLocationButton; function onClicked() { if (root.sequenceTestController) sequenceTestOutputFolderDialog.open() } }
     Connections { target: screen.sequenceTestWorkspace.sequenceTestHeadingButton; function onClicked() { state.toggleSequenceTest() } }
     Connections { target: screen.sequenceTestWorkspace.rightPanelToggleButton; function onClicked() { state.toggleSequenceTestRightPanel() } }
 

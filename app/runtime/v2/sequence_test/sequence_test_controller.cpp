@@ -142,7 +142,6 @@ SequenceTestController::SequenceTestController(
     StorageRootProvider storageRootProvider,
     AvailableMemoryProvider availableMemoryProvider,
     DaqReadinessGate daqReadinessProvider,
-    run::HitBoundarySnapshot hitBoundary,
     QJsonObject detectorSettings,
     QJsonObject cropSettings,
     QJsonObject timingSettings,
@@ -154,7 +153,6 @@ SequenceTestController::SequenceTestController(
       resultsRefresh_(std::move(resultsRefresh)),
       availableMemoryProvider_(std::move(availableMemoryProvider)),
       daqReadinessProvider_(std::move(daqReadinessProvider)),
-      hitBoundary_(std::move(hitBoundary)),
       detectorSettings_(std::move(detectorSettings)),
       cropSettings_(std::move(cropSettings)),
       timingSettings_(std::move(timingSettings)),
@@ -445,6 +443,8 @@ bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     frameCount_ = data.frameCount;
     imageWidth_ = data.imageWidth;
     imageHeight_ = data.imageHeight;
+    hitBoundary_ = {imageHeight_ / 2.0, run::HitSide::PositiveY,
+                    imageWidth_, imageHeight_};
     recordedFps_ = data.nominalFps;
     requestedProcessingFps_ = data.nominalFps;
     cameraSettings_ = data.cameraSettings;
@@ -779,6 +779,7 @@ void SequenceTestController::clearSelectedSequence() {
     frameCount_ = 0;
     imageWidth_ = 0;
     imageHeight_ = 0;
+    hitBoundary_ = {};
     recordedFps_ = 0.0;
     requestedProcessingFps_ = 0.0;
     cameraSettings_ = {};

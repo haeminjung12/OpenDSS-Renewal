@@ -454,6 +454,124 @@ Item {
     }
 
     QtObject {
+        id: liveSortingController
+        property string presentation: "ready"
+        property string error: ""
+        property string diagnostic: ""
+        property bool cameraStreaming: true
+        property bool startSortingEnabled: true
+        property string runName: "Production Run"
+        property string experimentType: "Sorting"
+        property string notes: "Controller-backed"
+        property string duration: ""
+        property string saveLocation: "C:/OpenDSS/Runs"
+        property string activeModelText: "Production Model"
+        property var hitClassOptions: ["Empty", "Single", "Multiple"]
+        property var hitClassModel: [
+            { id: "route-z", name: "Multiple" },
+            { id: "route-hit", name: "Single" },
+            { id: "route-a", name: "Empty" }
+        ]
+        property string hitClassId: "route-hit"
+        property bool triggerEveryDroplet: false
+        property bool daqOutputEnabled: false
+        property bool recordFullImageSequence: false
+        property real elapsedSeconds: 65
+        property int persistedEvents: 12
+        property var integrity: ({
+            sourceFrameGaps: { count: 1 },
+            queueRejections: { count: 2 },
+            consumerFailures: { count: 0 }
+        })
+        property string stopReason: ""
+        property string runFolder: "C:/OpenDSS/Runs/Production-Run"
+        property int primaryActionCallCount: 0
+        property int secondaryActionCallCount: 0
+
+        function reset() {
+            presentation = "ready"
+            error = ""
+            diagnostic = ""
+            cameraStreaming = true
+            startSortingEnabled = true
+            runName = "Production Run"
+            experimentType = "Sorting"
+            notes = "Controller-backed"
+            duration = ""
+            saveLocation = "C:/OpenDSS/Runs"
+            activeModelText = "Production Model"
+            hitClassId = "route-hit"
+            triggerEveryDroplet = false
+            daqOutputEnabled = false
+            recordFullImageSequence = false
+            primaryActionCallCount = 0
+            secondaryActionCallCount = 0
+        }
+
+        function primaryAction() { ++primaryActionCallCount; return true }
+        function secondaryAction() { ++secondaryActionCallCount; return true }
+    }
+
+    QtObject {
+        id: sequenceTestController
+        property string presentation: "selected"
+        property string errorMessage: ""
+        property bool canLoadToMemory: true
+        property bool canStart: false
+        property string activeModelName: "Production Model"
+        property bool activeModelReady: true
+        property url sourceManifestUrl: "file:///C:/Sequences/sequence.json"
+        property string sequenceName: "Test Sequence"
+        property url sequenceFolderUrl: "file:///C:/Sequences"
+        property string sequencePath: "C:/Sequences/sequence.json"
+        property int frameCount: 24
+        property real recordedFps: 120
+        property url previewUrl: ""
+        property string sequenceValidation: "Valid"
+        property real availableMemoryBytes: 8589934592
+        property real bufferBytes: 25165824
+        property bool memoryReady: false
+        property string loadStatus: "Not loaded"
+        property real requestedProcessingFps: 120
+        property real achievedProcessingFps: 0
+        property int processedFrames: 0
+        property int totalFrames: 24
+        property real progress: 0
+        property string outputStatus: "Idle"
+        property bool triggerEveryDroplet: false
+        property var hitClassModel: [
+            { id: "sequence-z", name: "Multiple" },
+            { id: "sequence-a", name: "Empty" },
+            { id: "sequence-hit", name: "Single" }
+        ]
+        property string selectedHitClassId: "sequence-hit"
+        property bool physicalDaqOutputEnabled: false
+        property url outputFolderUrl: "file:///C:/OpenDSS/Sequence%20Tests"
+        property int loadToMemoryCallCount: 0
+        property int startCallCount: 0
+        property int stopCallCount: 0
+
+        function reset() {
+            presentation = "selected"
+            errorMessage = ""
+            canLoadToMemory = true
+            canStart = false
+            requestedProcessingFps = 120
+            triggerEveryDroplet = false
+            selectedHitClassId = "sequence-hit"
+            physicalDaqOutputEnabled = false
+            loadToMemoryCallCount = 0
+            startCallCount = 0
+            stopCallCount = 0
+        }
+
+        function selectSequence(url) { sourceManifestUrl = url; return true }
+        function loadToMemory() { ++loadToMemoryCallCount; return true }
+        function start() { ++startCallCount; return true }
+        function stop() { ++stopCallCount; return true }
+    }
+
+    QtObject {
         id: unavailableCameraController
         property bool busy: false
         property string cameraStatus: "Unavailable"
@@ -515,6 +633,8 @@ Item {
         shell.trainingController = null
         shell.modelLibraryController = null
         shell.modelTestController = null
+        shell.liveSortingController = null
+        shell.sequenceTestController = null
         shell.singleImageCaptureController = null
         shell.daqController = null
         shell.settingsActionError = ""
@@ -522,6 +642,8 @@ Item {
         modelTestController.reset()
         singleImageCaptureController.reset()
         daqController.reset()
+        liveSortingController.reset()
+        sequenceTestController.reset()
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
@@ -1853,6 +1975,88 @@ Item {
         compare(shell.mockState.runsPresentation, "runsNotesEditing")
         shell.form.runsWorkspace.saveNotesButton.clicked()
         compare(shell.mockState.runsPresentation, "runsLoaded")
+    }
+
+    function test_liveAndSequenceTestUseProductionControllers() {
+        shell.liveSortingController = liveSortingController
+        shell.sequenceTestController = sequenceTestController
+        shell.daqController = daqController
+        shell.form.navLiveButton.clicked()
+        wait(0)
+
+        compare(shell.form.liveWorkspace.presentation, "ready")
+        compare(shell.form.liveWorkspace.runNameField.text, "Production Run")
+        compare(shell.form.liveWorkspace.activeModelText, "Production Model")
+        compare(shell.form.liveWorkspace.hitBoundaryText,
+                "Provisional midpoint route boundary; no user calibration is exposed yet.")
+        compare(shell.form.liveWorkspace.hitClassControl.currentIndex, 1)
+        shell.form.liveWorkspace.hitClassControl.activated(2)
+        compare(liveSortingController.hitClassId, "route-a")
+        verify(shell.form.liveWorkspace.integrityStatusText.indexOf("Queue rejections: 2") >= 0)
+        verify(!shell.form.liveWorkspace.sendTestPulseButton.enabled)
+        shell.form.liveWorkspace.primaryActionButton.clicked()
+        compare(liveSortingController.primaryActionCallCount, 1)
+        liveSortingController.daqOutputEnabled = true
+        wait(0)
+        verify(shell.form.liveWorkspace.daqOutputControl.checked)
+
+        liveSortingController.presentation = "running"
+        wait(0)
+        verify(!shell.form.liveWorkspace.setupProfileExpanded)
+        verify(shell.form.liveWorkspace.runningExpanded)
+        verify(shell.form.liveWorkspace.runningHeadingEnabled)
+        verify(!shell.form.hardwareButton.enabled)
+        verify(!shell.form.startCameraButton.enabled)
+        verify(!shell.form.daqRefreshDevicesButton.enabled)
+        liveSortingController.presentation = "ready"
+        wait(0)
+        verify(shell.form.liveWorkspace.setupProfileExpanded)
+        verify(!shell.form.liveWorkspace.runningExpanded)
+        verify(!shell.form.liveWorkspace.runningHeadingEnabled)
+        verify(shell.form.hardwareButton.enabled)
+        verify(shell.form.startCameraButton.enabled)
+        verify(shell.form.daqRefreshDevicesButton.enabled)
+
+        compare(shell.form.sequenceTestWorkspace.presentation, "selected")
+        compare(shell.form.sequenceTestWorkspace.sequenceNameField.text, "Test Sequence")
+        compare(shell.form.sequenceTestWorkspace.frameCountText.text, "Frames: 24")
+        compare(shell.form.sequenceTestWorkspace.hitClassControl.currentIndex, 2)
+        shell.form.sequenceTestWorkspace.hitClassControl.activated(0)
+        compare(sequenceTestController.selectedHitClassId, "sequence-z")
+        verify(shell.form.sequenceTestWorkspace.sequenceValidationText.text.indexOf(
+                   "Provisional midpoint route boundary") >= 0)
+        shell.form.sequenceTestWorkspace.loadToMemoryButton.clicked()
+        compare(sequenceTestController.loadToMemoryCallCount, 1)
+
+        sequenceTestController.presentation = "ready"
+        sequenceTestController.canStart = true
+        sequenceTestController.memoryReady = true
+        wait(0)
+        compare(shell.form.sequenceTestWorkspace.loadReadinessText.text,
+                "Load readiness: Ready in memory")
+        shell.form.sequenceTestWorkspace.startStopButton.clicked()
+        compare(sequenceTestController.startCallCount, 1)
+
+        sequenceTestController.presentation = "running"
+        sequenceTestController.physicalDaqOutputEnabled = true
+        wait(0)
+        verify(!shell.form.daqRefreshDevicesButton.enabled)
+        sequenceTestController.physicalDaqOutputEnabled = false
+        wait(0)
+        verify(shell.form.daqRefreshDevicesButton.enabled)
+        shell.form.sequenceTestWorkspace.startStopButton.clicked()
+        compare(sequenceTestController.stopCallCount, 1)
+
+        sequenceTestController.errorMessage = "DAQ hardware is not ready."
+        sequenceTestController.presentation = "ready"
+        sequenceTestController.canStart = false
+        sequenceTestController.physicalDaqOutputEnabled = true
+        wait(0)
+        verify(!shell.form.sequenceTestWorkspace.startStopButton.enabled)
+        compare(shell.form.sequenceTestWorkspace.loadReadinessText.text,
+                "Load readiness: Ready in memory")
+        verify(shell.form.sequenceTestWorkspace.sequenceValidationText.text.indexOf(
+                   "DAQ hardware is not ready.") >= 0)
     }
 
     function test_sequenceTestPhysicalDaqRequirement() {

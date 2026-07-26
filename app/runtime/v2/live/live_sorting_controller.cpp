@@ -190,6 +190,15 @@ QStringList LiveSortingController::hitClassOptions() const {
     return values;
 }
 
+QVariantList LiveSortingController::hitClassModel() const {
+    QVariantList values;
+    for (const auto& cls : facts_.activeModelClasses) {
+        values.push_back(QVariantMap{{QStringLiteral("id"), cls.id},
+                                     {QStringLiteral("name"), cls.name}});
+    }
+    return values;
+}
+
 QString LiveSortingController::hitClassId() const { return hitClassId_; }
 
 void LiveSortingController::setHitClassId(const QString& value) {

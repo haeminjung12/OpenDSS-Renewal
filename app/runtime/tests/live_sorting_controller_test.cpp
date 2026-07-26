@@ -351,6 +351,24 @@ int main(int argc, char** argv) {
     facts.activeModelLoadable = true;
     facts.activeModelName = QStringLiteral("Active Model");
     facts.activeModelClasses = {
+        {QStringLiteral("route-z"), QStringLiteral("Multiple")},
+        {QStringLiteral("route-hit"), QStringLiteral("Single")},
+        {QStringLiteral("route-a"), QStringLiteral("Empty")}};
+    controller->refresh();
+    const QVariantList arbitraryClassModel = controller->hitClassModel();
+    ok &= check(
+        arbitraryClassModel.size() == 3 &&
+            arbitraryClassModel.at(0).toMap().value(QStringLiteral("id")).toString() ==
+                QStringLiteral("route-z") &&
+            arbitraryClassModel.at(1).toMap().value(QStringLiteral("id")).toString() ==
+                QStringLiteral("route-hit") &&
+            arbitraryClassModel.at(1).toMap().value(QStringLiteral("name")).toString() ==
+                QStringLiteral("Single") &&
+            arbitraryClassModel.at(2).toMap().value(QStringLiteral("id")).toString() ==
+                QStringLiteral("route-a"),
+        "Hit Class model must preserve authoritative arbitrary IDs, order, and names.");
+
+    facts.activeModelClasses = {
         {QStringLiteral("c0"), QStringLiteral("Zero")},
         {QStringLiteral("c1"), QStringLiteral("One")}};
     controller->refresh();

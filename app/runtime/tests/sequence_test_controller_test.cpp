@@ -74,7 +74,9 @@ QString framePath(const QString& root, qint64 index) {
 
 QString makeSequence(const QString& root,
                      qint64 frameCount,
-                     bool corruptSecond = false) {
+                     bool corruptSecond = false,
+                     int imageWidth = 8,
+                     int imageHeight = 8) {
     require(QDir().mkpath(QDir(root).filePath("frames")),
             "create Sequence frames folder");
     for (qint64 index = 1; index <= frameCount; ++index) {
@@ -85,7 +87,7 @@ QString makeSequence(const QString& root,
             require(corrupt.write("not-a-tiff") > 0, "write corrupt frame");
             continue;
         }
-        QImage image(8, 8, QImage::Format_Grayscale8);
+        QImage image(imageWidth, imageHeight, QImage::Format_Grayscale8);
         image.fill(static_cast<int>(index * 20));
         require(image.save(path, "TIFF"), "save Sequence frame");
     }
@@ -103,8 +105,8 @@ QString makeSequence(const QString& root,
     data.opendssVersion = QStringLiteral("2");
     data.frameCount = frameCount;
     data.cameraSettings = {{QStringLiteral("fixture"), true}};
-    data.imageWidth = 8;
-    data.imageHeight = 8;
+    data.imageWidth = imageWidth;
+    data.imageHeight = imageHeight;
     data.bitDepth = 8;
     data.nominalFps = 20.0;
     const QString path = QDir(root).filePath(QStringLiteral("sequence.json"));
@@ -164,11 +166,52 @@ SequenceTestController makeController(
         [output] { return output; },
         [&availableMemory] { return availableMemory; },
         std::move(daqReadinessProvider),
-        {4.0, run::HitSide::PositiveY, 8, 8},
         {{QStringLiteral("fixed_detector"), true}},
         {{QStringLiteral("crop_size"), 64}},
         {{QStringLiteral("fixed_timing"), true}},
-        QStringLiteral("2"));
+         QStringLiteral("2"));
+}
+
+QString onlyRunFolder(const QString& output);
+
+void derivedBoundarySupportsArbitraryDimensions() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create derived-boundary temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create derived-boundary output");
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString manifest = makeSequence(sequenceRoot, 1, false, 13, 7);
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    SequenceTestService service(operations, detector, nullptr);
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller =
+        makeController(service, output, availableMemory, resultsRefreshes);
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load arbitrary-size Sequence");
+    controller.setTriggerEveryDroplet(true);
+    require(controller.canStart() && controller.start() &&
+                waitUntil([&] {
+                    return controller.presentation() ==
+                           QStringLiteral("completed");
+                }),
+            "start arbitrary-size Sequence with derived boundary");
+
+    QString error;
+    const auto run = run::RunManifestV2::load(
+        QDir(onlyRunFolder(output)).filePath(QStringLiteral("run_summary.json")),
+        &error);
+    require(run.has_value() &&
+                run->data().hitBoundary.imageWidth == 13 &&
+                run->data().hitBoundary.imageHeight == 7 &&
+                run->data().hitBoundary.boundaryY == 3.5 &&
+                run->data().hitBoundary.hitSide ==
+                    run::HitSide::PositiveY,
+            "Run did not preserve exact provisional midpoint boundary");
 }
 
 QString onlyRunFolder(const QString& output) {
@@ -541,7 +584,6 @@ void asynchronousStopAndTeardown() {
         [teardownOutput] { return teardownOutput; },
         [&availableMemory] { return availableMemory; },
         DaqReadinessGate{},
-        run::HitBoundarySnapshot{4.0, run::HitSide::PositiveY, 8, 8},
         QJsonObject{{QStringLiteral("fixed_detector"), true}},
         QJsonObject{{QStringLiteral("crop_size"), 64}},
         QJsonObject{{QStringLiteral("fixed_timing"), true}},
@@ -571,6 +613,7 @@ void asynchronousStopAndTeardown() {
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     selectionLoadingAndImmutableBuffer();
+    derivedBoundarySupportsArbitraryDimensions();
     modelRoutingAndDaqFacts();
     asynchronousStopAndTeardown();
     return 0;

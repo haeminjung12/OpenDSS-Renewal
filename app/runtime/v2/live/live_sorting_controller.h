@@ -6,6 +6,7 @@
 #include <QObject>
 #include <QStringList>
 #include <QTimer>
+#include <QVariantList>
 #include <QVariantMap>
 
 #include <functional>
@@ -53,6 +54,7 @@ class LiveSortingController final : public QObject {
                    NOTIFY changed)
     Q_PROPERTY(QString activeModelText READ activeModelText NOTIFY changed)
     Q_PROPERTY(QStringList hitClassOptions READ hitClassOptions NOTIFY changed)
+    Q_PROPERTY(QVariantList hitClassModel READ hitClassModel NOTIFY changed)
     Q_PROPERTY(QString hitClassId READ hitClassId WRITE setHitClassId NOTIFY changed)
     Q_PROPERTY(bool triggerEveryDroplet READ triggerEveryDroplet WRITE
                    setTriggerEveryDroplet NOTIFY changed)
@@ -92,6 +94,7 @@ public:
     void setSaveLocation(const QString& value);
     QString activeModelText() const;
     QStringList hitClassOptions() const;
+    QVariantList hitClassModel() const;
     QString hitClassId() const;
     void setHitClassId(const QString& value);
     bool triggerEveryDroplet() const;

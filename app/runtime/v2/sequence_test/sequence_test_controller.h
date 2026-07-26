@@ -67,7 +67,6 @@ class SequenceTestController final : public QObject {
         StorageRootProvider storageRootProvider,
         AvailableMemoryProvider availableMemoryProvider,
         DaqReadinessGate daqReadinessProvider,
-        run::HitBoundarySnapshot hitBoundary,
         QJsonObject detectorSettings,
         QJsonObject cropSettings,
         QJsonObject timingSettings,
@@ -143,7 +142,7 @@ class SequenceTestController final : public QObject {
     ResultsRefreshCallback resultsRefresh_;
     AvailableMemoryProvider availableMemoryProvider_;
     DaqReadinessGate daqReadinessProvider_;
-    const run::HitBoundarySnapshot hitBoundary_;
+    run::HitBoundarySnapshot hitBoundary_;
     const QJsonObject detectorSettings_;
     const QJsonObject cropSettings_;
     const QJsonObject timingSettings_;

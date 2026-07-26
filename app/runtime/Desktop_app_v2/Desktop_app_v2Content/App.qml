@@ -12,6 +12,8 @@ Window {
     property var trainingController: null
     property var modelLibraryController: null
     property var modelTestController: null
+    property var liveSortingController: null
+    property var sequenceTestController: null
 
     width: Constants.width
     height: Constants.height
@@ -32,6 +34,8 @@ Window {
         trainingController: window.trainingController
         modelLibraryController: window.modelLibraryController
         modelTestController: window.modelTestController
+        liveSortingController: window.liveSortingController
+        sequenceTestController: window.sequenceTestController
         onCloseRequested: window.close()
     }
 

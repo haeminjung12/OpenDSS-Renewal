@@ -208,11 +208,42 @@ int main(int argc, char** argv) {
     const auto activeInspection = service.inspectPersistedActive();
     if (!activeInspection.loadable || activeInspection.id != kInitialId ||
         activeInspection.displayName != kInitialId ||
+        activeInspection.modelSha256 !=
+            validArtifact.value("onnx_sha256").toString().toLower() ||
+        activeInspection.classes.size() != 3 ||
+        activeInspection.classes.at(0).id != "0" ||
+        activeInspection.classes.at(0).displayLabel != "Empty" ||
+        activeInspection.classes.at(1).id != "1" ||
+        activeInspection.classes.at(1).displayLabel != "Single" ||
+        activeInspection.classes.at(2).id != "2" ||
+        activeInspection.classes.at(2).displayLabel != "MoreThanOne" ||
         activeInspection.classCount != 3 ||
         activeInspection.plannedDevice != "CPU" ||
         !activeInspection.error.isEmpty()) {
-        return fail(73, "Persisted Active Model inspection did not publish loadable identity.");
+        return fail(
+            73,
+            "Compact-registry Active Model inspection did not publish validated snapshot facts.");
     }
+
+    QJsonObject metadataWithoutDeclaredHash = validMetadata;
+    QJsonObject artifactWithoutDeclaredHash =
+        metadataWithoutDeclaredHash.value("artifact").toObject();
+    artifactWithoutDeclaredHash.remove("onnx_sha256");
+    metadataWithoutDeclaredHash["artifact"] = artifactWithoutDeclaredHash;
+    if (!writeJsonObject(metadataPath, metadataWithoutDeclaredHash)) {
+        return fail(74, "Could not create optional-hash Active Model fixture.");
+    }
+    const auto optionalHashInspection = service.inspectPersistedActive();
+    if (!optionalHashInspection.loadable ||
+        optionalHashInspection.modelSha256 != sha256File(modelPath).toLower() ||
+        optionalHashInspection.classes.size() != 3 ||
+        !optionalHashInspection.error.isEmpty()) {
+        return fail(
+            75,
+            "Compact-registry Active Model without a declared hash did not publish actual snapshot provenance.");
+    }
+    if (!writeBytes(metadataPath, validMetadataBytes))
+        return fail(76, "Could not restore metadata after optional-hash inspection.");
     qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
 
     QString activeDisplayName;
@@ -240,8 +271,19 @@ int main(int argc, char** argv) {
     QJsonObject artifact = metadata.value("artifact").toObject();
     artifact["onnx_sha256"] = QString(64, '0');
     metadata["artifact"] = artifact;
-    if (!writeJsonObject(metadataPath, metadata) ||
-        !expectPrepareFailure(service, kCandidateId, registryPath, pipeline, &failure)) {
+    if (!writeJsonObject(metadataPath, metadata))
+        return fail(10, "Could not create mismatched ONNX-hash fixture.");
+    const auto mismatchedHashInspection = service.inspectPersistedActive();
+    if (mismatchedHashInspection.loadable ||
+        !mismatchedHashInspection.modelSha256.isEmpty() ||
+        mismatchedHashInspection.error.isEmpty() ||
+        !mismatchedHashInspection.error.contains("SHA-256") ||
+        !mismatchedHashInspection.error.contains("does not match")) {
+        return fail(
+            77,
+            "Persisted Active Model inspection accepted or obscured a declared ONNX-hash mismatch.");
+    }
+    if (!expectPrepareFailure(service, kCandidateId, registryPath, pipeline, &failure)) {
         return fail(10, "ONNX-hash case: " + failure);
     }
     if (!writeBytes(metadataPath, validMetadataBytes))

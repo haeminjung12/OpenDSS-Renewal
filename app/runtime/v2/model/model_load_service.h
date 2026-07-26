@@ -3,6 +3,7 @@
 #include "../../inference/onnx_inference_adapter.h"
 
 #include <QString>
+#include <QVector>
 
 #include <memory>
 
@@ -10,10 +11,17 @@ class PipelineRunner;
 
 namespace desktop_app::v2 {
 
+struct PersistedActiveModelClass {
+    QString id;
+    QString displayLabel;
+};
+
 struct PersistedActiveModelInspection {
     bool loadable = false;
     QString id;
     QString displayName;
+    QString modelSha256;
+    QVector<PersistedActiveModelClass> classes;
     int classCount = 0;
     QString plannedDevice;
     QString error;

@@ -20,6 +20,12 @@ public:
     bool stop(QString *error) override;
     bool close(QString *error) override;
     CameraFrameResult latestFrame(CameraFrame &frame, QString *error) override;
+    CameraConfigurationSupport configurationSupport(QString *error) const override;
+    bool readConfiguration(CameraAppliedSettings &settings, QString *error) override;
+    CameraConfigurationResult applyConfiguration(
+        const CameraAppliedSettings &requested,
+        CameraAppliedSettings &applied,
+        QString *error) override;
 
 private:
     std::unique_ptr<DcamCamera> camera_;

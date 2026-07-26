@@ -55,6 +55,28 @@ bool timestamp(const QJsonObject& object, const char* key, QString& output, QStr
                 : fail(error, QString("Field '%1' must be an ISO-8601 timestamp.").arg(key)));
 }
 
+bool nullish(const QJsonValue& value) {
+    return value.isUndefined() || value.isNull();
+}
+
+bool nullableString(const QJsonObject& object, const char* key, QString& output,
+                    bool empty, QString* error) {
+    if (nullish(object.value(QLatin1String(key)))) {
+        output.clear();
+        return true;
+    }
+    return string(object, key, output, empty, error);
+}
+
+bool nullableTimestamp(const QJsonObject& object, const char* key, QString& output,
+                       QString* error) {
+    if (nullish(object.value(QLatin1String(key)))) {
+        output.clear();
+        return true;
+    }
+    return timestamp(object, key, output, error);
+}
+
 bool integer(const QJsonObject& object, const char* key, qint64& output, QString* error) {
     const QJsonValue value = object.value(QLatin1String(key));
     const double number = value.toDouble(std::numeric_limits<double>::quiet_NaN());
@@ -197,23 +219,40 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
         fail(error, "Unsupported Dataset schema_version.");
         return std::nullopt;
     }
+    const QString provenanceMode = root.value("provenance_mode").toString();
+    const bool legacyCropOnly =
+        provenanceMode == QStringLiteral("legacy_crop_only");
+    if (root.contains("provenance_mode") && !legacyCropOnly) {
+        fail(error, "Unsupported Dataset provenance_mode.");
+        return std::nullopt;
+    }
     if (!only(root, {"schema_version", "dataset_id", "name", "experiment_type", "notes",
                      "status", "created_at", "updated_at", "opendss_version", "capture",
-                     "counts", "classes", "records", "labels"}, "Dataset root", error))
+                     "counts", "classes", "records", "labels", "provenance_mode"},
+              "Dataset root", error))
         return std::nullopt;
 
     DatasetManifestV2 manifest;
     manifest.datasetRoot_ = QFileInfo(path).absolutePath();
     auto& data = manifest.data_;
     auto& provenance = data.provenance;
+    provenance.provenanceMode = provenanceMode;
     if (!string(root, "dataset_id", data.datasetId, false, error) ||
         !string(root, "name", provenance.name, false, error) ||
         !string(root, "experiment_type", provenance.experimentType, true, error) ||
         !string(root, "notes", provenance.notes, true, error) ||
         !string(root, "status", provenance.status, false, error) ||
-        !timestamp(root, "created_at", provenance.createdAt, error) ||
-        !timestamp(root, "updated_at", provenance.updatedAt, error) ||
-        !string(root, "opendss_version", provenance.opendssVersion, false, error))
+        !(legacyCropOnly
+              ? nullableTimestamp(root, "created_at", provenance.createdAt, error)
+              : timestamp(root, "created_at", provenance.createdAt, error)) ||
+        !(legacyCropOnly
+              ? nullableTimestamp(root, "updated_at", provenance.updatedAt, error)
+              : timestamp(root, "updated_at", provenance.updatedAt, error)) ||
+        !(legacyCropOnly
+              ? nullableString(root, "opendss_version", provenance.opendssVersion,
+                               false, error)
+              : string(root, "opendss_version", provenance.opendssVersion, false,
+                       error)))
         return std::nullopt;
     if (provenance.status != "completed" && provenance.status != "interrupted") {
         fail(error, "Dataset status must be completed or interrupted.");
@@ -226,12 +265,31 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
     if (!only(capture, {"started_at", "ended_at", "requested_duration_seconds",
                         "stop_reason", "sequence", "crop_settings", "camera_settings",
                         "detection_settings", "program_settings"}, "capture", error) ||
-        !timestamp(capture, "started_at", provenance.captureStartedAt, error) ||
-        !timestamp(capture, "ended_at", provenance.captureEndedAt, error) ||
-        !string(capture, "stop_reason", provenance.stopReason, false, error))
+        !(legacyCropOnly
+              ? nullableTimestamp(capture, "started_at",
+                                  provenance.captureStartedAt, error)
+              : timestamp(capture, "started_at", provenance.captureStartedAt,
+                          error)) ||
+        !(legacyCropOnly
+              ? nullableTimestamp(capture, "ended_at", provenance.captureEndedAt,
+                                  error)
+              : timestamp(capture, "ended_at", provenance.captureEndedAt,
+                          error)) ||
+        !(legacyCropOnly
+              ? nullableString(capture, "stop_reason", provenance.stopReason,
+                               false, error)
+              : string(capture, "stop_reason", provenance.stopReason, false,
+                       error)))
         return std::nullopt;
     const auto duration = capture.value("requested_duration_seconds");
-    if (duration.isNull()) {
+    if (!legacyCropOnly && duration.isUndefined())
+        return fail(error, "Required field 'requested_duration_seconds' is missing."),
+               std::nullopt;
+    if (legacyCropOnly && !nullish(duration))
+        return fail(error,
+                    "Legacy crop-only requested_duration_seconds must be null."),
+               std::nullopt;
+    if (nullish(duration)) {
         provenance.requestedDurationSeconds.reset();
     } else if (duration.isDouble() && std::isfinite(duration.toDouble()) &&
                duration.toDouble() > 0) {
@@ -240,18 +298,32 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
         fail(error, "requested_duration_seconds must be null or finite and positive.");
         return std::nullopt;
     }
-    if (!capture.value("camera_settings").isObject() ||
-        !capture.value("detection_settings").isObject() ||
-        !capture.value("program_settings").isObject())
-        return fail(error, "Capture settings must be objects."), std::nullopt;
-    provenance.cameraSettings = capture.value("camera_settings").toObject();
-    provenance.detectionSettings = capture.value("detection_settings").toObject();
-    provenance.programSettings = capture.value("program_settings").toObject();
+    if (legacyCropOnly) {
+        if (!nullish(capture.value("camera_settings")) ||
+            !nullish(capture.value("detection_settings")) ||
+            !nullish(capture.value("program_settings")))
+            return fail(error, "Legacy crop-only capture settings must be null."),
+                   std::nullopt;
+    } else {
+        if (!capture.value("camera_settings").isObject() ||
+            !capture.value("detection_settings").isObject() ||
+            !capture.value("program_settings").isObject())
+            return fail(error, "Capture settings must be objects."), std::nullopt;
+        provenance.cameraSettings = capture.value("camera_settings").toObject();
+        provenance.detectionSettings =
+            capture.value("detection_settings").toObject();
+        provenance.programSettings = capture.value("program_settings").toObject();
+    }
 
+    auto& sequenceData = provenance.sequence;
+    if (legacyCropOnly) {
+        if (!nullish(capture.value("sequence")))
+            return fail(error, "Legacy crop-only sequence provenance must be null."),
+                   std::nullopt;
+    } else {
     if (!capture.value("sequence").isObject())
         return fail(error, "capture.sequence must be an object."), std::nullopt;
     const auto sequence = capture.value("sequence").toObject();
-    auto& sequenceData = provenance.sequence;
     if (!only(sequence, {"folder", "frame_filename_pattern", "frame_count", "image",
                          "nominal_fps", "integrity"}, "capture.sequence", error) ||
         !string(sequence, "folder", sequenceData.folder, false, error) ||
@@ -296,6 +368,7 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
         !category(integrity.value("consumer_failures"), "consumer_failures",
                   sequenceData.integrity.consumerFailures, error))
         return std::nullopt;
+    }
 
     if (!capture.value("crop_settings").isObject())
         return fail(error, "crop_settings must be an object."), std::nullopt;
@@ -307,13 +380,26 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
         !positiveInt(crop, "height", cropData.height, error) ||
         !string(crop, "pixel_format", cropData.pixelFormat, false, error) ||
         !string(crop, "file_format", cropData.fileFormat, false, error) ||
-        !string(crop, "method", cropData.method, false, error) ||
-        !string(crop, "interpolation", cropData.interpolation, false, error) ||
-        cropData.width != 64 || cropData.height != 64 || cropData.pixelFormat != "gray8" ||
-        cropData.fileFormat != "png" || cropData.method != "centered_max_bbox_clamped" ||
-        cropData.interpolation != "area")
+        cropData.width != 64 || cropData.height != 64 ||
+        cropData.pixelFormat != "gray8" || cropData.fileFormat != "png")
         return fail(error, "Dataset crop settings are fixed at 64x64 gray8 PNG area."),
                std::nullopt;
+    if (legacyCropOnly) {
+        if (!nullish(crop.value("method")) ||
+            !nullish(crop.value("interpolation")))
+            return fail(error,
+                        "Legacy crop-only crop method and interpolation must be null."),
+                   std::nullopt;
+        cropData.method.clear();
+        cropData.interpolation.clear();
+    } else if (!string(crop, "method", cropData.method, false, error) ||
+               !string(crop, "interpolation", cropData.interpolation, false, error) ||
+               cropData.method != "centered_max_bbox_clamped" ||
+               cropData.interpolation != "area") {
+        return fail(error,
+                    "Dataset crop settings are fixed at 64x64 gray8 PNG area."),
+               std::nullopt;
+    }
 
     if (!root.value("classes").isArray() || !root.value("records").isArray() ||
         !root.value("labels").isArray() || !root.value("counts").isObject())
@@ -350,40 +436,73 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
                            "source_frame_index", "source_event_id", "timestamp",
                            "crop_rect"}, "neutral record", error) ||
             !string(object, "record_id", value.recordId, false, error) ||
-            !string(object, "crop_path", value.cropPath, false, error) ||
-            !string(object, "crop_sha256", value.cropSha256, false, error) ||
-            !string(object, "source_frame_id", value.sourceFrameId, false, error) ||
-            !integer(object, "source_frame_index", value.sourceFrameIndex, error) ||
-            !string(object, "source_event_id", value.sourceEventId, false, error) ||
-            !timestamp(object, "timestamp", value.timestamp, error) ||
-            recordIds.contains(value.recordId) || !sha(value.cropSha256) ||
-            value.sourceFrameIndex < 1 ||
-            value.sourceFrameIndex > sequenceData.frameCount)
+            recordIds.contains(value.recordId))
             return fail(error, "Neutral record identity, hash, or source frame is invalid."),
                    std::nullopt;
-        QString resolved;
-        if (!relativePath(datasetRoot, value.cropPath, &resolved, error))
-            return std::nullopt;
-        if (!object.value("crop_rect").isObject())
-            return fail(error, "crop_rect must be an object."), std::nullopt;
-        const auto rect = object.value("crop_rect").toObject();
-        qint64 x = 0, y = 0, rectWidth = 0, rectHeight = 0;
-        if (!only(rect, {"x", "y", "width", "height"}, "crop_rect", error) ||
-            !integer(rect, "x", x, error) || !integer(rect, "y", y, error) ||
-            !integer(rect, "width", rectWidth, error) ||
-            !integer(rect, "height", rectHeight, error) || rectWidth <= 0 ||
-            rectHeight <= 0 || x + rectWidth > sequenceData.imageWidth ||
-            y + rectHeight > sequenceData.imageHeight)
-            return fail(error, "Crop rectangle must be within source image dimensions."),
-                   std::nullopt;
-        value.cropRect = QRect(static_cast<int>(x), static_cast<int>(y),
-                               static_cast<int>(rectWidth), static_cast<int>(rectHeight));
+        if (legacyCropOnly) {
+            if (!nullableString(object, "crop_path", value.cropPath, false, error) ||
+                !nullableString(object, "crop_sha256", value.cropSha256, false,
+                                error) ||
+                value.cropPath.isEmpty() != value.cropSha256.isEmpty() ||
+                (!value.cropSha256.isEmpty() && !sha(value.cropSha256)) ||
+                !nullish(object.value("source_frame_id")) ||
+                !nullish(object.value("source_frame_index")) ||
+                !nullish(object.value("source_event_id")) ||
+                !nullish(object.value("timestamp")) ||
+                !nullish(object.value("crop_rect")))
+                return fail(error,
+                            "Legacy crop-only records require crop facts or null acquisition provenance."),
+                       std::nullopt;
+            if (!value.cropPath.isEmpty()) {
+                QString resolved;
+                if (!relativePath(datasetRoot, value.cropPath, &resolved, error))
+                    return std::nullopt;
+            }
+        } else {
+            if (!string(object, "crop_path", value.cropPath, false, error) ||
+                !string(object, "crop_sha256", value.cropSha256, false, error) ||
+                !string(object, "source_frame_id", value.sourceFrameId, false,
+                        error) ||
+                !integer(object, "source_frame_index", value.sourceFrameIndex,
+                         error) ||
+                !string(object, "source_event_id", value.sourceEventId, false,
+                        error) ||
+                !timestamp(object, "timestamp", value.timestamp, error) ||
+                !sha(value.cropSha256) || value.sourceFrameIndex < 1 ||
+                value.sourceFrameIndex > sequenceData.frameCount)
+                return fail(error,
+                            "Neutral record identity, hash, or source frame is invalid."),
+                       std::nullopt;
+            QString resolved;
+            if (!relativePath(datasetRoot, value.cropPath, &resolved, error))
+                return std::nullopt;
+            if (!object.value("crop_rect").isObject())
+                return fail(error, "crop_rect must be an object."), std::nullopt;
+            const auto rect = object.value("crop_rect").toObject();
+            qint64 x = 0, y = 0, rectWidth = 0, rectHeight = 0;
+            if (!only(rect, {"x", "y", "width", "height"}, "crop_rect",
+                      error) ||
+                !integer(rect, "x", x, error) ||
+                !integer(rect, "y", y, error) ||
+                !integer(rect, "width", rectWidth, error) ||
+                !integer(rect, "height", rectHeight, error) ||
+                rectWidth <= 0 || rectHeight <= 0 ||
+                x + rectWidth > sequenceData.imageWidth ||
+                y + rectHeight > sequenceData.imageHeight)
+                return fail(
+                           error,
+                           "Crop rectangle must be within source image dimensions."),
+                       std::nullopt;
+            value.cropRect =
+                QRect(static_cast<int>(x), static_cast<int>(y),
+                      static_cast<int>(rectWidth), static_cast<int>(rectHeight));
+        }
         value.cropSha256 = value.cropSha256.toLower();
         recordIds.insert(value.recordId);
         data.records.push_back(value);
     }
 
-    QSet<QString> labelIds, labeledRecords;
+    QSet<QString> labelIds, labeledRecords, excludedRecords;
     for (const auto& item : root.value("labels").toArray()) {
         if (!item.isObject())
             return fail(error, "User label must be an object."), std::nullopt;
@@ -409,10 +528,24 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
                        std::nullopt;
         } else {
             value.excluded = true;
+            excludedRecords.insert(value.recordId);
         }
         labelIds.insert(value.labelId);
         labeledRecords.insert(value.recordId);
         data.labels.push_back(value);
+    }
+    if (legacyCropOnly) {
+        for (const auto& record : data.records) {
+            if (!labeledRecords.contains(record.recordId))
+                return fail(error,
+                            "Every legacy crop-only record requires a label or exclusion."),
+                       std::nullopt;
+            const bool excluded = excludedRecords.contains(record.recordId);
+            if (!excluded && record.cropPath.isEmpty())
+                return fail(error,
+                            "Included legacy records require crop path and SHA-256."),
+                       std::nullopt;
+        }
     }
 
     const DatasetCounts expected = derive(data);
@@ -432,18 +565,38 @@ bool DatasetManifestV2::save(const QString& path, const DatasetManifestData& dat
         error->clear();
     const auto& p = data.provenance;
     const auto& s = p.sequence;
+    const bool legacyCropOnly =
+        p.provenanceMode == QStringLiteral("legacy_crop_only");
     QJsonArray classes, records, labels;
     for (const auto& value : data.classes)
         classes.push_back(QJsonObject{{"id", value.id}, {"name", value.name}});
     for (const auto& value : data.records) {
         records.push_back(QJsonObject{
-            {"record_id", value.recordId}, {"crop_path", value.cropPath},
-            {"crop_sha256", value.cropSha256}, {"source_frame_id", value.sourceFrameId},
-            {"source_frame_index", value.sourceFrameIndex},
-            {"source_event_id", value.sourceEventId}, {"timestamp", value.timestamp},
-            {"crop_rect", QJsonObject{{"x", value.cropRect.x()}, {"y", value.cropRect.y()},
-                                       {"width", value.cropRect.width()},
-                                       {"height", value.cropRect.height()}}}});
+            {"record_id", value.recordId},
+            {"crop_path", legacyCropOnly && value.cropPath.isEmpty()
+                              ? QJsonValue(QJsonValue::Null)
+                              : QJsonValue(value.cropPath)},
+            {"crop_sha256", legacyCropOnly && value.cropSha256.isEmpty()
+                                ? QJsonValue(QJsonValue::Null)
+                                : QJsonValue(value.cropSha256)},
+            {"source_frame_id", legacyCropOnly
+                                    ? QJsonValue(QJsonValue::Null)
+                                    : QJsonValue(value.sourceFrameId)},
+            {"source_frame_index", legacyCropOnly
+                                       ? QJsonValue(QJsonValue::Null)
+                                       : QJsonValue(value.sourceFrameIndex)},
+            {"source_event_id", legacyCropOnly
+                                    ? QJsonValue(QJsonValue::Null)
+                                    : QJsonValue(value.sourceEventId)},
+            {"timestamp", legacyCropOnly ? QJsonValue(QJsonValue::Null)
+                                          : QJsonValue(value.timestamp)},
+            {"crop_rect", legacyCropOnly
+                              ? QJsonValue(QJsonValue::Null)
+                              : QJsonValue(QJsonObject{
+                                    {"x", value.cropRect.x()},
+                                    {"y", value.cropRect.y()},
+                                    {"width", value.cropRect.width()},
+                                    {"height", value.cropRect.height()}})}});
     }
     for (const auto& value : data.labels) {
         QJsonObject object{{"label_id", value.labelId}, {"record_id", value.recordId}};
@@ -457,32 +610,66 @@ bool DatasetManifestV2::save(const QString& path, const DatasetManifestData& dat
         {"source_frame_gaps", categoryJson(s.integrity.sourceFrameGaps)},
         {"queue_rejections", categoryJson(s.integrity.queueRejections)},
         {"consumer_failures", categoryJson(s.integrity.consumerFailures)}};
-    const QJsonObject root{
+    QJsonObject root{
         {"schema_version", SchemaVersion}, {"dataset_id", data.datasetId},
         {"name", p.name}, {"experiment_type", p.experimentType}, {"notes", p.notes},
-        {"status", p.status}, {"created_at", p.createdAt}, {"updated_at", p.updatedAt},
-        {"opendss_version", p.opendssVersion},
+        {"status", p.status},
+        {"created_at", legacyCropOnly && p.createdAt.isEmpty()
+                           ? QJsonValue(QJsonValue::Null)
+                           : QJsonValue(p.createdAt)},
+        {"updated_at", legacyCropOnly && p.updatedAt.isEmpty()
+                           ? QJsonValue(QJsonValue::Null)
+                           : QJsonValue(p.updatedAt)},
+        {"opendss_version", legacyCropOnly
+                                ? QJsonValue(QJsonValue::Null)
+                                : QJsonValue(p.opendssVersion)},
         {"capture", QJsonObject{
-             {"started_at", p.captureStartedAt}, {"ended_at", p.captureEndedAt},
+             {"started_at", legacyCropOnly
+                                ? QJsonValue(QJsonValue::Null)
+                                : QJsonValue(p.captureStartedAt)},
+             {"ended_at", legacyCropOnly
+                              ? QJsonValue(QJsonValue::Null)
+                              : QJsonValue(p.captureEndedAt)},
              {"requested_duration_seconds",
               p.requestedDurationSeconds ? QJsonValue(*p.requestedDurationSeconds)
                                          : QJsonValue(QJsonValue::Null)},
-             {"stop_reason", p.stopReason},
-             {"sequence", QJsonObject{
-                  {"folder", s.folder}, {"frame_filename_pattern", s.frameFilenamePattern},
-                  {"frame_count", s.frameCount},
-                  {"image", QJsonObject{{"width", s.imageWidth}, {"height", s.imageHeight},
-                                         {"bit_depth", s.bitDepth}}},
-                  {"nominal_fps", s.nominalFps}, {"integrity", integrity}}},
+             {"stop_reason", legacyCropOnly
+                                 ? QJsonValue(QJsonValue::Null)
+                                 : QJsonValue(p.stopReason)},
+             {"sequence", legacyCropOnly
+                              ? QJsonValue(QJsonValue::Null)
+                              : QJsonValue(QJsonObject{
+                                    {"folder", s.folder},
+                                    {"frame_filename_pattern",
+                                     s.frameFilenamePattern},
+                                    {"frame_count", s.frameCount},
+                                    {"image",
+                                     QJsonObject{{"width", s.imageWidth},
+                                                 {"height", s.imageHeight},
+                                                 {"bit_depth", s.bitDepth}}},
+                                    {"nominal_fps", s.nominalFps},
+                                    {"integrity", integrity}})},
              {"crop_settings", QJsonObject{
                   {"width", p.crop.width}, {"height", p.crop.height},
                   {"pixel_format", p.crop.pixelFormat}, {"file_format", p.crop.fileFormat},
-                  {"method", p.crop.method}, {"interpolation", p.crop.interpolation}}},
-             {"camera_settings", p.cameraSettings},
-             {"detection_settings", p.detectionSettings},
-             {"program_settings", p.programSettings}}},
+                  {"method", legacyCropOnly ? QJsonValue(QJsonValue::Null)
+                                             : QJsonValue(p.crop.method)},
+                  {"interpolation",
+                   legacyCropOnly ? QJsonValue(QJsonValue::Null)
+                                  : QJsonValue(p.crop.interpolation)}}},
+             {"camera_settings", legacyCropOnly
+                                     ? QJsonValue(QJsonValue::Null)
+                                     : QJsonValue(p.cameraSettings)},
+             {"detection_settings", legacyCropOnly
+                                        ? QJsonValue(QJsonValue::Null)
+                                        : QJsonValue(p.detectionSettings)},
+             {"program_settings", legacyCropOnly
+                                      ? QJsonValue(QJsonValue::Null)
+                                      : QJsonValue(p.programSettings)}}},
         {"counts", countsJson(derive(data))}, {"classes", classes},
         {"records", records}, {"labels", labels}};
+    if (!p.provenanceMode.isEmpty())
+        root.insert("provenance_mode", p.provenanceMode);
     if (!fromJsonObject(root, path, error))
         return false;
     return desktop_app::writeJsonObjectAtomically(path, root, error) &&

@@ -890,10 +890,7 @@ QJsonObject freshSeedRegistryFromPackaged(QJsonObject registry) {
 } // namespace
 
 QString defaultOpenDssRootPath() {
-    const QString userProfile = qEnvironmentVariable("USERPROFILE").trimmed();
-    if (!userProfile.isEmpty())
-        return QDir(userProfile).filePath("Documents/OpenDSS");
-    return QDir(defaultDocumentsPath()).filePath("OpenDSS");
+    return QDir(defaultDocumentsPath()).filePath("OpenDropletSortingSuite");
 }
 
 QString defaultOpenDssModelsPath() {

@@ -54,6 +54,10 @@ bool requiredTimestamp(const QJsonObject& object, const QString& key, QString& v
     return true;
 }
 
+bool nullish(const QJsonValue& value) {
+    return value.isUndefined() || value.isNull();
+}
+
 bool requiredInteger(const QJsonObject& object, const QString& key, qint64& value,
                      QString* error) {
     const QJsonValue jsonValue = object.value(key);
@@ -143,6 +147,11 @@ std::optional<SequenceManifestV2> SequenceManifestV2::load(const QString& path, 
 
 bool SequenceManifestV2::save(const QString& path, const SequenceManifestData& data,
                               QString* error) {
+    if (error)
+        error->clear();
+    const bool legacy = data.provenanceMode == QStringLiteral("legacy_tiff_sequence");
+    if (!data.provenanceMode.isEmpty() && !legacy)
+        return fail(error, "Unsupported Sequence provenance_mode.");
     QJsonObject root{
         {"schema_version", SchemaVersion},
         {"sequence_id", data.sequenceId},
@@ -150,28 +159,42 @@ bool SequenceManifestV2::save(const QString& path, const SequenceManifestData& d
         {"experiment_type", data.experimentType},
         {"notes", data.notes},
         {"status", data.status},
-        {"created_at", data.createdAt},
-        {"started_at", data.startedAt},
-        {"ended_at", data.endedAt},
+        {"created_at", legacy ? QJsonValue(QJsonValue::Null)
+                              : QJsonValue(data.createdAt)},
+        {"started_at", legacy ? QJsonValue(QJsonValue::Null)
+                              : QJsonValue(data.startedAt)},
+        {"ended_at", legacy ? QJsonValue(QJsonValue::Null)
+                            : QJsonValue(data.endedAt)},
         {"requested_duration_seconds",
          data.requestedDurationSeconds ? QJsonValue(*data.requestedDurationSeconds)
                                        : QJsonValue(QJsonValue::Null)},
-        {"stop_reason", data.stopReason},
-        {"opendss_version", data.opendssVersion},
+        {"stop_reason", legacy ? QJsonValue(QJsonValue::Null)
+                               : QJsonValue(data.stopReason)},
+        {"opendss_version", legacy ? QJsonValue(QJsonValue::Null)
+                                   : QJsonValue(data.opendssVersion)},
         {"frame_format", "tiff"},
         {"frame_count", data.frameCount},
-        {"frame_filename_pattern", "frames/frame_%08d.tif"},
-        {"camera_settings", data.cameraSettings},
+        {"frame_filename_pattern", data.frameFilenamePattern},
+        {"camera_settings", legacy ? QJsonValue(QJsonValue::Null)
+                                   : QJsonValue(data.cameraSettings)},
         {"image", QJsonObject{{"width", data.imageWidth},
                               {"height", data.imageHeight},
                               {"bit_depth", data.bitDepth}}},
         {"timing", QJsonObject{{"timestamps_file", QJsonValue(QJsonValue::Null)},
-                               {"nominal_fps", data.nominalFps}}},
-        {"integrity",
-         QJsonObject{{"source_frame_gaps", categoryJson(data.integrity.sourceFrameGaps)},
-                     {"queue_rejections", categoryJson(data.integrity.queueRejections)},
-                     {"consumer_failures", categoryJson(data.integrity.consumerFailures)}}},
+                               {"nominal_fps", legacy ? QJsonValue(QJsonValue::Null)
+                                                      : QJsonValue(data.nominalFps)}}},
+        {"integrity", legacy
+                          ? QJsonValue(QJsonValue::Null)
+                          : QJsonValue(QJsonObject{
+                                {"source_frame_gaps",
+                                 categoryJson(data.integrity.sourceFrameGaps)},
+                                {"queue_rejections",
+                                 categoryJson(data.integrity.queueRejections)},
+                                {"consumer_failures",
+                                 categoryJson(data.integrity.consumerFailures)}})},
     };
+    if (legacy)
+        root.insert("provenance_mode", data.provenanceMode);
     if (!fromJsonObject(root, error))
         return false;
     if (!desktop_app::writeJsonObjectAtomically(path, root, error))
@@ -187,33 +210,58 @@ SequenceManifestV2::fromJsonObject(const QJsonObject& root, QString* error) {
         fail(error, "Unsupported Sequence schema_version.");
         return std::nullopt;
     }
+    const QString provenanceMode = root.value("provenance_mode").toString();
+    const bool legacy = provenanceMode == QStringLiteral("legacy_tiff_sequence");
+    if (root.contains("provenance_mode") && !legacy) {
+        fail(error, "Unsupported Sequence provenance_mode.");
+        return std::nullopt;
+    }
     if (!hasOnlyFields(root,
                        {"schema_version", "sequence_id", "name", "experiment_type", "notes",
                         "status", "created_at", "started_at", "ended_at",
                         "requested_duration_seconds", "stop_reason", "opendss_version",
                         "frame_format", "frame_count", "frame_filename_pattern",
-                        "camera_settings", "image", "timing", "integrity"},
+                        "camera_settings", "image", "timing", "integrity",
+                        "provenance_mode"},
                        "Sequence root", error)) {
         return std::nullopt;
     }
 
     SequenceManifestV2 manifest;
     auto& data = manifest.data_;
+    data.provenanceMode = provenanceMode;
     if (!requiredString(root, "sequence_id", data.sequenceId, false, error) ||
         !requiredString(root, "name", data.name, false, error) ||
         !requiredString(root, "experiment_type", data.experimentType, true, error) ||
         !requiredString(root, "notes", data.notes, true, error) ||
-        !requiredString(root, "status", data.status, false, error) ||
-        !requiredTimestamp(root, "created_at", data.createdAt, error) ||
-        !requiredTimestamp(root, "started_at", data.startedAt, error) ||
-        !requiredTimestamp(root, "ended_at", data.endedAt, error) ||
-        !requiredString(root, "stop_reason", data.stopReason, false, error) ||
-        !requiredString(root, "opendss_version", data.opendssVersion, false, error)) {
+        !requiredString(root, "status", data.status, false, error)) {
+        return std::nullopt;
+    }
+    if (legacy) {
+        if (!nullish(root.value("created_at")) || !nullish(root.value("started_at")) ||
+            !nullish(root.value("ended_at")) || !nullish(root.value("stop_reason")) ||
+            !nullish(root.value("opendss_version"))) {
+            fail(error, "Legacy TIFF acquisition provenance must be null.");
+            return std::nullopt;
+        }
+    } else if (!requiredTimestamp(root, "created_at", data.createdAt, error) ||
+               !requiredTimestamp(root, "started_at", data.startedAt, error) ||
+               !requiredTimestamp(root, "ended_at", data.endedAt, error) ||
+               !requiredString(root, "stop_reason", data.stopReason, false, error) ||
+               !requiredString(root, "opendss_version", data.opendssVersion, false, error)) {
         return std::nullopt;
     }
 
     const QJsonValue duration = root.value("requested_duration_seconds");
-    if (duration.isNull()) {
+    if (!legacy && duration.isUndefined()) {
+        fail(error, "Required field 'requested_duration_seconds' is missing.");
+        return std::nullopt;
+    }
+    if (legacy && !nullish(duration)) {
+        fail(error, "Legacy TIFF requested_duration_seconds must be null.");
+        return std::nullopt;
+    }
+    if (nullish(duration)) {
         data.requestedDurationSeconds.reset();
     } else if (duration.isDouble() && std::isfinite(duration.toDouble()) &&
                duration.toDouble() > 0.0) {
@@ -226,17 +274,28 @@ SequenceManifestV2::fromJsonObject(const QJsonObject& root, QString* error) {
         fail(error, "frame_format must be 'tiff'.");
         return std::nullopt;
     }
-    if (root.value("frame_filename_pattern").toString() != "frames/frame_%08d.tif") {
-        fail(error, "frame_filename_pattern must be 'frames/frame_%08d.tif'.");
+    data.frameFilenamePattern = root.value("frame_filename_pattern").toString();
+    const QString expectedPattern =
+        legacy ? QStringLiteral("%06d.tiff")
+               : QStringLiteral("frames/frame_%08d.tif");
+    if (data.frameFilenamePattern != expectedPattern) {
+        fail(error,
+             QString("frame_filename_pattern must be '%1'.").arg(expectedPattern));
         return std::nullopt;
     }
     if (!requiredInteger(root, "frame_count", data.frameCount, error))
         return std::nullopt;
-    if (!root.value("camera_settings").isObject()) {
+    if (legacy) {
+        if (!nullish(root.value("camera_settings"))) {
+            fail(error, "Legacy TIFF camera_settings must be null.");
+            return std::nullopt;
+        }
+    } else if (!root.value("camera_settings").isObject()) {
         fail(error, "camera_settings must be an object.");
         return std::nullopt;
+    } else {
+        data.cameraSettings = root.value("camera_settings").toObject();
     }
-    data.cameraSettings = root.value("camera_settings").toObject();
 
     if (!root.value("image").isObject()) {
         fail(error, "image must be an object.");
@@ -273,14 +332,24 @@ SequenceManifestV2::fromJsonObject(const QJsonObject& root, QString* error) {
         fail(error, "timestamps_file must be null.");
         return std::nullopt;
     }
-    if (!timing.value("nominal_fps").isDouble() ||
-        !std::isfinite(timing.value("nominal_fps").toDouble()) ||
-        timing.value("nominal_fps").toDouble() <= 0.0) {
+    if (legacy && nullish(timing.value("nominal_fps"))) {
+        data.nominalFps = 0.0;
+    } else if (!timing.value("nominal_fps").isDouble() ||
+               !std::isfinite(timing.value("nominal_fps").toDouble()) ||
+               timing.value("nominal_fps").toDouble() <= 0.0) {
         fail(error, "nominal_fps must be a finite positive number.");
         return std::nullopt;
+    } else {
+        data.nominalFps = timing.value("nominal_fps").toDouble();
     }
-    data.nominalFps = timing.value("nominal_fps").toDouble();
 
+    if (legacy) {
+        if (!nullish(root.value("integrity"))) {
+            fail(error, "Legacy TIFF integrity must be null.");
+            return std::nullopt;
+        }
+        return manifest;
+    }
     if (!root.value("integrity").isObject()) {
         fail(error, "integrity must be an object.");
         return std::nullopt;

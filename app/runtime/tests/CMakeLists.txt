@@ -652,6 +652,7 @@ set_tests_properties(camera_preview_image_provider_test PROPERTIES TIMEOUT 15)
 qt_add_executable(dcam_camera_device_test
   dcam_camera_device_test.cpp
   fakes/fake_dcam_camera.cpp
+  ../dcam_camera.cpp
   ../v2/camera/dcam_camera_device.cpp
 )
 target_include_directories(dcam_camera_device_test PRIVATE

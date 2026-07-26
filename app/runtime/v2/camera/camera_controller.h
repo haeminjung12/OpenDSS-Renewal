@@ -4,6 +4,9 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
+
+#include <optional>
 
 namespace desktop_app::v2 {
 
@@ -19,6 +22,17 @@ class CameraController final : public QObject
     Q_PROPERTY(bool streaming READ streaming NOTIFY stateChanged)
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     Q_PROPERTY(QString previewSource READ previewSource NOTIFY previewSourceChanged)
+    Q_PROPERTY(bool configurationAvailable READ configurationAvailable NOTIFY stateChanged)
+    Q_PROPERTY(QString resolution READ resolution NOTIFY stateChanged)
+    Q_PROPERTY(QString customWidth READ customWidth NOTIFY stateChanged)
+    Q_PROPERTY(QString customHeight READ customHeight NOTIFY stateChanged)
+    Q_PROPERTY(QString bitDepth READ bitDepth NOTIFY stateChanged)
+    Q_PROPERTY(QString exposureMs READ exposureMs NOTIFY stateChanged)
+    Q_PROPERTY(QString readoutMode READ readoutMode NOTIFY stateChanged)
+    Q_PROPERTY(QStringList resolutionPresets READ resolutionPresets CONSTANT)
+    Q_PROPERTY(int resolutionPresetIndex READ resolutionPresetIndex NOTIFY stateChanged)
+    Q_PROPERTY(int previewLutMinimum READ previewLutMinimum NOTIFY previewLutChanged)
+    Q_PROPERTY(int previewLutMaximum READ previewLutMaximum NOTIFY previewLutChanged)
 
 public:
     CameraController(CameraService &service, CameraPreviewImageProvider &previewProvider,
@@ -30,6 +44,17 @@ public:
     bool streaming() const;
     bool busy() const;
     QString previewSource() const;
+    bool configurationAvailable() const;
+    QString resolution() const;
+    QString customWidth() const;
+    QString customHeight() const;
+    QString bitDepth() const;
+    QString exposureMs() const;
+    QString readoutMode() const;
+    QStringList resolutionPresets() const;
+    int resolutionPresetIndex() const;
+    int previewLutMinimum() const;
+    int previewLutMaximum() const;
     bool hasFrame() const;
     quint64 latestDeliveryId() const;
 
@@ -38,12 +63,20 @@ public:
     Q_INVOKABLE bool stop();
     Q_INVOKABLE bool recover();
     Q_INVOKABLE bool close();
+    Q_INVOKABLE bool applyResolution(int width, int height);
+    Q_INVOKABLE bool selectCustomResolution();
+    Q_INVOKABLE bool selectResolutionPreset(int index);
+    Q_INVOKABLE bool applyBitDepth(int bitDepth);
+    Q_INVOKABLE bool applyExposureMs(double exposureMs);
+    Q_INVOKABLE bool applyReadoutMode(const QString &readoutMode);
+    Q_INVOKABLE void setPreviewLutRange(int blackLevel, int whiteLevel);
 
 signals:
     void stateChanged();
     void errorChanged();
     void busyChanged();
     void previewSourceChanged();
+    void previewLutChanged();
     void frameReady(desktop_app::v2::CameraFrame frame);
 
     void openRequested();
@@ -51,11 +84,14 @@ signals:
     void stopRequested();
     void recoverRequested();
     void closeRequested();
+    void configurationRequested(desktop_app::v2::CameraAppliedSettings requested);
 
 private:
     bool request(void (CameraController::*signal)());
     void updateState(int status, const QString &deviceId, const QString &fault);
     void updateFrame(CameraFrame frame);
+    void updateConfiguration(bool available, CameraAppliedSettings appliedSettings);
+    bool requestConfiguration(CameraAppliedSettings requested);
     void setError(const QString &error);
     void setBusy(bool busy);
 
@@ -69,6 +105,12 @@ private:
     quint64 latestDeliveryId_ = 0;
     bool hasFrame_ = false;
     bool busy_ = false;
+    bool configurationAvailable_ = false;
+    bool customResolutionSelected_ = false;
+    std::optional<bool> pendingCustomResolutionSelected_;
+    CameraAppliedSettings appliedSettings_;
+    int previewLutMinimum_ = 0;
+    int previewLutMaximum_ = 255;
 };
 
 } // namespace desktop_app::v2

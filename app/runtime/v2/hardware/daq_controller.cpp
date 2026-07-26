@@ -220,7 +220,8 @@ bool DaqController::refreshDevices()
     const bool configuredChannelMissing =
         ready() && !outputChannels().contains(appliedChannel);
     QString unavailableReason;
-    if (!factualDiscoveryError.isEmpty()) {
+    if (outputChannels().isEmpty()
+        && !factualDiscoveryError.isEmpty()) {
         unavailableReason = factualDiscoveryError;
     } else if (configuredChannelMissing) {
         unavailableReason = outputChannels().isEmpty()
@@ -246,7 +247,7 @@ bool DaqController::refreshDevices()
     if (selectedOutputChannel_ != previousSelection)
         emit settingsChanged();
     emit stateChanged();
-    return factualDiscoveryError.isEmpty() && !outputChannels().isEmpty();
+    return !outputChannels().isEmpty();
 }
 
 bool DaqController::apply()

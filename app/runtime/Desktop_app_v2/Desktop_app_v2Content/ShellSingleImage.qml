@@ -228,6 +228,15 @@ Item {
         return -1
     }
 
+    function modelNames(model) {
+        if (!model)
+            return []
+        const names = []
+        for (let index = 0; index < model.length; ++index)
+            names.push(String(model[index].name))
+        return names
+    }
+
     function sequenceTestPresentation() {
         if (!root.sequenceTestController)
             return state.sequenceTestPresentation
@@ -321,18 +330,26 @@ Item {
                        : state.cameraLocked)
                       || (root.cameraController && root.cameraController.busy)
                       || root.singleImageCapturing
-        cameraConfigurationAvailable: !root.cameraController
+        cameraConfigurationAvailable: root.cameraController
+                                      ? root.cameraController.configurationAvailable
+                                      : true
         cameraDeviceText: root.cameraController
                           ? root.cameraController.deviceId || qsTr("No camera")
                           : state.cameraAvailable ? qsTr("Illustrative Camera A")
                                                 : qsTr("Unavailable")
-        cameraResolution: root.cameraController ? "" : state.cameraResolution
-        cameraCustomWidth: root.cameraController ? "" : state.cameraCustomWidth
-        cameraCustomHeight: root.cameraController ? "" : state.cameraCustomHeight
-        cameraBitDepth: root.cameraController ? "" : state.cameraBitDepth
-        cameraExposure: root.cameraController ? "" : state.cameraExposure
-        cameraReadoutMode: root.cameraController ? "" : state.cameraReadoutMode
-        cameraLut: state.cameraLut
+        cameraResolution: root.cameraController ? root.cameraController.resolution
+                                                : state.cameraResolution
+        cameraCustomWidth: root.cameraController ? root.cameraController.customWidth
+                                                 : state.cameraCustomWidth
+        cameraCustomHeight: root.cameraController ? root.cameraController.customHeight
+                                                  : state.cameraCustomHeight
+        cameraBitDepth: root.cameraController ? root.cameraController.bitDepth
+                                              : state.cameraBitDepth
+        cameraExposure: root.cameraController ? root.cameraController.exposureMs
+                                              : state.cameraExposure
+        cameraReadoutMode: root.cameraController ? root.cameraController.readoutMode
+                                                 : state.cameraReadoutMode
+        cameraLut: root.cameraController ? qsTr("Linear") : state.cameraLut
         daqDevice: root.daqController ? root.discoveredDaqDeviceText() : state.daqDevice
         daqOutputChannel: root.daqController
                           ? root.daqController.selectedOutputChannel : state.daqOutputChannel
@@ -566,6 +583,7 @@ Item {
     FolderDialog {
         id: modelImportFolderDialog
         title: qsTr("Import OpenDSS v2 Model Package")
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (selectedFolder.toString() !== "")
                 root.importModelPackage(selectedFolder)
@@ -575,6 +593,7 @@ Item {
     FolderDialog {
         id: modelExportFolderDialog
         title: qsTr("Choose Model Export Destination")
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (selectedFolder.toString() !== "")
                 root.exportSelectedModel(selectedFolder)
@@ -606,6 +625,7 @@ Item {
     FolderDialog {
         id: modelDuplicateFolderDialog
         title: qsTr("Choose Duplicate Model Location")
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (selectedFolder.toString() !== "")
                 root.duplicateSelectedModel(modelDuplicateNameField.text,
@@ -677,8 +697,7 @@ Item {
     Binding { target: screen.liveWorkspace.notesField; property: "text"; value: root.liveSortingController ? root.liveSortingController.notes : ""; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.durationField; property: "text"; value: root.liveSortingController ? root.liveSortingController.duration : ""; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.saveLocationField; property: "text"; value: root.liveSortingController ? root.liveSortingController.saveLocation : ""; when: !!root.liveSortingController }
-    Binding { target: screen.liveWorkspace.hitClassControl; property: "model"; value: root.liveSortingController ? root.liveSortingController.hitClassModel : []; when: !!root.liveSortingController }
-    Binding { target: screen.liveWorkspace.hitClassControl; property: "textRole"; value: "name"; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.hitClassControl; property: "model"; value: root.liveSortingController ? root.modelNames(root.liveSortingController.hitClassModel) : []; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.hitClassControl; property: "currentIndex"; value: root.liveSortingController ? root.modelIndexForId(root.liveSortingController.hitClassModel, root.liveSortingController.hitClassId) : -1; when: !!root.liveSortingController; delayed: true }
     Binding { target: screen.liveWorkspace.triggerEveryDropletControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.triggerEveryDroplet : false; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.daqOutputControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.daqOutputEnabled : false; when: !!root.liveSortingController }
@@ -710,13 +729,13 @@ Item {
     Binding { target: screen.sequenceTestWorkspace.loadReadinessText; property: "text"; value: root.sequenceTestController ? qsTr("Load readiness: %1").arg(root.sequenceTestController.memoryReady ? qsTr("Ready in memory") : root.sequenceTestController.canLoadToMemory ? qsTr("Ready to load") : root.sequenceTestController.errorMessage || qsTr("Select a valid sequence")) : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.loadStatusText; property: "text"; value: root.sequenceTestController ? qsTr("Load status: %1").arg(root.sequenceTestController.loadStatus) : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.triggerEveryDropletControl; property: "checked"; value: root.sequenceTestController ? root.sequenceTestController.triggerEveryDroplet : false; when: !!root.sequenceTestController }
-    Binding { target: screen.sequenceTestWorkspace.hitClassControl; property: "model"; value: root.sequenceTestController ? root.sequenceTestController.hitClassModel : []; when: !!root.sequenceTestController }
-    Binding { target: screen.sequenceTestWorkspace.hitClassControl; property: "textRole"; value: "name"; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.hitClassControl; property: "model"; value: root.sequenceTestController ? root.modelNames(root.sequenceTestController.hitClassModel) : []; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.hitClassControl; property: "currentIndex"; value: root.sequenceTestController ? root.modelIndexForId(root.sequenceTestController.hitClassModel, root.sequenceTestController.selectedHitClassId) : -1; when: !!root.sequenceTestController; delayed: true }
     Binding { target: screen.sequenceTestWorkspace.saveLocationField; property: "text"; value: root.sequenceTestController ? root.localFilePath(root.sequenceTestController.outputFolderUrl) : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.physicalDaqOutputControl; property: "checked"; value: root.sequenceTestController ? root.sequenceTestController.physicalDaqOutputEnabled : state.physicalDaqOutputChecked }
     Binding { target: screen.sequenceTestWorkspace.loadToMemoryButton; property: "enabled"; value: root.sequenceTestController ? root.sequenceTestController.canLoadToMemory : state.sequenceTestPresentation === "selected" }
     Binding { target: screen.sequenceTestWorkspace.startStopButton; property: "enabled"; value: root.sequenceTestController ? (root.sequenceTestPresentation() === "running" || root.sequenceTestController.canStart) : (state.sequenceTestPresentation === "running" || state.sequenceTestStartEnabled) }
+    Binding { target: screen.cameraPreviewImage; property: "retainWhileLoading"; value: true }
 
     Binding { target: screen.runsWorkspace; property: "selectedRunId"; value: root.runsResultsController ? root.runsResultsController.selectedRunId : state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? "" : "Run-042" }
     Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: root.runsResultsController ? root.runsResultsController.loadedRun.id || "" : state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }
@@ -774,11 +793,129 @@ Item {
     }
     Connections { target: screen.restoreCameraButton; function onClicked() { if (root.cameraController) root.cameraController.recover(); else state.selectCameraDevice(true) } }
     Connections { target: screen.cameraDeviceSelector; function onActivated(index) { if (!root.cameraController) state.selectCameraDevice(index === 1) } }
-    Connections { target: screen.cameraResolutionSelector; function onActivated(index) { if (!root.cameraController) state.cameraResolution = index === 1 ? qsTr("2048 × 2048") : index === 2 ? qsTr("Custom") : qsTr("1024 × 1024") } }
-    Connections { target: screen.cameraCustomWidthField; function onTextEdited() { if (!root.cameraController) state.cameraCustomWidth = screen.cameraCustomWidthField.text } }
-    Connections { target: screen.cameraCustomHeightField; function onTextEdited() { if (!root.cameraController) state.cameraCustomHeight = screen.cameraCustomHeightField.text } }
-    Connections { target: screen.cameraExposureField; function onTextEdited() { if (!root.cameraController) state.cameraExposure = screen.cameraExposureField.text } }
-    Connections { target: screen.cameraLutSelector; function onActivated(index) { if (!root.cameraController) state.cameraLut = index === 1 ? qsTr("High contrast") : qsTr("Linear") } }
+    Binding {
+        target: screen.cameraResolutionSelector
+        property: "model"
+        when: !!root.cameraController
+        value: root.cameraController ? root.cameraController.resolutionPresets : []
+    }
+    Binding {
+        target: screen.cameraResolutionSelector
+        property: "currentIndex"
+        when: !!root.cameraController
+        value: root.cameraController ? root.cameraController.resolutionPresetIndex : -1
+    }
+    Binding {
+        target: screen.cameraLutSelector
+        property: "model"
+        when: !!root.cameraController
+        value: [qsTr("Linear")]
+    }
+    Binding {
+        target: screen.cameraLutSelector
+        property: "currentIndex"
+        when: !!root.cameraController
+        value: 0
+    }
+    Binding {
+        target: screen.previewLutRangeSlider.first
+        property: "value"
+        when: !!root.cameraController
+        value: root.cameraController ? root.cameraController.previewLutMinimum : 0
+    }
+    Binding {
+        target: screen.previewLutRangeSlider.second
+        property: "value"
+        when: !!root.cameraController
+        value: root.cameraController ? root.cameraController.previewLutMaximum : 255
+    }
+    Connections {
+        target: screen.cameraResolutionSelector
+        function onActivated(index) {
+            if (!root.cameraController) {
+                state.cameraResolution = index === 1 ? qsTr("2048 × 2048")
+                                                     : index === 2 ? qsTr("Custom")
+                                                                   : qsTr("1024 × 1024")
+            } else
+                root.cameraController.selectResolutionPreset(index)
+        }
+    }
+    Connections {
+        target: screen.cameraCustomWidthField
+        function onEditingFinished() {
+            if (root.cameraController)
+                root.cameraController.applyResolution(
+                            Number(screen.cameraCustomWidthField.text),
+                            Number(screen.cameraCustomHeightField.text))
+            else
+                state.cameraCustomWidth = screen.cameraCustomWidthField.text
+        }
+    }
+    Connections {
+        target: screen.cameraCustomHeightField
+        function onEditingFinished() {
+            if (root.cameraController)
+                root.cameraController.applyResolution(
+                            Number(screen.cameraCustomWidthField.text),
+                            Number(screen.cameraCustomHeightField.text))
+            else
+                state.cameraCustomHeight = screen.cameraCustomHeightField.text
+        }
+    }
+    Connections {
+        target: screen.cameraBitDepthSelector
+        function onActivated(index) {
+            if (root.cameraController)
+                root.cameraController.applyBitDepth([8, 12, 16][index])
+            else
+                state.cameraBitDepth = [qsTr("8-bit"), qsTr("12-bit"),
+                                        qsTr("16-bit")][index]
+        }
+    }
+    Connections {
+        target: screen.cameraExposureField
+        function onEditingFinished() {
+            if (root.cameraController)
+                root.cameraController.applyExposureMs(
+                            Number(screen.cameraExposureField.text))
+            else
+                state.cameraExposure = screen.cameraExposureField.text
+        }
+    }
+    Connections {
+        target: screen.cameraReadoutSelector
+        function onActivated(index) {
+            if (root.cameraController)
+                root.cameraController.applyReadoutMode(index === 0 ? "Fast" : "Slow")
+            else
+                state.cameraReadoutMode = index === 0 ? qsTr("Fast") : qsTr("Slow")
+        }
+    }
+    Connections {
+        target: screen.cameraLutSelector
+        function onActivated(index) {
+            if (!root.cameraController)
+                state.cameraLut = index === 1 ? qsTr("High contrast") : qsTr("Linear")
+        }
+    }
+    Connections {
+        target: screen.previewLutRangeSlider.first
+        function onMoved() {
+            if (root.cameraController)
+                root.cameraController.setPreviewLutRange(
+                            Math.round(screen.previewLutRangeSlider.first.value),
+                            Math.round(screen.previewLutRangeSlider.second.value))
+        }
+    }
+    Connections {
+        target: screen.previewLutRangeSlider.second
+        function onMoved() {
+            if (root.cameraController)
+                root.cameraController.setPreviewLutRange(
+                            Math.round(screen.previewLutRangeSlider.first.value),
+                            Math.round(screen.previewLutRangeSlider.second.value))
+        }
+    }
     Connections {
         target: screen.daqRefreshDevicesButton
         function onClicked() {
@@ -837,6 +974,7 @@ Item {
         title: qsTr("Open Dataset")
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("OpenDSS Dataset (dataset.json)")]
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (root.datasetLabelController && selectedFile.toString() !== "")
                 root.datasetLabelController.open(selectedFile)
@@ -846,6 +984,7 @@ Item {
     FolderDialog {
         id: labelDatasetSaveAsDialog
         title: qsTr("Save Dataset As")
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (root.datasetLabelController && selectedFolder.toString() !== "")
                 root.datasetLabelController.saveAs(selectedFolder)
@@ -862,6 +1001,7 @@ Item {
         title: qsTr("Open Image Sequence")
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("OpenDSS Image Sequence (sequence.json)")]
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             const path = root.localFilePath(selectedFile)
             if (root.sequenceViewerController && path !== "")
@@ -884,6 +1024,7 @@ Item {
         title: qsTr("Open Dataset")
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("OpenDSS Dataset (dataset.json)")]
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (root.trainingController && selectedFile.toString() !== "")
                 root.trainingController.datasetManifestUrl = selectedFile
@@ -893,7 +1034,10 @@ Item {
     FolderDialog {
         id: trainingOutputDirectoryDialog
         title: qsTr("Choose Training Output Folder")
-        currentFolder: root.trainingController ? root.trainingController.outputDirectoryUrl : ""
+        currentFolder: root.trainingController
+                       && root.trainingController.outputDirectoryUrl.toString() !== ""
+                       ? root.trainingController.outputDirectoryUrl
+                       : (root.settingsController ? root.settingsController.storageRoot : "")
         onAccepted: {
             if (root.trainingController && selectedFolder.toString() !== "")
                 root.trainingController.outputDirectoryUrl = selectedFolder
@@ -965,6 +1109,7 @@ Item {
         title: qsTr("Open Dataset")
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("OpenDSS Dataset (dataset.json)")]
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (root.modelTestController && selectedFile.toString() !== "")
                 root.modelTestController.datasetManifestUrl = selectedFile
@@ -974,7 +1119,10 @@ Item {
     FolderDialog {
         id: modelTestOutputFolderDialog
         title: qsTr("Choose Model Test Output Parent Folder")
-        currentFolder: root.modelTestController ? root.modelTestController.outputFolderUrl : ""
+        currentFolder: root.modelTestController
+                       && root.modelTestController.outputFolderUrl.toString() !== ""
+                       ? root.modelTestController.outputFolderUrl
+                       : (root.settingsController ? root.settingsController.storageRoot : "")
         onAccepted: {
             if (root.modelTestController && selectedFolder.toString() !== "")
                 root.modelTestController.outputFolderUrl = selectedFolder
@@ -1047,6 +1195,7 @@ Item {
         title: qsTr("Open Image Sequence")
         fileMode: FileDialog.OpenFile
         nameFilters: [qsTr("OpenDSS Image Sequence (sequence.json)")]
+        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
             if (root.sequenceTestController && selectedFile.toString() !== "")
                 root.sequenceTestController.selectSequence(selectedFile)
@@ -1057,7 +1206,9 @@ Item {
         id: sequenceTestOutputFolderDialog
         title: qsTr("Choose Sequence Test Output Parent Folder")
         currentFolder: root.sequenceTestController
-                       ? root.sequenceTestController.outputFolderUrl : ""
+                       && root.sequenceTestController.outputFolderUrl.toString() !== ""
+                       ? root.sequenceTestController.outputFolderUrl
+                       : (root.settingsController ? root.settingsController.storageRoot : "")
         onAccepted: {
             if (root.sequenceTestController && selectedFolder.toString() !== "")
                 root.sequenceTestController.outputFolderUrl = selectedFolder
@@ -1259,7 +1410,9 @@ Item {
         id: singleImageFolderDialog
         title: qsTr("Choose Image Save Location")
         currentFolder: root.singleImageCaptureController
-                       ? root.singleImageCaptureController.outputFolder : ""
+                       && root.singleImageCaptureController.outputFolder.toString() !== ""
+                       ? root.singleImageCaptureController.outputFolder
+                       : (root.settingsController ? root.settingsController.storageRoot : "")
         onAccepted: {
             if (root.singleImageCaptureController && !root.singleImageCapturing)
                 root.singleImageCaptureController.outputFolder = selectedFolder

@@ -46,10 +46,20 @@ QString localManifestPath(const QUrl& url, QString* error) {
     return info.canonicalFilePath();
 }
 
-QString framePath(const QString& sequenceRoot, qint64 oneBasedFrame) {
-    return QDir(sequenceRoot)
-        .filePath(QStringLiteral("frames/frame_%1.tif")
-                      .arg(oneBasedFrame, 8, 10, QLatin1Char('0')));
+QString framePath(const QString& sequenceRoot,
+                  const QString& pattern,
+                  qint64 oneBasedFrame) {
+    if (pattern == QStringLiteral("frames/frame_%08d.tif")) {
+        return QDir(sequenceRoot)
+            .filePath(QStringLiteral("frames/frame_%1.tif")
+                          .arg(oneBasedFrame, 8, 10, QLatin1Char('0')));
+    }
+    if (pattern == QStringLiteral("%06d.tiff")) {
+        return QDir(sequenceRoot)
+            .filePath(QStringLiteral("%1.tiff")
+                          .arg(oneBasedFrame - 1, 6, 10, QLatin1Char('0')));
+    }
+    return {};
 }
 
 QByteArray readFileBytes(const QString& path, QString* error) {
@@ -332,6 +342,7 @@ void SequenceTestController::setPhysicalDaqOutputEnabled(bool value) {
     if (operationActive() || physicalDaqOutputEnabled_ == value)
         return;
     physicalDaqOutputEnabled_ = value;
+    physicalDaqWarning_.clear();
     updatePreflight();
     emit changed();
 }
@@ -394,7 +405,8 @@ bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     QImage firstFrame;
     if (manifest) {
         const QString root = QFileInfo(manifestPath).absolutePath();
-        const QFileInfo firstFrameInfo(framePath(root, 1));
+        const QFileInfo firstFrameInfo(
+            framePath(root, manifest->data().frameFilenamePattern, 1));
         if (!firstFrameInfo.isFile() || !firstFrameInfo.isReadable()) {
             error =
                 QStringLiteral("The first Sequence frame is missing or unreadable.");
@@ -441,6 +453,7 @@ bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     sequenceFolderUrl_ = QUrl::fromLocalFile(root);
     sequencePath_ = QDir::cleanPath(manifestPath);
     frameCount_ = data.frameCount;
+    frameFilenamePattern_ = data.frameFilenamePattern;
     imageWidth_ = data.imageWidth;
     imageHeight_ = data.imageHeight;
     hitBoundary_ = {imageHeight_ / 2.0, run::HitSide::PositiveY,
@@ -481,6 +494,7 @@ bool SequenceTestController::loadToMemory() {
     const QString sequenceId = sequenceId_;
     const QString root = QFileInfo(manifestPath).absolutePath();
     const qint64 frameCount = frameCount_;
+    const QString frameFilenamePattern = frameFilenamePattern_;
     const int width = imageWidth_;
     const int height = imageHeight_;
     const QByteArray selectedManifestBytes = selectedManifestBytes_;
@@ -496,7 +510,7 @@ bool SequenceTestController::loadToMemory() {
     try {
         loadWorker_ = std::thread(
             [this, generation, manifestPath, sequenceId, root, frameCount,
-             width, height, selectedManifestBytes] {
+             frameFilenamePattern, width, height, selectedManifestBytes] {
                 std::shared_ptr<const LoadedSequence> result;
                 qulonglong actualBytes = 0;
                 QByteArray manifestBytes;
@@ -519,6 +533,8 @@ bool SequenceTestController::loadToMemory() {
                             QStringLiteral("sequence.json changed after selection. Select the Sequence again.");
                     } else if (manifest->data().sequenceId != sequenceId ||
                                manifest->data().frameCount != frameCount ||
+                               manifest->data().frameFilenamePattern !=
+                                   frameFilenamePattern ||
                                manifest->data().imageWidth != width ||
                                manifest->data().imageHeight != height) {
                         error =
@@ -540,7 +556,8 @@ bool SequenceTestController::loadToMemory() {
                             shuttingDown_.load(std::memory_order_acquire)) {
                             return;
                         }
-                        QImageReader reader(framePath(root, index));
+                        QImageReader reader(
+                            framePath(root, frameFilenamePattern, index));
                         QImage image = reader.read();
                         if (image.isNull()) {
                             error =
@@ -777,6 +794,7 @@ void SequenceTestController::clearSelectedSequence() {
     sequenceFolderUrl_.clear();
     sequencePath_.clear();
     frameCount_ = 0;
+    frameFilenamePattern_.clear();
     imageWidth_ = 0;
     imageHeight_ = 0;
     hitBoundary_ = {};
@@ -920,10 +938,17 @@ void SequenceTestController::updatePreflight(bool preserveFailure) {
             daqError = QStringLiteral("DAQ readiness check failed.");
         }
         if (!daqReady) {
-            blocker =
+            physicalDaqOutputEnabled_ = false;
+            const QString reason =
                 daqError.trimmed().isEmpty()
                     ? QStringLiteral("DAQ is not ready.")
-                    : daqError;
+                    : daqError.trimmed();
+            physicalDaqWarning_ =
+                QStringLiteral("Physical DAQ output was disabled because: %1 "
+                               "Processing-only Sequence Test remains available.")
+                    .arg(reason);
+        } else {
+            physicalDaqWarning_.clear();
         }
     }
     if (blocker.isEmpty()) {
@@ -934,7 +959,8 @@ void SequenceTestController::updatePreflight(bool preserveFailure) {
 
     canStart_ = blocker.isEmpty() && !operationActive();
     if (!preserveFailure || errorMessage_.isEmpty())
-        errorMessage_ = blocker;
+        errorMessage_ =
+            blocker.isEmpty() ? physicalDaqWarning_ : blocker;
     if (!inputLocked() && presentation_ != QStringLiteral("completed") &&
         presentation_ != QStringLiteral("interrupted") &&
         !(preserveFailure && presentation_ == QStringLiteral("error"))) {

@@ -129,14 +129,55 @@ int main(int argc, char **argv)
         DaqController controller(
             service, store, operations,
             [](std::string &error) {
-                error = "DAQ discovery failed factually.";
-                return std::vector<DaqDeviceInfo>{};
+                error = "DAQ discovery warning with no usable channel.";
+                return std::vector<DaqDeviceInfo>{
+                    device("Dev1", "USB-DAQ", {}),
+                };
             });
 
-        ok &= check(controller.error()
-                            == QStringLiteral("DAQ discovery failed factually.")
-                        && !controller.canApply() && fake->configureCalls == 0,
-                    "Discovery errors must remain factual and produce no output.");
+        ok &= check(!controller.refreshDevices()
+                        && controller.devices().size() == 1
+                        && controller.outputChannels().isEmpty()
+                        && controller.selectedOutputChannel().isEmpty()
+                        && controller.error()
+                               == QStringLiteral(
+                                   "DAQ discovery warning with no usable channel.")
+                        && !controller.ready() && !controller.canApply()
+                        && fake->configureCalls == 0,
+                    "A discovery warning without usable channels must remain a failure.");
+    }
+
+    {
+        ApplicationStateStore store;
+        OperationCoordinator operations;
+        auto output = std::make_unique<FakeDaqOutput>();
+        FakeDaqOutput *fake = output.get();
+        DaqService service(operations, store, std::move(output));
+        bool reportWarning = false;
+        DaqController controller(
+            service, store, operations,
+            [&](std::string &error) {
+                if (reportWarning)
+                    error = "Product type unavailable for one DAQ device.";
+                return std::vector<DaqDeviceInfo>{
+                    device("Dev1", "", {"Dev1/ao0"}),
+                };
+            });
+
+        ok &= check(controller.apply() && controller.ready()
+                        && controller.selectedOutputChannel()
+                               == QStringLiteral("Dev1/ao0"),
+                    "A usable discovered channel must be selectable and applicable.");
+        reportWarning = true;
+        ok &= check(controller.refreshDevices() && controller.ready()
+                        && controller.canApply()
+                        && controller.selectedOutputChannel()
+                               == QStringLiteral("Dev1/ao0")
+                        && controller.error()
+                               == QStringLiteral(
+                                   "Product type unavailable for one DAQ device.")
+                        && fake->configureCalls == 1,
+                    "A partial discovery warning must retain usable ready DAQ state.");
     }
 
     ApplicationStateStore store;

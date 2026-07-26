@@ -30,12 +30,15 @@ public slots:
     void stop();
     void close();
     void recover();
+    void applyConfiguration(desktop_app::v2::CameraAppliedSettings requested);
 
 signals:
     void stateChanged(int status, const QString &deviceId, const QString &fault);
     void frameReady(desktop_app::v2::CameraFrame frame);
     void frameError(const QString &error);
     void commandFinished(bool success, const QString &error);
+    void configurationChanged(bool available,
+                              desktop_app::v2::CameraAppliedSettings appliedSettings);
 
 private:
     bool openDevice(QString *error);

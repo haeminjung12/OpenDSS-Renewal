@@ -43,6 +43,8 @@ struct SequenceManifestData {
     int bitDepth = 0;
     double nominalFps = 0.0;
     SequenceIntegrity integrity;
+    QString provenanceMode;
+    QString frameFilenamePattern = "frames/frame_%08d.tif";
 };
 
 class SequenceManifestV2 {

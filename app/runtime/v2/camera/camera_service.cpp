@@ -35,6 +35,7 @@ CameraService::CameraService(std::unique_ptr<ICameraDevice> device,
     , pollTimer_(new QTimer(this))
 {
     qRegisterMetaType<CameraFrame>();
+    qRegisterMetaType<CameraAppliedSettings>();
     pollTimer_->setInterval(16);
     pollTimer_->setTimerType(Qt::PreciseTimer);
     connect(pollTimer_, &QTimer::timeout, this, &CameraService::pollFrame);
@@ -81,6 +82,35 @@ bool CameraService::openDevice(QString *error)
 
     lastDeliveryId_.reset();
     lastTimestampNs_.reset();
+    const CameraConfigurationSupport support =
+        device_->configurationSupport(&deviceError);
+    if (support == CameraConfigurationSupport::Error) {
+        const QString message =
+            factualError(QStringLiteral("check configuration support"), deviceError);
+        QString ignored;
+        device_->close(&ignored);
+        publish(CameraStatus::Faulted, message);
+        setError(error, message);
+        return false;
+    }
+    if (support == CameraConfigurationSupport::Supported) {
+        CameraAppliedSettings appliedSettings;
+        if (!device_->readConfiguration(appliedSettings, &deviceError)) {
+            const QString message =
+                factualError(QStringLiteral("read its configuration"), deviceError);
+            QString ignored;
+            device_->close(&ignored);
+            publish(CameraStatus::Faulted, message);
+            setError(error, message);
+            return false;
+        }
+        QMutexLocker locker(&stateMutex_);
+        state_.configurationAvailable = true;
+        state_.appliedSettings = appliedSettings;
+    } else {
+        QMutexLocker locker(&stateMutex_);
+        state_.configurationAvailable = false;
+    }
     publish(CameraStatus::Ready);
     setError(error, {});
     return true;
@@ -169,6 +199,10 @@ bool CameraService::closeDevice(QString *error)
 
     lastDeliveryId_.reset();
     lastTimestampNs_.reset();
+    {
+        QMutexLocker locker(&stateMutex_);
+        state_.configurationAvailable = false;
+    }
     if (!firstError.isEmpty()) {
         publish(CameraStatus::Faulted, firstError);
         setError(error, firstError);
@@ -178,6 +212,77 @@ bool CameraService::closeDevice(QString *error)
     publish(CameraStatus::Unavailable);
     setError(error, {});
     return true;
+}
+
+void CameraService::applyConfiguration(CameraAppliedSettings requested)
+{
+    QString error;
+    bool succeeded = false;
+    const CameraState current = state();
+    const bool wasStreaming = current.status == CameraStatus::Streaming;
+    if ((current.status != CameraStatus::Ready && !wasStreaming)
+        || !current.configurationAvailable) {
+        error = QStringLiteral(
+            "Camera configuration can only be changed while the camera is connected.");
+    } else {
+        if (wasStreaming) {
+            pollTimer_->stop();
+            QString stopError;
+            if (!device_->stop(&stopError)) {
+                error = factualError(QStringLiteral("stop streaming"), stopError);
+                QString ignored;
+                device_->close(&ignored);
+                publish(CameraStatus::Faulted, error);
+                emit commandFinished(false, error);
+                return;
+            }
+            lastDeliveryId_.reset();
+            lastTimestampNs_.reset();
+        }
+
+        CameraAppliedSettings applied;
+        QString deviceError;
+        const CameraConfigurationResult result =
+            device_->applyConfiguration(requested, applied, &deviceError);
+        if (result != CameraConfigurationResult::Applied) {
+            error = factualError(QStringLiteral("apply its configuration"), deviceError);
+            if (result == CameraConfigurationResult::StateUnknown) {
+                QString ignored;
+                device_->close(&ignored);
+                publish(CameraStatus::Faulted, error);
+                emit commandFinished(false, error);
+                return;
+            }
+        } else {
+            {
+                QMutexLocker locker(&stateMutex_);
+                state_.configurationAvailable = true;
+                state_.appliedSettings = applied;
+            }
+        }
+
+        if (wasStreaming) {
+            QString restartError;
+            if (!device_->start(&restartError)) {
+                const QString restartFailure =
+                    factualError(QStringLiteral("restart streaming"), restartError);
+                error = error.isEmpty()
+                    ? restartFailure
+                    : QStringLiteral("%1 %2").arg(error, restartFailure);
+                QString ignored;
+                device_->close(&ignored);
+                publish(CameraStatus::Faulted, error);
+            } else {
+                publish(CameraStatus::Streaming);
+                pollTimer_->start();
+                succeeded = result == CameraConfigurationResult::Applied;
+            }
+        } else if (result == CameraConfigurationResult::Applied) {
+            publish(CameraStatus::Ready);
+            succeeded = true;
+        }
+    }
+    emit commandFinished(succeeded, error);
 }
 
 void CameraService::recover()
@@ -243,6 +348,8 @@ void CameraService::publish(CameraStatus status, const QString &fault)
         state_.status = status;
         state_.deviceId = device_ ? device_->deviceId() : QString();
         state_.fault = fault;
+        if (status == CameraStatus::Unavailable || status == CameraStatus::Faulted)
+            state_.configurationAvailable = false;
         published = state_;
     }
 
@@ -255,6 +362,7 @@ void CameraService::publish(CameraStatus status, const QString &fault)
             Qt::QueuedConnection);
     }
     emit stateChanged(static_cast<int>(published.status), published.deviceId, published.fault);
+    emit configurationChanged(published.configurationAvailable, published.appliedSettings);
 }
 
 } // namespace desktop_app::v2

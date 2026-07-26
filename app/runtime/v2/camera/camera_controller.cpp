@@ -3,8 +3,39 @@
 #include "camera_preview_image_provider.h"
 #include "camera_service.h"
 
+#include <algorithm>
+#include <array>
+
 namespace desktop_app::v2 {
 namespace {
+
+struct ResolutionPreset
+{
+    int width;
+    int height;
+};
+
+constexpr std::array<ResolutionPreset, 24> kResolutionPresets = {{
+    {2304, 2304}, {2304, 1152}, {2304, 576}, {2304, 288},
+    {2304, 144}, {2304, 72}, {2304, 36}, {2304, 16},
+    {2304, 8}, {2304, 4}, {1152, 1152}, {1152, 576},
+    {1152, 288}, {1152, 144}, {576, 576}, {576, 288},
+    {576, 144}, {288, 288}, {288, 144}, {144, 144},
+    {512, 128}, {512, 64}, {256, 64}, {256, 32},
+}};
+constexpr int customResolutionIndex = 20;
+
+int presetIndex(int width, int height)
+{
+    for (int index = 0; index < static_cast<int>(kResolutionPresets.size());
+         ++index) {
+        if (kResolutionPresets[index].width == width
+            && kResolutionPresets[index].height == height) {
+            return index < customResolutionIndex ? index : index + 1;
+        }
+    }
+    return customResolutionIndex;
+}
 
 QString statusText(int status)
 {
@@ -41,14 +72,25 @@ CameraController::CameraController(CameraService &service,
             &service_, &CameraService::recover, Qt::QueuedConnection);
     connect(this, &CameraController::closeRequested,
             &service_, &CameraService::close, Qt::QueuedConnection);
+    connect(this, &CameraController::configurationRequested,
+            &service_, &CameraService::applyConfiguration, Qt::QueuedConnection);
     connect(&service_, &CameraService::stateChanged,
             this, &CameraController::updateState, Qt::QueuedConnection);
     connect(&service_, &CameraService::frameReady,
             this, &CameraController::updateFrame, Qt::QueuedConnection);
     connect(&service_, &CameraService::frameError,
             this, &CameraController::setError, Qt::QueuedConnection);
+    connect(&service_, &CameraService::configurationChanged,
+            this, &CameraController::updateConfiguration, Qt::QueuedConnection);
     connect(&service_, &CameraService::commandFinished, this,
-            [this](bool, const QString &error) {
+            [this](bool success, const QString &error) {
+                if (pendingCustomResolutionSelected_) {
+                    if (success) {
+                        customResolutionSelected_ = *pendingCustomResolutionSelected_;
+                        emit stateChanged();
+                    }
+                    pendingCustomResolutionSelected_.reset();
+                }
                 setError(error);
                 setBusy(false);
             },
@@ -83,6 +125,95 @@ bool CameraController::busy() const
 QString CameraController::previewSource() const
 {
     return previewSource_;
+}
+
+bool CameraController::configurationAvailable() const
+{
+    return configurationAvailable_;
+}
+
+QString CameraController::resolution() const
+{
+    if (!configurationAvailable_)
+        return {};
+    if (customResolutionSelected_
+        || presetIndex(appliedSettings_.width, appliedSettings_.height)
+            == customResolutionIndex) {
+        return QStringLiteral("Custom");
+    }
+    return QStringLiteral("%1 x %2")
+        .arg(appliedSettings_.width)
+        .arg(appliedSettings_.height);
+}
+
+QString CameraController::customWidth() const
+{
+    return configurationAvailable_ ? QString::number(appliedSettings_.width) : QString();
+}
+
+QString CameraController::customHeight() const
+{
+    return configurationAvailable_ ? QString::number(appliedSettings_.height) : QString();
+}
+
+QString CameraController::bitDepth() const
+{
+    return configurationAvailable_
+        ? QStringLiteral("%1-bit").arg(appliedSettings_.bitDepth)
+        : QString();
+}
+
+QString CameraController::exposureMs() const
+{
+    return configurationAvailable_
+        ? QString::number(appliedSettings_.exposureMs, 'g', 12)
+        : QString();
+}
+
+QString CameraController::readoutMode() const
+{
+    if (!configurationAvailable_)
+        return {};
+    return appliedSettings_.readoutMode == CameraReadoutMode::Fast
+        ? QStringLiteral("Fast")
+        : QStringLiteral("Slow");
+}
+
+QStringList CameraController::resolutionPresets() const
+{
+    QStringList result;
+    result.reserve(static_cast<qsizetype>(kResolutionPresets.size()) + 1);
+    for (int index = 0; index <= static_cast<int>(kResolutionPresets.size());
+         ++index) {
+        if (index == customResolutionIndex) {
+            result.append(QStringLiteral("Custom"));
+            continue;
+        }
+        const int preset = index < customResolutionIndex ? index : index - 1;
+        result.append(QStringLiteral("%1 x %2")
+                          .arg(kResolutionPresets[preset].width)
+                          .arg(kResolutionPresets[preset].height));
+    }
+    return result;
+}
+
+int CameraController::resolutionPresetIndex() const
+{
+    if (!configurationAvailable_)
+        return -1;
+    return customResolutionSelected_
+        ? customResolutionIndex
+        : presetIndex(appliedSettings_.width, appliedSettings_.height);
+}
+
+int CameraController::previewLutMinimum() const
+{
+    return previewLutMinimum_;
+}
+
+int CameraController::previewLutMaximum() const
+{
+    return previewLutMaximum_;
 }
 
 bool CameraController::hasFrame() const
@@ -120,6 +251,93 @@ bool CameraController::close()
     return request(&CameraController::closeRequested);
 }
 
+bool CameraController::applyResolution(int width, int height)
+{
+    CameraAppliedSettings requested = appliedSettings_;
+    requested.width = width;
+    requested.height = height;
+    const bool custom = presetIndex(width, height) == customResolutionIndex;
+    if (!requestConfiguration(requested))
+        return false;
+    pendingCustomResolutionSelected_ = custom;
+    return true;
+}
+
+bool CameraController::selectResolutionPreset(int index)
+{
+    if (index == customResolutionIndex)
+        return selectCustomResolution();
+    if (index < 0 || index > static_cast<int>(kResolutionPresets.size())) {
+        setError(QStringLiteral("Camera resolution preset is invalid."));
+        return false;
+    }
+    const int preset = index < customResolutionIndex ? index : index - 1;
+    return applyResolution(kResolutionPresets[preset].width,
+                           kResolutionPresets[preset].height);
+}
+
+bool CameraController::selectCustomResolution()
+{
+    if (!configurationAvailable_ || busy_)
+        return false;
+    if (!customResolutionSelected_) {
+        customResolutionSelected_ = true;
+        emit stateChanged();
+    }
+    return true;
+}
+
+bool CameraController::applyBitDepth(int bitDepth)
+{
+    CameraAppliedSettings requested = appliedSettings_;
+    requested.bitDepth = bitDepth;
+    requested.pixelType =
+        bitDepth == 8 ? CameraPixelType::Mono8 : CameraPixelType::Mono16;
+    return requestConfiguration(requested);
+}
+
+bool CameraController::applyExposureMs(double exposureMs)
+{
+    CameraAppliedSettings requested = appliedSettings_;
+    requested.exposureMs = exposureMs;
+    return requestConfiguration(requested);
+}
+
+bool CameraController::applyReadoutMode(const QString &readoutMode)
+{
+    CameraAppliedSettings requested = appliedSettings_;
+    if (readoutMode == QStringLiteral("Fast"))
+        requested.readoutMode = CameraReadoutMode::Fast;
+    else if (readoutMode == QStringLiteral("Slow"))
+        requested.readoutMode = CameraReadoutMode::Slow;
+    else {
+        setError(QStringLiteral("Camera readout mode must be Fast or Slow."));
+        return false;
+    }
+    return requestConfiguration(requested);
+}
+
+void CameraController::setPreviewLutRange(int blackLevel, int whiteLevel)
+{
+    blackLevel = std::clamp(blackLevel, 0, 255);
+    whiteLevel = std::clamp(whiteLevel, 0, 255);
+    if (whiteLevel < blackLevel)
+        whiteLevel = blackLevel;
+    if (previewLutMinimum_ == blackLevel && previewLutMaximum_ == whiteLevel)
+        return;
+
+    previewLutMinimum_ = blackLevel;
+    previewLutMaximum_ = whiteLevel;
+    const quint64 revision =
+        previewProvider_.setPreviewLutRange(blackLevel, whiteLevel);
+    emit previewLutChanged();
+    if (hasFrame_) {
+        previewSource_ =
+            QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
+        emit previewSourceChanged();
+    }
+}
+
 bool CameraController::request(void (CameraController::*signal)())
 {
     if (busy_)
@@ -127,6 +345,21 @@ bool CameraController::request(void (CameraController::*signal)())
     setError({});
     setBusy(true);
     emit (this->*signal)();
+    return true;
+}
+
+bool CameraController::requestConfiguration(CameraAppliedSettings requested)
+{
+    if (!configurationAvailable_) {
+        setError(QStringLiteral(
+            "Camera configuration can only be changed while the camera is connected."));
+        return false;
+    }
+    if (busy_)
+        return false;
+    setError({});
+    setBusy(true);
+    emit configurationRequested(requested);
     return true;
 }
 
@@ -142,6 +375,7 @@ void CameraController::updateState(int status, const QString &deviceId,
     deviceId_ = deviceId;
     serviceFault_ = fault;
     if (unavailable) {
+        configurationAvailable_ = false;
         hasFrame_ = false;
         latestDeliveryId_ = 0;
         if (!previewSource_.isEmpty()) {
@@ -153,6 +387,24 @@ void CameraController::updateState(int status, const QString &deviceId,
         emit stateChanged();
         emit errorChanged();
     }
+}
+
+void CameraController::updateConfiguration(bool available,
+                                           CameraAppliedSettings appliedSettings)
+{
+    const bool changed = configurationAvailable_ != available
+        || appliedSettings_.width != appliedSettings.width
+        || appliedSettings_.height != appliedSettings.height
+        || appliedSettings_.bitDepth != appliedSettings.bitDepth
+        || appliedSettings_.pixelType != appliedSettings.pixelType
+        || appliedSettings_.exposureMs != appliedSettings.exposureMs
+        || appliedSettings_.readoutMode != appliedSettings.readoutMode;
+    configurationAvailable_ = available;
+    appliedSettings_ = appliedSettings;
+    if (!available)
+        customResolutionSelected_ = false;
+    if (changed)
+        emit stateChanged();
 }
 
 void CameraController::updateFrame(CameraFrame frame)

@@ -1,5 +1,6 @@
 #include "frame_conversion.h"
 
+#include <algorithm>
 #include <cstring>
 #include <limits>
 
@@ -66,6 +67,32 @@ QImage convertCameraFrame(const CameraFrame &frame, QString *error)
         return owned;
     }
     return owned.convertToFormat(QImage::Format_Grayscale8);
+}
+
+QImage applyLinearPreviewLut(const QImage &image, int blackLevel, int whiteLevel)
+{
+    if (image.isNull())
+        return image;
+
+    blackLevel = std::clamp(blackLevel, 0, 255);
+    whiteLevel = std::clamp(whiteLevel, 0, 255);
+    if ((blackLevel == 0 && whiteLevel == 255) || whiteLevel <= blackLevel)
+        return image;
+
+    QImage output = image.format() == QImage::Format_Grayscale8
+        ? image.copy()
+        : image.convertToFormat(QImage::Format_Grayscale8);
+    for (int y = 0; y < output.height(); ++y) {
+        uchar *row = output.scanLine(y);
+        for (int x = 0; x < output.width(); ++x) {
+            const int value = row[x];
+            row[x] = static_cast<uchar>(
+                value <= blackLevel ? 0
+                : value >= whiteLevel ? 255
+                : (value - blackLevel) * 255 / (whiteLevel - blackLevel));
+        }
+    }
+    return output;
 }
 
 } // namespace desktop_app::v2

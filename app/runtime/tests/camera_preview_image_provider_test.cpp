@@ -44,8 +44,19 @@ int main(int argc, char **argv)
     ok &= check(provider.requestImage(QStringLiteral("unknown"), nullptr, {}).isNull(),
                 "Unknown provider paths must not return stale preview content.");
 
+    ok &= check(provider.setPreviewLutRange(24, 32) == 2,
+                "Changing preview presentation must advance its revision.");
+    const QImage stretched = provider.requestImage(
+        QStringLiteral("frame?r=2"), nullptr, {});
+    ok &= check(stretched.constScanLine(0)[0] == 0
+                    && stretched.constScanLine(0)[1] == 255
+                    && frame.bytes.toHex() == QByteArrayLiteral("7f20"),
+                "The LUT must affect only the rendered preview, not captured frame bytes.");
+    ok &= check(provider.setPreviewLutRange(24, 32) == 2,
+                "An unchanged preview range must retain the current revision.");
+
     frame.deliveryId = 2;
-    ok &= check(provider.updateFrame(frame) == 2,
+    ok &= check(provider.updateFrame(frame) == 3,
                 "Each accepted frame must advance the preview revision exactly once.");
     return ok ? 0 : 1;
 }

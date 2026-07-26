@@ -5,6 +5,9 @@
 #include <QDir>
 #include <QFile>
 #include <QImage>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include <iostream>
@@ -20,6 +23,12 @@ bool check(bool value, const QString& message) {
 QByteArray read(const QString& path) {
     QFile file(path);
     return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+}
+bool writeObject(const QString& path, const QJsonObject& object) {
+    QFile file(path);
+    const QByteArray bytes = QJsonDocument(object).toJson(QJsonDocument::Indented);
+    return file.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+           file.write(bytes) == bytes.size();
 }
 bool stable(const DatasetCaptureProvenance& a, const DatasetCaptureProvenance& b) {
     return a.name == b.name && a.experimentType == b.experimentType &&
@@ -87,6 +96,32 @@ DatasetManifestData fixture(const QString& root) {
                      QRect(1, 2, 20, 20), 1}};
     return data;
 }
+DatasetManifestData legacyFixture(const QString& root) {
+    DatasetManifestData data = fixture(root);
+    auto& provenance = data.provenance;
+    provenance.provenanceMode = "legacy_crop_only";
+    provenance.opendssVersion.clear();
+    provenance.captureStartedAt.clear();
+    provenance.captureEndedAt.clear();
+    provenance.requestedDurationSeconds.reset();
+    provenance.stopReason.clear();
+    provenance.cameraSettings = {};
+    provenance.detectionSettings = {};
+    provenance.programSettings = {};
+    provenance.crop.method.clear();
+    provenance.crop.interpolation.clear();
+    auto& included = data.records.front();
+    included.sourceFrameId.clear();
+    included.sourceEventId.clear();
+    included.timestamp.clear();
+    included.cropRect = {};
+    included.sourceFrameIndex = 0;
+    data.classes = {{"0", "Empty"}, {"1", "Single"}};
+    data.records.push_back({"excluded", {}, {}, {}, {}, {}, {}, 0});
+    data.labels = {{"included-label", "r1", "0", false},
+                   {"excluded-label", "excluded", {}, true}};
+    return data;
+}
 }
 
 int main(int argc, char** argv) {
@@ -113,6 +148,127 @@ int main(int argc, char** argv) {
                    current->data().provenance.updatedAt != original.provenance.updatedAt,
                "Label mutations or undo lost immutable provenance"))
         return 3;
+
+    const QString legacySource =
+        QDir(temporary.path()).filePath("legacy-source");
+    QDir().mkpath(legacySource);
+    const DatasetManifestData legacy = legacyFixture(legacySource);
+    const QString legacyPath = QDir(legacySource).filePath("dataset.json");
+    if (!check(DatasetManifestV2::save(legacyPath, legacy, &error), error))
+        return 14;
+    DatasetLabelService legacyService(operations);
+    if (!check(legacyService.open(legacyPath, &error), error))
+        return 15;
+    const DatasetLabelSnapshot legacySnapshot = legacyService.snapshot();
+    if (!check(legacySnapshot.records.size() == 2 &&
+                   legacySnapshot.counts.classCounts.value(0) == 1 &&
+                   legacySnapshot.counts.excluded == 1 &&
+                   legacySnapshot.records.at(1).state ==
+                       DatasetLabelState::Excluded &&
+                   legacySnapshot.records.at(1).cropPath.isEmpty(),
+               "Excluded null-crop record did not open as excluded"))
+        return 16;
+    const QString retainedCropPath = legacy.records.front().cropPath;
+    const QString retainedCropSha256 = legacy.records.front().cropSha256;
+    if (!check(legacyService.exclude("r1", &error), error))
+        return 22;
+    const auto excludedIncludedCrop =
+        DatasetManifestV2::load(legacyPath, &error);
+    if (!check(excludedIncludedCrop &&
+                   excludedIncludedCrop->data().labels.front().excluded &&
+                   excludedIncludedCrop->data().records.front().cropPath ==
+                       retainedCropPath &&
+                   excludedIncludedCrop->data().records.front().cropSha256 ==
+                       retainedCropSha256,
+               "Label Exclude did not retain verified legacy crop facts"))
+        return 23;
+
+    const QString nullCropSource =
+        QDir(temporary.path()).filePath("null-crop-source");
+    QDir().mkpath(nullCropSource);
+    const DatasetManifestData nullCropData = legacyFixture(nullCropSource);
+    const QString nullCropPath =
+        QDir(nullCropSource).filePath("dataset.json");
+    if (!DatasetManifestV2::save(nullCropPath, nullCropData, &error))
+        return 24;
+    QJsonObject nullCropRoot =
+        QJsonDocument::fromJson(read(nullCropPath)).object();
+    QJsonObject halfPresentRoot = nullCropRoot;
+    QJsonArray nullCropRecords = nullCropRoot.value("records").toArray();
+    QJsonObject includedNullCrop = nullCropRecords.at(0).toObject();
+    includedNullCrop["crop_path"] = QJsonValue(QJsonValue::Null);
+    includedNullCrop["crop_sha256"] = QJsonValue(QJsonValue::Null);
+    nullCropRecords[0] = includedNullCrop;
+    nullCropRoot["records"] = nullCropRecords;
+    DatasetLabelService nullCropService(operations);
+    if (!check(writeObject(nullCropPath, nullCropRoot),
+               "Could not write included null-crop fixture") ||
+        !check(!nullCropService.open(nullCropPath, &error),
+               "Included null-crop record opened successfully"))
+        return 17;
+    QJsonArray halfPresentRecords =
+        halfPresentRoot.value("records").toArray();
+    QJsonObject halfPresentRecord = halfPresentRecords.at(0).toObject();
+    halfPresentRecord["crop_path"] = QJsonValue(QJsonValue::Null);
+    halfPresentRecords[0] = halfPresentRecord;
+    halfPresentRoot["records"] = halfPresentRecords;
+    DatasetLabelService halfPresentService(operations);
+    if (!check(writeObject(nullCropPath, halfPresentRoot),
+               "Could not write half-present crop fixture") ||
+        !check(!halfPresentService.open(nullCropPath, &error),
+               "Half-present crop facts opened successfully"))
+        return 25;
+
+    const QString missingSource =
+        QDir(temporary.path()).filePath("missing-source");
+    QDir().mkpath(missingSource);
+    const DatasetManifestData missing = fixture(missingSource);
+    const QString missingPath = QDir(missingSource).filePath("dataset.json");
+    if (!DatasetManifestV2::save(missingPath, missing, &error) ||
+        !QFile::remove(QDir(missingSource).filePath("crops/one.png")))
+        return 18;
+    DatasetLabelService missingService(operations);
+    if (!check(!missingService.open(missingPath, &error) &&
+                   error.contains("missing", Qt::CaseInsensitive),
+               "Included missing crop opened successfully"))
+        return 19;
+
+    const QString nativeExcludedMissingSource =
+        QDir(temporary.path()).filePath("native-excluded-missing-source");
+    QDir().mkpath(nativeExcludedMissingSource);
+    DatasetManifestData nativeExcludedMissing =
+        fixture(nativeExcludedMissingSource);
+    nativeExcludedMissing.classes = {{"0", "Empty"}, {"1", "Single"}};
+    nativeExcludedMissing.labels = {
+        {"native-excluded-label", "r1", {}, true}};
+    const QString nativeExcludedMissingPath =
+        QDir(nativeExcludedMissingSource).filePath("dataset.json");
+    if (!DatasetManifestV2::save(nativeExcludedMissingPath,
+                                 nativeExcludedMissing, &error) ||
+        !QFile::remove(
+            QDir(nativeExcludedMissingSource).filePath("crops/one.png")))
+        return 26;
+    DatasetLabelService nativeExcludedMissingService(operations);
+    if (!check(!nativeExcludedMissingService.open(nativeExcludedMissingPath,
+                                                  &error) &&
+                   error.contains("missing", Qt::CaseInsensitive),
+               "Native excluded missing crop opened successfully"))
+        return 27;
+
+    const QString invalidHashSource =
+        QDir(temporary.path()).filePath("invalid-hash-source");
+    QDir().mkpath(invalidHashSource);
+    DatasetManifestData invalidHash = fixture(invalidHashSource);
+    invalidHash.records.front().cropSha256 = QString(64, QLatin1Char('0'));
+    const QString invalidHashPath =
+        QDir(invalidHashSource).filePath("dataset.json");
+    if (!DatasetManifestV2::save(invalidHashPath, invalidHash, &error))
+        return 20;
+    DatasetLabelService invalidHashService(operations);
+    if (!check(!invalidHashService.open(invalidHashPath, &error) &&
+                   error.contains("SHA-256", Qt::CaseInsensitive),
+               "Included hash-invalid crop opened successfully"))
+        return 21;
 
     const QString sourceB = QDir(temporary.path()).filePath("source-b");
     QDir().mkpath(sourceB);

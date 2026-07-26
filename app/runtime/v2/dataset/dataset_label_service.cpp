@@ -1,7 +1,8 @@
 #include "dataset_label_service.h"
 
-#include <QDir>
+#include <QCryptographicHash>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
@@ -97,6 +98,17 @@ bool resolveCropForDisplay(const QString& datasetRoot, const DatasetRecord& reco
     if (!canonicalContained(canonicalRoot, crop, canonicalCrop, error))
         return false;
 
+    QFile cropFile(canonicalCrop);
+    if (!cropFile.open(QIODevice::ReadOnly))
+        return fail(error, "Dataset crop is missing or unreadable: " + record.recordId);
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!cropFile.atEnd())
+        hash.addData(cropFile.read(1024 * 1024));
+    if (QString::fromLatin1(hash.result().toHex())
+            .compare(record.cropSha256, Qt::CaseInsensitive) != 0)
+        return fail(error, "Dataset crop SHA-256 does not match dataset.json: " +
+                               record.recordId);
+
     QImageReader reader(canonicalCrop);
     if (!reader.canRead() || reader.read().isNull())
         return fail(error, "Dataset crop is not a decodable image: " + record.recordId);
@@ -159,8 +171,18 @@ bool DatasetLabelService::open(const QString& manifestPath, QString* error) {
     if (!manifest)
         return false;
 
+    QSet<QString> excludedRecordIds;
+    for (const UserLabelRecord& label : manifest->labels()) {
+        if (label.excluded)
+            excludedRecordIds.insert(label.recordId);
+    }
     const QString datasetRoot = QFileInfo(absolutePath).absolutePath();
     for (const DatasetRecord& record : manifest->records()) {
+        if (manifest->data().provenance.provenanceMode ==
+                QStringLiteral("legacy_crop_only") &&
+            excludedRecordIds.contains(record.recordId) &&
+            record.cropPath.isEmpty() && record.cropSha256.isEmpty())
+            continue;
         if (!resolveCropForDisplay(datasetRoot, record, error))
             return false;
     }

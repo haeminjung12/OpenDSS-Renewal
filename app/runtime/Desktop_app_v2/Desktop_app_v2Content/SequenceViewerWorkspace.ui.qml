@@ -82,16 +82,16 @@ Rectangle {
             ScrollView {
                 id: sequenceControlsScroll
                 anchors.fill: parent
-                contentWidth: Math.max(availableWidth, sequenceControls.x + sequenceControls.width + Constants.spacing)
+                contentWidth: Math.max(width, 900 * Constants.textScale + Constants.spacing * 2)
                 contentHeight: availableHeight
                 clip: true
                 font: Constants.font
 
             Column {
                 id: sequenceControls
-                x: Math.max(Constants.spacing, (sequenceControlsScroll.availableWidth - width) / 2)
+                x: Constants.spacing
                 y: Constants.spacing
-                width: Math.max(900 * Constants.textScale, sequenceControlsScroll.availableWidth - Constants.spacing * 2)
+                width: sequenceControlsScroll.contentWidth - Constants.spacing * 2
                 height: implicitHeight
                 spacing: Constants.spacing
                 RowLayout {

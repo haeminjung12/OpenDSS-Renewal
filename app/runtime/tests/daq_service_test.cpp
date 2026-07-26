@@ -186,7 +186,34 @@ int main(int argc, char **argv)
                     && defaults.durationMs == 5.0
                     && defaults.delayMs == 0.0,
                 "DAQ settings must use the approved defaults.");
-    ok &= check(daq.applySettings(defaults, &error), qPrintable(error));
+    bool applyInProgress = false;
+    bool resourceObserverRanDuringApply = false;
+    bool resourceSnapshotSucceeded = false;
+    bool resourceSnapshotThrew = false;
+    const QMetaObject::Connection resourceConnection =
+        QObject::connect(&operations, &OperationCoordinator::resourcesChanged,
+                         [&] {
+            resourceObserverRanDuringApply |= applyInProgress;
+            try {
+                daq.settingsSnapshot();
+                resourceSnapshotSucceeded = true;
+            } catch (...) {
+                resourceSnapshotThrew = true;
+            }
+        });
+    bool applyThrew = false;
+    bool applied = false;
+    applyInProgress = true;
+    try {
+        applied = daq.applySettings(defaults, &error);
+    } catch (...) {
+        applyThrew = true;
+    }
+    applyInProgress = false;
+    QObject::disconnect(resourceConnection);
+    ok &= check(applied && !applyThrew && resourceObserverRanDuringApply
+                    && resourceSnapshotSucceeded && !resourceSnapshotThrew,
+                "Resource observers must query DAQ settings during apply without deadlock or exception.");
     const QJsonObject snapshot = daq.settingsSnapshot();
     ok &= check(daq.ready()
                     && sameSettings(store.snapshot().daq.appliedSettings, defaults)

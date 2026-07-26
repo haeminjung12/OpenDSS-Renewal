@@ -40,6 +40,12 @@ struct FrameData {
     FrameMeta meta;
 };
 
+enum class CameraSettingsSupport {
+    Supported,
+    Unsupported,
+    Error,
+};
+
 class DcamCamera {
   public:
     DcamCamera();
@@ -47,6 +53,9 @@ class DcamCamera {
 
     std::string init(int deviceIndex);
     std::string apply(const CameraSettings& settings);
+    std::string applyApprovedSettings(const CameraSettings& settings);
+    CameraSettingsSupport approvedSettingsSupport(std::string& error) const;
+    std::string readApprovedSettings(CameraSettings& settings) const;
     std::string start();
     void stop();
     void cleanup();

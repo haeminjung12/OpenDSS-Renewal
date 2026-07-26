@@ -61,6 +61,7 @@ struct DatasetCropSettings {
 };
 
 struct DatasetCaptureProvenance {
+    QString provenanceMode;
     QString name;
     QString experimentType;
     QString notes;

@@ -137,27 +137,13 @@ activeModelSnapshot(const QString &registryFilePath,
     desktop_app::v2::run::ModelSnapshot snapshot;
     snapshot.id = inspection.id;
     snapshot.name = inspection.displayName;
-    snapshot.sha256 =
-        registryString(entry, QStringLiteral("model_sha256")).toLower();
-    const QJsonArray classes = entry.value(QStringLiteral("classes")).toArray();
-    const QJsonObject labels =
-        entry.value(QStringLiteral("display_labels")).toObject();
-    for (const QJsonValue &value : classes) {
-        const QString id = value.toString().trimmed();
-        const QString name = labels.value(id).toString().trimmed();
-        if (id.isEmpty() || name.isEmpty()) {
-            if (error)
-                *error = QStringLiteral("The Active Model class labels are incomplete.");
-            return std::nullopt;
-        }
-        snapshot.classes.push_back({id, name});
-    }
+    snapshot.sha256 = inspection.modelSha256;
+    for (const auto &modelClass : inspection.classes)
+        snapshot.classes.push_back({modelClass.id, modelClass.displayLabel});
     if ((snapshot.classes.size() != 2 && snapshot.classes.size() != 3) ||
         snapshot.sha256.size() != 64) {
         if (error)
-            *error = warning.isEmpty()
-                         ? QStringLiteral("The Active Model provenance is incomplete.")
-                         : warning;
+            *error = QStringLiteral("The Active Model provenance is incomplete.");
         return std::nullopt;
     }
     return snapshot;
@@ -189,6 +175,8 @@ int main(int argc, char *argv[])
         std::make_unique<desktop_app::v2::DaqTriggerOutput>());
     desktop_app::v2::DaqController daqController(
         daqService, applicationStateStore, operationCoordinator);
+    if (daqController.canApply())
+        daqController.apply();
     QThread cameraThread;
     auto *cameraService = new desktop_app::v2::CameraService(
         std::make_unique<desktop_app::v2::DcamCameraDevice>(), applicationStateStore);
@@ -216,7 +204,9 @@ int main(int argc, char *argv[])
     desktop_app::v2::sequence::SequenceViewerController sequenceViewerController;
     desktop_app::v2::dataset::DatasetLabelController datasetLabelController(operationCoordinator,
                                                                             applicationStateStore);
-    loadModelRegistry();
+    const QJsonObject registry = loadModelRegistry();
+    ensureDefaultWorkspaceAssets(
+        registry.value(QStringLiteral("entries")).toArray());
     const QString registryFilePath = modelRegistryPath();
     desktop_app::v2::ModelLibraryController modelLibraryController(
         registryFilePath, operationCoordinator);

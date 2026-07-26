@@ -20,6 +20,17 @@ quint64 CameraPreviewImageProvider::updateFrame(CameraFrame frame)
     return ++revision_;
 }
 
+quint64 CameraPreviewImageProvider::setPreviewLutRange(int blackLevel,
+                                                       int whiteLevel)
+{
+    QMutexLocker locker(&mutex_);
+    if (blackLevel_ == blackLevel && whiteLevel_ == whiteLevel)
+        return revision_;
+    blackLevel_ = blackLevel;
+    whiteLevel_ = whiteLevel;
+    return ++revision_;
+}
+
 QImage CameraPreviewImageProvider::requestImage(const QString &id, QSize *size,
                                                 const QSize &requestedSize)
 {
@@ -30,6 +41,8 @@ QImage CameraPreviewImageProvider::requestImage(const QString &id, QSize *size,
     }
 
     CameraFrame frame;
+    int blackLevel = 0;
+    int whiteLevel = 255;
     {
         QMutexLocker locker(&mutex_);
         if (!hasFrame_) {
@@ -38,9 +51,12 @@ QImage CameraPreviewImageProvider::requestImage(const QString &id, QSize *size,
             return {};
         }
         frame = latestFrame_;
+        blackLevel = blackLevel_;
+        whiteLevel = whiteLevel_;
     }
 
-    QImage image = convertCameraFrame(frame);
+    QImage image = applyLinearPreviewLut(
+        convertCameraFrame(frame), blackLevel, whiteLevel);
     if (size)
         *size = image.size();
     if (!image.isNull() && requestedSize.width() > 0 && requestedSize.height() > 0)

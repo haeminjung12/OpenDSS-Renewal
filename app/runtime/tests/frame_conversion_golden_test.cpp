@@ -40,6 +40,15 @@ int main(int argc, char **argv)
     ok &= check(std::memcmp(converted8.constScanLine(0), "\x00\x11\x22", 3) == 0
                     && std::memcmp(converted8.constScanLine(1), "\x33\x44\x55", 3) == 0,
                 "Mono8 conversion must copy active pixels and skip row padding.");
+    const QImage lutImage = applyLinearPreviewLut(converted8, 17, 68);
+    ok &= check(lutImage.constScanLine(0)[0] == 0
+                    && lutImage.constScanLine(0)[1] == 0
+                    && lutImage.constScanLine(0)[2] == 85
+                    && lutImage.constScanLine(1)[0] == 170
+                    && lutImage.constScanLine(1)[1] == 255,
+                "The preview LUT must linearly clamp black and white display levels.");
+    ok &= check(converted8.constScanLine(0)[2] == 0x22,
+                "Preview LUT conversion must not modify the source image.");
 
     CameraFrame mono16;
     mono16.pixelFormat = CameraPixelFormat::Mono16;

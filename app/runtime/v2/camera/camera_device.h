@@ -1,5 +1,7 @@
 #pragma once
 
+#include "../state/domain_state.h"
+
 #include <QByteArray>
 #include <QMetaType>
 #include <QString>
@@ -29,6 +31,18 @@ enum class CameraFrameResult {
     Error,
 };
 
+enum class CameraConfigurationResult {
+    Applied,
+    Rejected,
+    StateUnknown,
+};
+
+enum class CameraConfigurationSupport {
+    Supported,
+    Unsupported,
+    Error,
+};
+
 class ICameraDevice
 {
 public:
@@ -40,6 +54,30 @@ public:
     virtual bool stop(QString *error) = 0;
     virtual bool close(QString *error) = 0;
     virtual CameraFrameResult latestFrame(CameraFrame &frame, QString *error) = 0;
+    virtual CameraConfigurationSupport configurationSupport(QString *error) const
+    {
+        if (error)
+            error->clear();
+        return CameraConfigurationSupport::Unsupported;
+    }
+    virtual bool readConfiguration(CameraAppliedSettings &settings, QString *error)
+    {
+        Q_UNUSED(settings);
+        if (error)
+            *error = QStringLiteral("Camera configuration is not supported.");
+        return false;
+    }
+    virtual CameraConfigurationResult applyConfiguration(
+        const CameraAppliedSettings &requested,
+        CameraAppliedSettings &applied,
+        QString *error)
+    {
+        Q_UNUSED(requested);
+        Q_UNUSED(applied);
+        if (error)
+            *error = QStringLiteral("Camera configuration is not supported.");
+        return CameraConfigurationResult::Rejected;
+    }
 };
 
 } // namespace desktop_app::v2

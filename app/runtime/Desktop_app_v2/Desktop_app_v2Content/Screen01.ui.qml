@@ -439,8 +439,8 @@ Rectangle {
                         color: Constants.textColor
                         anchors.left: parent.left
                         anchors.leftMargin: Constants.spacing
-                        anchors.right: capturePanelToggleButton.left
-                        anchors.rightMargin: Constants.spacing
+                        anchors.right: parent.right
+                        anchors.rightMargin: capturePanelToggleButton.width + Constants.spacing
                         anchors.verticalCenter: parent.verticalCenter
                         elide: Text.ElideRight
                     }

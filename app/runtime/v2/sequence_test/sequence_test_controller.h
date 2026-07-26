@@ -166,6 +166,7 @@ class SequenceTestController final : public QObject {
     QUrl sequenceFolderUrl_;
     QString sequencePath_;
     qint64 frameCount_ = 0;
+    QString frameFilenamePattern_;
     int imageWidth_ = 0;
     int imageHeight_ = 0;
     double recordedFps_ = 0.0;
@@ -185,6 +186,7 @@ class SequenceTestController final : public QObject {
     QVariantList hitClassModel_;
     QString selectedHitClassId_;
     bool physicalDaqOutputEnabled_ = false;
+    QString physicalDaqWarning_;
     QUrl outputFolderUrl_;
     std::shared_ptr<const LoadedSequence> loadedSequence_;
 

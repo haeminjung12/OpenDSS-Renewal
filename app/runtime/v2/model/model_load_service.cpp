@@ -324,6 +324,64 @@ PersistedActiveModelInspection ModelLoadService::inspectPersistedActive() const 
         result.error =
             QStringLiteral("The Active Model must define two or three classes.");
     } else {
+        QString metadataError;
+        const QJsonObject metadataJson =
+            readJsonObject(package.metadataPath, &metadataError);
+        Metadata metadata;
+        std::string loadError;
+        if (metadataJson.isEmpty()) {
+            result.error = metadataError;
+            return result;
+        }
+        if (!LoadMetadata(package.metadataPath.toStdString(), metadata,
+                          loadError)) {
+            result.error = QString::fromStdString(loadError);
+            return result;
+        }
+
+        const QJsonArray declaredClasses = metadataJson.value("classes").toArray();
+        const QJsonObject displayLabels =
+            metadataJson.value("display_labels").toObject();
+        if (declaredClasses.size() != result.classCount ||
+            declaredClasses.size() != static_cast<int>(metadata.classes.size())) {
+            result.error =
+                QStringLiteral("The Active Model class metadata is inconsistent.");
+            return result;
+        }
+        for (int index = 0; index < declaredClasses.size(); ++index) {
+            const QJsonValue classValue = declaredClasses.at(index);
+            const QString classId =
+                classValue.isString() ? classValue.toString().trimmed() : QString{};
+            const QString displayLabel =
+                displayLabels.value(classId).toString().trimmed();
+            if (classId.isEmpty() || displayLabel.isEmpty() ||
+                classId.toStdString() !=
+                    metadata.classes[static_cast<std::size_t>(index)]) {
+                result.error =
+                    QStringLiteral("The Active Model class labels are incomplete.");
+                return result;
+            }
+            result.classes.push_back({classId, displayLabel});
+        }
+
+        const QJsonObject artifact = metadataJson.value("artifact").toObject();
+        if (!validateExternalFiles(
+                artifact.value("external_data_files").toArray(),
+                QDir(package.packagePath), &result.error)) {
+            return result;
+        }
+        const QString declaredModelSha256 =
+            artifact.value("onnx_sha256").toString().trimmed().toLower();
+        const QString actualModelSha256 = sha256File(package.onnxPath).toLower();
+        if (actualModelSha256.size() != 64 ||
+            (!declaredModelSha256.isEmpty() &&
+             (declaredModelSha256.size() != 64 ||
+              actualModelSha256 != declaredModelSha256))) {
+            result.error = QStringLiteral(
+                "The Active Model ONNX SHA-256 does not match its package metadata.");
+            return result;
+        }
+        result.modelSha256 = actualModelSha256;
         result.plannedDevice =
             QString::fromStdString(OnnxClassifier::plannedAutomaticDevice());
         result.loadable = true;

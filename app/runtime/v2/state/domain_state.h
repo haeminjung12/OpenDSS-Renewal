@@ -1,5 +1,6 @@
 #pragma once
 
+#include <QMetaType>
 #include <QString>
 
 namespace desktop_app::v2 {
@@ -11,10 +12,31 @@ enum class CameraStatus {
     Faulted,
 };
 
+enum class CameraPixelType {
+    Mono8,
+    Mono16,
+};
+
+enum class CameraReadoutMode {
+    Slow,
+    Fast,
+};
+
+struct CameraAppliedSettings {
+    int width = 0;
+    int height = 0;
+    int bitDepth = 0;
+    CameraPixelType pixelType = CameraPixelType::Mono8;
+    double exposureMs = 0.0;
+    CameraReadoutMode readoutMode = CameraReadoutMode::Fast;
+};
+
 struct CameraState {
     CameraStatus status = CameraStatus::Unavailable;
     QString deviceId;
     QString fault;
+    bool configurationAvailable = false;
+    CameraAppliedSettings appliedSettings;
 };
 
 enum class DaqStatus {
@@ -112,3 +134,5 @@ struct ApplicationSnapshot {
 };
 
 } // namespace desktop_app::v2
+
+Q_DECLARE_METATYPE(desktop_app::v2::CameraAppliedSettings)

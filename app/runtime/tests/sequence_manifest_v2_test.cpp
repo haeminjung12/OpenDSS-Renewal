@@ -72,6 +72,23 @@ bool expectRejected(const QString& path, const QJsonObject& object,
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
+    if (argc > 1) {
+        for (int index = 1; index < argc; ++index) {
+            QString error;
+            const QString path = QString::fromLocal8Bit(argv[index]);
+            const auto manifest = SequenceManifestV2::load(path, &error);
+            if (!manifest)
+                return fail(32, path + ": " + error);
+            std::cout << path.toStdString()
+                      << ": frames=" << manifest->data().frameCount
+                      << " pattern="
+                      << manifest->data().frameFilenamePattern.toStdString()
+                      << " image=" << manifest->data().imageWidth << 'x'
+                      << manifest->data().imageHeight << 'x'
+                      << manifest->data().bitDepth << '\n';
+        }
+        return 0;
+    }
     QTemporaryDir temp;
     if (!temp.isValid())
         return fail(1, "Could not create temporary Sequence folder.");
@@ -95,6 +112,8 @@ int main(int argc, char** argv) {
         output.frameCount != input.frameCount || output.cameraSettings != input.cameraSettings ||
         output.imageWidth != input.imageWidth || output.imageHeight != input.imageHeight ||
         output.bitDepth != input.bitDepth || output.nominalFps != input.nominalFps ||
+        !output.provenanceMode.isEmpty() ||
+        output.frameFilenamePattern != QStringLiteral("frames/frame_%08d.tif") ||
         output.integrity.sourceFrameGaps.count != 3 ||
         output.integrity.sourceFrameGaps.ranges.size() != 2 ||
         output.integrity.sourceFrameGaps.ranges.at(1).first != 15 ||
@@ -124,6 +143,16 @@ int main(int argc, char** argv) {
         return fail(8, "Failed Sequence save replaced the valid manifest.");
     file.close();
 
+    SequenceManifestData unsupportedMode = input;
+    unsupportedMode.provenanceMode = QStringLiteral("unsupported");
+    if (SequenceManifestV2::save(path, unsupportedMode, &error))
+        return fail(35, "Unsupported in-memory provenance mode was saved.");
+    if (!error.contains("provenance_mode", Qt::CaseInsensitive))
+        return fail(36, "Unsupported provenance mode did not report its field.");
+    if (!file.open(QIODevice::ReadOnly) || file.readAll() != validBytes)
+        return fail(37, "Unsupported provenance mode replaced the valid manifest.");
+    file.close();
+
     QJsonObject unknown = root;
     unknown.insert("model_id", "not-allowed");
     if (!expectRejected(path, unknown, "Unknown field"))
@@ -138,6 +167,10 @@ int main(int argc, char** argv) {
     badDuration.insert("requested_duration_seconds", 0);
     if (!expectRejected(path, badDuration, "positive"))
         return fail(11, "Nonpositive requested duration was accepted.");
+    QJsonObject missingDuration = root;
+    missingDuration.remove("requested_duration_seconds");
+    if (!expectRejected(path, missingDuration, "missing"))
+        return fail(38, "Native Sequence without requested_duration_seconds was accepted.");
 
     QJsonObject badCount = root;
     badCount.insert("frame_count", -1);
@@ -191,6 +224,54 @@ int main(int argc, char** argv) {
     missingCategory.insert("integrity", integrity);
     if (!expectRejected(path, missingCategory, "consumer_failures"))
         return fail(18, "Missing integrity category was accepted.");
+
+    SequenceManifestData legacy = input;
+    legacy.provenanceMode = QStringLiteral("legacy_tiff_sequence");
+    legacy.frameFilenamePattern = QStringLiteral("%06d.tiff");
+    legacy.createdAt.clear();
+    legacy.startedAt.clear();
+    legacy.endedAt.clear();
+    legacy.requestedDurationSeconds.reset();
+    legacy.stopReason.clear();
+    legacy.opendssVersion.clear();
+    legacy.cameraSettings = {};
+    legacy.nominalFps = 0.0;
+    legacy.integrity = {};
+    if (!SequenceManifestV2::save(path, legacy, &error))
+        return fail(27, "Legacy TIFF Sequence save failed: " + error);
+    loaded = SequenceManifestV2::load(path, &error);
+    if (!loaded ||
+        loaded->data().provenanceMode != QStringLiteral("legacy_tiff_sequence") ||
+        loaded->data().frameFilenamePattern != QStringLiteral("%06d.tiff") ||
+        !loaded->data().createdAt.isEmpty() ||
+        !loaded->data().cameraSettings.isEmpty() ||
+        loaded->data().nominalFps != 0.0) {
+        return fail(28, "Legacy TIFF Sequence facts did not round trip.");
+    }
+    QFile legacyFile(path);
+    if (!legacyFile.open(QIODevice::ReadOnly))
+        return fail(29, "Could not read saved legacy TIFF Sequence.");
+    const QJsonObject legacyRoot =
+        QJsonDocument::fromJson(legacyFile.readAll()).object();
+    legacyFile.close();
+    if (!legacyRoot.value("created_at").isNull() ||
+        !legacyRoot.value("camera_settings").isNull() ||
+        !legacyRoot.value("timing").toObject().value("nominal_fps").isNull() ||
+        !legacyRoot.value("integrity").isNull()) {
+        return fail(33, "Legacy TIFF Sequence emitted invented acquisition provenance.");
+    }
+    QJsonObject unsafeLegacy = legacyRoot;
+    unsafeLegacy["frame_filename_pattern"] = QStringLiteral("../%06d.tiff");
+    if (!expectRejected(path, unsafeLegacy, "frame_filename_pattern"))
+        return fail(30, "Unsafe legacy TIFF frame pattern was accepted.");
+    QJsonObject claimedLegacyIntegrity = legacyRoot;
+    claimedLegacyIntegrity["integrity"] = root.value("integrity");
+    if (!expectRejected(path, claimedLegacyIntegrity, "integrity must be null"))
+        return fail(34, "Claimed legacy TIFF integrity was accepted.");
+    QJsonObject nativeWithLegacyPattern = root;
+    nativeWithLegacyPattern["frame_filename_pattern"] = QStringLiteral("%06d.tiff");
+    if (!expectRejected(path, nativeWithLegacyPattern, "frame_filename_pattern"))
+        return fail(31, "Legacy TIFF pattern was accepted without its provenance mode.");
 
     SequenceManifestData unlimited = input;
     unlimited.requestedDurationSeconds.reset();

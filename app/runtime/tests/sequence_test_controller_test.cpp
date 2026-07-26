@@ -72,6 +72,12 @@ QString framePath(const QString& root, qint64 index) {
             .arg(index, 8, 10, QLatin1Char('0')));
 }
 
+QString legacyFramePath(const QString& root, qint64 zeroBasedIndex) {
+    return QDir(root).filePath(
+        QStringLiteral("%1.tiff").arg(zeroBasedIndex, 6, 10,
+                                      QLatin1Char('0')));
+}
+
 QString makeSequence(const QString& root,
                      qint64 frameCount,
                      bool corruptSecond = false,
@@ -109,6 +115,34 @@ QString makeSequence(const QString& root,
     data.imageHeight = imageHeight;
     data.bitDepth = 8;
     data.nominalFps = 20.0;
+    const QString path = QDir(root).filePath(QStringLiteral("sequence.json"));
+    QString error;
+    require(sequence::SequenceManifestV2::save(path, data, &error),
+            qPrintable(error));
+    return path;
+}
+
+QString makeLegacySequence(const QString& root, qint64 frameCount) {
+    require(QDir().mkpath(root), "create legacy Sequence folder");
+    for (qint64 index = 0; index < frameCount; ++index) {
+        QImage image(8, 8, QImage::Format_Grayscale8);
+        image.fill(static_cast<int>((index + 1) * 20));
+        require(image.save(legacyFramePath(root, index), "TIFF"),
+                "save legacy Sequence frame");
+    }
+
+    sequence::SequenceManifestData data;
+    data.sequenceId = QStringLiteral("legacy-sequence-id");
+    data.name = QStringLiteral("Legacy Sequence");
+    data.experimentType = QString();
+    data.notes = QStringLiteral("Verified legacy TIFF fixture");
+    data.status = QStringLiteral("completed");
+    data.frameCount = frameCount;
+    data.imageWidth = 8;
+    data.imageHeight = 8;
+    data.bitDepth = 8;
+    data.provenanceMode = QStringLiteral("legacy_tiff_sequence");
+    data.frameFilenamePattern = QStringLiteral("%06d.tiff");
     const QString path = QDir(root).filePath(QStringLiteral("sequence.json"));
     QString error;
     require(sequence::SequenceManifestV2::save(path, data, &error),
@@ -240,6 +274,20 @@ void selectionLoadingAndImmutableBuffer() {
                 controller.presentation() == QStringLiteral("error") &&
                 !controller.memoryReady(),
             "reject non-local Sequence URL");
+
+    const QString legacyRoot =
+        QDir(temporary.path()).filePath("legacy-root-frames");
+    const QString legacyManifest = makeLegacySequence(legacyRoot, 2);
+    require(controller.selectSequence(QUrl::fromLocalFile(legacyManifest)) &&
+                controller.previewUrl() ==
+                    QUrl::fromLocalFile(
+                        QFileInfo(legacyFramePath(legacyRoot, 0))
+                            .canonicalFilePath()) &&
+                controller.recordedFps() == 0.0 &&
+                controller.bufferBytes() == 128 &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "select and enumerate validated root-level legacy TIFF frames");
 
     const QString malformedRoot =
         QDir(temporary.path()).filePath("malformed");
@@ -404,6 +452,7 @@ void modelRoutingAndDaqFacts() {
     OperationCoordinator operations;
     bool daqReady = false;
     int daqReadinessCalls = 0;
+    int pulseCalls = 0;
     const auto daqReadiness = [&](QString* error) {
         ++daqReadinessCalls;
         if (!daqReady && error)
@@ -417,7 +466,10 @@ void modelRoutingAndDaqFacts() {
         [](QString*) {
             return std::optional<PreparedModel>(preparedModel());
         },
-        [](bool, QString*) { return run::DaqPulseStatus::Issued; },
+        [&pulseCalls](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
         daqReadiness);
     qulonglong availableMemory = 1024 * 1024;
     int resultsRefreshes = 0;
@@ -451,20 +503,44 @@ void modelRoutingAndDaqFacts() {
     require(controller.canStart() && daqReadinessCalls == 0,
             "DAQ OFF does not require or inspect DAQ readiness");
     controller.setPhysicalDaqOutputEnabled(true);
-    require(!controller.canStart() && daqReadinessCalls == 1 &&
-                controller.errorMessage() ==
-                    QStringLiteral("DAQ device is unavailable."),
-            "DAQ ON requires readiness with the direct provider reason");
+    require(controller.canStart() && daqReadinessCalls == 1 &&
+                !controller.physicalDaqOutputEnabled() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("Physical DAQ output was disabled because")) &&
+                controller.errorMessage().contains(
+                    QStringLiteral("DAQ device is unavailable.")),
+            "unavailable DAQ is cleared with a processing-only warning");
+    controller.setRequestedProcessingFps(1000.0);
+    require(controller.start() &&
+                waitUntil([&] {
+                    return controller.presentation() ==
+                           QStringLiteral("completed");
+                }) &&
+                !controller.physicalDaqOutputEnabled() &&
+                pulseCalls == 0,
+            "processing-only run completes without issuing a DAQ pulse");
+    const QString processingOnlyRun = onlyRunFolder(output);
+    require(QDir(processingOnlyRun).removeRecursively(),
+            "remove processing-only test Run before physical-output assertions");
+
     daqReady = true;
     controller.refreshPreflight();
-    controller.setRequestedProcessingFps(1000.0);
-    require(controller.canStart() && controller.start(),
+    require(controller.canStart() &&
+                !controller.physicalDaqOutputEnabled() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("Physical DAQ output was disabled because")) &&
+                pulseCalls == 0,
+            "DAQ recovery keeps the prior auto-disable event truthful");
+    controller.setPhysicalDaqOutputEnabled(true);
+    require(controller.canStart() &&
+                controller.physicalDaqOutputEnabled() &&
+                controller.start(),
             "start class-based physical-DAQ request");
     require(waitUntil([&] {
-                return controller.presentation() ==
+            return controller.presentation() ==
                        QStringLiteral("completed");
             }) &&
-                resultsRefreshes == 1,
+                resultsRefreshes == 2,
             "complete class-based request");
 
     QString error;

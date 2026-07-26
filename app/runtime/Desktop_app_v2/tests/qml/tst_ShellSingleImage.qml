@@ -466,13 +466,13 @@ Item {
         property string duration: ""
         property string saveLocation: "C:/OpenDSS/Runs"
         property string activeModelText: "Production Model"
-        property var hitClassOptions: ["Empty", "Single", "Multiple"]
+        property var hitClassOptions: ["Empty", "Single", "MoreThanOne"]
         property var hitClassModel: [
-            { id: "route-z", name: "Multiple" },
-            { id: "route-hit", name: "Single" },
-            { id: "route-a", name: "Empty" }
+            { id: "2", name: "MoreThanOne" },
+            { id: "1", name: "Single" },
+            { id: "0", name: "Empty" }
         ]
-        property string hitClassId: "route-hit"
+        property string hitClassId: "1"
         property bool triggerEveryDroplet: false
         property bool daqOutputEnabled: false
         property bool recordFullImageSequence: false
@@ -500,7 +500,7 @@ Item {
             duration = ""
             saveLocation = "C:/OpenDSS/Runs"
             activeModelText = "Production Model"
-            hitClassId = "route-hit"
+            hitClassId = "1"
             triggerEveryDroplet = false
             daqOutputEnabled = false
             recordFullImageSequence = false
@@ -540,11 +540,11 @@ Item {
         property string outputStatus: "Idle"
         property bool triggerEveryDroplet: false
         property var hitClassModel: [
-            { id: "sequence-z", name: "Multiple" },
-            { id: "sequence-a", name: "Empty" },
-            { id: "sequence-hit", name: "Single" }
+            { id: "2", name: "MoreThanOne" },
+            { id: "0", name: "Empty" },
+            { id: "1", name: "Single" }
         ]
-        property string selectedHitClassId: "sequence-hit"
+        property string selectedHitClassId: "1"
         property bool physicalDaqOutputEnabled: false
         property url outputFolderUrl: "file:///C:/OpenDSS/Sequence%20Tests"
         property int loadToMemoryCallCount: 0
@@ -558,7 +558,7 @@ Item {
             canStart = false
             requestedProcessingFps = 120
             triggerEveryDroplet = false
-            selectedHitClassId = "sequence-hit"
+            selectedHitClassId = "1"
             physicalDaqOutputEnabled = false
             loadToMemoryCallCount = 0
             startCallCount = 0
@@ -579,13 +579,80 @@ Item {
         property string deviceId: "Hamamatsu ORCA-Flash4.0"
         property string previewSource: ""
         property bool streaming: false
+        property bool configurationAvailable: false
+        property string resolution: ""
+        property string customWidth: ""
+        property string customHeight: ""
+        property string bitDepth: ""
+        property string exposureMs: ""
+        property string readoutMode: ""
+        property var resolutionPresets: [
+            "2304 x 2304", "2304 x 1152", "2304 x 576", "2304 x 288",
+            "2304 x 144", "2304 x 72", "2304 x 36", "2304 x 16",
+            "2304 x 8", "2304 x 4", "1152 x 1152", "1152 x 576",
+            "1152 x 288", "1152 x 144", "576 x 576", "576 x 288",
+            "576 x 144", "288 x 288", "288 x 144", "144 x 144",
+            "Custom", "512 x 128", "512 x 64", "256 x 64", "256 x 32"
+        ]
+        property int resolutionPresetIndex: -1
+        property int previewLutMinimum: 0
+        property int previewLutMaximum: 255
         property int startCallCount: 0
         property int stopCallCount: 0
         property int recoverCallCount: 0
+        property int resolutionCallCount: 0
+        property int bitDepthCallCount: 0
+        property int exposureCallCount: 0
+        property int readoutCallCount: 0
+        property int lutCallCount: 0
+        property int requestedWidth: 0
+        property int requestedHeight: 0
+        property int requestedBitDepth: 0
+        property real requestedExposureMs: 0
+        property string requestedReadoutMode: ""
 
         function start() { ++startCallCount }
         function stop() { ++stopCallCount }
         function recover() { ++recoverCallCount; error = "" }
+        function selectCustomResolution() {
+            resolution = "Custom"
+            resolutionPresetIndex = 20
+            return true
+        }
+        function selectResolutionPreset(index) {
+            resolutionPresetIndex = index
+            if (index === 20)
+                return selectCustomResolution()
+            const parts = resolutionPresets[index].split(" x ")
+            resolution = resolutionPresets[index]
+            return applyResolution(Number(parts[0]), Number(parts[1]))
+        }
+        function applyResolution(width, height) {
+            ++resolutionCallCount
+            requestedWidth = width
+            requestedHeight = height
+            return true
+        }
+        function applyBitDepth(depth) {
+            ++bitDepthCallCount
+            requestedBitDepth = depth
+            return true
+        }
+        function applyExposureMs(value) {
+            ++exposureCallCount
+            requestedExposureMs = value
+            return true
+        }
+        function applyReadoutMode(mode) {
+            ++readoutCallCount
+            requestedReadoutMode = mode
+            return true
+        }
+        function setPreviewLutRange(minimum, maximum) {
+            ++lutCallCount
+            previewLutMinimum = minimum
+            previewLutMaximum = maximum
+        }
     }
 
     QtObject {
@@ -759,11 +826,15 @@ Item {
     }
 
     function test_realUnavailableCameraDoesNotShowStartupPrompt() {
+        unavailableCameraShell.visible = true
+        unavailableCameraShell.mockState.hardwareDrawerOpen = true
+        wait(0)
         compare(unavailableCameraShell.form.cameraStatus, "Unavailable")
         compare(unavailableCameraShell.form.disabledReason, "Camera unavailable")
         compare(unavailableCameraShell.form.cameraErrorText.text,
                 "Camera hardware unavailable")
         verify(unavailableCameraShell.form.cameraErrorText.visible)
+        verify(unavailableCameraShell.form.cameraPreviewImage.retainWhileLoading)
         verify(!unavailableCameraShell.form.cameraPromptVisible)
         verify(unavailableCameraShell.form.cameraStatusText.text.indexOf("mock") === -1)
         compare(unavailableCameraShell.form.cameraDeviceSelector.model[0],
@@ -791,10 +862,87 @@ Item {
         verify(!unavailableCameraShell.form.cameraErrorText.visible)
 
         unavailableCameraController.cameraStatus = "Connected"
+        unavailableCameraController.configurationAvailable = true
+        unavailableCameraController.resolution = "2304 x 2304"
+        unavailableCameraController.resolutionPresetIndex = 0
+        unavailableCameraController.customWidth = "2304"
+        unavailableCameraController.customHeight = "2304"
+        unavailableCameraController.bitDepth = "12-bit"
+        unavailableCameraController.exposureMs = "10"
+        unavailableCameraController.readoutMode = "Fast"
+        unavailableCameraController.resolutionCallCount = 0
+        wait(0)
+        verify(unavailableCameraShell.form.cameraResolutionSelector.enabled)
+        verify(unavailableCameraShell.form.cameraBitDepthSelector.enabled)
+        verify(unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(unavailableCameraShell.form.cameraReadoutSelector.enabled)
+        compare(unavailableCameraShell.form.cameraResolutionSelector.currentIndex, 0)
+        compare(unavailableCameraShell.form.cameraBitDepthSelector.currentIndex, 1)
+        compare(unavailableCameraShell.form.cameraExposureField.text, "10")
+        compare(unavailableCameraShell.form.cameraReadoutSelector.currentIndex, 0)
+
+        compare(unavailableCameraShell.form.cameraResolutionSelector.model.length, 25)
+        compare(unavailableCameraShell.form.cameraResolutionSelector.model[20], "Custom")
+        compare(unavailableCameraShell.form.cameraResolutionSelector.model[21], "512 x 128")
+        compare(unavailableCameraShell.form.cameraLutSelector.model.length, 1)
+        compare(unavailableCameraShell.form.cameraLutSelector.model[0], "Linear")
+        unavailableCameraShell.form.cameraResolutionSelector.activated(10)
+        compare(unavailableCameraController.resolutionCallCount, 1)
+        compare(unavailableCameraController.requestedWidth, 1152)
+        compare(unavailableCameraController.requestedHeight, 1152)
+        unavailableCameraShell.form.cameraResolutionSelector.activated(20)
+        compare(unavailableCameraController.resolution, "Custom")
+        wait(0)
+        unavailableCameraShell.form.cameraCustomWidthField.text = "1536"
+        unavailableCameraShell.form.cameraCustomHeightField.text = "1024"
+        unavailableCameraShell.form.cameraCustomWidthField.editingFinished()
+        compare(unavailableCameraController.resolutionCallCount, 2)
+        compare(unavailableCameraController.requestedWidth, 1536)
+        compare(unavailableCameraController.requestedHeight, 1024)
+        unavailableCameraShell.form.cameraBitDepthSelector.activated(2)
+        compare(unavailableCameraController.bitDepthCallCount, 1)
+        compare(unavailableCameraController.requestedBitDepth, 16)
+        unavailableCameraShell.form.cameraExposureField.text = "4.5"
+        unavailableCameraShell.form.cameraExposureField.editingFinished()
+        compare(unavailableCameraController.exposureCallCount, 1)
+        compare(unavailableCameraController.requestedExposureMs, 4.5)
+        unavailableCameraShell.form.cameraReadoutSelector.activated(1)
+        compare(unavailableCameraController.readoutCallCount, 1)
+        compare(unavailableCameraController.requestedReadoutMode, "Slow")
+        unavailableCameraShell.form.previewLutRangeSlider.first.value = 24
+        unavailableCameraShell.form.previewLutRangeSlider.first.moved()
+        compare(unavailableCameraController.lutCallCount, 1)
+        compare(unavailableCameraController.previewLutMinimum, 24)
+        compare(unavailableCameraController.previewLutMaximum, 255)
+
         unavailableCameraShell.form.startCameraButton.clicked()
         compare(unavailableCameraController.startCallCount, 1)
         unavailableCameraController.cameraStatus = "Streaming"
         unavailableCameraController.streaming = true
+        wait(0)
+        verify(unavailableCameraShell.form.cameraResolutionSelector.enabled)
+        verify(unavailableCameraShell.form.cameraBitDepthSelector.enabled)
+        verify(unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(unavailableCameraShell.form.cameraReadoutSelector.enabled)
+        unavailableCameraController.busy = true
+        wait(0)
+        verify(!unavailableCameraShell.form.cameraResolutionSelector.enabled)
+        verify(!unavailableCameraShell.form.cameraBitDepthSelector.enabled)
+        verify(!unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(!unavailableCameraShell.form.cameraReadoutSelector.enabled)
+        unavailableCameraController.busy = false
+        unavailableCameraShell.mockState.activeOperation = "imageSequence"
+        wait(0)
+        verify(!unavailableCameraShell.form.cameraResolutionSelector.enabled)
+        verify(!unavailableCameraShell.form.cameraBitDepthSelector.enabled)
+        verify(!unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(!unavailableCameraShell.form.cameraReadoutSelector.enabled)
+        unavailableCameraShell.mockState.activeOperation = ""
+        wait(0)
+        verify(unavailableCameraShell.form.cameraResolutionSelector.enabled)
+        verify(unavailableCameraShell.form.cameraBitDepthSelector.enabled)
+        verify(unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(unavailableCameraShell.form.cameraReadoutSelector.enabled)
         unavailableCameraShell.form.startCameraButton.clicked()
         compare(unavailableCameraController.stopCallCount, 1)
         unavailableCameraController.cameraStatus = "Unavailable"
@@ -805,6 +953,17 @@ Item {
         unavailableCameraShell.form.restoreCameraButton.clicked()
         compare(unavailableCameraController.recoverCallCount, 2)
         verify(!unavailableCameraShell.form.cameraErrorText.visible)
+        unavailableCameraController.cameraStatus = "Unavailable"
+        unavailableCameraController.streaming = false
+        unavailableCameraController.configurationAvailable = false
+        unavailableCameraController.resolution = ""
+        unavailableCameraController.customWidth = ""
+        unavailableCameraController.customHeight = ""
+        unavailableCameraController.bitDepth = ""
+        unavailableCameraController.exposureMs = ""
+        unavailableCameraController.readoutMode = ""
+        unavailableCameraShell.visible = false
+        unavailableCameraShell.mockState.hardwareDrawerOpen = false
     }
 
     function test_daqEditsApplyImmediatelyOnce() {
@@ -911,6 +1070,20 @@ Item {
                 ++checkedCount
         }
         compare(checkedCount, 1)
+    }
+
+    function test_chooserDefaultsUseStorageRootAndSpecificFolder() {
+        const storageRoot = textSizeController.storageRoot.toString()
+        compare(shell.modelImportFolderDialog.currentFolder.toString(), storageRoot)
+        compare(shell.modelExportFolderDialog.currentFolder.toString(), storageRoot)
+        compare(shell.modelDuplicateFolderDialog.currentFolder.toString(), storageRoot)
+
+        shell.sequenceTestController = sequenceTestController
+        compare(shell.sequenceTestOutputFolderDialog.currentFolder.toString(),
+                sequenceTestController.outputFolderUrl.toString())
+        sequenceTestController.outputFolderUrl = ""
+        compare(shell.sequenceTestOutputFolderDialog.currentFolder.toString(),
+                storageRoot)
     }
 
     function test_modelLibraryControllerWiring() {
@@ -1990,8 +2163,10 @@ Item {
         compare(shell.form.liveWorkspace.hitBoundaryText,
                 "Provisional midpoint route boundary; no user calibration is exposed yet.")
         compare(shell.form.liveWorkspace.hitClassControl.currentIndex, 1)
+        compare(shell.form.liveWorkspace.hitClassControl.currentText, "Single")
         shell.form.liveWorkspace.hitClassControl.activated(2)
-        compare(liveSortingController.hitClassId, "route-a")
+        compare(liveSortingController.hitClassId, "0")
+        compare(shell.form.liveWorkspace.hitClassControl.model[0], "MoreThanOne")
         verify(shell.form.liveWorkspace.integrityStatusText.indexOf("Queue rejections: 2") >= 0)
         verify(!shell.form.liveWorkspace.sendTestPulseButton.enabled)
         shell.form.liveWorkspace.primaryActionButton.clicked()
@@ -2021,8 +2196,10 @@ Item {
         compare(shell.form.sequenceTestWorkspace.sequenceNameField.text, "Test Sequence")
         compare(shell.form.sequenceTestWorkspace.frameCountText.text, "Frames: 24")
         compare(shell.form.sequenceTestWorkspace.hitClassControl.currentIndex, 2)
+        compare(shell.form.sequenceTestWorkspace.hitClassControl.currentText, "Single")
         shell.form.sequenceTestWorkspace.hitClassControl.activated(0)
-        compare(sequenceTestController.selectedHitClassId, "sequence-z")
+        compare(sequenceTestController.selectedHitClassId, "2")
+        compare(shell.form.sequenceTestWorkspace.hitClassControl.model[1], "Empty")
         verify(shell.form.sequenceTestWorkspace.sequenceValidationText.text.indexOf(
                    "Provisional midpoint route boundary") >= 0)
         shell.form.sequenceTestWorkspace.loadToMemoryButton.clicked()

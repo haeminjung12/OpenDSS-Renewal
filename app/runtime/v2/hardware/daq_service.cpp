@@ -103,7 +103,6 @@ QString DaqService::settingsValidationError(const DaqAppliedSettings &settings)
 bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *error)
 {
     std::lock_guard operationOrderLock(operationOrderMutex_);
-    std::unique_lock stateLock(stateMutex_);
     const QString invalid = settingsValidationError(settings);
     if (!invalid.isEmpty()) {
         setError(error, invalid);
@@ -119,6 +118,7 @@ bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *erro
         return false;
     }
 
+    std::unique_lock stateLock(stateMutex_);
     DaqConfig config;
     config.channel = settings.outputChannel.toStdString();
     config.amplitude = settings.amplitudeVpp / 2.0;

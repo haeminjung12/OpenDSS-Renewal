@@ -2,7 +2,7 @@
 
 **Status:** Corrected visual foundation for user approval  
 **Approved:** July 24, 2026  
-**Platform:** Windows desktop; resizable rectangular window; minimum 1600 × 900  
+**Platform:** Windows desktop; maximized-window design and validation
 **Primary use:** Desk viewing with keyboard and pointer  
 **Implementation status:** The approved component-sheet gate is complete. The shared-component rollout is implemented and technically validated across Capture/shell, Label, Sequence Viewer, Settings, Model Test, Library, Live, Sequence Test, Runs, and Train; user visual acceptance remains pending. The accepted GUI at commit `ea48ec3` remains the baseline beneath this bounded visual-only rollout.
 
@@ -184,7 +184,7 @@ No fixed text-bearing height may clip at 125–200%.
 - The left navigation, Hardware Configuration height, and workspace outer right panels remain directly adjustable within their approved bounds and reset on launch.
 - Workspace outer right panels default to approximately 536 px at 100% Text Size, are not fixed, and retain their approved titles.
 - The outer chevron is a fixed 28 × 36 px icon control with a 14 px glyph. It occupies the panel's right edge at vertical center, remains at the same screen position when expanded or collapsed, and does not grow with Text Size.
-- Restored windows may use any aspect ratio at or above 1600 × 900; content fills the available height.
+- The maximized window fills the current display's available work area. Visual validation does not use restored or fixed-resolution window states.
 - At enlarged text, navigation and panels scroll independently, action rows wrap or stack, and no sticky footer obscures the focused control.
 
 ## 9. Interaction states and accessibility

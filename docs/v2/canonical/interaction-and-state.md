@@ -20,7 +20,7 @@ The July 23, 2026 UI/UX amendment controls the following interaction and state b
 
 ### 0.1 Startup, shell, and errors
 
-OpenDSS starts maximized at `Data > Capture`, attempts Camera connection automatically, and shows `Camera unavailable. Continue?` once per session only when no Camera is available. This is a shell-global modal overlay above the entire shell and current workspace, with `Data > Capture` still selected beneath it. Yes continues without Camera and leaves ordinary unavailable status visible; No closes OpenDSS. Restored size is never below 1600 × 900, manual resizing is free to use any aspect ratio above that minimum, and content fills all available window space through the bottom.
+OpenDSS starts maximized at `Data > Capture`, attempts Camera connection automatically, and shows `Camera unavailable. Continue?` once per session only when no Camera is available. This is a shell-global modal overlay above the entire shell and current workspace, with `Data > Capture` still selected beneath it. Yes continues without Camera and leaves ordinary unavailable status visible; No closes OpenDSS. No fixed minimum or restored-window resolution is required. Content fills the maximized window's full available work area through the bottom, and GUI validation does not restore or resize the window to a fixed test resolution.
 
 The header remains a single line. Each Camera, DAQ, Active Model, and Current Activity item has icon, text, value, readiness color, and a non-color readiness cue. Hardware is docked at the bottom of the resizable left-navigation column, matches that column's width, expands upward when opened, and remains available subject to factual device readiness and operation arbitration.
 

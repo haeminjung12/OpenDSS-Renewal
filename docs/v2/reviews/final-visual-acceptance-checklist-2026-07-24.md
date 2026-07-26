@@ -5,7 +5,7 @@
 **Project:** `app/runtime/Desktop_app_v2/Desktop_app_v2.qmlproject`  
 **Primary form:** `app/runtime/Desktop_app_v2/Desktop_app_v2Content/Screen01.ui.qml`
 
-Use Qt Design Studio 2D View or Live Preview. Start at **1600 × 900** with **Text Size: Medium**. Check only what is listed below; build, lint, interface preservation, and the five-second runtime smoke have already passed.
+Use Qt Design Studio 2D View or Live Preview in a maximized window using the current display's full available work area, with **Text Size: Medium**. Do not restore or resize the window to a fixed test resolution. Check only what is listed below; build, lint, interface preservation, and the five-second runtime smoke have already passed.
 
 ## 1. Text Size and typography
 
@@ -62,8 +62,8 @@ Use Qt Design Studio 2D View or Live Preview. Start at **1600 × 900** with **Te
 
 ## 6. Final window and scrolling check
 
-- [ ] At **1600 × 900 / Medium**, the application fills the available window height with no unused bottom region.
-- [ ] Resize the window wider and taller: the central workspace and panels expand without restoring a fixed aspect ratio.
+- [ ] In the **maximized window / Medium**, the application fills the available work area with no unused bottom region.
+- [ ] Keep the window maximized throughout the review; do not run restored-window or fixed-resolution checks.
 - [ ] Navigation, Hardware Configuration, workspace content, and right panels scroll independently where applicable.
 - [ ] No sticky action footer covers the last field or button when scrolling.
 - [ ] No panel title, accordion title, dropdown text, or button label is visibly clipped.

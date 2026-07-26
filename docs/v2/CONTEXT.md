@@ -43,6 +43,7 @@ Except for the expressly scoped user-approved visual-review amendment, derived e
 
 ## Current status
 
+- `UX-WINDOW-001` is user-approved: the former fixed-minimum/restored-window requirement is removed from current product and validation authority. OpenDSS starts maximized, and GUI, Qt Design Studio, visual, and Computer Use validation use only the maximized window's full available work area. Agents must not restore or resize the window to a fixed test resolution.
 - The user-approved [July 23, 2026 visual-review amendment](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) remains authoritative for its listed visual topics. Its visual/mock baseline was accepted by the user on July 23, 2026; remaining appearance and graphics refinements continue in a separate design thread.
 - The accepted visual navigation scaffold and Mock Single Image slice is closed. Its forms, exported aliases, and frozen seam are the functional contract by default. A design change requires exact named form ownership and an alias/interface handoff before functional integration.
 - The current slice is [production stabilization and integration](implementation/current-slice.md) on `codex/functional-orchestrator`, based at `1e80f3b`. The user explicitly authorized completing the recovered GUI/controller stabilization diff, focused fixes, independent review, commit, push, and artifact validation; this supersedes the former headless-only boundary for this slice.

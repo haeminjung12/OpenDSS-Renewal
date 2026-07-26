@@ -326,7 +326,7 @@ Every frontend work order must identify:
 The bounded work order selects only proportional, applicable checks. For the current visual-scaffold rounds:
 
 1. User-led Qt Design Studio 2D view, Live Preview, and manual visual review are primary.
-2. Check keyboard focus, the 1600 × 900 minimum, and a representative larger 16:9 layout.
+2. Check keyboard focus in a maximized window using the current display's full available work area. Do not restore or resize the window to a fixed test resolution.
 3. Run `qmllint` only for changed QML when useful.
 4. Run one configure/build or directly relevant targeted test only when the changed files require it.
 5. Do not run the full legacy or hardware test suites.

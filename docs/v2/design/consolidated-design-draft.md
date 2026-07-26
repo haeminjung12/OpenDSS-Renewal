@@ -19,7 +19,7 @@
 
 ### Shell and shared presentation
 
-- Start maximized. Restored layouts have a hard minimum of 1600 × 900 and retain 16:9 while resizing.
+- Start maximized. No fixed logical minimum or restored-window validation resolution applies. Visual and Computer Use validation use the maximized window's full available work area only.
 - Keep the status header to one horizontal line. Each of Camera, DAQ, Active Model, and Current Activity uses icon, label, value, readiness color, and a non-color cue.
 - Use a bottom-left overlay `BottomHardwarePanel` opened and closed by an arrow. It neither pushes the workspace nor spans the window.
 - Present ordinary failures through `ErrorMessage` with primary text `Error`. Technical detail belongs only in the log under Settings > Diagnostics.
@@ -419,7 +419,7 @@ The following values are consolidated design recommendations, not changes to pro
 | Navigation rail, compact | 56–64 logical px | Icons with tooltips and accessible labels. |
 | Navigation rail, expanded | 200–224 logical px | Icon plus full label; user-selectable or responsive. |
 | Operation-side panel | 360–440 logical px | Resizable; may collapse where the workspace remains operable. |
-| Hardware panel | 420–520 logical px | Overlay; at the minimum window it may use up to 44% of the content width. |
+| Hardware panel | 420–520 logical px | Overlay; it must remain contained within the maximized window without hiding the global header. |
 | Major splitter hit area | At least 8 logical px, with a 1 px visible divider | Keyboard resizing and reset/collapse alternatives required. |
 | Workspace content padding | 16–24 logical px | 12 px may be used in dense data regions, not around destructive controls. |
 
@@ -448,7 +448,7 @@ Each status item SHOULD include:
 
 - an accessible name combining label and current value;
 - a restrained state symbol or icon;
-- text that remains visible at standard and wide layouts;
+- text that remains visible in the maximized layout;
 - a tooltip with fuller factual detail when the compact value is insufficient.
 
 The header MUST NOT become an editable settings surface or a notification center.
@@ -1231,7 +1231,7 @@ OPTIONAL CONTEXTUAL FAULT BANNER
 └─────────────────────────────────────────────────┴──────────────────────────┘
 ```
 
-At standard and wide widths, Image Counts and Classes may occupy a lower summary strip or the lower part of the inspector. The crop collection remains the dominant region.
+In the maximized layout, Image Counts and Classes may occupy a lower summary strip or the lower part of the inspector. The crop collection remains the dominant region.
 
 ## 10.3 Design contract
 
@@ -1427,7 +1427,7 @@ A compact metadata or source strip MAY show the sequence name and location. Acqu
 | **Main user goal** | Inspect a recorded Image Sequence visually. |
 | **Major regions** | Sequence header/open action; dark image viewer; frame/total status; previous/next and direct seek; zoom/pan/Fit/1:1 controls; optional fault banner. |
 | **Dominant hierarchy** | Current frame, then frame position and navigation controls. |
-| **Operation-side panel** | Not required as a permanent right panel. At wide layouts, optional sequence details may occupy a collapsible inspector. |
+| **Operation-side panel** | Not required as a permanent right panel. In the maximized layout, optional sequence details may occupy a collapsible inspector. |
 | **Primary action** | Open Sequence when Empty; Next Frame when a sequence is loaded. |
 | **Secondary actions** | Previous Frame; direct seek; Fit; 1:1; zoom; pan; Open Sequence; direct Open in Sequence Test when explicitly provided for the loaded sequence. |
 | **Required artifact/hardware** | Standalone v2 `sequence.json`, Dataset-referenced sequence, or Run-referenced sequence. No Camera, DAQ, model, or training environment. |
@@ -2188,12 +2188,12 @@ Start New Run returns to pre-run with previous values available for review. It d
 - Stop must always be reachable by Tab and an accessible name. Escape does not Stop; it closes overlays only.
 - On fault, focus moves to the banner heading only once, then proceeds to direct actions. Repeated hardware-state updates must not repeatedly steal focus.
 
-## 15.18 Resizing and minimum width
+## 15.18 Maximized-window layout
 
 - Live preview receives the flexible majority of width.
-- The operation panel SHOULD remain 380–440 logical px at standard/wide layouts and no less than approximately 340 logical px at the minimum window.
+- The operation panel SHOULD remain 380–440 logical px in the maximized validation layout.
 - During Running, less-critical provenance may collapse into `Run configuration` disclosure, but status, elapsed time, Total Droplets, Decision counts, Observed Route counts, Pause/Resume, and Stop remain visible.
-- Counter groups may change from multi-column to stacked layout at minimum width without changing labels or grouping.
+- Counter groups may change from multi-column to stacked layout when available space requires it, without changing labels or grouping.
 - The Camera preview must retain a useful aspect-preserving area and must not be hidden by the operation panel.
 
 ## 15.19 Minimum mock-data states
@@ -3070,15 +3070,13 @@ Collapsing a pane moves focus to the control that can restore it. Content select
 
 # 23. Responsive, high-DPI, and accessibility requirements
 
-## 23.1 Supported desktop matrix
+## 23.1 Supported desktop presentation
 
 OpenDSS v2 targets desktop use on Windows 11.
 
-| Reference | Logical window size | Design use |
-|---|---:|---|
-| **Minimum supported** | 1600 × 900 | All core workflows and required states remain operable. Compact navigation and collapsed optional inspectors are permitted. |
-| **Standard** | 1600 × 900 | Primary design and review reference. Balanced navigation, viewer, and operation-panel proportions. |
-| **Wide** | 1920 × 1080 | Persistent master-detail/three-region layouts where useful; additional whitespace or metadata, not new features. |
+| Reference | Window state | Design use |
+|---|---|---|
+| **Maximized** | Current display's full available work area | Sole design, GUI, Qt Design Studio, and Computer Use validation state. Balanced navigation, viewer, and operation-panel proportions; no restored or fixed-resolution check. |
 
 Supported Windows scaling factors:
 
@@ -3086,33 +3084,16 @@ Supported Windows scaling factors:
 100%, 125%, 150%, 200%
 ```
 
-The application structure must remain the same across supported sizes. Smaller widths do not introduce a mobile shell, alternate navigation, or different workspace model.
+The application structure remains fixed in the maximized validation state. Display size does not introduce a mobile shell, alternate navigation, or different workspace model.
 
 ## 23.2 Responsive layout rules
 
-### Wide layout
-
-- Expanded navigation MAY remain persistent.
-- Master-detail lists and inspectors may remain open.
-- Live/Capture viewers receive additional width rather than stretching operation panels excessively.
-- Metric groups may use multiple columns with stable reading order.
-
-### Standard layout
+### Maximized layout
 
 - Expanded or compact navigation may be user-selected.
 - Operation-side panel remains visible for operational workspaces.
 - Secondary inspectors may collapse.
 - Tables prioritize required columns and allow user resizing.
-
-### Minimum layout
-
-- Navigation may switch to compact icon mode with tooltips and accessible names.
-- Optional inspectors collapse before the primary operation panel.
-- Field groups stack rather than shrink below usable widths.
-- Metric tiles stack or use two columns with stable semantic grouping.
-- Tables may scroll horizontally only after essential columns are protected and headers remain interpretable.
-- Required selectors, fixed Capture headings, and primary actions remain visible.
-- Workspace regions do not reorder in a way that changes task sequence or state ownership.
 
 ## 23.3 Inspector and panel collapse order
 
@@ -3320,7 +3301,7 @@ Each workspace form MUST expose a deterministic state selector for the applicabl
 - each applicable lifecycle phase;
 - long/edge-case content;
 - fault and preservation banners;
-- minimum, standard, and wide geometry;
+- maximized full-available-work-area geometry;
 - 100%, 125%, 150%, and 200% scaling references.
 
 State selectors exist only in design/mock builds and must not appear as product controls.
@@ -3510,7 +3491,7 @@ Each fixture should include a short note identifying the PM/IA/LF state it repre
 
 ## 26.1 Design QA objective
 
-Design approval requires evidence that the specification is represented consistently across supported windows, scaling factors, applicable states, keyboard paths, accessibility requirements, resource locks, fault/recovery behavior, and Qt Design Studio artifacts.
+Design approval requires evidence that the specification is represented consistently in the maximized window across scaling factors, applicable states, keyboard paths, accessibility requirements, resource locks, fault/recovery behavior, and Qt Design Studio artifacts.
 
 A screen shown only in Ready/ideal state is incomplete.
 
@@ -3518,7 +3499,7 @@ A screen shown only in Ready/ideal state is incomplete.
 
 | Evidence area | Required evidence | Pass condition |
 |---|---|---|
-| **Window sizes** | Reference screenshots or deterministic renders at 1600×900, 1600×900, and 1920×1080 for every major workspace family. | No structural change, clipping, hidden primary action, or unusable content. |
+| **Window state** | Reference screenshots or deterministic renders in the maximized window using the current display's full available work area for every major workspace family. Do not restore or resize to a fixed resolution. | No clipping, hidden primary action, or unusable content. |
 | **Scaling** | 100%, 125%, 150%, and 200% evidence for shell, components, and representative dense screens. | Text/controls remain legible and operable; no essential clipping; icons/focus remain crisp. |
 | **Workspace states** | Every applicable state in §8 and §25. | State, action, disabled reason, lock, banner, and next action match the authoritative interaction baseline. |
 | **Keyboard operation** | Recorded keyboard walkthrough or test checklist for every core workflow. | All required actions reachable; shortcuts scoped; typing suppresses workspace keys. |
@@ -3616,9 +3597,9 @@ Baseline names SHOULD encode:
 Examples:
 
 ```text
-live__running-three-class__1600x900__150.png
-label__mixed-states-large__1920x1080__100.png
-hardware-panel__camera-locked-sequence__1600x900__200.png
+live__running-three-class__maximized__150.png
+label__mixed-states-large__maximized__100.png
+hardware-panel__camera-locked-sequence__maximized__200.png
 ```
 
 Baselines must use deterministic mock fixtures and record token/version identifiers. A visual change cannot be accepted solely because pixel difference is small; reviewers must confirm that product state and accessibility remain correct.
@@ -3767,7 +3748,7 @@ The appendix is not an alternative-design menu. Rejected ideas do not remain ava
 | **Contextual panels** | **Adapted** | Retained specifically as the shell-owned Camera/DAQ panel. Detector, crop, model, or generic System panels are not added. |
 | **Keyboard workflows** | **Adopted** | High-throughput Label and viewer shortcuts, focus visibility, and typing suppression are incorporated and expanded. Hardware operation shortcuts remain deliberately constrained. |
 | **Accessibility requirements** | **Adopted** | Contrast, non-text contrast, targets, non-color cues, accessible names, keyboard operation, and enlarged text are required. |
-| **Responsive and high-DPI requirements** | **Adopted** | 1600×900 minimum, 1600×900 standard, 1920×1080 wide, and 100/125/150/200% scaling are consolidated. Workspace structure remains fixed. |
+| **Responsive and high-DPI requirements** | **Adopted** | Maximized full-available-work-area validation and 100/125/150/200% scaling are consolidated. Restored and fixed-resolution checks are removed; workspace structure remains fixed. |
 | **Qt Design Studio authoring** | **Adopted** | Editable `.ui.qml` forms, wrappers, view-model projections, tokens, components, mocks, and galleries are retained within a design-handoff boundary. |
 | **Mock data** | **Adopted** | Required for every component and workspace state, including fault and locking combinations. |
 | **Visual-regression evidence** | **Adopted** | Deterministic component/screen baselines are part of design QA. |

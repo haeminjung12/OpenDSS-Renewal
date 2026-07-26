@@ -37,17 +37,11 @@ OpenDSS shall:
 
 - launch maximized;
 - allow the user to restore the window;
-- enforce a minimum logical window size of:
-
-```text
-1600 × 900
-```
-
-- allow free manual resizing to any aspect ratio at or above the minimum size;
-- prevent resizing below 1600 × 900;
+- impose no fixed logical minimum or restored-window validation resolution;
+- allow free manual resizing to any aspect ratio;
 - retain Minimize, Maximize/Restore, and Close behavior.
 
-The restored window may use any user-selected aspect ratio while remaining at least 1600 × 900. Workspace content fills all available window space through the bottom in both maximized and restored states.
+Normal operation starts maximized. GUI, Qt Design Studio, and Computer Use validation use the maximized window's full available work area only and do not restore or resize the window to a fixed test resolution. Workspace content fills all available window space through the bottom.
 
 ## 2.2 Global status header
 
@@ -998,8 +992,7 @@ The current implementation slice remains focused on:
 
 - the OpenDSS shell;
 - maximized startup;
-- 1600 × 900 minimum restored size;
-- free restored-window resizing above the minimum, with content filling all available window space through the bottom;
+- maximized full-available-work-area validation with no fixed minimum or restored-window resolution target;
 - bottom-left Hardware panel frame;
 - startup Camera availability mock;
 - Capture section headers;
@@ -1014,7 +1007,7 @@ Real Camera, TIFF, DAQ, Training, Run persistence, and later workspaces remain s
 
 This amendment supersedes prior requirements for:
 
-1. 1280 × 720 minimum window size;
+1. any fixed minimum or restored-window validation resolution;
 2. constrained or fixed restored-window aspect ratio;
 3. right-side Hardware drawer;
 4. `Dataset Capture` naming;

@@ -10,7 +10,7 @@
 
 | Page or surface | Review composition |
 |---|---|
-| Shell | Maximized startup; 1600 × 900 restored minimum; 16:9 resizing; compact status line; bottom-left overlay Hardware panel. |
+| Shell | Maximized startup and maximized-only validation using the current display's full available work area; no fixed minimum or restored-window test; compact status line; bottom-left overlay Hardware panel. |
 | Capture | Shared Camera preview; fixed Single Image, Image Sequence, and Droplet Dataset Capture headings; collapsible bodies only. |
 | Label | Dominant Droplet Crop grid; Selected Crop and Classes & Filter right-side disclosures. |
 | Sequence Viewer | Frame navigation and image inspection only; no automatic playback surface. |
@@ -22,7 +22,7 @@
 | Results | Loaded Run center; selectable Runs panel with explicit Load. |
 | Settings | Centered Storage, Application Information, and Diagnostics only. |
 
-Design QA must review the minimum restored window, maximized and larger 16:9 layouts, supported scaling, keyboard focus, non-color readiness meaning, all disclosure combinations, startup Camera prompt, minimal Error state, Active Model locks, Live setup/running transition, hit-boundary overlay, Sequence Test memory failure, and Results selected-versus-loaded distinction.
+Design QA must review only the maximized window using the current display's full available work area, plus supported scaling, keyboard focus, non-color readiness meaning, all disclosure combinations, startup Camera prompt, minimal Error state, Active Model locks, Live setup/running transition, hit-boundary overlay, Sequence Test memory failure, and Results selected-versus-loaded distinction. Do not restore or resize the window to a fixed test resolution.
 
 ## 1. How to read this document
 
@@ -188,7 +188,7 @@ Approved behavior:
 2. The right side is one operation panel with headings named exactly **Single Image**, **Image Sequence**, and **Droplet Dataset Capture**.
 3. No section is expanded the first time Capture opens on launch. Returning during the same session retains its in-session presentation.
 4. While idle, headings expand/collapse independently and multiple sections may be open.
-5. All three headings remain fixed and visible at all times, including at 1600 × 900 and supported scaling.
+5. All three headings remain fixed and visible in the maximized window at supported scaling.
 6. One expanded body receives all remaining body height below the three headings. Two expanded bodies divide that remaining height equally. Three divide it into equal thirds.
 7. Every expanded body scrolls independently; scrolling never moves any heading.
 8. Collapsing a section reallocates its released body height equally among the bodies still expanded.
@@ -718,7 +718,7 @@ Each link only navigates and preselects; it never starts an operation, creates a
 
 Focus moves to the destination title or artifact summary, never directly to Start, Save, Delete, or another consequential action. [IA §5](../canonical/information-architecture.md); [LF §18](../canonical/interaction-and-state.md); [CDS §21](../design/consolidated-design-draft.md).
 
-## 18. Keyboard, focus, minimum window, scaling, and accessibility
+## 18. Keyboard, focus, maximized window, scaling, and accessibility
 
 ### 18.1 Keyboard and focus
 
@@ -732,15 +732,13 @@ Focus moves to the destination title or artifact summary, never directly to Star
 
 [CDS §22](../design/consolidated-design-draft.md); supporting [WF §§38–43](../canonical/detailed-workflows.md).
 
-### 18.2 Supported desktop matrix
+### 18.2 Supported desktop presentation
 
-| Reference | Logical window | Required interpretation |
-|---|---:|---|
-| Minimum | 1600 × 900 | All workflows operable; compact navigation/optional-inspector collapse allowed; Capture headings, active operation panel, primary actions, counters, and reasons stay visible |
-| Standard | 1600 × 900 | Balanced main review reference |
-| Wide | 1920 × 1080 | More viewer space or persistent detail, never new features |
+| Reference | Window state | Required interpretation |
+|---|---|---|
+| Maximized | Current display's full available work area | Sole visual and Computer Use review state; all workflows operable, with Capture headings, active operation panel, primary actions, counters, and reasons visible. Do not restore or resize to a fixed resolution. |
 
-Supported Windows scaling is 100%, 125%, 150%, and 200%. The shell and task order remain the same; there is no mobile layout. Optional metadata collapses first, then optional inspectors, then navigation compacts, then metric columns stack. The active operation panel, viewer/crop collection, fault banner, and primary action do not auto-hide. [CDS §23](../design/consolidated-design-draft.md).
+Supported Windows scaling is 100%, 125%, 150%, and 200% in the maximized window. The shell and task order remain the same; there is no mobile layout. The active operation panel, viewer/crop collection, fault banner, and primary action do not auto-hide. [CDS §23](../design/consolidated-design-draft.md).
 
 ### 18.3 Accessibility baseline
 
@@ -753,7 +751,7 @@ Supported Windows scaling is 100%, 125%, 150%, and 200%. The shell and task orde
 
 ## 19. Qt Design Studio review and handoff boundary
 
-This document does not authorize implementation. When a later visual baseline is authorized, the CDS draft requires designer-editable forms to own layout, visual hierarchy, components, tokens, visual states, and preview hooks only. Wrappers own presentational interaction/focus; view models expose authoritative projections/commands; domain services own hardware, files, locks, persistence, and science. Mocks must make every applicable state, fault, long-value, window size, and 100/125/150/200% scale previewable without hardware or production files. [CDS §24](../design/consolidated-design-draft.md); [PM §18](../canonical/product-model.md); [WF §§73–78](../canonical/detailed-workflows.md).
+This document does not authorize implementation. When a later visual baseline is authorized, the CDS draft requires designer-editable forms to own layout, visual hierarchy, components, tokens, visual states, and preview hooks only. Wrappers own presentational interaction/focus; view models expose authoritative projections/commands; domain services own hardware, files, locks, persistence, and science. Mocks must make every applicable state, fault, long value, maximized-window presentation, and 100/125/150/200% scale previewable without hardware or production files. [CDS §24](../design/consolidated-design-draft.md); [PM §18](../canonical/product-model.md); [WF §§73–78](../canonical/detailed-workflows.md).
 
 The visual system should centralize tokens and reuse shared components, but the exact suggested directory tree in CDS §24.4 is illustrative, not an approved repository structure. Qt Design Studio state selectors and mock controls are design-only and must never appear in the product.
 

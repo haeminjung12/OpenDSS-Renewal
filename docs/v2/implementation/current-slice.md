@@ -18,6 +18,7 @@ out of scope.
 
 | ID | Owner | State | Requirement and evidence |
 |---|---|---|---|
+| `UX-WINDOW-001` | User / documentation authority | Approved | Fixed minimum and restored-window resolution requirements are removed. All GUI, Qt Design Studio, visual, and Computer Use validation uses the maximized window's full available work area only; agents do not restore or resize to a fixed test resolution. Documentation-only authority change; no production or generated file is modified. |
 | `FI-001` | FUNCTIONAL | Automated checks accepted | Production wiring covers Capture, Label, Sequence Viewer, Training, Model Library, Live, Sequence Test, Runs, and Settings. Release GUI: `C:\b\odss-v2-fpath-8435\Release\Desktop_app_v2App.exe`. |
 | `CR-001` | FUNCTIONAL | Independent review accepted | `OperationCoordinator` callback invocation and destruction are serialized by a dedicated recursive mutex. The focused test runs 1,000 concurrent release/destruction iterations. |
 | `FI-TEST-001` | FUNCTIONAL | Passed | Thirteen affected C++ CTest targets passed 13/13 in `C:\b\odss-v2-sequence-model-8435`; QML shell suite passed 43/43 in `C:\b\odss-v2-fpath-8435`. |

@@ -8,10 +8,9 @@ Use this checklist in Qt Design Studio 2D View and Live Preview. Compare against
 
 - [x] Application opens maximized.
 - [x] Content fills the complete window, including the bottom.
-- [x] Restored window works at the 1600 × 900 minimum.
-- [x] Restored window works at a wide aspect ratio.
-- [x] Restored window works at a tall aspect ratio.
-- [x] The window is not restricted to 16:9.
+- [x] Application is reviewed in a maximized window using the current display's full available work area.
+- [x] Validation remains in the maximized window; restored wide/tall aspect-ratio checks are removed.
+- [x] No fixed aspect-ratio or restored-window validation is required.
 - [x] Text Size Medium (100%) has no overlaps or clipping.
 - [ ] Text Size Large (125%) has no overlaps or clipping.
 - [ ] The separate 200% validation condition has no overlaps or clipping.
@@ -278,7 +277,7 @@ overall WHAT??? aren't these things what you have to worry about?
 
 ## Issues and notes
 
-Record the workspace, Text Size, window dimensions, state, and a short description for every failed check.
+Record the workspace, Text Size, display/work-area dimensions, state, and a short description for every failed check. Keep the application maximized.
 
 
 
@@ -288,7 +287,7 @@ C:\Users\goals\OneDrive\Documents\OpenDSS Renewal\docs\v2\screenshots
 
 화면 캡처 2026-07-23 233314.png, Overall the collapsed panel does not look good. A center aligned arrow that changes directions for open/close that stays in the same potition is more intuitive
 
-| Workspace | Text Size | Window size | State | Issue |
+| Workspace | Text Size | Maximized work area | State | Issue |
 | --------- | ---------:| ----------- | ----- | ----- |
 |           |           |             |       |       |
 |           |           |             |       |       |

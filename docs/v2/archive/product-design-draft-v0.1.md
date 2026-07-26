@@ -273,12 +273,10 @@ Start Sorting MUST remain disabled until camera preview, model, target, output p
 
 ### Target matrix
 
-- Minimum supported window: 1280×720.
-- Primary design width: 1600×900.
-- Wide reference: 1920×1080.
+- Historical fixed-resolution window targets are superseded and must not be used for current validation.
+- Current validation uses the maximized window's full available work area.
 - Windows scaling: 100%, 125%, 150%, 200%.
-- Wide: persistent three-pane layouts where useful.
-- Standard: inspectors may collapse.
+- Historical wide/standard window modes are superseded; current validation does not create alternate window-size modes.
 - Below 1280 px: diagnostic/condensed only unless explicitly approved.
 
 ### Accessibility baseline
@@ -325,7 +323,7 @@ ui/
 
 ### Acceptance evidence
 
-- Layout screenshots at 1280×720, 1600×900, and 1920×1080.
+- Layout screenshots in a maximized window using the current display's full available work area.
 - Scaling evidence at 100%, 125%, 150%, and 200%.
 - Required states for each screen.
 - Keyboard, tab order, and visible focus verification.

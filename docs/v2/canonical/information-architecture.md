@@ -16,7 +16,7 @@ This section is the current compact inventory for the July 23, 2026 amendment. L
 
 | Surface | Current composition and interaction |
 |---|---|
-| **Shell** | Maximized startup; restored minimum 1600 × 900; free manual resizing to any aspect ratio above that minimum; content fills all available window space through the bottom; compact one-line status header; Hardware docked at the bottom of the resizable left navigation. |
+| **Shell** | Maximized startup; no fixed minimum or restored-window validation target; content fills the maximized window's full available work area through the bottom; compact one-line status header; Hardware docked at the bottom of the resizable left navigation. |
 | **Data > Capture** | Shared Camera preview plus fixed Single Image, Image Sequence, and Droplet Dataset Capture headings with independently collapsible bodies. |
 | **Data > Label** | Dominant Droplet Crop grid; approximately 536 px-at-100%-Text-Size outer-collapsible right panel ordered as Load Dataset, Dataset Summary, Label, Filter, and bottom-right Save As; configured Datasets may switch between two and three classes. |
 | **Data > Sequence Viewer** | Current/total frame, Previous/Next, direct seek, zoom, pan, Fit, and 1:1; no automatic playback controls or lifecycle. |

@@ -25,8 +25,8 @@ No `*.ui.qml` visual forms were changed by the final integration.
 - [ ] Existing workspace layout is unchanged.
 - [ ] Existing colors, typography, spacing, borders, icons, and tokens are unchanged.
 - [ ] Navigation still opens every existing workspace.
-- [ ] The window works at the supported 1600 × 900 minimum.
-- [ ] A larger 16:9 window does not expose broken SplitView widths.
+- [ ] The application is maximized and fills the current display's full available work area.
+- [ ] Keep the window maximized throughout validation; do not restore or resize it to a fixed test resolution.
 - [ ] Collapsed and expanded side panels retain their previous appearance.
 - [ ] No panel overlaps, clipped headings, or unexpected horizontal scrollbars appear.
 

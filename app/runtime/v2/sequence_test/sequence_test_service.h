@@ -2,11 +2,13 @@
 
 #include "../run/run_manifest_v2.h"
 
+#include <QImage>
 #include <QJsonObject>
 #include <QString>
 
 #include <condition_variable>
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 #include <thread>
@@ -35,8 +37,29 @@ using ModelProvider = std::function<std::optional<PreparedModel>(QString*)>;
 using HitPulseCallback = std::function<run::DaqPulseStatus(bool, QString*)>;
 using DaqReadinessGate = std::function<bool(QString*)>;
 
+struct LoadedSequenceFrame {
+    qint64 sourceFrameIndex = 0;
+    QImage image;
+};
+
+struct LoadedSequence {
+    QString sourceSequenceJson;
+    QString sequenceId;
+    QVector<LoadedSequenceFrame> frames;
+};
+
+struct SequenceTestProgress {
+    qint64 processedFrames = 0;
+    qint64 totalFrames = 0;
+    double elapsedSeconds = 0.0;
+    double achievedProcessingFps = 0.0;
+};
+
+using ProgressCallback = std::function<void(const SequenceTestProgress&)>;
+
 struct SequenceTestRequest {
     QString sequenceJson;
+    std::shared_ptr<const LoadedSequence> loadedSequence;
     QString outputRoot;
     QString runName;
     QString experimentType;
@@ -53,6 +76,7 @@ struct SequenceTestRequest {
     QJsonObject timingSettings;
     QJsonObject cameraSettings;
     QJsonObject daqSettings;
+    ProgressCallback progressCallback;
 };
 
 class SequenceTestService final {
@@ -75,6 +99,7 @@ private:
     HitPulseCallback hitPulse_;
     DaqReadinessGate daqReadinessGate_;
     std::mutex controlMutex_;
+    std::condition_variable stopChanged_;
     std::condition_variable pulseFinished_;
     bool running_ = false;
     bool acceptingStop_ = false;

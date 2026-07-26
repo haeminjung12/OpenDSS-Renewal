@@ -17,13 +17,13 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
-#include <QImageReader>
 #include <QImageWriter>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QUuid>
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <exception>
 #include <memory>
@@ -150,6 +150,52 @@ bool validModel(const PreparedModel& model) {
     return true;
 }
 
+bool validateLoadedSequence(const LoadedSequence& loaded,
+                            const sequence::SequenceManifestData& manifest,
+                            const QString& sequenceJson,
+                            QString* error) {
+    if (QFileInfo(loaded.sourceSequenceJson).canonicalFilePath() !=
+        QFileInfo(sequenceJson).canonicalFilePath()) {
+        setError(error, QStringLiteral("Loaded Sequence source does not match the selected Sequence."));
+        return false;
+    }
+    if (loaded.sequenceId != manifest.sequenceId) {
+        setError(error, QStringLiteral("Loaded Sequence identity does not match sequence.json."));
+        return false;
+    }
+    if (static_cast<qint64>(loaded.frames.size()) != manifest.frameCount) {
+        setError(error, QStringLiteral("Loaded Sequence frame count does not match sequence.json."));
+        return false;
+    }
+    for (qsizetype index = 0; index < loaded.frames.size(); ++index) {
+        const auto& frame = loaded.frames.at(index);
+        if (frame.sourceFrameIndex != index + 1) {
+            setError(error, QStringLiteral("Loaded Sequence frame order does not match sequence.json."));
+            return false;
+        }
+        if (frame.image.isNull() || frame.image.width() != manifest.imageWidth ||
+            frame.image.height() != manifest.imageHeight) {
+            setError(error, QStringLiteral("Loaded Sequence frame dimensions do not match sequence.json."));
+            return false;
+        }
+    }
+    return true;
+}
+
+void reportProgress(const ProgressCallback& callback,
+                    const SequenceTestProgress& progress) {
+    if (!callback)
+        return;
+    try {
+        callback(progress);
+    } catch (const std::exception& exception) {
+        qWarning().noquote()
+            << "Sequence Test progress observer failed:" << exception.what();
+    } catch (...) {
+        qWarning().noquote() << "Sequence Test progress observer failed.";
+    }
+}
+
 struct PendingEvent {
     run::RunEvent event;
     QByteArray cropBytes;
@@ -196,6 +242,7 @@ void SequenceTestService::requestStop() noexcept {
     if (!running_ || !acceptingStop_)
         return;
     stopRequested_ = true;
+    stopChanged_.notify_all();
     // A reserved pulse precedes this stop. Wait for it unless the callback
     // requested the stop itself; no later pulse can reserve after the flag is set.
     if (pulseInFlight_ && pulseThread_ != std::this_thread::get_id())
@@ -222,20 +269,16 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     std::optional<run::RunWriterV2> writer;
     OperationLease lease;
     QElapsedTimer elapsed;
-    qint64 readableFrames = 0;
+    qint64 processedFrames = 0;
+    double lastProgressAchievedFps = 0.0;
     const auto failFromException = [&](const QString& message) {
-        const double seconds =
-            elapsed.isValid()
-                ? static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0
-                : 0.0;
-        const double achievedFps =
-            seconds > 0.0 && readableFrames > 0 ? readableFrames / seconds : 0.0;
         if (writer) {
             try {
                 writer->finalize(
                     run::RunStatus::Failed,
                     QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
-                    QStringLiteral("processing_exception"), achievedFps, nullptr);
+                    QStringLiteral("processing_exception"),
+                    lastProgressAchievedFps, nullptr);
             } catch (...) {
             }
         }
@@ -320,6 +363,17 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         return false;
     }
     const auto& sequenceData = sequence->data();
+    if (!request.loadedSequence) {
+        lease.transition(OperationLifecycle::Failed);
+        setError(error, QStringLiteral("Sequence is not loaded to memory."));
+        return false;
+    }
+    if (!validateLoadedSequence(*request.loadedSequence, sequenceData,
+                                request.sequenceJson, &localError)) {
+        lease.transition(OperationLifecycle::Failed);
+        setError(error, localError);
+        return false;
+    }
     if (request.hitBoundary.imageWidth != sequenceData.imageWidth ||
         request.hitBoundary.imageHeight != sequenceData.imageHeight ||
         !std::isfinite(request.hitBoundary.boundaryY) ||
@@ -398,8 +452,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
 
     detector_.reset();
     elapsed.start();
-    qint64 missingFrames = 0;
-    qint64 corruptFrames = 0;
+    const auto scheduleStart = std::chrono::steady_clock::now();
     qint64 eventNumber = 0;
     QString failureReason = QStringLiteral("processing_failed");
     std::optional<PendingEvent> pending;
@@ -414,42 +467,26 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         return true;
     };
 
-    const QString sequenceFolder = QFileInfo(request.sequenceJson).absolutePath();
     bool processingOk = true;
     for (qint64 frameIndex = 1; frameIndex <= sequenceData.frameCount; ++frameIndex) {
-        if (stopRequested())
-            break;
-        const QString framePath =
-            QDir(sequenceFolder)
-                .filePath(QStringLiteral("frames/frame_%1.tif")
-                              .arg(frameIndex, 8, 10, QLatin1Char('0')));
-        if (!QFileInfo(framePath).isFile()) {
-            ++missingFrames;
-            localError =
-                QStringLiteral("Sequence frame %1 is missing.").arg(frameIndex);
-            failureReason =
-                QStringLiteral("missing_frame_%1").arg(frameIndex);
-            processingOk = false;
-            break;
+        const auto deadline =
+            scheduleStart +
+            std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                std::chrono::duration<double>(
+                    static_cast<double>(frameIndex) /
+                    request.requestedProcessingFps));
+        {
+            std::unique_lock lock(controlMutex_);
+            if (stopChanged_.wait_until(lock, deadline,
+                                        [&] { return stopRequested_; }))
+                break;
         }
-        QImageReader reader(framePath, "TIFF");
-        QImage image = reader.read();
-        if (image.isNull() || image.width() != sequenceData.imageWidth ||
-            image.height() != sequenceData.imageHeight) {
-            ++corruptFrames;
-            localError =
-                QStringLiteral("Sequence frame %1 is corrupt or has invalid dimensions.")
-                    .arg(frameIndex);
-            failureReason =
-                QStringLiteral("corrupt_frame_%1").arg(frameIndex);
-            processingOk = false;
-            break;
-        }
+        QImage image =
+            request.loadedSequence->frames.at(frameIndex - 1).image;
         image = image.convertToFormat(QImage::Format_Grayscale8);
         cv::Mat frame(image.height(), image.width(), CV_8UC1, image.bits(),
                       image.bytesPerLine());
         const DropletDetectionFrame detection = detector_.processFrame(frame);
-        ++readableFrames;
         if (stopRequested())
             break;
 
@@ -596,6 +633,15 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         }
         if (pending && detection.detected)
             pending->route.addSample(detection.centroid.y);
+        ++processedFrames;
+        const double progressSeconds =
+            static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0;
+        lastProgressAchievedFps =
+            progressSeconds > 0.0 ? processedFrames / progressSeconds : 0.0;
+        reportProgress(
+            request.progressCallback,
+            {processedFrames, sequenceData.frameCount, progressSeconds,
+             lastProgressAchievedFps});
     }
     if (processingOk && !finalizePending())
         processingOk = false;
@@ -606,20 +652,16 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         stopped = stopRequested_;
         acceptingStop_ = false;
     }
-    const double seconds = static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0;
-    const double achievedFps =
-        seconds > 0.0 && readableFrames > 0 ? readableFrames / seconds : 0.0;
     qWarning().noquote() << "Sequence Test frame summary:"
-                         << "readable" << readableFrames
-                         << "missing" << missingFrames
-                         << "corrupt" << corruptFrames;
+                         << "processed" << processedFrames
+                         << "total" << sequenceData.frameCount;
 
-    if (!processingOk || (!stopped && readableFrames == 0)) {
+    if (!processingOk || (!stopped && processedFrames == 0)) {
         if (localError.isEmpty())
             localError = QStringLiteral("The Sequence contained no readable frames.");
         writer->finalize(run::RunStatus::Failed,
-                         QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
-                         failureReason, achievedFps, nullptr);
+                          QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
+                          failureReason, lastProgressAchievedFps, nullptr);
         lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
         return false;
@@ -630,7 +672,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         stopped ? QStringLiteral("user") : QStringLiteral("end_of_sequence");
     if (!writer->finalize(finalStatus,
                           QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
-                          stopReason, achievedFps, &localError)) {
+                          stopReason, lastProgressAchievedFps, &localError)) {
         lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
         return false;

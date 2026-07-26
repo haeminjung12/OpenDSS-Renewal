@@ -8,10 +8,12 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QImage>
 #include <QTemporaryDir>
 
+#include <cmath>
 #include <cstdlib>
 #include <condition_variable>
 #include <functional>
@@ -90,18 +92,12 @@ QByteArray hashFile(const QString& path) {
 }
 
 QString makeSequence(const QString& root, qint64 frameCount,
-                     const QVector<qint64>& validFrames,
-                     const QVector<qint64>& corruptFrames = {}) {
+                     const QVector<qint64>& validFrames) {
     require(QDir().mkpath(QDir(root).filePath("frames")), "Could not create frames.");
     for (const qint64 index : validFrames) {
         QImage image(8, 8, QImage::Format_Grayscale8);
         image.fill(static_cast<int>(index * 20));
         require(image.save(framePath(root, index), "TIFF"), "Could not write TIFF fixture.");
-    }
-    for (const qint64 index : corruptFrames) {
-        QFile file(framePath(root, index));
-        require(file.open(QIODevice::WriteOnly) && file.write("not a tiff") == 10,
-                "Could not write corrupt fixture.");
     }
     sequence::SequenceManifestData data{
         QStringLiteral("sequence-id"),
@@ -129,10 +125,30 @@ QString makeSequence(const QString& root, qint64 frameCount,
     return path;
 }
 
+std::shared_ptr<const sequence_test::LoadedSequence>
+loadSequenceBuffer(const QString& sequenceJson) {
+    QString error;
+    auto manifest = sequence::SequenceManifestV2::load(sequenceJson, &error);
+    require(manifest.has_value(), qPrintable(error));
+    auto loaded = std::make_shared<sequence_test::LoadedSequence>();
+    loaded->sourceSequenceJson = QFileInfo(sequenceJson).canonicalFilePath();
+    loaded->sequenceId = manifest->data().sequenceId;
+    loaded->frames.reserve(static_cast<qsizetype>(manifest->data().frameCount));
+    const QString root = QFileInfo(sequenceJson).absolutePath();
+    for (qint64 index = 1; index <= manifest->data().frameCount; ++index) {
+        QImage image(framePath(root, index));
+        require(!image.isNull(), "Could not decode loaded Sequence fixture.");
+        loaded->frames.push_back({index, std::move(image)});
+    }
+    return loaded;
+}
+
 sequence_test::SequenceTestRequest request(const QString& sequence,
                                            const QString& output) {
     sequence_test::SequenceTestRequest value;
     value.sequenceJson = sequence;
+    if (QFileInfo(sequence).isFile())
+        value.loadedSequence = loadSequenceBuffer(sequence);
     value.outputRoot = output;
     value.runName = QStringLiteral("Run");
     value.triggerMode = run::TriggerMode::EveryDroplet;
@@ -524,6 +540,11 @@ void daqStopPreventsOutputAndReleases() {
         [](QString*) { return true; });
     auto value = request(manifest, output);
     value.physicalDaqOutputEnabled = true;
+    QVector<sequence_test::SequenceTestProgress> progress;
+    value.progressCallback =
+        [&](const sequence_test::SequenceTestProgress& update) {
+            progress.push_back(update);
+        };
     bool result = false;
     QString error;
     std::thread worker([&] { result = service.run(value, &error); });
@@ -542,10 +563,13 @@ void daqStopPreventsOutputAndReleases() {
     }
     releaseCondition.notify_one();
     worker.join();
+    const auto stoppedRun = loadRun(output);
     require(result && pulseCalls == 0 &&
-                loadRun(output).status == run::RunStatus::Interrupted &&
+                progress.isEmpty() &&
+                stoppedRun.status == run::RunStatus::Interrupted &&
+                stoppedRun.achievedProcessingFps == 0.0 &&
                 !operations.snapshot().kind,
-            "Stop allowed new output, reported success, or retained the operation.");
+            "Stop after detection counted a partial frame, allowed output, or retained the operation.");
     auto releasedDaq = operations.acquireMomentary(ResourceLock::Daq);
     require(releasedDaq.acquired(), "Stop retained the DAQ lease.");
     releasedDaq.lease.release();
@@ -672,45 +696,156 @@ void stopBeforePulseDispatchPreventsCallback() {
             "A stop accepted before pulse dispatch allowed a later callback.");
 }
 
-void artifactDamageFails() {
+void loadedBufferValidationAndNoDiskReread() {
     QTemporaryDir temporary;
     const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
     const QString output = QDir(temporary.path()).filePath("runs");
     require(QDir().mkpath(output), "Could not create output.");
-    const QString manifest = makeSequence(sequenceRoot, 4, {1, 4}, {3});
-    const QByteArray frameOne = hashFile(framePath(sequenceRoot, 1));
+    const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
+    auto value = request(manifest, output);
+    require(QFile::remove(framePath(sequenceRoot, 1)) &&
+                QFile::remove(framePath(sequenceRoot, 2)),
+            "Could not remove decoded source frames.");
     FakeDetector detector;
     OperationCoordinator operations;
     sequence_test::SequenceTestService service(operations, detector, nullptr);
     QString error;
-    require(!service.run(request(manifest, output), &error) &&
-                error.contains(QStringLiteral("frame 2")) &&
-                loadRun(output).status == run::RunStatus::Failed &&
-                loadRun(output).stopReason == QStringLiteral("missing_frame_2") &&
-                QFileInfo(QDir(output).filePath("Run/events.partial.csv")).isFile() &&
-                QFileInfo(QDir(output)
-                              .filePath("Run/run_summary.partial.json"))
-                    .isFile() &&
-                hashFile(framePath(sequenceRoot, 1)) == frameOne &&
-                !operations.snapshot().kind,
-            "Missing frame did not preserve a factual failed Run.");
+    const auto validLoaded = value.loadedSequence;
+    require(service.run(value, &error) &&
+                loadRun(output).status == run::RunStatus::Completed,
+            "A valid loaded buffer reread deleted frame files.");
 
-    QTemporaryDir corruptTemporary;
-    const QString corruptRoot =
-        QDir(corruptTemporary.path()).filePath("sequence");
-    const QString corruptOutput = QDir(corruptTemporary.path()).filePath("runs");
-    require(QDir().mkpath(corruptOutput), "Could not create corrupt output.");
-    const QString corruptManifest = makeSequence(corruptRoot, 1, {}, {1});
-    const QByteArray corruptHash = hashFile(framePath(corruptRoot, 1));
-    OperationCoordinator corruptOperations;
-    sequence_test::SequenceTestService corruptService(corruptOperations, detector, nullptr);
-    require(!corruptService.run(request(corruptManifest, corruptOutput), &error) &&
-                error.contains(QStringLiteral("frame 1")) &&
-                loadRun(corruptOutput).status == run::RunStatus::Failed &&
-                loadRun(corruptOutput).stopReason == QStringLiteral("corrupt_frame_1") &&
-                hashFile(framePath(corruptRoot, 1)) == corruptHash &&
-                !corruptOperations.snapshot().kind,
-            "Corrupt frame did not preserve a factual failed Run.");
+    value.loadedSequence.reset();
+    require(!service.run(value, &error) &&
+                error.contains(QStringLiteral("loaded to memory")),
+            "Sequence Test accepted a request without a loaded buffer.");
+
+    auto countMismatch =
+        std::make_shared<sequence_test::LoadedSequence>(*validLoaded);
+    countMismatch->frames.removeLast();
+    value.loadedSequence = countMismatch;
+    require(!service.run(value, &error) &&
+                error.contains(QStringLiteral("frame count")),
+            "Loaded Sequence frame-count mismatch was accepted.");
+
+    auto orderMismatch =
+        std::make_shared<sequence_test::LoadedSequence>(*validLoaded);
+    orderMismatch->frames[0].sourceFrameIndex = 2;
+    value.loadedSequence = orderMismatch;
+    require(!service.run(value, &error) &&
+                error.contains(QStringLiteral("frame order")),
+            "Loaded Sequence frame-order mismatch was accepted.");
+
+    auto dimensionMismatch =
+        std::make_shared<sequence_test::LoadedSequence>(*orderMismatch);
+    dimensionMismatch->frames[0].sourceFrameIndex = 1;
+    dimensionMismatch->frames[0].image =
+        QImage(7, 8, QImage::Format_Grayscale8);
+    value.loadedSequence = dimensionMismatch;
+    require(!service.run(value, &error) &&
+                error.contains(QStringLiteral("frame dimensions")),
+            "Loaded Sequence frame-dimension mismatch was accepted.");
+
+    auto sourceMismatch =
+        std::make_shared<sequence_test::LoadedSequence>(*orderMismatch);
+    sourceMismatch->frames[0].sourceFrameIndex = 1;
+    sourceMismatch->sourceSequenceJson = output;
+    value.loadedSequence = sourceMismatch;
+    require(!service.run(value, &error) &&
+                error.contains(QStringLiteral("source")),
+            "Loaded Sequence source mismatch was accepted.");
+}
+
+void progressReportsTruthAndSurvivesObserver() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create progress output.");
+    const QString manifest = makeSequence(sequenceRoot, 4, {1, 2, 3, 4});
+    FakeDetector detector;
+    OperationCoordinator operations;
+    sequence_test::SequenceTestService service(operations, detector, nullptr);
+    QVector<sequence_test::SequenceTestProgress> progress;
+    auto value = request(manifest, output);
+    value.requestedProcessingFps = 20.0;
+    value.progressCallback = [&](const sequence_test::SequenceTestProgress& update) {
+        progress.push_back(update);
+        if (update.processedFrames == 2)
+            throw std::runtime_error("observer disappeared");
+    };
+    QString error;
+    QElapsedTimer wallClock;
+    wallClock.start();
+    require(service.run(value, &error), qPrintable(error));
+    const qint64 wallMilliseconds = wallClock.elapsed();
+    require(progress.size() == 4, "Progress observer failure corrupted the Run.");
+    for (qsizetype index = 0; index < progress.size(); ++index) {
+        require(progress.at(index).processedFrames == index + 1 &&
+                    progress.at(index).totalFrames == 4 &&
+                    std::isfinite(progress.at(index).elapsedSeconds) &&
+                    progress.at(index).elapsedSeconds >= 0.0 &&
+                    std::isfinite(progress.at(index).achievedProcessingFps) &&
+                    progress.at(index).achievedProcessingFps >= 0.0 &&
+                    (index == 0 ||
+                     progress.at(index).elapsedSeconds >=
+                         progress.at(index - 1).elapsedSeconds),
+                "Progress facts are not monotonic or factual.");
+    }
+    const auto completedRun = loadRun(output);
+    require(progress.back().processedFrames == progress.back().totalFrames &&
+                wallMilliseconds >= 160 && wallMilliseconds < 1000 &&
+                completedRun.status == run::RunStatus::Completed &&
+                completedRun.achievedProcessingFps ==
+                    progress.back().achievedProcessingFps,
+            "Requested FPS pacing or final completed-frame progress was not factual.");
+
+    QTemporaryDir stopTemporary;
+    const QString stopRoot = QDir(stopTemporary.path()).filePath("sequence");
+    const QString stopOutput = QDir(stopTemporary.path()).filePath("runs");
+    require(QDir().mkpath(stopOutput), "Could not create progress-stop output.");
+    const QString stopManifest = makeSequence(stopRoot, 4, {1, 2, 3, 4});
+    FakeDetector stopDetector;
+    OperationCoordinator stopOperations;
+    sequence_test::SequenceTestService stopService(
+        stopOperations, stopDetector, nullptr);
+    QVector<sequence_test::SequenceTestProgress> stoppedProgress;
+    std::mutex stopMutex;
+    std::condition_variable firstProgressCondition;
+    bool firstProgressReported = false;
+    auto stopValue = request(stopManifest, stopOutput);
+    stopValue.requestedProcessingFps = 2.0;
+    stopValue.progressCallback =
+        [&](const sequence_test::SequenceTestProgress& update) {
+            stoppedProgress.push_back(update);
+            {
+                std::lock_guard lock(stopMutex);
+                firstProgressReported = true;
+            }
+            firstProgressCondition.notify_one();
+        };
+    bool stoppedResult = false;
+    QString stoppedError;
+    std::thread stoppedWorker(
+        [&] { stoppedResult = stopService.run(stopValue, &stoppedError); });
+    {
+        std::unique_lock lock(stopMutex);
+        firstProgressCondition.wait(lock, [&] { return firstProgressReported; });
+    }
+    QElapsedTimer stopClock;
+    stopClock.start();
+    stopService.requestStop();
+    stoppedWorker.join();
+    const qint64 stopMilliseconds = stopClock.elapsed();
+    const auto interruptedRun = loadRun(stopOutput);
+    require(stoppedResult && stoppedProgress.size() == 1 &&
+                stoppedProgress.back().processedFrames == 1 &&
+                stoppedProgress.back().totalFrames == 4 &&
+                stopMilliseconds < 300 &&
+                interruptedRun.status == run::RunStatus::Interrupted &&
+                interruptedRun.achievedProcessingFps ==
+                    stoppedProgress.back().achievedProcessingFps &&
+                !stopOperations.snapshot().kind,
+            "Stop did not promptly interrupt the scheduled wait at the reported frame.");
 }
 
 void stopAndSingleRunGuard() {
@@ -833,19 +968,32 @@ void exceptionRecovery() {
         QDir(detectorTemporary.path()).filePath("sequence");
     const QString detectorOutput = QDir(detectorTemporary.path()).filePath("runs");
     require(QDir().mkpath(detectorOutput), "Could not create detector output.");
-    const QString detectorManifest = makeSequence(detectorSequence, 1, {1});
+    const QString detectorManifest = makeSequence(detectorSequence, 2, {1, 2});
     FakeDetector throwingDetector;
-    throwingDetector.onProcess = [](int) {
-        throw std::runtime_error("detector boom");
+    throwingDetector.results = {DropletDetectionFrame{}, DropletDetectionFrame{}};
+    throwingDetector.onProcess = [](int index) {
+        if (index == 1)
+            throw std::runtime_error("detector boom");
     };
     OperationCoordinator detectorOperations;
     sequence_test::SequenceTestService detectorService(
         detectorOperations, throwingDetector, nullptr);
-    require(!detectorService.run(request(detectorManifest, detectorOutput), &error) &&
+    QVector<sequence_test::SequenceTestProgress> failureProgress;
+    auto detectorRequest = request(detectorManifest, detectorOutput);
+    detectorRequest.progressCallback =
+        [&](const sequence_test::SequenceTestProgress& update) {
+            failureProgress.push_back(update);
+        };
+    require(!detectorService.run(detectorRequest, &error) &&
                 error.contains(QStringLiteral("detector boom")) &&
+                failureProgress.size() == 1 &&
+                failureProgress.front().processedFrames == 1 &&
+                failureProgress.front().totalFrames == 2 &&
                 loadRun(detectorOutput).status == run::RunStatus::Failed &&
                 loadRun(detectorOutput).stopReason ==
                     QStringLiteral("processing_exception") &&
+                loadRun(detectorOutput).achievedProcessingFps ==
+                    failureProgress.front().achievedProcessingFps &&
                 QFileInfo(QDir(detectorOutput)
                               .filePath("Run/events.partial.csv"))
                     .isFile() &&
@@ -869,7 +1017,8 @@ int main(int argc, char** argv) {
     daqStopPreventsOutputAndReleases();
     stopDuringStartupIsNotCleared();
     stopBeforePulseDispatchPreventsCallback();
-    artifactDamageFails();
+    loadedBufferValidationAndNoDiskReread();
+    progressReportsTruthAndSurvivesObserver();
     stopAndSingleRunGuard();
     rejectsUnsafeRequests();
     exceptionRecovery();

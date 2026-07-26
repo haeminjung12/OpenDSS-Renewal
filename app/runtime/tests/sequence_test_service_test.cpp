@@ -34,6 +34,16 @@ ModelLoadService::preparePersistedActive(const QString&, QString*, QString* erro
 
 namespace {
 
+QString* suppressedDaqWarning = nullptr;
+
+void captureSuppressedDaqWarning(QtMsgType type, const QMessageLogContext&,
+                                 const QString& message) {
+    if (type == QtWarningMsg && suppressedDaqWarning &&
+        message.contains(QStringLiteral("DAQ Hit output suppressed"))) {
+        *suppressedDaqWarning = message;
+    }
+}
+
 void require(bool condition, const char* message) {
     if (!condition) {
         std::cerr << message << '\n';
@@ -230,6 +240,438 @@ void classBasedModel() {
             "Class-Based prediction, decision, route, or timing is incorrect.");
 }
 
+void daqOffRequiresNoReadinessOrOwnership() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create DAQ-off output.");
+    const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
+    FakeDetector detector;
+    detector.results = {detection(true, true, 2.0f),
+                        detection(false, false, 0.0f)};
+    OperationCoordinator operations;
+    auto heldDaq = operations.acquireMomentary(ResourceLock::Daq);
+    require(heldDaq.acquired(), "Could not hold DAQ for the OFF test.");
+    int readinessCalls = 0;
+    int pulseCalls = 0;
+    sequence_test::SequenceTestService service(
+        operations, detector, nullptr, {},
+        [&](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Failed;
+        },
+        [&](QString* error) {
+            ++readinessCalls;
+            if (error)
+                *error = QStringLiteral("Injected unavailable DAQ.");
+            return false;
+        });
+    QString error;
+    require(service.run(request(manifest, output), &error), qPrintable(error));
+    const auto data = loadRun(output);
+    require(readinessCalls == 0 && pulseCalls == 0 &&
+                !data.routing.physicalDaqOutputEnabled &&
+                data.events.size() == 1 &&
+                data.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::SuppressedNotIssued,
+            "DAQ OFF checked readiness, owned DAQ, issued output, or persisted false status.");
+    heldDaq.lease.release();
+}
+
+void daqOnPreflightAndLockConflict() {
+    QTemporaryDir unavailableTemporary;
+    const QString unavailableSequence =
+        QDir(unavailableTemporary.path()).filePath("sequence");
+    const QString unavailableOutput =
+        QDir(unavailableTemporary.path()).filePath("runs");
+    require(QDir().mkpath(unavailableOutput), "Could not create unavailable output.");
+    const QString unavailableManifest =
+        makeSequence(unavailableSequence, 1, {1});
+    FakeDetector unavailableDetector;
+    OperationCoordinator unavailableOperations;
+    int readinessCalls = 0;
+    int pulseCalls = 0;
+    sequence_test::SequenceTestService unavailableService(
+        unavailableOperations, unavailableDetector, nullptr, {},
+        [&](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [&](QString* error) {
+            ++readinessCalls;
+            if (error)
+                *error = QStringLiteral("Injected unavailable DAQ.");
+            return false;
+        });
+    auto unavailableRequest = request(unavailableManifest, unavailableOutput);
+    unavailableRequest.physicalDaqOutputEnabled = true;
+    QString error;
+    require(!unavailableService.run(unavailableRequest, &error) &&
+                error.contains(QStringLiteral("Injected unavailable DAQ")) &&
+                readinessCalls == 1 && pulseCalls == 0 &&
+                !unavailableOperations.snapshot().kind &&
+                !QFileInfo(QDir(unavailableOutput).filePath("Run")).exists(),
+            "DAQ ON did not reject unavailable hardware before processing.");
+
+    QTemporaryDir conflictTemporary;
+    const QString conflictSequence =
+        QDir(conflictTemporary.path()).filePath("sequence");
+    const QString conflictOutput = QDir(conflictTemporary.path()).filePath("runs");
+    require(QDir().mkpath(conflictOutput), "Could not create conflict output.");
+    const QString conflictManifest = makeSequence(conflictSequence, 1, {1});
+    FakeDetector conflictDetector;
+    OperationCoordinator conflictOperations;
+    auto heldDaq = conflictOperations.acquireMomentary(ResourceLock::Daq);
+    require(heldDaq.acquired(), "Could not hold DAQ for the conflict test.");
+    readinessCalls = 0;
+    sequence_test::SequenceTestService conflictService(
+        conflictOperations, conflictDetector, nullptr, {},
+        [](bool, QString*) { return run::DaqPulseStatus::Issued; },
+        [&](QString*) {
+            ++readinessCalls;
+            return true;
+        });
+    auto conflictRequest = request(conflictManifest, conflictOutput);
+    conflictRequest.physicalDaqOutputEnabled = true;
+    require(!conflictService.run(conflictRequest, &error) &&
+                error.contains(QStringLiteral("resource"), Qt::CaseInsensitive) &&
+                readinessCalls == 0 &&
+                !QFileInfo(QDir(conflictOutput).filePath("Run")).exists(),
+            "DAQ lock conflict did not block before readiness and processing.");
+    heldDaq.lease.release();
+}
+
+void daqHitMissAndSuppressionStatuses() {
+    QTemporaryDir issuedTemporary;
+    const QString issuedSequence = QDir(issuedTemporary.path()).filePath("sequence");
+    const QString issuedOutput = QDir(issuedTemporary.path()).filePath("runs");
+    require(QDir().mkpath(issuedOutput), "Could not create issued output.");
+    const QString issuedManifest = makeSequence(issuedSequence, 2, {1, 2});
+    FakeDetector issuedDetector;
+    issuedDetector.results = {detection(true, true, 2.0f),
+                              detection(false, false, 0.0f)};
+    OperationCoordinator issuedOperations;
+    int issuedCalls = 0;
+    sequence_test::SequenceTestService issuedService(
+        issuedOperations, issuedDetector, nullptr, {},
+        [&](bool enabled, QString*) {
+            ++issuedCalls;
+            return enabled ? run::DaqPulseStatus::Issued
+                           : run::DaqPulseStatus::Failed;
+        },
+        [](QString*) { return true; });
+    auto issuedRequest = request(issuedManifest, issuedOutput);
+    issuedRequest.physicalDaqOutputEnabled = true;
+    QString error;
+    require(issuedService.run(issuedRequest, &error), qPrintable(error));
+    const auto issuedData = loadRun(issuedOutput);
+    require(issuedCalls == 1 && issuedData.routing.physicalDaqOutputEnabled &&
+                issuedData.events.size() == 1 &&
+                issuedData.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::Issued,
+            "A Hit did not issue exactly once or persist Issued.");
+
+    QTemporaryDir missTemporary;
+    const QString missSequence = QDir(missTemporary.path()).filePath("sequence");
+    const QString missOutput = QDir(missTemporary.path()).filePath("runs");
+    require(QDir().mkpath(missOutput), "Could not create miss output.");
+    const QString missManifest = makeSequence(missSequence, 2, {1, 2});
+    FakeDetector missDetector;
+    missDetector.results = {detection(true, true, 2.0f),
+                            detection(false, false, 0.0f)};
+    sequence_test::ModelProvider missModel = [](QString*) {
+        sequence_test::PreparedModel model;
+        model.snapshot = {
+            QStringLiteral("model-id"), QStringLiteral("Model"),
+            QString(64, QLatin1Char('b')),
+            {{QStringLiteral("c0"), QStringLiteral("Class 0")},
+             {QStringLiteral("c1"), QStringLiteral("Class 1")}}};
+        model.classify = [](const cv::Mat&, QString*) {
+            return std::optional<sequence_test::ModelInferenceResult>{
+                sequence_test::ModelInferenceResult{{0.9, 0.1}}};
+        };
+        return std::optional(model);
+    };
+    OperationCoordinator missOperations;
+    int missPulseCalls = 0;
+    sequence_test::SequenceTestService missService(
+        missOperations, missDetector, nullptr, missModel,
+        [&](bool, QString*) {
+            ++missPulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [](QString*) { return true; });
+    auto missRequest = request(missManifest, missOutput);
+    missRequest.triggerMode = run::TriggerMode::ClassBased;
+    missRequest.useActiveModel = true;
+    missRequest.hitClassId = QStringLiteral("c1");
+    missRequest.physicalDaqOutputEnabled = true;
+    require(missService.run(missRequest, &error), qPrintable(error));
+    const auto missData = loadRun(missOutput);
+    require(missPulseCalls == 0 && missData.events.size() == 1 &&
+                missData.events.at(0).decision == run::Route::Waste &&
+                missData.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::NotRequested,
+            "A Waste decision issued DAQ output or persisted the wrong status.");
+
+    QTemporaryDir suppressedTemporary;
+    const QString suppressedSequence =
+        QDir(suppressedTemporary.path()).filePath("sequence");
+    const QString suppressedOutput =
+        QDir(suppressedTemporary.path()).filePath("runs");
+    require(QDir().mkpath(suppressedOutput), "Could not create suppressed output.");
+    const QString suppressedManifest =
+        makeSequence(suppressedSequence, 2, {1, 2});
+    FakeDetector suppressedDetector;
+    suppressedDetector.results = {detection(true, true, 2.0f),
+                                  detection(false, false, 0.0f)};
+    OperationCoordinator suppressedOperations;
+    int suppressedCalls = 0;
+    sequence_test::SequenceTestService suppressedService(
+        suppressedOperations, suppressedDetector, nullptr, {},
+        [&](bool, QString* diagnostic) {
+            ++suppressedCalls;
+            if (diagnostic)
+                *diagnostic = QStringLiteral("Injected output interlock.");
+            return run::DaqPulseStatus::SuppressedNotIssued;
+        },
+        [](QString*) { return true; });
+    auto suppressedRequest = request(suppressedManifest, suppressedOutput);
+    suppressedRequest.physicalDaqOutputEnabled = true;
+    QString capturedWarning;
+    suppressedDaqWarning = &capturedWarning;
+    const QtMessageHandler previousHandler =
+        qInstallMessageHandler(captureSuppressedDaqWarning);
+    const bool suppressedResult =
+        suppressedService.run(suppressedRequest, &error);
+    qInstallMessageHandler(previousHandler);
+    suppressedDaqWarning = nullptr;
+    const auto suppressedData = loadRun(suppressedOutput);
+    require(suppressedResult && suppressedCalls == 1 &&
+                capturedWarning.contains(QStringLiteral("Injected output interlock")) &&
+                suppressedData.events.size() == 1 &&
+                suppressedData.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::SuppressedNotIssued,
+            "Callback suppression did not persist status and surface its reason.");
+}
+
+void daqFailureStopsTruthfully() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create DAQ-failure output.");
+    const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
+    FakeDetector detector;
+    detector.results = {detection(true, true, 2.0f),
+                        detection(false, false, 0.0f)};
+    OperationCoordinator operations;
+    int pulseCalls = 0;
+    sequence_test::SequenceTestService service(
+        operations, detector, nullptr, {},
+        [&](bool, QString* diagnostic) {
+            ++pulseCalls;
+            if (diagnostic)
+                *diagnostic = QStringLiteral("Injected DAQ fire failure.");
+            return run::DaqPulseStatus::Failed;
+        },
+        [](QString*) { return true; });
+    auto value = request(manifest, output);
+    value.physicalDaqOutputEnabled = true;
+    QString error;
+    require(!service.run(value, &error) &&
+                error.contains(QStringLiteral("Injected DAQ fire failure")) &&
+                pulseCalls == 1 && !operations.snapshot().kind,
+            "DAQ failure did not stop safely with the callback diagnostic.");
+    const auto data = loadRun(output);
+    require(data.status == run::RunStatus::Failed &&
+                data.stopReason == QStringLiteral("daq_pulse_failed") &&
+                data.events.size() == 1 &&
+                data.events.at(0).daqPulseStatus == run::DaqPulseStatus::Failed,
+            "DAQ failure did not persist a failed event and factual Run summary.");
+    auto releasedDaq = operations.acquireMomentary(ResourceLock::Daq);
+    require(releasedDaq.acquired(), "DAQ failure retained the DAQ lease.");
+    releasedDaq.lease.release();
+}
+
+void daqStopPreventsOutputAndReleases() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create DAQ-stop output.");
+    const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
+    FakeDetector detector;
+    detector.results = {detection(true, true, 2.0f),
+                        detection(false, false, 0.0f)};
+    OperationCoordinator operations;
+    std::mutex mutex;
+    std::condition_variable enteredCondition;
+    std::condition_variable releaseCondition;
+    bool entered = false;
+    bool release = false;
+    detector.onProcess = [&](int) {
+        std::unique_lock lock(mutex);
+        entered = true;
+        enteredCondition.notify_one();
+        releaseCondition.wait(lock, [&] { return release; });
+    };
+    int pulseCalls = 0;
+    sequence_test::SequenceTestService service(
+        operations, detector, nullptr, {},
+        [&](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [](QString*) { return true; });
+    auto value = request(manifest, output);
+    value.physicalDaqOutputEnabled = true;
+    bool result = false;
+    QString error;
+    std::thread worker([&] { result = service.run(value, &error); });
+    {
+        std::unique_lock lock(mutex);
+        enteredCondition.wait(lock, [&] { return entered; });
+    }
+    const auto active = operations.snapshot();
+    require(active.kind == OperationKind::SequenceTest &&
+                active.locks.testFlag(ResourceLock::Daq),
+            "Physical Sequence Test did not hold the DAQ lease while active.");
+    service.requestStop();
+    {
+        std::lock_guard lock(mutex);
+        release = true;
+    }
+    releaseCondition.notify_one();
+    worker.join();
+    require(result && pulseCalls == 0 &&
+                loadRun(output).status == run::RunStatus::Interrupted &&
+                !operations.snapshot().kind,
+            "Stop allowed new output, reported success, or retained the operation.");
+    auto releasedDaq = operations.acquireMomentary(ResourceLock::Daq);
+    require(releasedDaq.acquired(), "Stop retained the DAQ lease.");
+    releasedDaq.lease.release();
+}
+
+void stopDuringStartupIsNotCleared() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create startup-stop output.");
+    const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
+    FakeDetector detector;
+    detector.results = {detection(true, true, 2.0f),
+                        detection(false, false, 0.0f)};
+    OperationCoordinator operations;
+    std::mutex mutex;
+    std::condition_variable gateEnteredCondition;
+    std::condition_variable releaseGateCondition;
+    bool gateEntered = false;
+    bool releaseGate = false;
+    int pulseCalls = 0;
+    sequence_test::SequenceTestService service(
+        operations, detector, nullptr, {},
+        [&](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [&](QString*) {
+            std::unique_lock lock(mutex);
+            gateEntered = true;
+            gateEnteredCondition.notify_one();
+            releaseGateCondition.wait(lock, [&] { return releaseGate; });
+            return true;
+        });
+    auto value = request(manifest, output);
+    value.physicalDaqOutputEnabled = true;
+    bool result = false;
+    QString error;
+    std::thread worker([&] { result = service.run(value, &error); });
+    {
+        std::unique_lock lock(mutex);
+        gateEnteredCondition.wait(lock, [&] { return gateEntered; });
+    }
+    service.requestStop();
+    {
+        std::lock_guard lock(mutex);
+        releaseGate = true;
+    }
+    releaseGateCondition.notify_one();
+    worker.join();
+    require(result && pulseCalls == 0 &&
+                loadRun(output).status == run::RunStatus::Interrupted &&
+                !operations.snapshot().kind,
+            "A stop accepted during startup was cleared or allowed DAQ output.");
+}
+
+void stopBeforePulseDispatchPreventsCallback() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create pre-dispatch-stop output.");
+    const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
+    FakeDetector detector;
+    detector.results = {detection(true, true, 2.0f),
+                        detection(false, false, 0.0f)};
+    std::mutex mutex;
+    std::condition_variable classifyEnteredCondition;
+    std::condition_variable releaseClassifyCondition;
+    bool classifyEntered = false;
+    bool releaseClassify = false;
+    sequence_test::ModelProvider modelProvider = [&](QString*) {
+        sequence_test::PreparedModel model;
+        model.snapshot = {
+            QStringLiteral("model-id"), QStringLiteral("Model"),
+            QString(64, QLatin1Char('c')),
+            {{QStringLiteral("c0"), QStringLiteral("Class 0")},
+             {QStringLiteral("c1"), QStringLiteral("Class 1")}}};
+        model.classify = [&](const cv::Mat&, QString*) {
+            std::unique_lock lock(mutex);
+            classifyEntered = true;
+            classifyEnteredCondition.notify_one();
+            releaseClassifyCondition.wait(lock, [&] { return releaseClassify; });
+            return std::optional<sequence_test::ModelInferenceResult>{
+                sequence_test::ModelInferenceResult{{0.1, 0.9}}};
+        };
+        return std::optional(model);
+    };
+    OperationCoordinator operations;
+    int pulseCalls = 0;
+    sequence_test::SequenceTestService service(
+        operations, detector, nullptr, modelProvider,
+        [&](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [](QString*) { return true; });
+    auto value = request(manifest, output);
+    value.triggerMode = run::TriggerMode::ClassBased;
+    value.useActiveModel = true;
+    value.hitClassId = QStringLiteral("c1");
+    value.physicalDaqOutputEnabled = true;
+    bool result = false;
+    QString error;
+    std::thread worker([&] { result = service.run(value, &error); });
+    {
+        std::unique_lock lock(mutex);
+        classifyEnteredCondition.wait(lock, [&] { return classifyEntered; });
+    }
+    service.requestStop();
+    {
+        std::lock_guard lock(mutex);
+        releaseClassify = true;
+    }
+    releaseClassifyCondition.notify_one();
+    worker.join();
+    const auto data = loadRun(output);
+    require(result && pulseCalls == 0 &&
+                data.status == run::RunStatus::Interrupted &&
+                data.events.size() == 1 &&
+                data.events.at(0).decision == run::Route::Hit &&
+                data.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::SuppressedNotIssued &&
+                !operations.snapshot().kind,
+            "A stop accepted before pulse dispatch allowed a later callback.");
+}
+
 void artifactDamageFails() {
     QTemporaryDir temporary;
     const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
@@ -329,10 +771,6 @@ void rejectsUnsafeRequests() {
     OperationCoordinator operations;
     sequence_test::SequenceTestService service(operations, detector, nullptr);
     QString error;
-    auto physical = request(manifest, output);
-    physical.physicalDaqOutputEnabled = true;
-    require(!service.run(physical, &error) && !operations.snapshot().kind,
-            "Physical DAQ request was not rejected before lock acquisition.");
     auto classBased = request(manifest, output);
     classBased.triggerMode = run::TriggerMode::ClassBased;
     classBased.hitClassId = QStringLiteral("c0");
@@ -424,6 +862,13 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     noModelEveryDroplet();
     classBasedModel();
+    daqOffRequiresNoReadinessOrOwnership();
+    daqOnPreflightAndLockConflict();
+    daqHitMissAndSuppressionStatuses();
+    daqFailureStopsTruthfully();
+    daqStopPreventsOutputAndReleases();
+    stopDuringStartupIsNotCleared();
+    stopBeforePulseDispatchPreventsCallback();
     artifactDamageFails();
     stopAndSingleRunGuard();
     rejectsUnsafeRequests();

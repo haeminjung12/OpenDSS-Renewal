@@ -5,9 +5,11 @@
 #include <QJsonObject>
 #include <QString>
 
-#include <atomic>
+#include <condition_variable>
 #include <functional>
+#include <mutex>
 #include <optional>
+#include <thread>
 
 #include <opencv2/core.hpp>
 
@@ -30,6 +32,8 @@ struct PreparedModel {
 };
 
 using ModelProvider = std::function<std::optional<PreparedModel>(QString*)>;
+using HitPulseCallback = std::function<run::DaqPulseStatus(bool, QString*)>;
+using DaqReadinessGate = std::function<bool(QString*)>;
 
 struct SequenceTestRequest {
     QString sequenceJson;
@@ -56,7 +60,9 @@ public:
     SequenceTestService(OperationCoordinator& operations,
                         IDropletDetector& detector,
                         ModelLoadService* modelLoader,
-                        ModelProvider modelProvider = {});
+                        ModelProvider modelProvider = {},
+                        HitPulseCallback hitPulse = {},
+                        DaqReadinessGate daqReadinessGate = {});
 
     bool run(const SequenceTestRequest& request, QString* error = nullptr);
     void requestStop() noexcept;
@@ -66,8 +72,15 @@ private:
     IDropletDetector& detector_;
     ModelLoadService* modelLoader_;
     ModelProvider modelProvider_;
-    std::atomic_bool running_{false};
-    std::atomic_bool stopRequested_{false};
+    HitPulseCallback hitPulse_;
+    DaqReadinessGate daqReadinessGate_;
+    std::mutex controlMutex_;
+    std::condition_variable pulseFinished_;
+    bool running_ = false;
+    bool acceptingStop_ = false;
+    bool stopRequested_ = false;
+    bool pulseInFlight_ = false;
+    std::thread::id pulseThread_;
 };
 
 } // namespace desktop_app::v2::sequence_test

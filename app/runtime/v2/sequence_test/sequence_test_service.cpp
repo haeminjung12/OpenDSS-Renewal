@@ -161,11 +161,18 @@ struct PendingEvent {
 
 class RunningGuard final {
 public:
-    explicit RunningGuard(std::atomic_bool& running) : running_(running) {}
-    ~RunningGuard() { running_.store(false, std::memory_order_release); }
+    RunningGuard(std::mutex& mutex, bool& running, bool& acceptingStop)
+        : mutex_(mutex), running_(running), acceptingStop_(acceptingStop) {}
+    ~RunningGuard() {
+        std::lock_guard lock(mutex_);
+        acceptingStop_ = false;
+        running_ = false;
+    }
 
 private:
-    std::atomic_bool& running_;
+    std::mutex& mutex_;
+    bool& running_;
+    bool& acceptingStop_;
 };
 
 } // namespace
@@ -173,25 +180,45 @@ private:
 SequenceTestService::SequenceTestService(OperationCoordinator& operations,
                                          IDropletDetector& detector,
                                          ModelLoadService* modelLoader,
-                                         ModelProvider modelProvider)
+                                         ModelProvider modelProvider,
+                                         HitPulseCallback hitPulse,
+                                         DaqReadinessGate daqReadinessGate)
     : operations_(operations),
       detector_(detector),
       modelLoader_(modelLoader),
-      modelProvider_(std::move(modelProvider)) {}
+      modelProvider_(std::move(modelProvider)),
+      hitPulse_(std::move(hitPulse)),
+      daqReadinessGate_(std::move(daqReadinessGate)) {}
 
 void SequenceTestService::requestStop() noexcept {
-    stopRequested_.store(true, std::memory_order_release);
+    std::unique_lock lock(controlMutex_);
+    // Calls outside the active run's stop-accepting interval are no-ops.
+    if (!running_ || !acceptingStop_)
+        return;
+    stopRequested_ = true;
+    // A reserved pulse precedes this stop. Wait for it unless the callback
+    // requested the stop itself; no later pulse can reserve after the flag is set.
+    if (pulseInFlight_ && pulseThread_ != std::this_thread::get_id())
+        pulseFinished_.wait(lock, [&] { return !pulseInFlight_; });
 }
 
 bool SequenceTestService::run(const SequenceTestRequest& request, QString* error) {
     setError(error, {});
-    bool expected = false;
-    if (!running_.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
-        setError(error, QStringLiteral("This Sequence Test is already running."));
-        return false;
+    {
+        std::lock_guard lock(controlMutex_);
+        if (running_) {
+            setError(error, QStringLiteral("This Sequence Test is already running."));
+            return false;
+        }
+        running_ = true;
+        acceptingStop_ = true;
+        stopRequested_ = false;
     }
-    RunningGuard runningGuard(running_);
-    stopRequested_.store(false, std::memory_order_release);
+    RunningGuard runningGuard(controlMutex_, running_, acceptingStop_);
+    const auto stopRequested = [&] {
+        std::lock_guard lock(controlMutex_);
+        return stopRequested_;
+    };
     std::optional<run::RunWriterV2> writer;
     OperationLease lease;
     QElapsedTimer elapsed;
@@ -219,10 +246,6 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     };
 
     try {
-    if (request.physicalDaqOutputEnabled) {
-        setError(error, QStringLiteral("Physical DAQ Output is not available in this Sequence Test."));
-        return false;
-    }
     if (!std::isfinite(request.requestedProcessingFps) ||
         request.requestedProcessingFps <= 0.0) {
         setError(error, QStringLiteral("Requested Processing FPS must be finite and positive."));
@@ -252,6 +275,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
 
     ResourceLocks locks =
         ResourceLock::Sequence | ResourceLock::Run | ResourceLock::Storage;
+    if (request.physicalDaqOutputEnabled)
+        locks |= ResourceLock::Daq;
     if (useModel)
         locks |= ResourceLock::Model;
     auto acquired = operations_.acquire(OperationKind::SequenceTest, locks);
@@ -261,12 +286,33 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         return false;
     }
     lease = std::move(acquired.lease);
+
+    QString localError;
+    if (request.physicalDaqOutputEnabled) {
+        bool daqReady = false;
+        try {
+            daqReady = daqReadinessGate_ && daqReadinessGate_(&localError);
+        } catch (const std::exception& exception) {
+            localError =
+                QStringLiteral("DAQ readiness check failed: %1").arg(exception.what());
+        } catch (...) {
+            localError = QStringLiteral("DAQ readiness check failed.");
+        }
+        if (!daqReady || !hitPulse_) {
+            lease.transition(OperationLifecycle::Failed);
+            setError(error,
+                     !daqReady
+                         ? (localError.isEmpty() ? QStringLiteral("DAQ is not ready.")
+                                                 : localError)
+                         : QStringLiteral("DAQ Hit output is not configured."));
+            return false;
+        }
+    }
     if (!lease.transition(OperationLifecycle::Running)) {
         setError(error, QStringLiteral("Sequence Test could not enter Running state."));
         return false;
     }
 
-    QString localError;
     auto sequence = sequence::SequenceManifestV2::load(request.sequenceJson, &localError);
     if (!sequence) {
         lease.transition(OperationLifecycle::Failed);
@@ -323,7 +369,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                            QStringLiteral("source/sequence.json")};
     if (model)
         data.model = model->snapshot;
-    data.routing = {request.triggerMode, request.hitClassId, false};
+    data.routing = {request.triggerMode, request.hitClassId,
+                    request.physicalDaqOutputEnabled};
     data.cameraSettings = request.cameraSettings;
     data.detectorSettings = request.detectorSettings;
     data.cropSettings = request.cropSettings;
@@ -370,7 +417,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     const QString sequenceFolder = QFileInfo(request.sequenceJson).absolutePath();
     bool processingOk = true;
     for (qint64 frameIndex = 1; frameIndex <= sequenceData.frameCount; ++frameIndex) {
-        if (stopRequested_.load(std::memory_order_acquire))
+        if (stopRequested())
             break;
         const QString framePath =
             QDir(sequenceFolder)
@@ -403,6 +450,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                       image.bytesPerLine());
         const DropletDetectionFrame detection = detector_.processFrame(frame);
         ++readableFrames;
+        if (stopRequested())
+            break;
 
         if (detection.eventEntered) {
             if (!finalizePending()) {
@@ -462,10 +511,85 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                 break;
             }
             pending->event.decision = *decision;
-            pending->event.daqPulseStatus =
-                *decision == run::Route::Hit
-                    ? run::DaqPulseStatus::SuppressedNotIssued
-                    : run::DaqPulseStatus::NotRequested;
+            if (*decision == run::Route::Waste) {
+                pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
+            } else if (!request.physicalDaqOutputEnabled) {
+                pending->event.daqPulseStatus =
+                    run::DaqPulseStatus::SuppressedNotIssued;
+            } else {
+                localError.clear();
+                bool dispatchPulse = false;
+                {
+                    std::lock_guard lock(controlMutex_);
+                    if (!stopRequested_) {
+                        pulseInFlight_ = true;
+                        pulseThread_ = std::this_thread::get_id();
+                        dispatchPulse = true;
+                    }
+                }
+                if (!dispatchPulse) {
+                    localError =
+                        QStringLiteral("Stop was requested before DAQ Hit output dispatch.");
+                    pending->event.daqPulseStatus =
+                        run::DaqPulseStatus::SuppressedNotIssued;
+                    qWarning().noquote()
+                        << "Sequence Test DAQ Hit output suppressed:" << localError;
+                    if (detection.detected)
+                        pending->route.addSample(detection.centroid.y);
+                    if (!finalizePending())
+                        processingOk = false;
+                    break;
+                }
+                run::DaqPulseStatus pulseStatus = run::DaqPulseStatus::Failed;
+                try {
+                    pulseStatus = hitPulse_(true, &localError);
+                } catch (const std::exception& exception) {
+                    localError =
+                        QStringLiteral("DAQ Hit output failed: %1").arg(exception.what());
+                } catch (...) {
+                    localError = QStringLiteral("DAQ Hit output failed.");
+                }
+                {
+                    std::lock_guard lock(controlMutex_);
+                    pulseInFlight_ = false;
+                    pulseThread_ = {};
+                }
+                pulseFinished_.notify_all();
+                if (pulseStatus != run::DaqPulseStatus::Issued &&
+                    pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
+                    pulseStatus != run::DaqPulseStatus::Failed) {
+                    pulseStatus = run::DaqPulseStatus::Failed;
+                    localError =
+                        QStringLiteral("DAQ Hit output returned an invalid status.");
+                } else if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued &&
+                           localError.trimmed().isEmpty()) {
+                    pulseStatus = run::DaqPulseStatus::Failed;
+                    localError =
+                        QStringLiteral("DAQ Hit output was suppressed without a reason.");
+                }
+                pending->event.daqPulseStatus = pulseStatus;
+                if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued) {
+                    qWarning().noquote()
+                        << "Sequence Test DAQ Hit output suppressed:" << localError;
+                } else if (pulseStatus == run::DaqPulseStatus::Failed) {
+                    const QString pulseError =
+                        localError.isEmpty()
+                            ? QStringLiteral("The Sequence Test DAQ Hit output failed.")
+                            : localError;
+                    if (detection.detected)
+                        pending->route.addSample(detection.centroid.y);
+                    if (!finalizePending() && localError.isEmpty())
+                        localError =
+                            QStringLiteral("The failed DAQ event could not be persisted.");
+                    if (localError.isEmpty())
+                        localError = pulseError;
+                    else if (localError != pulseError)
+                        localError = pulseError + QStringLiteral(" ") + localError;
+                    failureReason = QStringLiteral("daq_pulse_failed");
+                    processingOk = false;
+                    break;
+                }
+            }
         } else if (!detection.detected && !finalizePending()) {
             processingOk = false;
             break;
@@ -476,7 +600,12 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     if (processingOk && !finalizePending())
         processingOk = false;
 
-    const bool stopped = stopRequested_.load(std::memory_order_acquire);
+    bool stopped = false;
+    {
+        std::lock_guard lock(controlMutex_);
+        stopped = stopRequested_;
+        acceptingStop_ = false;
+    }
     const double seconds = static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0;
     const double achievedFps =
         seconds > 0.0 && readableFrames > 0 ? readableFrames / seconds : 0.0;

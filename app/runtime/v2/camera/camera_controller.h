@@ -3,6 +3,7 @@
 #include "camera_device.h"
 
 #include <QObject>
+#include <QMutex>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
@@ -93,7 +94,8 @@ signals:
 private:
     bool request(void (CameraController::*signal)());
     void updateState(int status, const QString &deviceId, const QString &fault);
-    void updateFrame(CameraFrame frame);
+    void acceptFrame(CameraFrame frame);
+    void updateFrame();
     void updateConfiguration(bool available, CameraAppliedSettings appliedSettings);
     bool requestConfiguration(CameraAppliedSettings requested);
     void setError(const QString &error);
@@ -118,6 +120,9 @@ private:
     int previewLutMaximum_ = 255;
     QTimer previewPublishTimer_;
     quint64 pendingPreviewRevision_ = 0;
+    QMutex pendingPreviewFrameMutex_;
+    std::optional<CameraFrame> pendingPreviewFrame_;
+    bool previewDeliveryQueued_ = false;
 };
 
 } // namespace desktop_app::v2

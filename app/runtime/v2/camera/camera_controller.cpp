@@ -8,6 +8,8 @@
 #include <cmath>
 
 #include <QEventLoop>
+#include <QMetaObject>
+#include <QMutexLocker>
 #include <QTimer>
 
 namespace desktop_app::v2 {
@@ -81,7 +83,7 @@ CameraController::CameraController(CameraService &service,
     connect(&service_, &CameraService::stateChanged,
             this, &CameraController::updateState, Qt::QueuedConnection);
     connect(&service_, &CameraService::frameReady,
-            this, &CameraController::updateFrame, Qt::QueuedConnection);
+            this, &CameraController::acceptFrame, Qt::DirectConnection);
     connect(&service_, &CameraService::frameError,
             this, &CameraController::setError, Qt::QueuedConnection);
     connect(&service_, &CameraService::configurationChanged,
@@ -442,6 +444,11 @@ void CameraController::updateState(int status, const QString &deviceId,
         hasFrame_ = false;
         latestDeliveryId_ = 0;
         pendingPreviewRevision_ = 0;
+        {
+            QMutexLocker locker(&pendingPreviewFrameMutex_);
+            pendingPreviewFrame_.reset();
+            previewDeliveryQueued_ = false;
+        }
         previewPublishTimer_.stop();
         if (!previewSource_.isEmpty()) {
             previewSource_.clear();
@@ -472,12 +479,43 @@ void CameraController::updateConfiguration(bool available,
         emit stateChanged();
 }
 
-void CameraController::updateFrame(CameraFrame frame)
+void CameraController::acceptFrame(CameraFrame frame)
 {
+    emit frameReady(frame);
+
+    bool queueDelivery = false;
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        pendingPreviewFrame_ = std::move(frame);
+        if (!previewDeliveryQueued_) {
+            previewDeliveryQueued_ = true;
+            queueDelivery = true;
+        }
+    }
+    if (queueDelivery) {
+        QMetaObject::invokeMethod(this, [this] { updateFrame(); },
+                                  Qt::QueuedConnection);
+    }
+}
+
+void CameraController::updateFrame()
+{
+    std::optional<CameraFrame> frame;
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        if (!pendingPreviewFrame_) {
+            previewDeliveryQueued_ = false;
+            return;
+        }
+        frame = std::move(pendingPreviewFrame_);
+        pendingPreviewFrame_.reset();
+        previewDeliveryQueued_ = false;
+    }
+
     setError({});
-    latestDeliveryId_ = frame.deliveryId;
+    latestDeliveryId_ = frame->deliveryId;
     hasFrame_ = true;
-    const quint64 revision = previewProvider_.updateFrame(frame);
+    const quint64 revision = previewProvider_.updateFrame(std::move(*frame));
     if (previewPublishTimer_.isActive()) {
         pendingPreviewRevision_ = revision;
     } else {
@@ -486,7 +524,6 @@ void CameraController::updateFrame(CameraFrame frame)
         emit previewSourceChanged();
         previewPublishTimer_.start();
     }
-    emit frameReady(std::move(frame));
 }
 
 void CameraController::setError(const QString &error)

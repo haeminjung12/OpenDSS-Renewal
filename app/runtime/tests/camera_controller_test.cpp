@@ -9,6 +9,7 @@
 #include <QSignalSpy>
 #include <QThread>
 #include <QTimer>
+#include <QVector>
 
 #include <atomic>
 
@@ -241,6 +242,65 @@ int main(int argc, char **argv)
     const QImage preview = provider.requestImage(QStringLiteral("frame"), nullptr, {});
     ok &= check(!preview.isNull() && preview.size() == QSize(2, 1),
                 "Controller frames must immediately feed the preview provider.");
+
+    bool blankPreviewWhileStreaming = false;
+    QObject::connect(&controller, &CameraController::previewSourceChanged,
+                     &controller, [&] {
+        blankPreviewWhileStreaming |= controller.streaming()
+            && controller.previewSource().isEmpty();
+    });
+    const int previewSignalsBeforeBurst = previewSpy.count();
+    const int frameSignalsBeforeBurst = frameSpy.count();
+    constexpr quint64 firstBurstDeliveryId = 100000;
+    constexpr int burstFrameCount = 128;
+    QVector<quint64> burstFrameIds;
+    QObject::connect(&controller, &CameraController::frameReady, service,
+                     [&burstFrameIds](const CameraFrame &frame) {
+        if (frame.deliveryId >= firstBurstDeliveryId
+            && frame.deliveryId < firstBurstDeliveryId + burstFrameCount) {
+            burstFrameIds.append(frame.deliveryId);
+        }
+    }, Qt::DirectConnection);
+    const bool burstQueued = QMetaObject::invokeMethod(service, [service, fake] {
+        fake->delivery = firstBurstDeliveryId;
+        for (int index = 0; index < burstFrameCount; ++index) {
+            CameraFrame frame;
+            frame.pixelFormat = CameraPixelFormat::Mono8;
+            frame.width = 2;
+            frame.height = 1;
+            frame.rowBytes = 2;
+            frame.bitDepth = 8;
+            frame.deliveryId = firstBurstDeliveryId + index;
+            frame.monotonicTimestampNs = static_cast<qint64>(frame.deliveryId * 100);
+            frame.bytes = index == burstFrameCount - 1
+                ? QByteArray::fromHex("00ff")
+                : QByteArray::fromHex("1122");
+            emit service->frameReady(std::move(frame));
+        }
+        fake->delivery = firstBurstDeliveryId + burstFrameCount;
+    }, Qt::BlockingQueuedConnection);
+    QCoreApplication::processEvents();
+    const QImage burstPreview =
+        provider.requestImage(QStringLiteral("frame"), nullptr, {});
+    const int burstFrameSignals = frameSpy.count() - frameSignalsBeforeBurst;
+    const int burstPreviewSignals = previewSpy.count() - previewSignalsBeforeBurst;
+    bool burstFrameOrderPreserved = burstFrameIds.size() == burstFrameCount;
+    for (int index = 0; burstFrameOrderPreserved && index < burstFrameCount; ++index)
+        burstFrameOrderPreserved = burstFrameIds.at(index)
+            == firstBurstDeliveryId + index;
+    const bool burstCorrect = burstQueued
+        && burstFrameSignals == burstFrameCount
+        && burstFrameOrderPreserved
+        && controller.latestDeliveryId() == firstBurstDeliveryId + burstFrameCount - 1
+        && burstPreviewSignals <= 1
+        && !burstPreview.isNull()
+        && burstPreview.constScanLine(0)[0] == 0
+        && burstPreview.constScanLine(0)[1] == 255
+        && !controller.previewSource().isEmpty() && !blankPreviewWhileStreaming;
+    ok &= check(burstCorrect,
+                "A producer burst must retain every ordered frameReady signal while "
+                "coalescing preview delivery to the newest nonblank frame.");
+
     const QString previewBeforeLut = controller.previewSource();
     controller.setPreviewLutRange(20, 30);
     const QImage lutPreview =

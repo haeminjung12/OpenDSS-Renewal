@@ -2,6 +2,7 @@
 
 #include "../run/run_manifest_v2.h"
 
+#include <QByteArray>
 #include <QImage>
 #include <QJsonObject>
 #include <QString>
@@ -59,6 +60,7 @@ using ProgressCallback = std::function<void(const SequenceTestProgress&)>;
 
 struct SequenceTestRequest {
     QString sequenceJson;
+    QByteArray frozenManifestBytes;
     std::shared_ptr<const LoadedSequence> loadedSequence;
     QString outputRoot;
     QString runName;

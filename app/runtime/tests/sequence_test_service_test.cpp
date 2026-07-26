@@ -91,6 +91,12 @@ QByteArray hashFile(const QString& path) {
     return QCryptographicHash::hash(file.readAll(), QCryptographicHash::Sha256);
 }
 
+QByteArray fileBytes(const QString& path) {
+    QFile file(path);
+    require(file.open(QIODevice::ReadOnly), "Could not read fixture.");
+    return file.readAll();
+}
+
 QString makeSequence(const QString& root, qint64 frameCount,
                      const QVector<qint64>& validFrames) {
     require(QDir().mkpath(QDir(root).filePath("frames")), "Could not create frames.");
@@ -147,8 +153,10 @@ sequence_test::SequenceTestRequest request(const QString& sequence,
                                            const QString& output) {
     sequence_test::SequenceTestRequest value;
     value.sequenceJson = sequence;
-    if (QFileInfo(sequence).isFile())
+    if (QFileInfo(sequence).isFile()) {
+        value.frozenManifestBytes = fileBytes(sequence);
         value.loadedSequence = loadSequenceBuffer(sequence);
+    }
     value.outputRoot = output;
     value.runName = QStringLiteral("Run");
     value.triggerMode = run::TriggerMode::EveryDroplet;
@@ -756,6 +764,61 @@ void loadedBufferValidationAndNoDiskReread() {
             "Loaded Sequence source mismatch was accepted.");
 }
 
+void frozenManifestSurvivesCompatiblePathMutation() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create frozen-manifest output.");
+    const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
+
+    QString error;
+    const auto accepted =
+        sequence::SequenceManifestV2::load(manifest, &error);
+    require(accepted.has_value(), qPrintable(error));
+    auto value = request(manifest, output);
+    value.experimentType = accepted->data().experimentType;
+    value.notes = accepted->data().notes;
+    value.cameraSettings = accepted->data().cameraSettings;
+    value.requestedProcessingFps = accepted->data().nominalFps;
+
+    auto mutated = accepted->data();
+    mutated.name = QStringLiteral("Mutated Live Name");
+    mutated.experimentType = QStringLiteral("mutated-experiment");
+    mutated.notes = QStringLiteral("mutated-notes");
+    mutated.cameraSettings = {{QStringLiteral("mutated"), true}};
+    mutated.nominalFps = 1.0;
+    require(sequence::SequenceManifestV2::save(manifest, mutated, &error),
+            qPrintable(error));
+    require(fileBytes(manifest) != value.frozenManifestBytes,
+            "Compatible mutation did not change live manifest bytes.");
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    sequence_test::SequenceTestService service(operations, detector, nullptr);
+    require(service.run(value, &error), qPrintable(error));
+
+    const QString archivedPath =
+        QDir(output).filePath(QStringLiteral("Run/source/sequence.json"));
+    const auto data = loadRun(output);
+    const auto archived =
+        sequence::SequenceManifestV2::load(archivedPath, &error);
+    require(archived.has_value(), qPrintable(error));
+    require(data.status == run::RunStatus::Completed &&
+                data.sourceSequence.name == QStringLiteral("Sequence") &&
+                data.experimentType == accepted->data().experimentType &&
+                data.notes == accepted->data().notes &&
+                data.cameraSettings == accepted->data().cameraSettings &&
+                data.requestedProcessingFps ==
+                    accepted->data().nominalFps &&
+                archived->data().name == QStringLiteral("Sequence") &&
+                archived->data().nominalFps ==
+                    accepted->data().nominalFps &&
+                archived->data().cameraSettings ==
+                    accepted->data().cameraSettings &&
+                fileBytes(archivedPath) == value.frozenManifestBytes,
+            "Live manifest mutation changed processing facts or archived provenance.");
+}
+
 void progressReportsTruthAndSurvivesObserver() {
     QTemporaryDir temporary;
     const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
@@ -1018,6 +1081,7 @@ int main(int argc, char** argv) {
     stopDuringStartupIsNotCleared();
     stopBeforePulseDispatchPreventsCallback();
     loadedBufferValidationAndNoDiskReread();
+    frozenManifestSurvivesCompatiblePathMutation();
     progressReportsTruthAndSurvivesObserver();
     stopAndSingleRunGuard();
     rejectsUnsafeRequests();

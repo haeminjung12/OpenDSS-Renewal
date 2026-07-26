@@ -20,6 +20,7 @@
 #include <QImageWriter>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QTemporaryFile>
 #include <QUuid>
 
 #include <algorithm>
@@ -87,6 +88,52 @@ std::optional<QString> metadataModelName(const QString& path, QString* error) {
         return std::nullopt;
     }
     return name;
+}
+
+std::optional<sequence::SequenceManifestV2>
+loadFrozenManifest(const QByteArray& bytes, QString* error) {
+    if (bytes.isEmpty()) {
+        setError(error,
+                 QStringLiteral("Frozen Sequence manifest bytes are missing."));
+        return std::nullopt;
+    }
+    QTemporaryFile file;
+    if (!file.open() || file.write(bytes) != bytes.size() || !file.flush()) {
+        setError(error,
+                 QStringLiteral("Could not validate the frozen Sequence manifest."));
+        return std::nullopt;
+    }
+    const QString path = file.fileName();
+    file.close();
+    return sequence::SequenceManifestV2::load(path, error);
+}
+
+bool writeExactBytes(const QString& path,
+                     const QByteArray& bytes,
+                     QString* error) {
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::NewOnly)) {
+        setError(error,
+                 QStringLiteral("Could not create the Run Sequence manifest snapshot."));
+        return false;
+    }
+    qint64 written = 0;
+    while (written < bytes.size()) {
+        const qint64 count =
+            file.write(bytes.constData() + written, bytes.size() - written);
+        if (count <= 0) {
+            setError(error,
+                     QStringLiteral("Could not write the Run Sequence manifest snapshot."));
+            return false;
+        }
+        written += count;
+    }
+    if (!file.flush()) {
+        setError(error,
+                 QStringLiteral("Could not finalize the Run Sequence manifest snapshot."));
+        return false;
+    }
+    return true;
 }
 
 std::optional<PreparedModel> prepareProductionModel(ModelLoadService& loader, QString* error) {
@@ -356,7 +403,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         return false;
     }
 
-    auto sequence = sequence::SequenceManifestV2::load(request.sequenceJson, &localError);
+    auto sequence =
+        loadFrozenManifest(request.frozenManifestBytes, &localError);
     if (!sequence) {
         lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
@@ -439,14 +487,21 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         setError(error, localError);
         return false;
     }
-    QDir(runFolder).mkpath(QStringLiteral("source"));
-    if (!QFile::copy(request.sequenceJson,
-                     QDir(runFolder).filePath(QStringLiteral("source/sequence.json")))) {
+    const QString sourceFolder =
+        QDir(runFolder).filePath(QStringLiteral("source"));
+    const QString sourceManifest =
+        QDir(sourceFolder).filePath(QStringLiteral("sequence.json"));
+    if (!QDir().mkpath(sourceFolder) ||
+        !writeExactBytes(sourceManifest, request.frozenManifestBytes,
+                         &localError)) {
         writer->finalize(run::RunStatus::Failed,
                          QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
                          QStringLiteral("source_snapshot_failed"), 0.0, nullptr);
         lease.transition(OperationLifecycle::Failed);
-        setError(error, QStringLiteral("Could not snapshot the source Sequence manifest."));
+        setError(error,
+                 localError.isEmpty()
+                     ? QStringLiteral("Could not snapshot the source Sequence manifest.")
+                     : localError);
         return false;
     }
 

@@ -5,8 +5,10 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QEventLoop>
 #include <QSignalSpy>
 #include <QThread>
+#include <QTimer>
 
 #include <atomic>
 
@@ -134,6 +136,7 @@ int main(int argc, char **argv)
 
     QSignalSpy busySpy(&controller, &CameraController::busyChanged);
     QSignalSpy previewSpy(&controller, &CameraController::previewSourceChanged);
+    QSignalSpy frameSpy(&controller, &CameraController::frameReady);
 
     ok &= check(controller.open() && !controller.open(),
                 "Lifecycle bools must report request acceptance, not completion.");
@@ -220,6 +223,21 @@ int main(int argc, char **argv)
     ok &= check(controller.previewSource().startsWith(
                     QStringLiteral("image://camera-preview/frame?r=")),
                 "Controller must publish a revisioned camera-preview URL.");
+    const int previewSignalsBeforeThrottleWindow = previewSpy.count();
+    const int framesBeforeThrottleWindow = frameSpy.count();
+    const quint64 deliveryBeforeThrottleWindow = controller.latestDeliveryId();
+    QEventLoop previewThrottleWait;
+    QTimer::singleShot(600, &previewThrottleWait, &QEventLoop::quit);
+    previewThrottleWait.exec();
+    const int previewSignalsInThrottleWindow =
+        previewSpy.count() - previewSignalsBeforeThrottleWindow;
+    const int framesInThrottleWindow = frameSpy.count() - framesBeforeThrottleWindow;
+    ok &= check(controller.latestDeliveryId() > deliveryBeforeThrottleWindow
+                    && previewSignalsInThrottleWindow >= 2
+                    && previewSignalsInThrottleWindow <= 3
+                    && framesInThrottleWindow > previewSignalsInThrottleWindow,
+                "High-rate acquisition must outpace bounded preview URL publication "
+                "while pending latest frames continue to reach the preview.");
     const QImage preview = provider.requestImage(QStringLiteral("frame"), nullptr, {});
     ok &= check(!preview.isNull() && preview.size() == QSize(2, 1),
                 "Controller frames must immediately feed the preview provider.");
@@ -278,8 +296,14 @@ int main(int argc, char **argv)
         stateSpy.wait(1000);
     ok &= check(controller.cameraStatus() == QStringLiteral("Unavailable")
                     && controller.error() == QStringLiteral("Camera transport failed.")
+                    && controller.previewSource().isEmpty()
                     && fake->stopCalls == 5 && fake->closeCalls == 1,
                 "A polling fault must project closed Unavailable truth through the facade.");
+    QEventLoop unavailablePreviewWait;
+    QTimer::singleShot(300, &unavailablePreviewWait, &QEventLoop::quit);
+    unavailablePreviewWait.exec();
+    ok &= check(controller.previewSource().isEmpty(),
+                "A queued preview must not reappear after Unavailable cleanup.");
     fake->failFrames = false;
     ok &= check(controller.recover() && waitForIdle(controller, busySpy)
                     && controller.cameraStatus() == QStringLiteral("Connected")

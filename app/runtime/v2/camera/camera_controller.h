@@ -5,6 +5,7 @@
 #include <QObject>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 
 #include <optional>
 
@@ -115,6 +116,8 @@ private:
     CameraAppliedSettings appliedSettings_;
     int previewLutMinimum_ = 0;
     int previewLutMaximum_ = 255;
+    QTimer previewPublishTimer_;
+    quint64 pendingPreviewRevision_ = 0;
 };
 
 } // namespace desktop_app::v2

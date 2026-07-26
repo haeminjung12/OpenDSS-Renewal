@@ -2447,6 +2447,12 @@ Item {
         compare(shell.form.liveWorkspace.hitClassControl.model[0], "MoreThanOne")
         verify(shell.form.liveWorkspace.integrityStatusText.indexOf("Queue rejections: 2") >= 0)
         verify(shell.form.liveWorkspace.sendTestPulseButton.enabled)
+        daqController.continuousWaveformActive = true
+        wait(0)
+        verify(!shell.form.liveWorkspace.sendTestPulseButton.enabled)
+        daqController.continuousWaveformActive = false
+        wait(0)
+        verify(shell.form.liveWorkspace.sendTestPulseButton.enabled)
         verify(shell.form.liveWorkspace.openProfileButton.enabled)
         verify(shell.form.liveWorkspace.saveProfileButton.enabled)
         verify(shell.form.liveWorkspace.saveProfileAsButton.enabled)

@@ -752,7 +752,7 @@ Item {
     Binding { target: screen.liveWorkspace.triggerEveryDropletControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.triggerEveryDroplet : false; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.daqOutputControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.daqOutputEnabled : false; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.recordFullImageSequenceControl; property: "checked"; value: root.liveSortingController ? root.liveSortingController.recordFullImageSequence : false; when: !!root.liveSortingController }
-    Binding { target: screen.liveWorkspace.sendTestPulseButton; property: "enabled"; value: root.daqController && root.daqController.ready && !root.realLiveOwnsOperation; when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace.sendTestPulseButton; property: "enabled"; value: root.daqController && root.daqController.ready && !root.daqController.continuousWaveformActive && !root.realLiveOwnsOperation; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace; property: "profileAvailabilityText"; value: root.liveSortingController ? root.liveSortingController.profileStatus : ""; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.openProfileButton; property: "enabled"; value: !root.realLiveOwnsOperation; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace.saveProfileButton; property: "enabled"; value: !root.realLiveOwnsOperation; when: !!root.liveSortingController }

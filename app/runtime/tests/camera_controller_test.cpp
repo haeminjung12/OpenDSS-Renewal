@@ -5,7 +5,11 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
 #include <QEventLoop>
+#include <QHash>
+#include <QMutex>
+#include <QMutexLocker>
 #include <QSignalSpy>
 #include <QThread>
 #include <QTimer>
@@ -16,6 +20,21 @@
 using namespace desktop_app::v2;
 
 namespace {
+
+struct CapturedFrame
+{
+    quint64 deliveryId = 0;
+    qint64 timestampNs = 0;
+};
+
+struct PreviewSample
+{
+    qint64 publishedAtMs = 0;
+    qint64 acceptedAtMs = -1;
+    quint64 deliveryId = 0;
+    quint64 revision = 0;
+    uchar firstPixel = 0;
+};
 
 class FakeCameraDevice final : public ICameraDevice
 {
@@ -75,13 +94,16 @@ public:
         frame.bitDepth = 8;
         frame.deliveryId = id;
         frame.monotonicTimestampNs = static_cast<qint64>(id * 100);
-        frame.bytes = QByteArray::fromHex("1122");
+        frame.bytes = movingFrames.load()
+            ? QByteArray(2, static_cast<char>(id & 1 ? 0xff : 0x00))
+            : QByteArray::fromHex("1122");
         return CameraFrameResult::Frame;
     }
 
     std::atomic_bool failStart = false;
     std::atomic_bool failFrames = false;
     std::atomic_bool rejectConfiguration = false;
+    std::atomic_bool movingFrames = false;
     std::atomic_int configurationDelayMs = 0;
     std::atomic<quint64> delivery = 1;
     CameraAppliedSettings appliedSettings = [] {
@@ -224,82 +246,84 @@ int main(int argc, char **argv)
     ok &= check(controller.previewSource().startsWith(
                     QStringLiteral("image://camera-preview/frame?r=")),
                 "Controller must publish a revisioned camera-preview URL.");
-    const int previewSignalsBeforeThrottleWindow = previewSpy.count();
-    const int framesBeforeThrottleWindow = frameSpy.count();
-    const quint64 deliveryBeforeThrottleWindow = controller.latestDeliveryId();
-    QEventLoop previewThrottleWait;
-    QTimer::singleShot(600, &previewThrottleWait, &QEventLoop::quit);
-    previewThrottleWait.exec();
-    const int previewSignalsInThrottleWindow =
-        previewSpy.count() - previewSignalsBeforeThrottleWindow;
-    const int framesInThrottleWindow = frameSpy.count() - framesBeforeThrottleWindow;
-    ok &= check(controller.latestDeliveryId() > deliveryBeforeThrottleWindow
-                    && previewSignalsInThrottleWindow >= 2
-                    && previewSignalsInThrottleWindow <= 3
-                    && framesInThrottleWindow > previewSignalsInThrottleWindow,
-                "High-rate acquisition must outpace bounded preview URL publication "
-                "while pending latest frames continue to reach the preview.");
-    const QImage preview = provider.requestImage(QStringLiteral("frame"), nullptr, {});
-    ok &= check(!preview.isNull() && preview.size() == QSize(2, 1),
-                "Controller frames must immediately feed the preview provider.");
-
     bool blankPreviewWhileStreaming = false;
-    QObject::connect(&controller, &CameraController::previewSourceChanged,
-                     &controller, [&] {
-        blankPreviewWhileStreaming |= controller.streaming()
-            && controller.previewSource().isEmpty();
-    });
-    const int previewSignalsBeforeBurst = previewSpy.count();
-    const int frameSignalsBeforeBurst = frameSpy.count();
-    constexpr quint64 firstBurstDeliveryId = 100000;
-    constexpr int burstFrameCount = 128;
-    QVector<quint64> burstFrameIds;
-    QObject::connect(&controller, &CameraController::frameReady, service,
-                     [&burstFrameIds](const CameraFrame &frame) {
-        if (frame.deliveryId >= firstBurstDeliveryId
-            && frame.deliveryId < firstBurstDeliveryId + burstFrameCount) {
-            burstFrameIds.append(frame.deliveryId);
+    QElapsedTimer stressClock;
+    QMutex acceptedFramesMutex;
+    QHash<quint64, qint64> acceptedAtMs;
+    QVector<CapturedFrame> capturedFrames;
+    QVector<PreviewSample> previewSamples;
+    fake->movingFrames = true;
+    frameSpy.clear();
+    stressClock.start();
+    const QMetaObject::Connection frameConnection = QObject::connect(
+        &controller, &CameraController::frameReady, service,
+        [&](const CameraFrame &frame) {
+            QMutexLocker locker(&acceptedFramesMutex);
+            acceptedAtMs.insert(frame.deliveryId, stressClock.elapsed());
+            capturedFrames.append({frame.deliveryId, frame.monotonicTimestampNs});
+        }, Qt::DirectConnection);
+    const QMetaObject::Connection previewConnection = QObject::connect(
+        &controller, &CameraController::previewSourceChanged, &controller, [&] {
+            const QString source = controller.previewSource();
+            blankPreviewWhileStreaming |= controller.streaming() && source.isEmpty();
+            if (source.isEmpty())
+                return;
+            const quint64 deliveryId = controller.latestDeliveryId();
+            qint64 acceptedAt = -1;
+            {
+                QMutexLocker locker(&acceptedFramesMutex);
+                acceptedAt = acceptedAtMs.value(deliveryId, -1);
+            }
+            const QImage image =
+                provider.requestImage(QStringLiteral("frame"), nullptr, {});
+            previewSamples.append({stressClock.elapsed(), acceptedAt, deliveryId,
+                                   source.mid(source.lastIndexOf(QLatin1Char('=')) + 1)
+                                       .toULongLong(),
+                                   static_cast<uchar>(image.isNull()
+                                       ? 0 : image.constScanLine(0)[0])});
+        });
+    QEventLoop previewStressWait;
+    QTimer::singleShot(1150, &previewStressWait, &QEventLoop::quit);
+    previewStressWait.exec();
+    const bool producerStopped = QMetaObject::invokeMethod(service,
+        [frameConnection, fake] {
+            QObject::disconnect(frameConnection);
+            fake->movingFrames = false;
+        }, Qt::BlockingQueuedConnection);
+    const int stressFrameSignals = frameSpy.count();
+    QObject::disconnect(previewConnection);
+    QEventLoop staticPreviewWait;
+    QTimer::singleShot(300, &staticPreviewWait, &QEventLoop::quit);
+    staticPreviewWait.exec();
+
+    bool framesOrdered = stressFrameSignals == capturedFrames.size()
+        && capturedFrames.size() >= 20;
+    for (qsizetype index = 1; framesOrdered && index < capturedFrames.size(); ++index) {
+        framesOrdered = capturedFrames.at(index - 1).deliveryId
+                < capturedFrames.at(index).deliveryId
+            && capturedFrames.at(index - 1).timestampNs
+                < capturedFrames.at(index).timestampNs;
+    }
+    bool previewsFresh = previewSamples.size() >= 4 && previewSamples.size() <= 6;
+    for (qsizetype index = 0; previewsFresh && index < previewSamples.size(); ++index) {
+        const PreviewSample &sample = previewSamples.at(index);
+        previewsFresh = sample.acceptedAtMs >= 0
+            && sample.publishedAtMs - sample.acceptedAtMs <= 350
+            && sample.firstPixel == (sample.deliveryId & 1 ? 255 : 0);
+        if (index > 0) {
+            const PreviewSample &previous = previewSamples.at(index - 1);
+            previewsFresh = previewsFresh
+                && sample.deliveryId > previous.deliveryId
+                && sample.revision == previous.revision + 1
+                && sample.publishedAtMs - previous.publishedAtMs >= 150
+                && sample.publishedAtMs - previous.publishedAtMs <= 450;
         }
-    }, Qt::DirectConnection);
-    const bool burstQueued = QMetaObject::invokeMethod(service, [service, fake] {
-        fake->delivery = firstBurstDeliveryId;
-        for (int index = 0; index < burstFrameCount; ++index) {
-            CameraFrame frame;
-            frame.pixelFormat = CameraPixelFormat::Mono8;
-            frame.width = 2;
-            frame.height = 1;
-            frame.rowBytes = 2;
-            frame.bitDepth = 8;
-            frame.deliveryId = firstBurstDeliveryId + index;
-            frame.monotonicTimestampNs = static_cast<qint64>(frame.deliveryId * 100);
-            frame.bytes = index == burstFrameCount - 1
-                ? QByteArray::fromHex("00ff")
-                : QByteArray::fromHex("1122");
-            emit service->frameReady(std::move(frame));
-        }
-        fake->delivery = firstBurstDeliveryId + burstFrameCount;
-    }, Qt::BlockingQueuedConnection);
-    QCoreApplication::processEvents();
-    const QImage burstPreview =
-        provider.requestImage(QStringLiteral("frame"), nullptr, {});
-    const int burstFrameSignals = frameSpy.count() - frameSignalsBeforeBurst;
-    const int burstPreviewSignals = previewSpy.count() - previewSignalsBeforeBurst;
-    bool burstFrameOrderPreserved = burstFrameIds.size() == burstFrameCount;
-    for (int index = 0; burstFrameOrderPreserved && index < burstFrameCount; ++index)
-        burstFrameOrderPreserved = burstFrameIds.at(index)
-            == firstBurstDeliveryId + index;
-    const bool burstCorrect = burstQueued
-        && burstFrameSignals == burstFrameCount
-        && burstFrameOrderPreserved
-        && controller.latestDeliveryId() == firstBurstDeliveryId + burstFrameCount - 1
-        && burstPreviewSignals <= 1
-        && !burstPreview.isNull()
-        && burstPreview.constScanLine(0)[0] == 0
-        && burstPreview.constScanLine(0)[1] == 255
-        && !controller.previewSource().isEmpty() && !blankPreviewWhileStreaming;
-    ok &= check(burstCorrect,
-                "A producer burst must retain every ordered frameReady signal while "
-                "coalescing preview delivery to the newest nonblank frame.");
+    }
+    ok &= check(producerStopped && framesOrdered && previewsFresh
+                    && !controller.previewSource().isEmpty()
+                    && !blankPreviewWhileStreaming,
+                "Moving high-rate frames must remain ordered while provider revisions "
+                "and fresh rendered payloads advance only at the preview cadence.");
 
     const QString previewBeforeLut = controller.previewSource();
     controller.setPreviewLutRange(20, 30);

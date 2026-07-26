@@ -90,16 +90,8 @@ CameraController::CameraController(CameraService &service,
             this, &CameraController::updateConfiguration, Qt::QueuedConnection);
     previewPublishTimer_.setSingleShot(true);
     previewPublishTimer_.setInterval(250);
-    connect(&previewPublishTimer_, &QTimer::timeout, this, [this] {
-        if (pendingPreviewRevision_ == 0)
-            return;
-        const quint64 revision = pendingPreviewRevision_;
-        pendingPreviewRevision_ = 0;
-        previewSource_ =
-            QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
-        emit previewSourceChanged();
-        previewPublishTimer_.start();
-    });
+    connect(&previewPublishTimer_, &QTimer::timeout,
+            this, &CameraController::updateFrame);
     connect(&service_, &CameraService::commandFinished, this,
             [this](bool success, const QString &error) {
                 if (pendingCustomResolutionSelected_) {
@@ -353,7 +345,6 @@ void CameraController::setPreviewLutRange(int blackLevel, int whiteLevel)
         previewProvider_.setPreviewLutRange(blackLevel, whiteLevel);
     emit previewLutChanged();
     if (hasFrame_) {
-        pendingPreviewRevision_ = 0;
         previewSource_ =
             QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
         emit previewSourceChanged();
@@ -443,7 +434,6 @@ void CameraController::updateState(int status, const QString &deviceId,
         configurationAvailable_ = false;
         hasFrame_ = false;
         latestDeliveryId_ = 0;
-        pendingPreviewRevision_ = 0;
         {
             QMutexLocker locker(&pendingPreviewFrameMutex_);
             pendingPreviewFrame_.reset();
@@ -509,21 +499,16 @@ void CameraController::updateFrame()
         }
         frame = std::move(pendingPreviewFrame_);
         pendingPreviewFrame_.reset();
-        previewDeliveryQueued_ = false;
     }
 
     setError({});
     latestDeliveryId_ = frame->deliveryId;
     hasFrame_ = true;
     const quint64 revision = previewProvider_.updateFrame(std::move(*frame));
-    if (previewPublishTimer_.isActive()) {
-        pendingPreviewRevision_ = revision;
-    } else {
-        previewSource_ =
-            QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
-        emit previewSourceChanged();
-        previewPublishTimer_.start();
-    }
+    previewSource_ =
+        QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
+    emit previewSourceChanged();
+    previewPublishTimer_.start();
 }
 
 void CameraController::setError(const QString &error)

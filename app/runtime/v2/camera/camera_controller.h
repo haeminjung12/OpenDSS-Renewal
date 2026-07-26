@@ -119,7 +119,6 @@ private:
     int previewLutMinimum_ = 0;
     int previewLutMaximum_ = 255;
     QTimer previewPublishTimer_;
-    quint64 pendingPreviewRevision_ = 0;
     QMutex pendingPreviewFrameMutex_;
     std::optional<CameraFrame> pendingPreviewFrame_;
     bool previewDeliveryQueued_ = false;

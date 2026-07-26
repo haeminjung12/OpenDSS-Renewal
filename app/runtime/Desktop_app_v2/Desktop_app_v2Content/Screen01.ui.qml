@@ -98,7 +98,14 @@ Rectangle {
     property alias cameraPreviewPlaceholder: cameraPreviewPlaceholder
     property alias cameraExposureField: cameraExposureField
     property alias cameraLutSelector: cameraLutSelector
+    property alias daqStatusText: daqStatusText
+    property alias daqDeviceText: daqDeviceText
+    property alias daqRefreshDevicesButton: daqRefreshDevicesButton
     property alias daqChannelSelector: daqChannelSelector
+    property alias daqVppSpinBox: daqVppSpinBox
+    property alias daqFrequencySpinBox: daqFrequencySpinBox
+    property alias daqEventDurationSpinBox: daqEventDurationSpinBox
+    property alias daqDecisionDelaySpinBox: daqDecisionDelaySpinBox
     property alias sequenceViewerButton: sequenceViewerButton
     property alias sequenceTestButton: sequenceTestButton
     property alias sequenceNewButton: sequenceNewButton
@@ -315,9 +322,10 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             spacing: Constants.spacing
-                            Text { text: qsTr("Status: ") + root.daqStatus + qsTr(" — mock only"); color: Constants.readyColor; font: Constants.smallFont }
+                            Text { id: daqStatusText; text: qsTr("Status: ") + root.daqStatus + qsTr(" — mock only"); color: Constants.readyColor; font: Constants.smallFont }
                             Text { text: qsTr("Device"); font: Constants.font }
-                            Text { text: root.daqDevice; font: Constants.smallFont }
+                            Text { id: daqDeviceText; text: root.daqDevice; font: Constants.smallFont }
+                            AppButton { id: daqRefreshDevicesButton; text: qsTr("Refresh Devices"); width: parent.width; height: Constants.appStandardControlHeight }
                             Rectangle {
                                 width: parent.width
                                 height: outputConfigurationContent.implicitHeight + Constants.spacing * 2

@@ -14,11 +14,24 @@ Rectangle {
     property int currentFrame: 0
     property int totalFrames: 0
     property url currentFrameSource: ""
+    property real zoomScale: 1.0
+    property bool actualSize: false
+    property int nativeImageWidth: 0
+    property int nativeImageHeight: 0
 
     property alias openSequenceButton: openSequenceButton
+    property alias jumpBack50Button: jumpBack50Button
+    property alias jumpBack10Button: jumpBack10Button
     property alias previousButton: previousButton
     property alias nextButton: nextButton
+    property alias jumpForward10Button: jumpForward10Button
+    property alias jumpForward50Button: jumpForward50Button
+    property alias frameSlider: frameSlider
     property alias directSeekField: directSeekField
+    property alias zoomOutButton: zoomOutButton
+    property alias zoomInButton: zoomInButton
+    property alias fitButton: fitButton
+    property alias actualSizeButton: actualSizeButton
 
     Column {
         anchors.fill: parent
@@ -39,15 +52,33 @@ Rectangle {
             color: Constants.viewerColor
             border.color: Constants.borderColor
             focus: true
-            Image {
+            clip: true
+            Flickable {
+                id: viewerViewport
                 anchors.fill: parent
-                source: root.currentFrameSource
-                sourceSize.width: width
-                sourceSize.height: height
-                fillMode: Image.PreserveAspectFit
-                asynchronous: true
-                cache: false
-                visible: root.currentFrameSource !== ""
+                clip: true
+                contentWidth: Math.max(width, currentFrameImage.width)
+                contentHeight: Math.max(height, currentFrameImage.height)
+                boundsBehavior: Flickable.StopAtBounds
+
+                Image {
+                    id: currentFrameImage
+                    x: Math.max(0, (viewerViewport.width - width) / 2)
+                    y: Math.max(0, (viewerViewport.height - height) / 2)
+                    width: (root.actualSize && root.nativeImageWidth > 0
+                            ? root.nativeImageWidth : viewerViewport.width)
+                           * root.zoomScale
+                    height: (root.actualSize && root.nativeImageHeight > 0
+                             ? root.nativeImageHeight : viewerViewport.height)
+                            * root.zoomScale
+                    source: root.currentFrameSource
+                    sourceSize.width: root.nativeImageWidth
+                    sourceSize.height: root.nativeImageHeight
+                    fillMode: root.actualSize ? Image.Pad : Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: false
+                    visible: root.currentFrameSource !== ""
+                }
             }
             Text {
                 text: root.presentation === "empty" ? qsTr("No Image Sequence selected") : qsTr("CURRENT FRAME")

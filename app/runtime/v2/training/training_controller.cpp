@@ -4,8 +4,17 @@
 #include "../model/model_library_controller.h"
 #include "../model/model_load_service.h"
 #include "../state/application_state_store.h"
+#include "../dataset/dataset_manifest_v2.h"
 
 #include <QFileInfo>
+#include <QDir>
+#include <QDirIterator>
+#include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QJsonParseError>
+#include <QSet>
+#include <QStandardPaths>
 #include <QVariantMap>
 
 #include <utility>
@@ -16,6 +25,18 @@ namespace {
 QUrl localUrl(const QString &path)
 {
     return path.isEmpty() ? QUrl{} : QUrl::fromLocalFile(path);
+}
+
+QJsonObject readObject(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QJsonParseError parseError;
+    const QJsonDocument document =
+        QJsonDocument::fromJson(file.readAll(), &parseError);
+    return parseError.error == QJsonParseError::NoError && document.isObject()
+        ? document.object() : QJsonObject{};
 }
 
 desktop_app::v2::TrainingStatus applicationStatus(TrainingState state)
@@ -44,6 +65,7 @@ TrainingController::TrainingController(OperationCoordinator &operations,
                                        ModelLibraryController &modelLibraryController,
                                        QString pythonExecutable,
                                        QString repositoryRoot,
+                                       QString modelsRoot,
                                        QObject *parent)
     : QObject(parent)
     , service_(operations)
@@ -53,9 +75,17 @@ TrainingController::TrainingController(OperationCoordinator &operations,
     , modelLibraryController_(modelLibraryController)
     , pythonExecutable_(std::move(pythonExecutable))
     , repositoryRoot_(std::move(repositoryRoot))
+    , modelsRoot_(
+          modelsRoot.trimmed().isEmpty()
+              ? QDir(QStandardPaths::writableLocation(
+                         QStandardPaths::DocumentsLocation))
+                    .filePath(QStringLiteral(
+                        "OpenDropletSortingSuite/models"))
+              : QFileInfo(modelsRoot).absoluteFilePath())
 {
     connect(&service_, &TrainingService::changed,
             this, &TrainingController::handleServiceChanged);
+    refreshWeightOptions();
     publishTrainingState();
 }
 
@@ -78,6 +108,23 @@ QUrl TrainingController::registeredPackageUrl() const { return registeredPackage
 bool TrainingController::retrySaveAvailable() const
 {
     return registrationState_ == RegistrationState::SaveFailed;
+}
+
+QStringList TrainingController::weightOptions() const
+{
+    QStringList labels;
+    labels.reserve(weightOptions_.size());
+    for (const auto &option : weightOptions_)
+        labels.push_back(option.label);
+    return labels;
+}
+
+int TrainingController::selectedWeightIndex() const { return selectedWeightIndex_; }
+
+QString TrainingController::selectedWeightPath() const
+{
+    return selectedWeightIndex_ >= 0 && selectedWeightIndex_ < weightOptions_.size()
+        ? weightOptions_[selectedWeightIndex_].path : QString{};
 }
 
 QString TrainingController::presentation() const
@@ -121,6 +168,12 @@ QString TrainingController::inputError() const
         return QStringLiteral("No dataset selected.");
     if (!datasetManifestUrl_.isValid() || !datasetManifestUrl_.isLocalFile())
         return QStringLiteral("Dataset must be a local file URL.");
+    if (selectedWeightIndex_ < 0
+        || selectedWeightIndex_ >= weightOptions_.size()
+        || !QFileInfo(selectedWeightPath()).isFile()) {
+        return QStringLiteral(
+            "No compatible local Weights are available for the selected Architecture.");
+    }
     if (modelName_.trimmed().isEmpty())
         return QStringLiteral("Model name is required.");
     if (outputDirectoryUrl_.isEmpty())
@@ -158,6 +211,7 @@ void TrainingController::setDatasetManifestUrl(const QUrl &url)
         return;
     datasetManifestUrl_ = url;
     controllerError_.clear();
+    refreshWeightOptions();
     emit changed();
 }
 
@@ -176,6 +230,7 @@ void TrainingController::setArchitecture(const QString &architecture)
         return;
     architecture_ = normalized;
     controllerError_.clear();
+    refreshWeightOptions();
     emit changed();
 }
 
@@ -228,6 +283,7 @@ bool TrainingController::start()
     registeredPackageUrl_ = {};
     registrationState_ = RegistrationState::NotStarted;
     QString error;
+    const WeightOption &weights = weightOptions_.at(selectedWeightIndex_);
     const TrainingRequest request{
         datasetManifestUrl_.toLocalFile(),
         architecture_ == QStringLiteral("mobilenet")
@@ -239,6 +295,8 @@ bool TrainingController::start()
         requestedDevice_ == QStringLiteral("gpu") ? QStringLiteral("cuda")
                                                    : QStringLiteral("cpu"),
         repositoryRoot_,
+        weights.initializationMode,
+        weights.path,
     };
     const bool started = service_.start(request, &error);
     if (!started && service_.state() == TrainingState::Ready) {
@@ -246,6 +304,135 @@ bool TrainingController::start()
         emit changed();
     }
     return started;
+}
+
+bool TrainingController::loadWeights(int index)
+{
+    if (selectionsLocked())
+        return false;
+    if (index < 0 || index >= weightOptions_.size()) {
+        controllerError_ = QStringLiteral("Select an available weights source.");
+        emit changed();
+        return false;
+    }
+    if (!QFileInfo(weightOptions_[index].path).isFile()) {
+        controllerError_ =
+            QStringLiteral("The selected local Weights are no longer available.");
+        refreshWeightOptions();
+        emit changed();
+        return false;
+    }
+    selectedWeightIndex_ = index;
+    controllerError_.clear();
+    emit changed();
+    return true;
+}
+
+void TrainingController::refreshWeightOptions()
+{
+    const QString selectedPath = selectedWeightPath();
+    weightOptions_.clear();
+
+    const QString architecture = architecture_ == QStringLiteral("efficientnet")
+        ? QStringLiteral("efficientnet_b0") : QStringLiteral("mobilenet_v3_small");
+    int datasetClassCount = 0;
+    if (datasetManifestUrl_.isLocalFile()) {
+        QString ignored;
+        if (const auto manifest =
+                dataset::DatasetManifestV2::load(datasetManifestUrl_.toLocalFile(), &ignored)) {
+            datasetClassCount = manifest->classes().size();
+        }
+    }
+
+    const QString imagenetFile = architecture == QStringLiteral("efficientnet_b0")
+        ? QStringLiteral("efficientnet_b0_rwightman-7f5810bc.pth")
+        : QStringLiteral("mobilenet_v3_small-047dcff4.pth");
+    const QFileInfo imageNetWeight(
+        QDir(modelsRoot_).filePath(
+            QStringLiteral("weights/imagenet/") + imagenetFile));
+    if (imageNetWeight.isFile() && imageNetWeight.isReadable()) {
+        weightOptions_.push_back({
+            QStringLiteral("ImageNet-pretrained — %1").arg(imagenetFile),
+            imageNetWeight.absoluteFilePath(),
+            QStringLiteral("imagenet"),
+        });
+    }
+
+    QStringList metadataPaths;
+    QDirIterator metadataFiles(modelsRoot_, {QStringLiteral("metadata.json")},
+                             QDir::Files, QDirIterator::Subdirectories);
+    while (metadataFiles.hasNext())
+        metadataPaths.push_back(metadataFiles.next());
+    metadataPaths.sort(Qt::CaseInsensitive);
+
+    QSet<QString> seenPaths;
+    for (const QString &metadataPath : std::as_const(metadataPaths)) {
+        const QJsonObject metadata = readObject(metadataPath);
+        const QString schema =
+            metadata.value(QStringLiteral("schema_version")).toString();
+        if (schema != QStringLiteral("model-metadata-v1")
+            && schema != QStringLiteral("model-metadata-v2")) {
+            continue;
+        }
+        if (metadata.value(QStringLiteral("model_id")).toString().trimmed().isEmpty())
+            continue;
+
+        const QJsonObject architectureMetadata =
+            metadata.value(QStringLiteral("architecture")).toObject();
+        if (architectureMetadata.value(QStringLiteral("id")).toString()
+                != architecture) {
+            continue;
+        }
+        const int checkpointClassCount =
+            architectureMetadata.value(QStringLiteral("num_classes")).toInt();
+        if (checkpointClassCount <= 0
+            || (datasetClassCount > 0
+                && datasetClassCount != checkpointClassCount)) {
+            continue;
+        }
+
+        const QString checkpointFile =
+            metadata.value(QStringLiteral("artifact"))
+                .toObject()
+                .value(QStringLiteral("checkpoint_file"))
+                .toString()
+                .trimmed();
+        if (checkpointFile.isEmpty()
+            || QFileInfo(checkpointFile).isAbsolute()
+            || QFileInfo(checkpointFile).fileName() != checkpointFile) {
+            continue;
+        }
+        const QString path =
+            QDir(QFileInfo(metadataPath).absolutePath()).filePath(checkpointFile);
+        const QString canonicalPath = QFileInfo(path).canonicalFilePath();
+        if (canonicalPath.isEmpty() || !QFileInfo(canonicalPath).isFile()
+            || !QFileInfo(canonicalPath).isReadable()
+            || seenPaths.contains(canonicalPath)) {
+            continue;
+        }
+        seenPaths.insert(canonicalPath);
+
+        QString label = metadata.value(QStringLiteral("model_name")).toString().trimmed();
+        if (label.isEmpty())
+            label = metadata.value(QStringLiteral("user_facing_label"))
+                        .toString().trimmed();
+        if (label.isEmpty())
+            label = metadata.value(QStringLiteral("model_id")).toString();
+        label += QStringLiteral(" — OpenDSS checkpoint");
+        weightOptions_.push_back(
+            {label, canonicalPath, QStringLiteral("checkpoint")});
+    }
+
+    selectedWeightIndex_ = weightOptions_.isEmpty() ? -1 : 0;
+    if (!selectedPath.isEmpty()) {
+        for (int index = 0; index < weightOptions_.size(); ++index) {
+            if (QFileInfo(weightOptions_[index].path).absoluteFilePath()
+                == QFileInfo(selectedPath).absoluteFilePath()) {
+                selectedWeightIndex_ = index;
+                break;
+            }
+        }
+    }
 }
 
 void TrainingController::stop()

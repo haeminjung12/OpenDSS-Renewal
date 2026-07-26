@@ -146,9 +146,16 @@ bool populatePaths(const QString& summaryPath, bool recoverable,
         QString sequenceFolder;
         QString sequenceManifest;
         QString sequenceError;
+        const QFileInfo sequenceReference(*data.files.sequencePath);
+        const bool referencesManifest =
+            sequenceReference.fileName() == QStringLiteral("sequence.json");
+        const QString folderRelative =
+            referencesManifest ? sequenceReference.path() : *data.files.sequencePath;
         const QString manifestRelative =
-            QDir(*data.files.sequencePath).filePath(QStringLiteral("sequence.json"));
-        if (resolveContained(runFolder, *data.files.sequencePath, true,
+            referencesManifest
+                ? *data.files.sequencePath
+                : QDir(*data.files.sequencePath).filePath(QStringLiteral("sequence.json"));
+        if (resolveContained(runFolder, folderRelative, true,
                              sequenceFolder, &sequenceError) &&
             resolveContained(runFolder, manifestRelative, false, sequenceManifest,
                              &sequenceError) &&

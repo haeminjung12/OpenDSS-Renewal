@@ -58,6 +58,8 @@ class SequenceTestController final : public QObject {
                    setPhysicalDaqOutputEnabled NOTIFY changed)
     Q_PROPERTY(QUrl outputFolderUrl READ outputFolderUrl WRITE setOutputFolderUrl
                    NOTIFY changed)
+    Q_PROPERTY(QUrl runFolderUrl READ runFolderUrl NOTIFY changed)
+    Q_PROPERTY(QUrl runSummaryUrl READ runSummaryUrl NOTIFY changed)
 
   public:
     SequenceTestController(
@@ -108,11 +110,15 @@ class SequenceTestController final : public QObject {
     void setPhysicalDaqOutputEnabled(bool value);
     QUrl outputFolderUrl() const;
     void setOutputFolderUrl(const QUrl& value);
+    QUrl runFolderUrl() const;
+    QUrl runSummaryUrl() const;
 
     Q_INVOKABLE bool selectSequence(const QUrl& sequenceJson);
     Q_INVOKABLE bool loadToMemory();
     Q_INVOKABLE bool start();
     Q_INVOKABLE bool stop();
+    Q_INVOKABLE void startAnotherTest();
+    Q_INVOKABLE bool openRunFolder();
 
   public slots:
     void refreshPreflight();
@@ -120,6 +126,7 @@ class SequenceTestController final : public QObject {
   signals:
     void changed();
     void stopRequestAccepted();
+    void openRunFolderRequested(const QUrl& folder);
 
   private:
     bool operationActive() const;
@@ -135,7 +142,8 @@ class SequenceTestController final : public QObject {
                     qulonglong actualBytes,
                     const QByteArray& manifestBytes,
                     const QString& error);
-    void finishRun(quint64 generation, bool succeeded, const QString& error);
+    void finishRun(quint64 generation, bool succeeded, const QString& error,
+                   const QString& runFolder);
 
     SequenceTestService& service_;
     ActiveModelSnapshotProvider activeModelProvider_;
@@ -188,6 +196,8 @@ class SequenceTestController final : public QObject {
     bool physicalDaqOutputEnabled_ = false;
     QString physicalDaqWarning_;
     QUrl outputFolderUrl_;
+    QUrl runFolderUrl_;
+    QUrl runSummaryUrl_;
     std::shared_ptr<const LoadedSequence> loadedSequence_;
 
     std::atomic_bool shuttingDown_{false};

@@ -6,7 +6,10 @@
 #include <QTemporaryDir>
 
 #include <array>
+#include <atomic>
 #include <iostream>
+#include <memory>
+#include <thread>
 #include <utility>
 
 #ifdef Q_OS_WIN
@@ -535,6 +538,24 @@ int main(int argc, char **argv)
     heldStorage.lease.release();
     if (resourceChanges != 4 || !availability.momentaryAvailable(captureLocks)) {
         return fail(50, "Long-operation release did not publish restored availability.");
+    }
+
+    for (int iteration = 0; iteration < 1000; ++iteration) {
+        auto concurrentCoordinator = std::make_unique<OperationCoordinator>();
+        auto concurrentAcquire = concurrentCoordinator->acquire(
+            OperationKind::ImageSequence, ResourceLock::Camera);
+        if (!concurrentAcquire.acquired())
+            return fail(51, "Could not acquire the concurrent destruction fixture.");
+        OperationLease concurrentLease = std::move(concurrentAcquire.lease);
+        std::atomic<bool> releaseReady = false;
+        std::thread releaser([&concurrentLease, &releaseReady]() {
+            releaseReady.store(true, std::memory_order_release);
+            concurrentLease.release();
+        });
+        while (!releaseReady.load(std::memory_order_acquire))
+            std::this_thread::yield();
+        concurrentCoordinator.reset();
+        releaser.join();
     }
 
     return 0;

@@ -2775,6 +2775,96 @@ QJsonObject activeRegistryEntry(const QJsonArray& entries) {
     return entries.isEmpty() ? QJsonObject{} : entries.first().toObject();
 }
 
+bool repairTrustedPretrainedMetadataHash(const QString& installedPackagePath,
+                                         const QString& trustedPackagePath,
+                                         QString* error) {
+    if (error)
+        error->clear();
+
+    const QDir installed(installedPackagePath);
+    const QDir trusted(trustedPackagePath);
+    const QString installedMetadataPath = installed.filePath("metadata.json");
+    const QString installedModelPath = installed.filePath("model.onnx");
+    const QString trustedMetadataPath = trusted.filePath("metadata.json");
+    const QString trustedModelPath = trusted.filePath("model.onnx");
+
+    QString readError;
+    QJsonObject installedMetadata =
+        readJsonObjectFile(installedMetadataPath, &readError);
+    if (installedMetadata.isEmpty()) {
+        if (error)
+            *error = readError;
+        return false;
+    }
+    QJsonObject installedArtifact =
+        installedMetadata.value("artifact").toObject();
+    if (!installedArtifact.value("onnx_sha256").toString().trimmed().isEmpty())
+        return true;
+
+    const QJsonObject trustedMetadata =
+        readJsonObjectFile(trustedMetadataPath, &readError);
+    const QString trustedHash =
+        trustedMetadata.value("artifact")
+            .toObject()
+            .value("onnx_sha256")
+            .toString()
+            .trimmed()
+            .toLower();
+    if (trustedMetadata.isEmpty() || trustedHash.size() != 64) {
+        if (error) {
+            *error = readError.isEmpty()
+                         ? QStringLiteral(
+                               "The bundled pretrained model has no trusted ONNX SHA-256.")
+                         : readError;
+        }
+        return false;
+    }
+
+    QJsonObject normalizedInstalledMetadata = installedMetadata;
+    QJsonObject normalizedInstalledArtifact =
+        normalizedInstalledMetadata.value("artifact").toObject();
+    normalizedInstalledArtifact.remove("onnx_sha256");
+    normalizedInstalledMetadata["artifact"] = normalizedInstalledArtifact;
+
+    QJsonObject normalizedTrustedMetadata = trustedMetadata;
+    QJsonObject normalizedTrustedArtifact =
+        normalizedTrustedMetadata.value("artifact").toObject();
+    normalizedTrustedArtifact.remove("onnx_sha256");
+    normalizedTrustedMetadata["artifact"] = normalizedTrustedArtifact;
+    if (normalizedInstalledMetadata != normalizedTrustedMetadata) {
+        if (error)
+            *error = QStringLiteral(
+                "The installed pretrained metadata does not match the bundled trusted metadata.");
+        return false;
+    }
+
+    if (sha256FileHex(trustedModelPath).compare(
+            trustedHash, Qt::CaseInsensitive) != 0) {
+        if (error)
+            *error = QStringLiteral(
+                "The bundled pretrained ONNX file does not match its trusted SHA-256.");
+        return false;
+    }
+    if (sha256FileHex(installedModelPath).compare(
+            trustedHash, Qt::CaseInsensitive) != 0) {
+        if (error)
+            *error = QStringLiteral(
+                "The installed pretrained ONNX file does not match the bundled trusted model.");
+        return false;
+    }
+
+    installedArtifact["onnx_sha256"] = trustedHash;
+    installedMetadata["artifact"] = installedArtifact;
+    QString writeError;
+    if (!desktop_app::writeJsonObjectAtomically(
+            installedMetadataPath, installedMetadata, &writeError)) {
+        if (error)
+            *error = writeError;
+        return false;
+    }
+    return true;
+}
+
 DefaultWorkspacePaths ensureDefaultWorkspaceAssets(const QJsonArray& registryEntries) {
     DefaultWorkspacePaths paths;
     paths.root = defaultOpenDssRootPath();
@@ -2794,6 +2884,28 @@ DefaultWorkspacePaths ensureDefaultWorkspaceAssets(const QJsonArray& registryEnt
     QDir().mkpath(paths.trainingRuns);
     QDir().mkpath(paths.validationRuns);
     QDir().mkpath(paths.reports);
+
+    for (const QString& architecture :
+         {QStringLiteral("mobilenet_v3_small"),
+          QStringLiteral("efficientnet_b0")}) {
+        const QString installedPackage =
+            QDir(paths.models)
+                .filePath(QStringLiteral("packages/pretrained/%1")
+                              .arg(architecture));
+        const QString trustedPackage = findPackagedAppPath(
+            QStringLiteral("models/templates/pretrained/%1")
+                .arg(architecture));
+        if (QFileInfo(installedPackage).isDir() &&
+            QFileInfo(trustedPackage).isDir()) {
+            QString repairError;
+            if (!repairTrustedPretrainedMetadataHash(
+                    installedPackage, trustedPackage, &repairError)) {
+                qWarning().noquote()
+                    << "Could not repair trusted pretrained metadata:"
+                    << repairError;
+            }
+        }
+    }
 
     const QJsonObject activeEntry = activeRegistryEntry(registryEntries);
     const QString sourceModel = resolvePackagedPathFromRegistryPath(registryString(activeEntry, "model_path"));

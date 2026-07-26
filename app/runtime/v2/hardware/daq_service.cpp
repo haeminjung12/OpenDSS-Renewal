@@ -103,6 +103,14 @@ QString DaqService::settingsValidationError(const DaqAppliedSettings &settings)
 bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *error)
 {
     std::lock_guard operationOrderLock(operationOrderMutex_);
+    {
+        std::lock_guard stateLock(stateMutex_);
+        if (output_ && output_->continuousActive()) {
+            setError(error,
+                     QStringLiteral("Stop the continuous DAQ waveform before applying settings."));
+            return false;
+        }
+    }
     const QString invalid = settingsValidationError(settings);
     if (!invalid.isEmpty()) {
         setError(error, invalid);
@@ -155,16 +163,25 @@ bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *erro
 void DaqService::markUnavailable(const QString &reason)
 {
     std::lock_guard operationOrderLock(operationOrderMutex_);
-    auto acquired = operations_.acquireMomentary(ResourceLock::Daq);
+    const bool ownsContinuousOutput = continuousLease_.isValid();
+    auto acquired = ownsContinuousOutput
+        ? MomentaryAcquireResult{}
+        : operations_.acquireMomentary(ResourceLock::Daq);
 
     std::unique_lock stateLock(stateMutex_);
     const QString message =
         reason.trimmed().isEmpty() ? QStringLiteral("DAQ unavailable.")
                                    : reason.trimmed();
-    if (acquired.acquired() && output_)
+    if ((ownsContinuousOutput || acquired.acquired())
+        && output_ && output_->continuousActive()) {
+        QString ignored;
+        output_->stopContinuous(&ignored);
+    }
+    if ((ownsContinuousOutput || acquired.acquired()) && output_)
         output_->shutdown();
     const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
     stateLock.unlock();
+    continuousLease_.release();
     stateStore_.publishDaq(published);
 }
 
@@ -193,6 +210,11 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
     std::unique_lock stateLock(stateMutex_);
     if (!outputEnabled) {
         setError(error, {});
+        return run::DaqPulseStatus::SuppressedNotIssued;
+    }
+    if (output_ && output_->continuousActive()) {
+        setError(error, QStringLiteral(
+                            "Event DAQ output is suppressed while the continuous waveform is active."));
         return run::DaqPulseStatus::SuppressedNotIssued;
     }
     if (state_.status != DaqStatus::Ready) {
@@ -229,6 +251,123 @@ run::DaqPulseStatus DaqService::issueLiveHit(bool outputEnabled, QString *error)
     return run::DaqPulseStatus::Issued;
 }
 
+bool DaqService::sendTestSine(QString *error)
+{
+    std::lock_guard operationOrderLock(operationOrderMutex_);
+    auto acquired = operations_.acquireMomentary(ResourceLock::Daq);
+    if (!acquired.acquired()) {
+        const QString message =
+            acquired.fault ? acquired.fault->reason
+                           : QStringLiteral("DAQ output is locked by another operation.");
+        setError(error, message);
+        return false;
+    }
+    std::unique_lock stateLock(stateMutex_);
+    if (state_.status != DaqStatus::Ready || !output_ || !output_->ready()) {
+        setError(error, state_.fault.isEmpty() ? QStringLiteral("DAQ is not ready.")
+                                               : state_.fault);
+        return false;
+    }
+    if (output_->continuousActive()) {
+        setError(error, QStringLiteral(
+                            "Stop the continuous DAQ waveform before sending a test sine wave."));
+        return false;
+    }
+    QString deviceError;
+    if (!output_->fireImmediate(&deviceError)) {
+        const QString message =
+            factualError(QStringLiteral("The DAQ test sine wave failed."), deviceError);
+        output_->shutdown();
+        const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
+        setError(error, message);
+        stateLock.unlock();
+        stateStore_.publishDaq(published);
+        return false;
+    }
+    setError(error, {});
+    return true;
+}
+
+bool DaqService::startContinuous(QString *error)
+{
+    std::lock_guard operationOrderLock(operationOrderMutex_);
+    {
+        std::lock_guard stateLock(stateMutex_);
+        if (output_ && output_->continuousActive()) {
+            setError(error, {});
+            return true;
+        }
+    }
+    auto acquired = operations_.acquireMomentary(ResourceLock::Daq);
+    if (!acquired.acquired()) {
+        const QString message =
+            acquired.fault ? acquired.fault->reason
+                           : QStringLiteral("DAQ output is locked by another operation.");
+        setError(error, message);
+        return false;
+    }
+    std::unique_lock stateLock(stateMutex_);
+    if (state_.status != DaqStatus::Ready || !output_ || !output_->ready()) {
+        setError(error, state_.fault.isEmpty() ? QStringLiteral("DAQ is not ready.")
+                                               : state_.fault);
+        return false;
+    }
+    if (output_->continuousActive()) {
+        setError(error, {});
+        return true;
+    }
+    QString deviceError;
+    if (!output_->startContinuous(&deviceError)) {
+        const QString message =
+            factualError(QStringLiteral("The continuous DAQ waveform could not be started."),
+                         deviceError);
+        output_->shutdown();
+        const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
+        setError(error, message);
+        stateLock.unlock();
+        stateStore_.publishDaq(published);
+        return false;
+    }
+    continuousLease_ = std::move(acquired.lease);
+    setError(error, {});
+    return true;
+}
+
+bool DaqService::stopContinuous(QString *error)
+{
+    std::lock_guard operationOrderLock(operationOrderMutex_);
+    std::unique_lock stateLock(stateMutex_);
+    if (!output_ || !output_->continuousActive()) {
+        stateLock.unlock();
+        continuousLease_.release();
+        setError(error, {});
+        return true;
+    }
+    QString deviceError;
+    if (!output_->stopContinuous(&deviceError)) {
+        const QString message =
+            factualError(QStringLiteral("The continuous DAQ waveform could not be stopped safely."),
+                         deviceError);
+        output_->shutdown();
+        const DaqState published = updateStateLocked(DaqStatus::Faulted, message);
+        setError(error, message);
+        stateLock.unlock();
+        stateStore_.publishDaq(published);
+        continuousLease_.release();
+        return false;
+    }
+    stateLock.unlock();
+    continuousLease_.release();
+    setError(error, {});
+    return true;
+}
+
+bool DaqService::continuousActive() const
+{
+    std::lock_guard stateLock(stateMutex_);
+    return output_ && output_->continuousActive();
+}
+
 void DaqService::shutdown()
 {
     std::lock_guard operationOrderLock(operationOrderMutex_);
@@ -237,10 +376,15 @@ void DaqService::shutdown()
         && (!output_ || !output_->ready())) {
         return;
     }
+    if (output_ && output_->continuousActive()) {
+        QString ignored;
+        output_->stopContinuous(&ignored);
+    }
     if (output_)
         output_->shutdown();
     const DaqState published = updateStateLocked(DaqStatus::Disabled);
     stateLock.unlock();
+    continuousLease_.release();
     stateStore_.publishDaq(published);
 }
 

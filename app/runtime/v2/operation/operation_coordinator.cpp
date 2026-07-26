@@ -5,6 +5,7 @@
 #include <QFileInfo>
 #include <QMutex>
 #include <QMutexLocker>
+#include <QRecursiveMutex>
 
 #include <functional>
 #include <utility>
@@ -46,6 +47,7 @@ public:
     QHash<quint64, DatasetReservation> datasets;
     QHash<quint64, ModelReservation> models;
     quint64 nextGeneration = 1;
+    QRecursiveMutex resourcesChangedMutex;
     std::function<void()> resourcesChanged;
 };
 
@@ -448,8 +450,11 @@ void OperationLease::release()
             released = true;
         }
     }
-    if (released && control->resourcesChanged)
-        control->resourcesChanged();
+    if (released) {
+        QMutexLocker callbackLocker(&control->resourcesChangedMutex);
+        if (control->resourcesChanged)
+            control->resourcesChanged();
+    }
 }
 
 MomentaryLease::MomentaryLease(std::weak_ptr<OperationControl> control, quint64 generation)
@@ -500,8 +505,11 @@ void MomentaryLease::release()
         QMutexLocker locker(&control->mutex);
         released = control->momentary.remove(generation);
     }
-    if (released && control->resourcesChanged)
-        control->resourcesChanged();
+    if (released) {
+        QMutexLocker callbackLocker(&control->resourcesChangedMutex);
+        if (control->resourcesChanged)
+            control->resourcesChanged();
+    }
 }
 
 bool OperationAcquireResult::acquired() const
@@ -533,6 +541,7 @@ OperationCoordinator::OperationCoordinator(QObject *parent)
 
 OperationCoordinator::~OperationCoordinator()
 {
+    QMutexLocker callbackLocker(&control_->resourcesChangedMutex);
     control_->resourcesChanged = {};
 }
 

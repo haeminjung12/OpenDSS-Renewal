@@ -9,6 +9,7 @@ using TaskHandle = void*;
 constexpr int32 DAQmx_Val_Volts = 10348;
 constexpr int32 DAQmx_Val_Rising = 10280;
 constexpr int32 DAQmx_Val_FiniteSamps = 10178;
+constexpr int32 DAQmx_Val_ContSamps = 10123;
 constexpr int32 DAQmx_Val_GroupByChannel = 0;
 
 inline bool DAQmxFailed(int32 status) {
@@ -28,9 +29,12 @@ int32 DAQmxCfgSampClkTiming(TaskHandle task, const char source[], float64 rate, 
                             int32 sampleMode, uInt32 samplesPerChannel);
 int32 DAQmxCfgOutputBuffer(TaskHandle task, uInt32 numSampsPerChan);
 int32 DAQmxStopTask(TaskHandle task);
+int32 DAQmxStartTask(TaskHandle task);
 int32 DAQmxClearTask(TaskHandle task);
 int32 DAQmxWriteAnalogF64(TaskHandle task, int32 numSampsPerChan, bool32 autoStart, float64 timeout,
                           bool32 dataLayout, const float64 writeArray[], int32* sampsPerChanWritten,
                           bool32* reserved);
+int32 DAQmxWriteAnalogScalarF64(TaskHandle task, bool32 autoStart, float64 timeout,
+                                float64 value, bool32* reserved);
 int32 DAQmxWaitUntilTaskDone(TaskHandle task, float64 timeToWait);
 }

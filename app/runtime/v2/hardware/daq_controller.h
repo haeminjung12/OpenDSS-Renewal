@@ -37,6 +37,7 @@ class DaqController final : public QObject
     Q_PROPERTY(QString daqStatus READ daqStatus NOTIFY stateChanged)
     Q_PROPERTY(bool ready READ ready NOTIFY stateChanged)
     Q_PROPERTY(bool canApply READ canApply NOTIFY stateChanged)
+    Q_PROPERTY(bool continuousWaveformActive READ continuousWaveformActive NOTIFY stateChanged)
     Q_PROPERTY(QString error READ error NOTIFY stateChanged)
 
 public:
@@ -60,10 +61,13 @@ public:
     QString daqStatus() const;
     bool ready() const;
     bool canApply() const;
+    bool continuousWaveformActive() const;
     QString error() const;
 
     Q_INVOKABLE bool refreshDevices();
     Q_INVOKABLE bool apply();
+    Q_INVOKABLE bool sendTestSineWave();
+    Q_INVOKABLE bool toggleContinuousWaveform();
 
 signals:
     void discoveryChanged();

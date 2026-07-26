@@ -70,6 +70,9 @@ public:
     Q_INVOKABLE bool applyExposureMs(double exposureMs);
     Q_INVOKABLE bool applyReadoutMode(const QString &readoutMode);
     Q_INVOKABLE void setPreviewLutRange(int blackLevel, int whiteLevel);
+    bool applyProfileSettings(const CameraAppliedSettings &settings,
+                              int lutMinimum, int lutMaximum,
+                              int timeoutMs = 5000);
 
 signals:
     void stateChanged();
@@ -108,6 +111,7 @@ private:
     bool configurationAvailable_ = false;
     bool customResolutionSelected_ = false;
     std::optional<bool> pendingCustomResolutionSelected_;
+    bool profileApplyTimedOut_ = false;
     CameraAppliedSettings appliedSettings_;
     int previewLutMinimum_ = 0;
     int previewLutMaximum_ = 255;

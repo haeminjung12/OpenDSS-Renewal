@@ -31,7 +31,11 @@ struct FakeDaq {
     int waitStatus = 0;
     int createCalls = 0;
     int writeCalls = 0;
+    int startCalls = 0;
+    int stopCalls = 0;
+    int scalarWriteCalls = 0;
     int clearCalls = 0;
+    double lastScalarValue = std::numeric_limits<double>::quiet_NaN();
     std::string channel;
     double timingRate = 0.0;
     unsigned int timingSamples = 0;
@@ -131,6 +135,13 @@ extern "C" int32 DAQmxCfgOutputBuffer(TaskHandle, uInt32)
 
 extern "C" int32 DAQmxStopTask(TaskHandle)
 {
+    ++fake.stopCalls;
+    return 0;
+}
+
+extern "C" int32 DAQmxStartTask(TaskHandle)
+{
+    ++fake.startCalls;
     return 0;
 }
 
@@ -149,6 +160,14 @@ extern "C" int32 DAQmxWriteAnalogF64(
         return fake.writeStatus;
     fake.waveform.assign(values, values + samples);
     *written = samples;
+    return 0;
+}
+
+extern "C" int32 DAQmxWriteAnalogScalarF64(
+    TaskHandle, bool32, float64, float64 value, bool32*)
+{
+    ++fake.scalarWriteCalls;
+    fake.lastScalarValue = value;
     return 0;
 }
 
@@ -343,6 +362,88 @@ int main(int argc, char **argv)
                     && *customExtrema.first < -3.98
                     && *customExtrema.second > 3.98,
                 "8 Vpp must map to a zero-centered 4 V peak waveform.");
+
+    const int writesBeforeTest = fake.writeCalls;
+    auto liveDaq = operations.acquire(OperationKind::LiveSorting,
+                                      ResourceLock::Daq);
+    ok &= check(liveDaq.acquired() && !daq.sendTestSine(&error)
+                    && !daq.startContinuous(&error)
+                    && fake.writeCalls == writesBeforeTest,
+                "Finite test and continuous Start must not bypass an active DAQ owner.");
+    liveDaq.lease.release();
+    ok &= check(daq.sendTestSine(&error)
+                    && fake.writeCalls == writesBeforeTest + 1
+                    && std::abs(fake.waitTimeout - 5.004) < 1e-12,
+                "Live test sine must issue immediately without decision delay.");
+    const int writesBeforeContinuous = fake.writeCalls;
+    ok &= check(daq.startContinuous(&error) && daq.continuousActive()
+                    && daq.startContinuous(&error)
+                    && fake.startCalls == 1
+                    && fake.writeCalls == writesBeforeContinuous + 1,
+                "Hardware Start must begin one idempotent continuous waveform.");
+    auto blockedLive = operations.acquire(OperationKind::LiveSorting,
+                                          ResourceLock::Daq);
+    ok &= check(!blockedLive.acquired(),
+                "Continuous output must retain DAQ ownership until Hardware Stop.");
+    ok &= check(daq.issueLiveHit(true, &error)
+                        == run::DaqPulseStatus::SuppressedNotIssued
+                    && !daq.sendTestSine(&error)
+                    && fake.writeCalls == writesBeforeContinuous + 1,
+                "Continuous output must suppress finite event and test output.");
+    bool releaseCallbackObservedStoppedOutput = false;
+    const QMetaObject::Connection continuousReleaseConnection =
+        QObject::connect(&operations, &OperationCoordinator::resourcesChanged, [&] {
+            releaseCallbackObservedStoppedOutput = !daq.continuousActive();
+        });
+    const int stopsBeforeContinuousStop = fake.stopCalls;
+    ok &= check(daq.stopContinuous(&error) && !daq.continuousActive()
+                    && daq.ready() && fake.scalarWriteCalls == 1
+                    && fake.stopCalls > stopsBeforeContinuousStop
+                    && fake.lastScalarValue == 0.0
+                    && releaseCallbackObservedStoppedOutput,
+                "Hardware Stop must return output to zero, restore finite readiness, "
+                "and release ownership without re-entering the DAQ state lock.");
+    QObject::disconnect(continuousReleaseConnection);
+    auto liveAfterStop = operations.acquire(OperationKind::LiveSorting,
+                                            ResourceLock::Daq);
+    ok &= check(liveAfterStop.acquired(),
+                "Hardware Stop must release DAQ ownership.");
+    liveAfterStop.lease.release();
+
+    ok &= check(daq.startContinuous(&error) && daq.continuousActive(),
+                "Continuous output must restart after a safe Stop.");
+    daq.markUnavailable(QStringLiteral("Injected continuous discovery fault."));
+    auto liveAfterFault = operations.acquire(OperationKind::LiveSorting,
+                                             ResourceLock::Daq);
+    ok &= check(!daq.continuousActive() && !daq.ready()
+                    && liveAfterFault.acquired(),
+                "A continuous-output fault must stop output and release DAQ ownership.");
+    liveAfterFault.lease.release();
+    ok &= check(daq.applySettings(custom, &error) && daq.ready(),
+                "DAQ must recover after a continuous-output discovery fault.");
+
+    const int zerosBeforeContinuousShutdown = fake.scalarWriteCalls;
+    const int stopsBeforeContinuousShutdown = fake.stopCalls;
+    const int clearsBeforeContinuousShutdown = fake.clearCalls;
+    bool releaseCallbackObservedShutdown = false;
+    const QMetaObject::Connection continuousShutdownConnection =
+        QObject::connect(&operations, &OperationCoordinator::resourcesChanged, [&] {
+            releaseCallbackObservedShutdown = !daq.continuousActive();
+        });
+    ok &= check(daq.startContinuous(&error) && daq.continuousActive(),
+                "Continuous output must start before the exit teardown check.");
+    daq.shutdown();
+    ok &= check(!daq.continuousActive() && !daq.ready()
+                    && fake.scalarWriteCalls == zerosBeforeContinuousShutdown + 1
+                    && fake.stopCalls > stopsBeforeContinuousShutdown
+                    && fake.lastScalarValue == 0.0
+                    && fake.clearCalls > clearsBeforeContinuousShutdown
+                    && releaseCallbackObservedShutdown,
+                "Exit teardown must stop and clear the continuous task, return output "
+                "to zero, and release ownership without re-entering the DAQ state lock.");
+    QObject::disconnect(continuousShutdownConnection);
+    ok &= check(daq.applySettings(custom, &error) && daq.ready(),
+                "DAQ must recover after the exit teardown check.");
 
     fake.writeStatus = -1;
     const int writesBeforeFailure = fake.writeCalls;

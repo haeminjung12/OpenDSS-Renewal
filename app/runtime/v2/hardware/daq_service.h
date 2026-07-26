@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../run/run_manifest_v2.h"
+#include "../operation/operation_coordinator.h"
 #include "../state/domain_state.h"
 
 #include <QJsonObject>
@@ -32,6 +33,10 @@ public:
     bool ready() const;
     QJsonObject settingsSnapshot() const;
     run::DaqPulseStatus issueLiveHit(bool outputEnabled, QString *error = nullptr);
+    bool sendTestSine(QString *error = nullptr);
+    bool startContinuous(QString *error = nullptr);
+    bool stopContinuous(QString *error = nullptr);
+    bool continuousActive() const;
     void shutdown();
 
 private:
@@ -42,6 +47,7 @@ private:
     std::mutex operationOrderMutex_;
     mutable std::mutex stateMutex_;
     std::unique_ptr<IDaqOutput> output_;
+    MomentaryLease continuousLease_;
     DaqState state_;
 };
 

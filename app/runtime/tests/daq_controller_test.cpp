@@ -42,6 +42,7 @@ public:
     {
         ++shutdownCalls;
         readyValue = false;
+        continuous = false;
     }
 
     bool fire(QString *error) override
@@ -57,14 +58,62 @@ public:
         return true;
     }
 
+    bool fireImmediate(QString *error) override
+    {
+        ++immediateFireCalls;
+        if (!immediateFireError.isEmpty()) {
+            if (error)
+                *error = immediateFireError;
+            return false;
+        }
+        if (error)
+            error->clear();
+        return true;
+    }
+
+    bool startContinuous(QString *error) override
+    {
+        ++startContinuousCalls;
+        if (!continuousError.isEmpty()) {
+            if (error)
+                *error = continuousError;
+            return false;
+        }
+        continuous = true;
+        if (error)
+            error->clear();
+        return true;
+    }
+
+    bool stopContinuous(QString *error) override
+    {
+        ++stopContinuousCalls;
+        continuous = false;
+        if (!continuousError.isEmpty()) {
+            if (error)
+                *error = continuousError;
+            return false;
+        }
+        if (error)
+            error->clear();
+        return true;
+    }
+
     bool ready() const override { return readyValue; }
+    bool continuousActive() const override { return continuous; }
 
     QString configureError;
     QString fireError;
+    QString immediateFireError;
+    QString continuousError;
     bool dropReadyOnConfigureFailure = false;
     bool readyValue = false;
     int configureCalls = 0;
     int fireCalls = 0;
+    int immediateFireCalls = 0;
+    int startContinuousCalls = 0;
+    int stopContinuousCalls = 0;
+    bool continuous = false;
     int shutdownCalls = 0;
     std::vector<DaqConfig> configurations;
 };
@@ -316,6 +365,30 @@ int main(int argc, char **argv)
                             == run::DaqPulseStatus::SuppressedNotIssued
                         && fake->fireCalls == 0,
                     "Disabled operation output must remain suppressed.");
+
+    ok &= check(controller.sendTestSineWave()
+                    && fake->immediateFireCalls == 1
+                    && fake->fireCalls == 0,
+                "The finite test action must use the immediate path, not the delayed event path.");
+    ok &= check(controller.toggleContinuousWaveform()
+                    && controller.continuousWaveformActive()
+                    && fake->startContinuousCalls == 1
+                    && !controller.canApply(),
+                "Hardware Start Sine Wave must start and expose continuous output state.");
+    QString suppressedError;
+    ok &= check(service.issueLiveHit(true, &suppressedError)
+                        == run::DaqPulseStatus::SuppressedNotIssued
+                    && fake->fireCalls == 0
+                    && suppressedError.contains(QStringLiteral("continuous")),
+                "Continuous output must suppress event-driven finite output.");
+    ok &= check(!controller.sendTestSineWave()
+                    && fake->immediateFireCalls == 1,
+                "A finite test waveform must not overlap continuous output.");
+    ok &= check(controller.toggleContinuousWaveform()
+                    && !controller.continuousWaveformActive()
+                    && fake->stopContinuousCalls == 1
+                    && controller.canApply(),
+                "Hardware Stop Sine Wave must stop continuous output and restore finite readiness.");
 
     auto held =
         operations.acquire(OperationKind::LiveSorting, ResourceLock::Daq);

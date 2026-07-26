@@ -7,10 +7,13 @@
 #include "../v2/run/run_manifest_v2.h"
 #include "../v2/state/application_state_store.h"
 #include "../detection/droplet_detector.h"
+#include "../desktop_app/json_persistence.h"
 
 #include <QCoreApplication>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QThread>
 
@@ -202,6 +205,25 @@ int main(int argc, char** argv) {
     facts.timingSettings = {{QStringLiteral("fixed"), true}};
     facts.cameraSettings = {{QStringLiteral("source"), QStringLiteral("fixture")}};
     facts.daqSettings = {{QStringLiteral("source"), QStringLiteral("fixture")}};
+    facts.activeModelId = QStringLiteral("model-id");
+    int cameraProfileApplies = 0;
+    int daqProfileApplies = 0;
+    int modelProfileApplies = 0;
+    facts.applyCameraProfile = [&](const QJsonObject& value, QString*) {
+        ++cameraProfileApplies;
+        return value.value(QStringLiteral("source")).toString() ==
+               QStringLiteral("fixture");
+    };
+    facts.applyDaqProfile = [&](const QJsonObject& value, QString*) {
+        ++daqProfileApplies;
+        return value.value(QStringLiteral("source")).toString() ==
+               QStringLiteral("fixture");
+    };
+    facts.activateModel = [&](const QString& id, QString*) {
+        ++modelProfileApplies;
+        facts.activeModelId = id;
+        return id == QStringLiteral("model-id");
+    };
     facts.nominalCameraFps = 25.0;
     int resultsRefreshes = 0;
     QString refreshedRun;
@@ -235,6 +257,94 @@ int main(int argc, char** argv) {
         releasePersistence = true;
         persistenceCondition.notify_all();
     };
+
+    const QString profilePath =
+        QDir(runs.path()).filePath(QStringLiteral("setup-profile.json"));
+    controller->setRunName(QStringLiteral("Profile Run"));
+    controller->setSaveLocation(runs.path());
+    controller->setHitClassId(QStringLiteral("c1"));
+    controller->setTriggerEveryDroplet(false);
+    controller->setDaqOutputEnabled(true);
+    controller->setRecordFullImageSequence(true);
+    ok &= check(controller->saveProfileAs(QUrl::fromLocalFile(profilePath)) &&
+                    controller->canSaveProfile() &&
+                    QFileInfo::exists(profilePath),
+                "Save Profile As must atomically create a current v2 profile.");
+    QFile profileFile(profilePath);
+    ok &= check(profileFile.open(QIODevice::ReadOnly),
+                "Saved Setup Profile must be readable.");
+    const QJsonObject savedProfile =
+        QJsonDocument::fromJson(profileFile.readAll()).object();
+    profileFile.close();
+    ok &= check(savedProfile.value(QStringLiteral("schema_version")).toString()
+                            == QStringLiteral("opendss.setup_profile.v2")
+                    && savedProfile.value(QStringLiteral("hit_boundary")).isObject()
+                    && savedProfile.value(QStringLiteral("detector_settings"))
+                           == facts.detectorSettings
+                    && savedProfile.value(QStringLiteral("crop_settings"))
+                           == facts.cropSettings
+                    && savedProfile.value(QStringLiteral("timing_settings"))
+                           == facts.timingSettings,
+                "Saved Setup Profile must include the supported scientific snapshots.");
+    controller->setRunName(QStringLiteral("Changed"));
+    controller->setTriggerEveryDroplet(true);
+    controller->setDaqOutputEnabled(false);
+    controller->setRecordFullImageSequence(false);
+    facts.activeModelId.clear();
+    controller->refresh();
+    ok &= check(controller->openProfile(QUrl::fromLocalFile(profilePath)) &&
+                    controller->runName() == QStringLiteral("Profile Run") &&
+                    !controller->triggerEveryDroplet() &&
+                    controller->daqOutputEnabled() &&
+                    controller->recordFullImageSequence() &&
+                    cameraProfileApplies == 1 && daqProfileApplies == 1 &&
+                    modelProfileApplies == 1,
+                "Open Profile must round-trip selections and apply readable hardware/model facts.");
+
+    QJsonObject partialProfile = savedProfile;
+    QJsonObject changedBoundary =
+        partialProfile.value(QStringLiteral("hit_boundary")).toObject();
+    changedBoundary.insert(QStringLiteral("boundary_y"), 3.0);
+    partialProfile.insert(QStringLiteral("hit_boundary"), changedBoundary);
+    partialProfile.insert(QStringLiteral("detector_settings"),
+                          QStringLiteral("invalid"));
+    partialProfile.insert(QStringLiteral("crop_settings"),
+                          QJsonObject{{QStringLiteral("size"), 96}});
+    partialProfile.insert(QStringLiteral("timing_settings"),
+                          QJsonObject{{QStringLiteral("fixed"), false}});
+    const QString partialPath =
+        QDir(runs.path()).filePath(QStringLiteral("partial-profile.json"));
+    QString persistenceError;
+    ok &= check(desktop_app::writeJsonObjectAtomically(
+                    partialPath, partialProfile, &persistenceError)
+                    && controller->openProfile(QUrl::fromLocalFile(partialPath))
+                    && controller->profileStatus().contains(
+                        QStringLiteral("Detector values not applied")),
+                "A partially invalid profile must report the skipped section and retain readable sections.");
+    const QString roundTripPath =
+        QDir(runs.path()).filePath(QStringLiteral("partial-round-trip.json"));
+    ok &= check(controller->saveProfileAs(QUrl::fromLocalFile(roundTripPath)),
+                "Partially applied profile state must remain saveable.");
+    QFile roundTripFile(roundTripPath);
+    ok &= check(roundTripFile.open(QIODevice::ReadOnly),
+                "Partially applied profile round trip must be readable.");
+    const QJsonObject roundTrip =
+        QJsonDocument::fromJson(roundTripFile.readAll()).object();
+    roundTripFile.close();
+    ok &= check(roundTrip.value(QStringLiteral("hit_boundary"))
+                            .toObject()
+                            .value(QStringLiteral("boundary_y"))
+                            .toDouble()
+                        == 3.0
+                    && roundTrip.value(QStringLiteral("detector_settings"))
+                           == facts.detectorSettings
+                    && roundTrip.value(QStringLiteral("crop_settings"))
+                           == QJsonObject{{QStringLiteral("size"), 96}}
+                    && roundTrip.value(QStringLiteral("timing_settings"))
+                           == QJsonObject{{QStringLiteral("fixed"), false}},
+                "Profile load must apply valid scientific sections while retaining the invalid section's current value.");
+    controller->setDaqOutputEnabled(false);
+    controller->setTriggerEveryDroplet(true);
 
     ok &= check(camera.open() && waitForIdle(camera) &&
                     camera.cameraStatus() != QStringLiteral("Unavailable"),

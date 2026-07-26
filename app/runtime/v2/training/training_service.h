@@ -31,6 +31,8 @@ struct TrainingRequest {
     QString pythonExecutable;
     QString device;
     QString repositoryRoot;
+    QString initializationMode;
+    QString initializationPath;
 };
 
 struct TrainingProgress {

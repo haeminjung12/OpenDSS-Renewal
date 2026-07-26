@@ -14,6 +14,7 @@ Window {
     property var modelTestController: null
     property var liveSortingController: null
     property var sequenceTestController: null
+    property var captureWorkflowController: null
 
     width: Constants.width
     height: Constants.height
@@ -28,7 +29,7 @@ Window {
         anchors.fill: parent
         settingsController: window.settingsController
         daqController: window.daqController
-        property var runsResultsController: window.runsResultsController
+        runsResultsController: window.runsResultsController
         sequenceViewerController: window.sequenceViewerController
         datasetLabelController: window.datasetLabelController
         trainingController: window.trainingController
@@ -36,6 +37,7 @@ Window {
         modelTestController: window.modelTestController
         liveSortingController: window.liveSortingController
         sequenceTestController: window.sequenceTestController
+        captureWorkflowController: window.captureWorkflowController
         onCloseRequested: window.close()
     }
 

@@ -22,6 +22,12 @@ Rectangle {
     property int excludedCount: 0
     property int unreviewedCount: 0
     property var classNames: [qsTr("Class 0"), qsTr("Class 1"), qsTr("Class 2")]
+    readonly property string class0DisplayName: classNames.length > 0 && classNames[0] !== ""
+                                                       ? classNames[0] : qsTr("Class 0")
+    readonly property string class1DisplayName: classNames.length > 1 && classNames[1] !== ""
+                                                       ? classNames[1] : qsTr("Class 1")
+    readonly property string class2DisplayName: classNames.length > 2 && classNames[2] !== ""
+                                                       ? classNames[2] : qsTr("Class 2")
     property var filteredCropRecords: []
     property string selectedCropId: ""
     property int selectedCropIndex: -1
@@ -78,20 +84,6 @@ Rectangle {
                 border.color: Constants.borderColor
 
                 Text { id: cropGridTitle; text: qsTr("Droplet Crop Grid"); font: Constants.headingFont; color: Constants.textColor; anchors.top: parent.top; anchors.left: parent.left; anchors.margins: Constants.spacing }
-                Row {
-                    id: paginationControls
-                    visible: root.presentation !== "empty"
-                    height: Math.max(pageSpinBox.implicitHeight, imagesPerPageSelector.implicitHeight)
-                    spacing: Constants.spacing
-                    anchors.top: errorMessageText.visible ? errorMessageText.bottom : cropGridTitle.bottom
-                    anchors.topMargin: Constants.spacing
-                    anchors.left: parent.left
-                    anchors.leftMargin: Constants.spacing
-                    Text { text: qsTr("Page"); color: Constants.textColor; font: Constants.font; anchors.verticalCenter: parent.verticalCenter }
-                    AppSpinBox { id: pageSpinBox; from: 1; to: 1; value: 1; height: Constants.appStandardControlHeight }
-                    Text { text: qsTr("Images per page"); color: Constants.textColor; font: Constants.font; anchors.verticalCenter: parent.verticalCenter }
-                    AppComboBox { id: imagesPerPageSelector; model: ["100", "200", "500"]; currentIndex: 2; width: Math.round(96 * Constants.textScale); height: Constants.appStandardControlHeight }
-                }
                 Text {
                     id: errorMessageText
                     visible: root.errorMessage !== ""
@@ -109,7 +101,8 @@ Rectangle {
                 ScrollView {
                     id: cropGridScroll
                     visible: root.presentation !== "empty"
-                    anchors.top: paginationControls.bottom
+                    anchors.top: errorMessageText.visible ? errorMessageText.bottom : cropGridTitle.bottom
+                    anchors.topMargin: Constants.spacing
                     anchors.bottom: parent.bottom
                     anchors.left: parent.left
                     anchors.right: parent.right
@@ -120,9 +113,11 @@ Rectangle {
 
                 Grid {
                     id: cropGridHost
-                    columns: Math.max(1, Math.floor((cropGridScroll.availableWidth + spacing) / (106 + spacing)))
+                    readonly property int cellWidth: 318
+                    readonly property int cellHeight: 246
+                    columns: Math.max(1, Math.floor((cropGridScroll.availableWidth + spacing) / (cellWidth + spacing)))
                     spacing: Constants.spacing
-                    width: columns * 106 + Math.max(0, columns - 1) * spacing
+                    width: columns * cellWidth + Math.max(0, columns - 1) * spacing
                     x: Math.max(0, (cropGridScroll.availableWidth - width) / 2)
                     y: Math.max(0, (parent.height - height) / 2)
                 }
@@ -263,6 +258,7 @@ Rectangle {
                                 SplitView.preferredHeight: Math.min(Math.round(180 * Constants.textScale), labelSplitView.width)
                                 SplitView.minimumHeight: Math.min(Math.round(120 * Constants.textScale), labelSplitView.width)
                                 SplitView.maximumHeight: Math.max(labelSplitView.width, Math.min(Math.round(520 * Constants.textScale), labelSplitView.width * 2))
+                                SplitView.fillHeight: true
                                 Rectangle {
                                     width: Math.min(parent.width, parent.height)
                                     height: width
@@ -292,15 +288,14 @@ Rectangle {
                             Item {
                                 SplitView.minimumHeight: labelActionContent.implicitHeight
                                 SplitView.preferredHeight: labelActionContent.implicitHeight
-                                SplitView.fillHeight: true
                                 Column {
                                     id: labelActionContent
                                     anchors.fill: parent
                                     spacing: Constants.spacing
                                     Grid { columns: 3; width: parent.width; spacing: 6
-                                        AppButton { id: class0Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 0"); visualRole: "identity"; identityColor: Constants.appClass0Color }
-                                        AppButton { id: class1Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 1"); visualRole: "identity"; identityColor: Constants.appClass1Color }
-                                        AppButton { id: class2Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: qsTr("Class 2"); enabled: root.classCount === 3; visualRole: "identity"; identityColor: Constants.appClass2Color }
+                                        AppButton { id: class0Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: root.class0DisplayName; visualRole: "identity"; identityColor: Constants.appClass0Color }
+                                        AppButton { id: class1Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: root.class1DisplayName; visualRole: "identity"; identityColor: Constants.appClass1Color }
+                                        AppButton { id: class2Button; width: (parent.width - 12) / 3; height: Constants.controlHeight; text: root.class2DisplayName; enabled: root.classCount === 3; visualRole: "identity"; identityColor: Constants.appClass2Color }
                                     }
                                     AppButton { id: excludeButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Exclude") }
                                     Row { width: parent.width; spacing: 6
@@ -324,9 +319,9 @@ Rectangle {
                             height: implicitHeight
                             spacing: 4
                             AppButton { id: allFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("All (%1)").arg(root.totalCount); checked: root.currentFilter === "all"; visualRole: checked ? "primary" : "secondary" }
-                            AppButton { id: class0FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 0 (%1)").arg(root.class0Count); checked: root.currentFilter === "class0"; visualRole: checked ? "primary" : "secondary" }
-                            AppButton { id: class1FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Class 1 (%1)").arg(root.class1Count); checked: root.currentFilter === "class1"; visualRole: checked ? "primary" : "secondary" }
-                            AppButton { id: class2FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: root.classCount === 3 ? qsTr("Class 2 (%1)").arg(root.class2Count) : qsTr("Class 2 (unavailable)"); enabled: root.classCount === 3; checked: root.currentFilter === "class2"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: class0FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("%1 (%2)").arg(root.class0DisplayName).arg(root.class0Count); checked: root.currentFilter === "class0"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: class1FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("%1 (%2)").arg(root.class1DisplayName).arg(root.class1Count); checked: root.currentFilter === "class1"; visualRole: checked ? "primary" : "secondary" }
+                            AppButton { id: class2FilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("%1 (%2)").arg(root.class2DisplayName).arg(root.class2Count); enabled: root.classCount === 3; checked: root.currentFilter === "class2"; visualRole: checked ? "primary" : "secondary" }
                             AppButton { id: excludedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Excluded (%1)").arg(root.excludedCount); checked: root.currentFilter === "excluded"; visualRole: checked ? "primary" : "secondary" }
                             AppButton { id: unreviewedFilterButton; width: parent.width; height: Constants.appStandardControlHeight; text: qsTr("Unreviewed (%1)").arg(root.unreviewedCount); checked: root.currentFilter === "unreviewed"; visualRole: checked ? "primary" : "secondary" }
                         }

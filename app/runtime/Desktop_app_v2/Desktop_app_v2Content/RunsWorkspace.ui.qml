@@ -16,6 +16,8 @@ Rectangle {
     property bool runsPanelExpanded: true
     property bool rightPanelExpanded: true
     property bool notesEditing: false
+    property var loadedRunFacts: ({})
+    property string runsErrorMessage: ""
     property alias runsPanelToggleButton: runsSection.headingButton
     property alias rightPanelToggleButton: rightPanelToggleButton
     property alias loadSelectedRunButton: loadSelectedRunButton
@@ -23,6 +25,10 @@ Rectangle {
     property alias editNotesButton: editNotesButton
     property alias saveNotesButton: saveNotesButton
     property alias cancelNotesButton: cancelNotesButton
+    property alias openDropletLogButton: openDropletLogButton
+    property alias openRunFolderButton: openRunFolderButton
+    property alias openDropletCropButton: openDropletCropButton
+    property alias openSavedSequenceButton: openSavedSequenceButton
     property alias loadedRunStatusText: loadedRunStatusText.text
     property alias loadedRunStopReasonText: loadedRunStopReasonText.text
     property alias run042RowStatusText: run042RowStatusText.text
@@ -74,7 +80,7 @@ Rectangle {
                         border.color: Constants.faultColor
 
                         Text {
-                            text: qsTr("Error")
+                            text: root.runsErrorMessage === "" ? qsTr("Error") : root.runsErrorMessage
                             color: Constants.faultColor
                             font: Constants.headingFont
                             anchors.centerIn: parent
@@ -91,7 +97,7 @@ Rectangle {
                     Rectangle {
                         visible: root.loadedRunId !== "" && !root.runsError
                         width: parent.width
-                        height: 112
+                        height: Math.round(112 * Constants.textScale)
                         color: Constants.backgroundColor
                         border.color: Constants.borderColor
 
@@ -100,10 +106,10 @@ Rectangle {
                             anchors.margins: Constants.spacing
                             spacing: 4
 
-                            Text { text: qsTr("Run-042"); font: Constants.headingFont; color: Constants.textColor }
-                            Text { id: loadedRunStatusText; text: qsTr("Live Sorting  •  Completed  •  2026-07-23 10:41"); color: Constants.textColor; font: Constants.smallFont }
-                            Text { text: qsTr("Total Droplets: 1,248  •  Model: DropletNet-04"); color: Constants.mutedTextColor; font: Constants.smallFont }
-                            Text { text: qsTr("Duration: 00:03:12"); color: Constants.mutedTextColor; font: Constants.smallFont }
+                            Text { text: root.loadedRunFacts.runName || ""; font: Constants.headingFont; color: Constants.textColor }
+                            Text { id: loadedRunStatusText; text: qsTr("%1  •  %2  •  %3").arg(root.loadedRunFacts.operation || "").arg(root.loadedRunFacts.status || "").arg(root.loadedRunFacts.startedAt || ""); color: Constants.textColor; font: Constants.smallFont }
+                            Text { text: qsTr("Total Droplets: %1  •  Model: %2").arg(root.loadedRunFacts.totalCount === undefined ? "" : root.loadedRunFacts.totalCount).arg(root.loadedRunFacts.modelName || qsTr("No model")); color: Constants.mutedTextColor; font: Constants.smallFont }
+                            Text { text: qsTr("Elapsed Duration: %1 s").arg(root.loadedRunFacts.durationSeconds === undefined ? "" : root.loadedRunFacts.durationSeconds); color: Constants.mutedTextColor; font: Constants.smallFont }
                         }
                     }
 
@@ -125,41 +131,47 @@ Rectangle {
 
                         Rectangle {
                             width: parent.width >= Math.round(900 * Constants.textScale) ? (parent.width - parent.spacing * 2) / 3 : parent.width
-                            height: Math.round(142 * Constants.textScale)
+                            height: experimentalInformationContent.implicitHeight + Constants.spacing * 2
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
-                            Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
+                            Column { id: experimentalInformationContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
                                 Text { text: qsTr("Experimental Information"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
-                                Text { text: qsTr("Experiment Type: Sorting Run"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Started: 2026-07-23 10:41"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { id: loadedRunStopReasonText; text: qsTr("Stop Reason: Completed duration"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Save Location: C:/OpenDSS/Runs/Run-042"); elide: Text.ElideMiddle; color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width }
+                                Text { text: qsTr("Experiment Type: %1").arg(root.loadedRunFacts.experimentType || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Started: %1  •  Ended: %2").arg(root.loadedRunFacts.startedAt || qsTr("Not recorded")).arg(root.loadedRunFacts.endedAt || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("Requested Duration: %1").arg(root.loadedRunFacts.requestedDuration || qsTr("Not set")); color: Constants.textColor; font: Constants.smallFont }
+                                Text { id: loadedRunStopReasonText; text: qsTr("Stop Reason: %1").arg(root.loadedRunFacts.stopReason || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Save Location: %1").arg(root.loadedRunFacts.runFolderPath || qsTr("Unavailable")); elide: Text.ElideMiddle; color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width }
                             }
                         }
                         Rectangle {
                             width: parent.width >= Math.round(900 * Constants.textScale) ? (parent.width - parent.spacing * 2) / 3 : parent.width
-                            height: Math.round(142 * Constants.textScale)
+                            height: routingSnapshotContent.implicitHeight + Constants.spacing * 2
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
-                            Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
+                            Column { id: routingSnapshotContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
                                 Text { text: qsTr("Routing / Configuration Snapshot"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
-                                Text { text: qsTr("Trigger Every Droplet: Off"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Hit Class: Class 1"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Hit Boundary: Top is Hit"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Model: DropletNet-04"); color: Constants.mutedTextColor; font: Constants.smallFont }
+                                Text { text: qsTr("Trigger Mode: %1").arg(root.loadedRunFacts.triggerMode || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Hit Class: %1").arg(root.loadedRunFacts.hitClass || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Hit Boundary: %1").arg(root.loadedRunFacts.hitBoundary || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("Physical DAQ Output: %1").arg(root.loadedRunFacts.physicalDaqOutput || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Model: %1  •  ID: %2").arg(root.loadedRunFacts.modelName || qsTr("Not applicable")).arg(root.loadedRunFacts.modelId || qsTr("Not applicable")); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("Checksum: %1").arg(root.loadedRunFacts.modelChecksum || qsTr("Not applicable")); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideMiddle }
+                                Text { text: qsTr("Classes: %1").arg(root.loadedRunFacts.classSnapshot || qsTr("Not applicable")); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
                             }
                         }
                         Rectangle {
                             width: parent.width >= Math.round(900 * Constants.textScale) ? (parent.width - parent.spacing * 2) / 3 : parent.width
-                            height: Math.round(142 * Constants.textScale)
+                            height: hardwareSnapshotContent.implicitHeight + Constants.spacing * 2
                             color: Constants.backgroundColor
                             border.color: Constants.borderColor
-                            Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
+                            Column { id: hardwareSnapshotContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
                                 Text { text: qsTr("Hardware / Fixed Processing Snapshot"); font: Constants.headingFont; color: Constants.textColor; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: qsTr("Camera: Illustrative Camera A"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("DAQ Output: On"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Resolution: 2048 × 2048, 8-bit"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Processing: Qualified fixed configuration"); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { text: qsTr("Camera: %1").arg(root.loadedRunFacts.cameraSettings || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("DAQ: %1").arg(root.loadedRunFacts.daqSettings || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("Detector: %1").arg(root.loadedRunFacts.detectorSettings || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("Crop: %1").arg(root.loadedRunFacts.cropSettings || qsTr("Not recorded")); color: Constants.textColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("Timing: %1").arg(root.loadedRunFacts.timingSettings || qsTr("Not recorded")); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
+                                Text { text: qsTr("Processing FPS requested / achieved: %1 / %2").arg(root.loadedRunFacts.requestedProcessingFps === undefined ? qsTr("Not recorded") : root.loadedRunFacts.requestedProcessingFps).arg(root.loadedRunFacts.achievedProcessingFps === undefined ? qsTr("Not recorded") : root.loadedRunFacts.achievedProcessingFps); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; elide: Text.ElideRight }
                             }
                         }
                     }
@@ -177,8 +189,8 @@ Rectangle {
                             border.color: Constants.borderColor
                             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
                                 Text { text: qsTr("Counts"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
-                                Text { text: qsTr("Predicted Class 0: 714\nPredicted Class 1: 534"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Decision Hit: 702  •  Decision Waste: 546"); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { text: root.loadedRunFacts.predictedCounts || qsTr("Not recorded"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Decision Hit: %1  •  Decision Waste: %2").arg(root.loadedRunFacts.decisionHit === undefined ? "" : root.loadedRunFacts.decisionHit).arg(root.loadedRunFacts.decisionWaste === undefined ? "" : root.loadedRunFacts.decisionWaste); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
                         }
                         Rectangle {
@@ -188,7 +200,7 @@ Rectangle {
                             border.color: Constants.borderColor
                             Column { anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 5
                                 Text { text: qsTr("Observed Route"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
-                                Text { text: qsTr("Observed Hit: 688\nObserved Waste: 536\nUnresolved: 24"); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Observed Hit: %1\nObserved Waste: %2\nUnresolved: %3").arg(root.loadedRunFacts.observedHit === undefined ? "" : root.loadedRunFacts.observedHit).arg(root.loadedRunFacts.observedWaste === undefined ? "" : root.loadedRunFacts.observedWaste).arg(root.loadedRunFacts.observedUnresolved === undefined ? "" : root.loadedRunFacts.observedUnresolved); color: Constants.textColor; font: Constants.smallFont }
                             }
                         }
                     }
@@ -208,13 +220,13 @@ Rectangle {
                                 Text { width: routeMatrix.cellWidth; text: qsTr("Observed Waste"); font: Constants.smallFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap }
                                 Text { width: routeMatrix.cellWidth; text: qsTr("Unresolved"); font: Constants.smallFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap }
                                 Text { width: routeMatrix.cellWidth; text: qsTr("Hit"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
-                                Text { width: routeMatrix.cellWidth; text: qsTr("681"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
-                                Text { width: routeMatrix.cellWidth; text: qsTr("7"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
-                                Text { width: routeMatrix.cellWidth; text: qsTr("14"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: root.loadedRunFacts.hitDecisionHitObserved === undefined ? "" : root.loadedRunFacts.hitDecisionHitObserved; color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: root.loadedRunFacts.hitDecisionWasteObserved === undefined ? "" : root.loadedRunFacts.hitDecisionWasteObserved; color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: root.loadedRunFacts.hitDecisionUnresolved === undefined ? "" : root.loadedRunFacts.hitDecisionUnresolved; color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
                                 Text { width: routeMatrix.cellWidth; text: qsTr("Waste"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
-                                Text { width: routeMatrix.cellWidth; text: qsTr("7"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
-                                Text { width: routeMatrix.cellWidth; text: qsTr("529"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
-                                Text { width: routeMatrix.cellWidth; text: qsTr("10"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: root.loadedRunFacts.wasteDecisionHitObserved === undefined ? "" : root.loadedRunFacts.wasteDecisionHitObserved; color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: root.loadedRunFacts.wasteDecisionWasteObserved === undefined ? "" : root.loadedRunFacts.wasteDecisionWasteObserved; color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
+                                Text { width: routeMatrix.cellWidth; text: root.loadedRunFacts.wasteDecisionUnresolved === undefined ? "" : root.loadedRunFacts.wasteDecisionUnresolved; color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap }
                             }
                         }
                     }
@@ -228,12 +240,16 @@ Rectangle {
                         Flow { id: filesNotesFlow; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: Constants.spacing
                             Column { width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width; height: implicitHeight; spacing: 6
                                 Text { text: qsTr("Files and Notes"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
-                                AppButton { text: qsTr("Open Droplet Log"); width: parent.width; height: Constants.appStandardControlHeight }
-                                AppButton { text: qsTr("Open Run Folder"); width: parent.width; height: Constants.appStandardControlHeight }
+                                AppButton { id: openDropletLogButton; text: qsTr("Open Droplet Log"); width: parent.width; height: Constants.appStandardControlHeight; enabled: root.loadedRunFacts.eventsAvailable === true }
+                                Text { visible: !openDropletLogButton.enabled; text: root.loadedRunFacts.eventsReason || qsTr("Droplet Log is unavailable."); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
+                                AppButton { id: openRunFolderButton; text: qsTr("Open Run Folder"); width: parent.width; height: Constants.appStandardControlHeight; enabled: root.loadedRunFacts.runFolderAvailable === true }
+                                Text { visible: !openRunFolderButton.enabled; text: root.loadedRunFacts.runFolderReason || qsTr("Run folder is unavailable."); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
                                 Row { width: parent.width; spacing: 6
-                                    AppButton { text: qsTr("Open Droplet Crop"); width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
-                                    AppButton { text: qsTr("Open Saved Sequence"); width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
+                                    AppButton { id: openDropletCropButton; text: qsTr("Open Droplet Crop"); width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight; enabled: root.loadedRunFacts.cropsAvailable === true }
+                                    AppButton { id: openSavedSequenceButton; text: qsTr("Open Saved Sequence"); width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight; enabled: root.loadedRunFacts.sequenceAvailable === true }
                                 }
+                                Text { visible: !openDropletCropButton.enabled; text: root.loadedRunFacts.cropsReason || qsTr("Droplet Crop folder is unavailable."); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
+                                Text { visible: !openSavedSequenceButton.enabled; text: root.loadedRunFacts.sequenceReason || qsTr("No saved Image Sequence for this Run."); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
                             }
                             Column { width: parent.width >= Math.round(680 * Constants.textScale) ? (parent.width - parent.spacing) * 0.5 : parent.width; height: implicitHeight; spacing: 6
                                 Text { text: qsTr("Notes"); font: Constants.headingFont; color: Constants.textColor; width: parent.width; wrapMode: Text.WordWrap }
@@ -241,7 +257,7 @@ Rectangle {
                                     id: notesEditor
                                     width: parent.width
                                     height: Math.max(implicitHeight, Math.round(80 * Constants.textScale))
-                                    text: qsTr("Factual Run notes are shown here.")
+                                    text: root.loadedRunFacts.notes || ""
                                     readOnly: !root.notesEditing
                                     wrapMode: TextEdit.Wrap
                                 }

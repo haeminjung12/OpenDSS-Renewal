@@ -157,6 +157,29 @@ bool SequenceViewerController::seek(qint64 oneBasedFrame) {
     return moved;
 }
 
+int SequenceViewerController::imageWidth() const {
+    QMutexLocker lock(&mutex_);
+    return model_.snapshot().image.width();
+}
+
+int SequenceViewerController::imageHeight() const {
+    QMutexLocker lock(&mutex_);
+    return model_.snapshot().image.height();
+}
+
+bool SequenceViewerController::jump(qint64 delta)
+{
+    qint64 target = 0;
+    {
+        QMutexLocker lock(&mutex_);
+        const auto snapshot = model_.snapshot();
+        if (snapshot.status != SequenceViewerStatus::Ready || snapshot.frameCount <= 0)
+            return false;
+        target = qBound<qint64>(1, snapshot.currentFrame + delta, snapshot.frameCount);
+    }
+    return seek(target);
+}
+
 QString SequenceViewerController::presentationFor(const SequenceViewerSnapshot& snapshot) {
     switch (snapshot.status) {
     case SequenceViewerStatus::Ready:

@@ -359,6 +359,10 @@ void SequenceTestController::setOutputFolderUrl(const QUrl& value) {
     emit changed();
 }
 
+QUrl SequenceTestController::runFolderUrl() const { return runFolderUrl_; }
+
+QUrl SequenceTestController::runSummaryUrl() const { return runSummaryUrl_; }
+
 bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     if (inputLocked())
         return false;
@@ -695,6 +699,8 @@ bool SequenceTestController::start() {
     processedFrames_ = 0;
     totalFrames_ = frameCount_;
     achievedProcessingFps_ = 0.0;
+    runFolderUrl_.clear();
+    runSummaryUrl_.clear();
     outputStatus_ = QStringLiteral("Starting");
     presentation_ = QStringLiteral("starting");
     errorMessage_.clear();
@@ -706,13 +712,15 @@ bool SequenceTestController::start() {
         runWorker_ = std::thread(
             [this, generation, request = std::move(request)] {
                 QString error;
-                const bool succeeded = service_.run(request, &error);
+                QString runFolder;
+                const bool succeeded =
+                    service_.run(request, &error, &runFolder);
                 if (shuttingDown_.load(std::memory_order_acquire))
                     return;
                 QMetaObject::invokeMethod(
                     this,
-                    [this, generation, succeeded, error] {
-                        finishRun(generation, succeeded, error);
+                    [this, generation, succeeded, error, runFolder] {
+                        finishRun(generation, succeeded, error, runFolder);
                     },
                     Qt::QueuedConnection);
             });
@@ -768,8 +776,36 @@ void SequenceTestController::refreshPreflight() {
         return;
     refreshAvailableMemory();
     refreshActiveModel();
+    updatePreflight(presentation_ == QStringLiteral("error") &&
+                    outputStatus_ == QStringLiteral("Failed"));
+    emit changed();
+}
+
+void SequenceTestController::startAnotherTest() {
+    if (operationActive())
+        return;
+    runFolderUrl_.clear();
+    runSummaryUrl_.clear();
+    processedFrames_ = 0;
+    achievedProcessingFps_ = 0.0;
+    outputStatus_ = QStringLiteral("Not started");
+    errorMessage_.clear();
+    presentation_ = memoryReady_ ? QStringLiteral("unavailable")
+                                 : QStringLiteral("selected");
     updatePreflight();
     emit changed();
+}
+
+bool SequenceTestController::openRunFolder() {
+    if (!runFolderUrl_.isLocalFile() || runFolderUrl_.hasQuery() ||
+        runFolderUrl_.hasFragment() ||
+        !QFileInfo(runFolderUrl_.toLocalFile()).isDir()) {
+        errorMessage_ = QStringLiteral("Sequence Test Run folder is unavailable.");
+        emit changed();
+        return false;
+    }
+    emit openRunFolderRequested(runFolderUrl_);
+    return true;
 }
 
 bool SequenceTestController::operationActive() const {
@@ -1029,13 +1065,21 @@ void SequenceTestController::finishLoad(
 
 void SequenceTestController::finishRun(quint64 generation,
                                        bool succeeded,
-                                       const QString& error) {
+                                       const QString& error,
+                                       const QString& runFolder) {
     if (generation != runGeneration_ ||
         shuttingDown_.load(std::memory_order_acquire)) {
         return;
     }
     const bool stopped =
         stopRequested_.exchange(false, std::memory_order_acq_rel);
+    runFolderUrl_ =
+        runFolder.isEmpty() ? QUrl{} : QUrl::fromLocalFile(runFolder);
+    const QString summaryPath =
+        QDir(runFolder).filePath(QStringLiteral("run_summary.json"));
+    runSummaryUrl_ = QFileInfo(summaryPath).isFile()
+                         ? QUrl::fromLocalFile(summaryPath)
+                         : QUrl{};
     if (succeeded) {
         presentation_ = stopped ? QStringLiteral("interrupted")
                                 : QStringLiteral("completed");

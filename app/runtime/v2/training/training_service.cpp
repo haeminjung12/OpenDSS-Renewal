@@ -101,7 +101,14 @@ QJsonObject fixedTrainerConfig(
         {QStringLiteral("onnx_opset"), 18},
         {QStringLiteral("classes"), classIds},
         {QStringLiteral("display_labels"), displayLabels},
-        {QStringLiteral("initialization"), QJsonObject{{QStringLiteral("mode"), QStringLiteral("imagenet")}}},
+        {QStringLiteral("initialization"),
+         request.initializationMode == QStringLiteral("checkpoint")
+             ? QJsonObject{{QStringLiteral("mode"), QStringLiteral("checkpoint")},
+                           {QStringLiteral("checkpoint_path"),
+                            QFileInfo(request.initializationPath).absoluteFilePath()}}
+             : QJsonObject{{QStringLiteral("mode"), QStringLiteral("imagenet")},
+                           {QStringLiteral("weight_path"),
+                            QFileInfo(request.initializationPath).absoluteFilePath()}}},
         {QStringLiteral("device_request"), request.device},
     };
 }
@@ -236,6 +243,17 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
     trainerError_.clear();
     runFinished_ = {};
     cancelRequested_ = false;
+
+    if ((request.initializationMode != QStringLiteral("imagenet")
+         && request.initializationMode != QStringLiteral("checkpoint"))
+        || !QFileInfo(request.initializationPath).isFile()) {
+        lastError_ = QStringLiteral(
+            "Training requires an available local ImageNet weight or checkpoint file.");
+        setState(TrainingState::Failed);
+        if (error)
+            *error = lastError_;
+        return false;
+    }
 
     auto acquired = operations_.acquireWithDataset(
         OperationKind::Training, ResourceLock::Training | ResourceLock::Storage,

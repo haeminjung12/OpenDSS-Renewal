@@ -5,6 +5,7 @@ import Desktop_app_v2
 import Desktop_app_v2Content
 
 Item {
+    id: testRoot
     width: 1600
     height: 900
 
@@ -266,9 +267,13 @@ Item {
         property url metadataUrl: ""
         property url registeredPackageUrl: ""
         property bool retrySaveAvailable: false
+        property var weightOptions: ["ImageNet-pretrained", "Fixture checkpoint — OpenDSS checkpoint"]
+        property int selectedWeightIndex: 0
         property int startCallCount: 0
         property int stopCallCount: 0
         property int retrySaveCallCount: 0
+        property int loadWeightsCallCount: 0
+        property int loadedWeightIndex: -1
 
         function reset() {
             datasetManifestUrl = "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
@@ -290,6 +295,9 @@ Item {
             startCallCount = 0
             stopCallCount = 0
             retrySaveCallCount = 0
+            selectedWeightIndex = 0
+            loadWeightsCallCount = 0
+            loadedWeightIndex = -1
         }
 
         function start() {
@@ -305,6 +313,84 @@ Item {
             ++retrySaveCallCount
             return true
         }
+
+        function loadWeights(index) {
+            ++loadWeightsCallCount
+            loadedWeightIndex = index
+            selectedWeightIndex = index
+            return true
+        }
+    }
+
+    QtObject {
+        id: captureWorkflowController
+        property string sequencePresentation: "ready"
+        property string datasetPresentation: "ready"
+        property int sequenceFrameCount: 0
+        property int datasetFrameCount: 0
+        property int datasetCropCount: 0
+        property string sequenceLocation: "C:/OpenDSS/Collections"
+        property string datasetLocation: "C:/OpenDSS/Datasets"
+        property string sequenceFolder: "C:/OpenDSS/Collections/fixture"
+        property string datasetFolder: "C:/OpenDSS/Datasets/fixture"
+        property string sequenceError: ""
+        property string datasetError: ""
+        readonly property bool captureActive:
+            sequencePresentation === "running" || sequencePresentation === "paused"
+            || datasetPresentation === "running" || datasetPresentation === "paused"
+        property bool captureStartAvailable: !captureActive
+        property int startSequenceCallCount: 0
+        property int pauseSequenceCallCount: 0
+        property int stopSequenceCallCount: 0
+        property int startDatasetCallCount: 0
+        property int pauseDatasetCallCount: 0
+        property int stopDatasetCallCount: 0
+
+        function reset() {
+            sequencePresentation = "ready"
+            datasetPresentation = "ready"
+            sequenceFrameCount = 0
+            datasetFrameCount = 0
+            datasetCropCount = 0
+            startSequenceCallCount = 0
+            pauseSequenceCallCount = 0
+            stopSequenceCallCount = 0
+            startDatasetCallCount = 0
+            pauseDatasetCallCount = 0
+            stopDatasetCallCount = 0
+        }
+        function startSequence() {
+            ++startSequenceCallCount
+            sequencePresentation = "running"
+            return true
+        }
+        function pauseOrResumeSequence() {
+            ++pauseSequenceCallCount
+            sequencePresentation = sequencePresentation === "paused" ? "running" : "paused"
+            return true
+        }
+        function stopSequence() {
+            ++stopSequenceCallCount
+            sequencePresentation = "completed"
+            return true
+        }
+        function newSequence() { sequencePresentation = "ready" }
+        function startDataset() {
+            ++startDatasetCallCount
+            datasetPresentation = "running"
+            return true
+        }
+        function pauseOrResumeDataset() {
+            ++pauseDatasetCallCount
+            datasetPresentation = datasetPresentation === "paused" ? "running" : "paused"
+            return true
+        }
+        function stopDataset() {
+            ++stopDatasetCallCount
+            datasetPresentation = "completed"
+            return true
+        }
+        function newDataset() { datasetPresentation = "ready" }
     }
 
     QtObject {
@@ -420,9 +506,13 @@ Item {
         property real delayMs: 0
         property string daqStatus: "Ready"
         property bool canApply: true
+        property bool ready: true
+        property bool continuousWaveformActive: false
         property string error: ""
         property int refreshDevicesCallCount: 0
         property int applyCallCount: 0
+        property int sendTestSineWaveCallCount: 0
+        property int toggleContinuousWaveformCallCount: 0
 
         function reset() {
             devices = [{ deviceId: "Dev1" }]
@@ -434,9 +524,13 @@ Item {
             delayMs = 0
             daqStatus = "Ready"
             canApply = true
+            ready = true
+            continuousWaveformActive = false
             error = ""
             refreshDevicesCallCount = 0
             applyCallCount = 0
+            sendTestSineWaveCallCount = 0
+            toggleContinuousWaveformCallCount = 0
         }
 
         function refreshDevices() {
@@ -485,8 +579,12 @@ Item {
         })
         property string stopReason: ""
         property string runFolder: "C:/OpenDSS/Runs/Production-Run"
+        property string profilePath: ""
+        property string profileStatus: ""
+        property bool canSaveProfile: profilePath !== ""
         property int primaryActionCallCount: 0
         property int secondaryActionCallCount: 0
+        property int saveProfileCallCount: 0
 
         function reset() {
             presentation = "ready"
@@ -506,10 +604,14 @@ Item {
             recordFullImageSequence = false
             primaryActionCallCount = 0
             secondaryActionCallCount = 0
+            profilePath = ""
+            profileStatus = ""
+            saveProfileCallCount = 0
         }
 
         function primaryAction() { ++primaryActionCallCount; return true }
         function secondaryAction() { ++secondaryActionCallCount; return true }
+        function saveProfile() { ++saveProfileCallCount; return true }
     }
 
     QtObject {
@@ -547,9 +649,13 @@ Item {
         property string selectedHitClassId: "1"
         property bool physicalDaqOutputEnabled: false
         property url outputFolderUrl: "file:///C:/OpenDSS/Sequence%20Tests"
+        property url runFolderUrl: ""
+        property url runSummaryUrl: ""
         property int loadToMemoryCallCount: 0
         property int startCallCount: 0
         property int stopCallCount: 0
+        property int startAnotherCallCount: 0
+        property int openRunFolderCallCount: 0
 
         function reset() {
             presentation = "selected"
@@ -563,12 +669,56 @@ Item {
             loadToMemoryCallCount = 0
             startCallCount = 0
             stopCallCount = 0
+            startAnotherCallCount = 0
+            openRunFolderCallCount = 0
+            runFolderUrl = ""
+            runSummaryUrl = ""
         }
 
         function selectSequence(url) { sourceManifestUrl = url; return true }
         function loadToMemory() { ++loadToMemoryCallCount; return true }
         function start() { ++startCallCount; return true }
         function stop() { ++stopCallCount; return true }
+        function startAnotherTest() {
+            ++startAnotherCallCount
+            presentation = "ready"
+            runFolderUrl = ""
+            runSummaryUrl = ""
+        }
+
+        function sendTestSineWave() {
+            ++sendTestSineWaveCallCount
+            return true
+        }
+
+        function toggleContinuousWaveform() {
+            ++toggleContinuousWaveformCallCount
+            continuousWaveformActive = !continuousWaveformActive
+            return true
+        }
+        function openRunFolder() { ++openRunFolderCallCount; return true }
+    }
+
+    QtObject {
+        id: runsControllerMock
+        property var runs: []
+        property string selectedRunId: ""
+        property var loadedRun: ({ notes: "Persisted notes" })
+        property string errorMessage: ""
+        property int updateNotesCallCount: 0
+        property string updatedNotes: ""
+        property int openSummaryCallCount: 0
+        signal savedSequenceRequested(string manifestPath)
+        function updateLoadedNotes(notes) {
+            ++updateNotesCallCount
+            updatedNotes = notes
+            loadedRun = ({ notes: notes })
+            return true
+        }
+        function openRunSummary(url) {
+            ++openSummaryCallCount
+            return true
+        }
     }
 
     QtObject {
@@ -702,6 +852,8 @@ Item {
         shell.modelTestController = null
         shell.liveSortingController = null
         shell.sequenceTestController = null
+        shell.captureWorkflowController = null
+        shell.runsResultsController = null
         shell.singleImageCaptureController = null
         shell.daqController = null
         shell.settingsActionError = ""
@@ -711,6 +863,7 @@ Item {
         daqController.reset()
         liveSortingController.reset()
         sequenceTestController.reset()
+        captureWorkflowController.reset()
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
@@ -828,6 +981,16 @@ Item {
     function test_realUnavailableCameraDoesNotShowStartupPrompt() {
         unavailableCameraShell.visible = true
         unavailableCameraShell.mockState.hardwareDrawerOpen = true
+        wait(0)
+        unavailableCameraController.cameraStatus = "Connected"
+        unavailableCameraController.configurationAvailable = true
+        unavailableCameraController.deviceId = "DCAM:0"
+        wait(0)
+        compare(unavailableCameraShell.form.cameraDeviceSelector.model[1], "DCAM:0")
+        verify(unavailableCameraShell.form.cameraDeviceSelector.model[1].indexOf("Illustrative") === -1)
+        unavailableCameraController.cameraStatus = "Unavailable"
+        unavailableCameraController.configurationAvailable = false
+        unavailableCameraController.deviceId = "Hamamatsu ORCA-Flash4.0"
         wait(0)
         compare(unavailableCameraShell.form.cameraStatus, "Unavailable")
         compare(unavailableCameraShell.form.disabledReason, "Camera unavailable")
@@ -1694,12 +1857,40 @@ Item {
         compare(shell.form.labelWorkspace.class0Count, 1)
         compare(shell.form.labelWorkspace.unreviewedCount, 1)
         compare(shell.form.labelWorkspace.classNames[1], "Single cell")
+        compare(shell.form.labelWorkspace.class0Button.text, "Empty")
+        compare(shell.form.labelWorkspace.class1Button.text, "Single cell")
+        compare(shell.form.labelWorkspace.class2Button.text, "Multiple cells")
+        compare(shell.form.labelWorkspace.class0FilterButton.text, "Empty (1)")
+        compare(shell.form.labelWorkspace.class1FilterButton.text, "Single cell (0)")
+        compare(shell.form.labelWorkspace.class2FilterButton.text, "Multiple cells (0)")
         compare(shell.form.labelWorkspace.filteredCropRecords.length, 2)
         compare(shell.form.labelWorkspace.selectedCropId, "r1")
         compare(shell.form.labelWorkspace.selectedCropIndex, 0)
         compare(shell.form.labelWorkspace.selectedCropSource.toString(),
                 labelController.selectedCropUrl.toString())
         verify(shell.form.labelWorkspace.canUndo)
+        const firstCrop = labelCropDelegate("r1")
+        verify(firstCrop !== null)
+        compare(firstCrop.width, shell.form.labelWorkspace.cropGridHost.cellWidth)
+        compare(firstCrop.height, shell.form.labelWorkspace.cropGridHost.cellHeight)
+        compare(shell.form.labelWorkspace.cropGridHost.width,
+                shell.form.labelWorkspace.cropGridHost.columns
+                        * shell.form.labelWorkspace.cropGridHost.cellWidth
+                        + Math.max(0,
+                                   shell.form.labelWorkspace.cropGridHost.columns - 1)
+                        * shell.form.labelWorkspace.cropGridHost.spacing)
+        verify(shell.form.labelWorkspace.cropGridHost.childrenRect.height
+               >= shell.form.labelWorkspace.cropGridHost.cellHeight)
+
+        labelController.classNames = ["", "Target"]
+        wait(0)
+        compare(shell.form.labelWorkspace.class0Button.text, "Class 0")
+        compare(shell.form.labelWorkspace.class1Button.text, "Target")
+        compare(shell.form.labelWorkspace.class2Button.text, "Class 2")
+        compare(shell.form.labelWorkspace.class0FilterButton.text, "Class 0 (1)")
+        compare(shell.form.labelWorkspace.class1FilterButton.text, "Target (0)")
+        compare(shell.form.labelWorkspace.class2FilterButton.text, "Class 2 (0)")
+        labelController.classNames = ["Empty", "Single cell", "Multiple cells"]
 
         labelController.errorMessage = "Dataset is in use by Training"
         compare(shell.form.labelWorkspace.errorMessage, "Dataset is in use by Training")
@@ -1868,12 +2059,99 @@ Item {
         shell.form.sequenceViewerWorkspace.openSequenceButton.clicked()
         compare(shell.mockState.sequenceViewerPresentation, "firstFrame")
         compare(shell.form.sequenceViewerWorkspace.currentFrame, 1)
+        compare(shell.form.sequenceViewerWorkspace.frameSlider.from, 1)
+        compare(shell.form.sequenceViewerWorkspace.frameSlider.to, 120)
+        verify(shell.form.sequenceViewerWorkspace.jumpBack50Button.enabled)
+        verify(shell.form.sequenceViewerWorkspace.jumpBack10Button.enabled)
+        verify(shell.form.sequenceViewerWorkspace.jumpForward10Button.enabled)
+        verify(shell.form.sequenceViewerWorkspace.jumpForward50Button.enabled)
+        verify(shell.form.sequenceViewerWorkspace.zoomOutButton.enabled)
+        verify(shell.form.sequenceViewerWorkspace.zoomInButton.enabled)
+        verify(shell.form.sequenceViewerWorkspace.fitButton.enabled)
+        verify(shell.form.sequenceViewerWorkspace.actualSizeButton.enabled)
         shell.form.sequenceViewerWorkspace.nextButton.clicked()
         compare(shell.mockState.sequenceViewerPresentation, "middleFrame")
         compare(shell.form.sequenceViewerWorkspace.currentFrame, 60)
         shell.form.sequenceViewerWorkspace.directSeekField.text = "42"
         shell.form.sequenceViewerWorkspace.directSeekField.accepted()
         compare(shell.mockState.sequenceViewerPresentation, "middleFrame")
+    }
+
+    function test_captureRuntimeFormSeams() {
+        shell.form.sequenceNameField.text = "Sequence A"
+        shell.form.sequenceExperimentTypeField.text = "Experiment A"
+        shell.form.sequenceNotesField.text = "Sequence notes"
+        shell.form.sequenceDurationField.text = "10"
+        shell.form.datasetNameField.text = "Dataset A"
+        shell.form.datasetExperimentTypeField.text = "Experiment B"
+        shell.form.datasetNotesField.text = "Dataset notes"
+        shell.form.datasetDurationField.text = "20"
+
+        compare(shell.form.sequenceNameField.text, "Sequence A")
+        compare(shell.form.sequenceExperimentTypeField.text, "Experiment A")
+        compare(shell.form.sequenceNotesField.text, "Sequence notes")
+        compare(shell.form.sequenceDurationField.text, "10")
+        compare(shell.form.datasetNameField.text, "Dataset A")
+        compare(shell.form.datasetExperimentTypeField.text, "Experiment B")
+        compare(shell.form.datasetNotesField.text, "Dataset notes")
+        compare(shell.form.datasetDurationField.text, "20")
+        verify(shell.form.continuousSineWaveButton !== null)
+
+        shell.form.sequenceFrameCount = 37
+        shell.form.sequenceElapsedTimeText = "00:00:12"
+        shell.form.sequenceCompletionText = "Sequence complete"
+        shell.form.sequenceErrorText = "Sequence write failed"
+        shell.form.datasetFrameCount = 41
+        shell.form.datasetCropCount = 13
+        shell.form.datasetElapsedTimeText = "00:00:18"
+        shell.form.datasetCompletionText = "Dataset complete"
+        shell.form.datasetErrorText = "Dataset write failed"
+
+        compare(shell.form.sequenceFrameCount, 37)
+        compare(shell.form.sequenceElapsedTimeText, "00:00:12")
+        compare(shell.form.sequenceCompletionText, "Sequence complete")
+        compare(shell.form.sequenceErrorText, "Sequence write failed")
+        compare(shell.form.datasetFrameCount, 41)
+        compare(shell.form.datasetCropCount, 13)
+        compare(shell.form.datasetElapsedTimeText, "00:00:18")
+        compare(shell.form.datasetCompletionText, "Dataset complete")
+        compare(shell.form.datasetErrorText, "Dataset write failed")
+    }
+
+    function test_liveCameraPreviewSourcePort() {
+        shell.form.navLiveButton.clicked()
+        const workspace = shell.form.liveWorkspace
+        workspace.presentation = "ready"
+        workspace.cameraPreviewSource = ""
+        verify(!workspace.cameraPreviewImage.visible)
+
+        workspace.cameraPreviewSource =
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        verify(workspace.cameraPreviewImage.visible)
+
+        workspace.presentation = "unavailable"
+        verify(!workspace.cameraPreviewImage.visible)
+    }
+
+    function test_authorizedFormsAtSupportedWindowSizes() {
+        compare(shell.width, 1600)
+        compare(shell.height, 900)
+        verify(shell.form.labelWorkspace.width > 0)
+        verify(shell.form.sequenceViewerWorkspace.width > 0)
+        verify(shell.form.liveWorkspace.width > 0)
+
+        testRoot.width = 1920
+        testRoot.height = 1080
+        wait(0)
+        compare(shell.width, 1920)
+        compare(shell.height, 1080)
+        verify(shell.form.labelWorkspace.width > 0)
+        verify(shell.form.sequenceViewerWorkspace.width > 0)
+        verify(shell.form.liveWorkspace.width > 0)
+
+        testRoot.width = 1600
+        testRoot.height = 900
+        wait(0)
     }
 
     function test_sequenceViewerLocalFilePaths() {
@@ -1941,9 +2219,9 @@ Item {
         compare(shell.form.trainWorkspace.totalEpochs, 20)
         compare(shell.form.trainWorkspace.overallProgress, 0.25)
         verify(shell.form.trainWorkspace.startEnabled)
-        verify(!shell.form.trainWorkspace.weightsSelector.enabled)
+        verify(shell.form.trainWorkspace.weightsSelector.enabled)
         verify(shell.form.trainWorkspace.weightsSelector.visible)
-        verify(!shell.form.trainWorkspace.loadWeightsButton.enabled)
+        verify(shell.form.trainWorkspace.loadWeightsButton.enabled)
         verify(shell.form.trainWorkspace.loadWeightsButton.visible)
         verify(!shell.form.trainWorkspace.showMetrics)
         verify(!shell.form.trainWorkspace.showTiming)
@@ -2168,7 +2446,18 @@ Item {
         compare(liveSortingController.hitClassId, "0")
         compare(shell.form.liveWorkspace.hitClassControl.model[0], "MoreThanOne")
         verify(shell.form.liveWorkspace.integrityStatusText.indexOf("Queue rejections: 2") >= 0)
-        verify(!shell.form.liveWorkspace.sendTestPulseButton.enabled)
+        verify(shell.form.liveWorkspace.sendTestPulseButton.enabled)
+        verify(shell.form.liveWorkspace.openProfileButton.enabled)
+        verify(shell.form.liveWorkspace.saveProfileButton.enabled)
+        verify(shell.form.liveWorkspace.saveProfileAsButton.enabled)
+        liveSortingController.profilePath = "C:/OpenDSS/profile.json"
+        liveSortingController.profileStatus = "Profile loaded: profile.json"
+        wait(0)
+        verify(shell.form.liveWorkspace.saveProfileButton.enabled)
+        compare(shell.form.liveWorkspace.profileAvailabilityText,
+                "Profile loaded: profile.json")
+        shell.form.liveWorkspace.saveProfileButton.clicked()
+        compare(liveSortingController.saveProfileCallCount, 1)
         shell.form.liveWorkspace.primaryActionButton.clicked()
         compare(liveSortingController.primaryActionCallCount, 1)
         liveSortingController.daqOutputEnabled = true
@@ -2234,6 +2523,12 @@ Item {
                 "Load readiness: Ready in memory")
         verify(shell.form.sequenceTestWorkspace.sequenceValidationText.text.indexOf(
                    "DAQ hardware is not ready.") >= 0)
+
+        sequenceTestController.presentation = "error"
+        sequenceTestController.errorMessage = "The previous sequence failed."
+        wait(0)
+        verify(shell.form.sequenceTestWorkspace.loadSequenceButton.enabled)
+        shell.form.sequenceTestWorkspace.loadSequenceButton.clicked()
     }
 
     function test_sequenceTestPhysicalDaqRequirement() {
@@ -2319,6 +2614,100 @@ Item {
         compare(shell.form.bannerText, "")
         compare(shell.form.savedPath, "")
         compare(shell.form.disabledReason, "")
+    }
+
+    function test_runNotesAndSequenceTestCompletionActions() {
+        shell.runsResultsController = runsControllerMock
+        shell.sequenceTestController = sequenceTestController
+        runsControllerMock.loadedRun = ({ notes: "Persisted notes" })
+        runsControllerMock.updateNotesCallCount = 0
+        runsControllerMock.openSummaryCallCount = 0
+
+        shell.form.runsWorkspace.editNotesButton.clicked()
+        shell.form.runsWorkspace.notesEditor.text = "Updated factual notes"
+        shell.form.runsWorkspace.saveNotesButton.clicked()
+        compare(runsControllerMock.updateNotesCallCount, 1)
+        compare(runsControllerMock.updatedNotes, "Updated factual notes")
+
+        shell.form.runsWorkspace.editNotesButton.clicked()
+        shell.form.runsWorkspace.notesEditor.text = "Discarded draft"
+        shell.form.runsWorkspace.cancelNotesButton.clicked()
+        compare(shell.form.runsWorkspace.notesEditor.text,
+                "Updated factual notes")
+        runsControllerMock.loadedRun = ({ notes: "Notes from another run" })
+        compare(shell.form.runsWorkspace.notesEditor.text,
+                "Notes from another run")
+
+        sequenceTestController.presentation = "completed"
+        sequenceTestController.runFolderUrl =
+                "file:///C:/OpenDSS/Runs/sequence-test"
+        sequenceTestController.runSummaryUrl =
+                "file:///C:/OpenDSS/Runs/sequence-test/run_summary.json"
+        shell.mockState.selectWorkspace("sequenceTest")
+        wait(0)
+        verify(shell.form.sequenceTestWorkspace.openRunSummaryButton.visible)
+        verify(shell.form.sequenceTestWorkspace.openRunFolderButton.visible)
+        verify(shell.form.sequenceTestWorkspace.startAnotherTestButton.visible)
+        shell.form.sequenceTestWorkspace.openRunSummaryButton.clicked()
+        compare(runsControllerMock.openSummaryCallCount, 1)
+        compare(shell.mockState.selectedWorkspace, "runs")
+
+        shell.mockState.selectWorkspace("sequenceTest")
+        shell.form.sequenceTestWorkspace.startAnotherTestButton.clicked()
+        compare(sequenceTestController.startAnotherCallCount, 1)
+        compare(sequenceTestController.presentation, "ready")
+    }
+
+    function test_productionCaptureControllerActions() {
+        shell.captureWorkflowController = captureWorkflowController
+        shell.mockState.imageSequenceOpen = true
+        shell.form.sequenceStartButton.clicked()
+        compare(captureWorkflowController.startSequenceCallCount, 1)
+        compare(shell.form.sequencePresentation, "running")
+        shell.form.capturePauseButton.clicked()
+        compare(captureWorkflowController.pauseSequenceCallCount, 1)
+        compare(shell.form.sequencePresentation, "paused")
+        shell.form.capturePauseButton.clicked()
+        compare(shell.form.sequencePresentation, "running")
+        shell.form.captureStopButton.clicked()
+        compare(captureWorkflowController.stopSequenceCallCount, 1)
+        compare(shell.form.sequencePresentation, "completed")
+
+        captureWorkflowController.newSequence()
+        shell.mockState.imageSequenceOpen = false
+        shell.mockState.datasetOpen = true
+        shell.form.datasetStartButton.clicked()
+        compare(captureWorkflowController.startDatasetCallCount, 1)
+        compare(shell.form.datasetPresentation, "running")
+        shell.form.datasetPauseButton.clicked()
+        compare(captureWorkflowController.pauseDatasetCallCount, 1)
+        compare(shell.form.datasetPresentation, "paused")
+        shell.form.datasetPauseButton.clicked()
+        compare(shell.form.datasetPresentation, "running")
+        shell.form.datasetStopButton.clicked()
+        compare(captureWorkflowController.stopDatasetCallCount, 1)
+        compare(shell.form.datasetPresentation, "completed")
+    }
+
+    function test_trainingWeightsAndSequenceViewerViewActions() {
+        shell.trainingController = trainingController
+        compare(shell.form.trainWorkspace.weightsSelector.model.length, 2)
+        shell.form.trainWorkspace.weightsSelector.currentIndex = 1
+        shell.form.trainWorkspace.loadWeightsButton.clicked()
+        compare(trainingController.loadWeightsCallCount, 1)
+        compare(trainingController.loadedWeightIndex, 1)
+
+        shell.mockState.sequenceViewerPresentation = "middleFrame"
+        const initialScale = shell.form.sequenceViewerWorkspace.zoomScale
+        shell.form.sequenceViewerWorkspace.zoomInButton.clicked()
+        verify(shell.form.sequenceViewerWorkspace.zoomScale > initialScale)
+        shell.form.sequenceViewerWorkspace.zoomOutButton.clicked()
+        compare(shell.form.sequenceViewerWorkspace.zoomScale, initialScale)
+        shell.form.sequenceViewerWorkspace.actualSizeButton.clicked()
+        verify(shell.form.sequenceViewerWorkspace.actualSize)
+        shell.form.sequenceViewerWorkspace.fitButton.clicked()
+        verify(!shell.form.sequenceViewerWorkspace.actualSize)
+        compare(shell.form.sequenceViewerWorkspace.zoomScale, 1)
     }
     }
 }

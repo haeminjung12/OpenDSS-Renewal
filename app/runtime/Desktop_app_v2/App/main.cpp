@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QApplication>
+#include <QDesktopServices>
 #include <QDir>
 #include <QEventLoop>
 #include <QFileInfo>
@@ -15,6 +16,7 @@
 #include <QVariant>
 
 #include <memory>
+#include <chrono>
 #include <optional>
 
 #ifdef Q_OS_WIN
@@ -25,6 +27,7 @@
 #include "../../detection/droplet_detector_adapters.h"
 #include "../../desktop_app/model_registry_service.h"
 #include "../../desktop_app/pipeline_runner.h"
+#include "../../onnx_classifier.h"
 #include "../../v2/camera/camera_controller.h"
 #include "../../v2/camera/camera_preview_image_provider.h"
 #include "../../v2/camera/camera_service.h"
@@ -47,6 +50,7 @@
 #include "../../v2/results/runs_results_controller.h"
 #include "../../v2/sequence/sequence_viewer_controller.h"
 #include "../../v2/sequence/sequence_viewer_image_provider.h"
+#include "../../v2/sequence/capture_workflow_controller.h"
 #include "../../v2/sequence_test/sequence_test_controller.h"
 #include "../../v2/sequence_test/sequence_test_service.h"
 #include "../../v2/state/application_state_store.h"
@@ -198,14 +202,18 @@ int main(int argc, char *argv[])
                                             .filePath(QStringLiteral("preferences.json"));
     desktop_app::v2::SettingsRepository settingsRepository(preferencesFilePath, applicationStateStore);
     settingsRepository.load();
-    desktop_app::v2::SettingsController settingsController(settingsRepository, applicationStateStore);
+    desktop_app::v2::SettingsController settingsController(
+        settingsRepository, applicationStateStore,
+        [](const QUrl &url) { return QDesktopServices::openUrl(url); });
     desktop_app::v2::results::RunRepository runRepository(applicationStateStore);
-    desktop_app::v2::results::RunsResultsController runsResultsController(runRepository, applicationStateStore);
+    desktop_app::v2::results::RunsResultsController runsResultsController(
+        runRepository, applicationStateStore,
+        [](const QUrl &url) { return QDesktopServices::openUrl(url); });
     desktop_app::v2::sequence::SequenceViewerController sequenceViewerController;
     desktop_app::v2::dataset::DatasetLabelController datasetLabelController(operationCoordinator,
                                                                             applicationStateStore);
     const QJsonObject registry = loadModelRegistry();
-    ensureDefaultWorkspaceAssets(
+    const DefaultWorkspacePaths workspacePaths = ensureDefaultWorkspaceAssets(
         registry.value(QStringLiteral("entries")).toArray());
     const QString registryFilePath = modelRegistryPath();
     desktop_app::v2::ModelLibraryController modelLibraryController(
@@ -220,7 +228,8 @@ int main(int argc, char *argv[])
     });
     desktop_app::v2::training::TrainingController trainingController(
         operationCoordinator, applicationStateStore, modelLoadService, pipeline,
-        modelLibraryController, trainingPythonExecutable(), repositoryRoot());
+        modelLibraryController, trainingPythonExecutable(), repositoryRoot(),
+        defaultOpenDssModelsPath());
     desktop_app::v2::model_test::ModelTestController modelTestController(
         operationCoordinator, modelLoadService, QCoreApplication::applicationVersion());
     QObject::connect(&modelLibraryController,
@@ -251,16 +260,43 @@ int main(int argc, char *argv[])
     const auto hitPulse = [&daqService](bool enabled, QString *error) {
         return daqService.issueLiveHit(enabled, error);
     };
+
+    int latestCameraWidth = 0;
+    int latestCameraHeight = 0;
+    int latestCameraBitDepth = 0;
+    desktop_app::v2::sequence::CaptureWorkflowController captureWorkflowController(
+        *cameraService, cameraController, operationCoordinator, fastDetector,
+        [] {
+            return std::chrono::duration_cast<std::chrono::nanoseconds>(
+                       std::chrono::steady_clock::now().time_since_epoch())
+                .count();
+        },
+        [&] {
+            const int acceptedWidth = latestCameraWidth > 0
+                ? latestCameraWidth : cameraController.customWidth().toInt();
+            const int acceptedHeight = latestCameraHeight > 0
+                ? latestCameraHeight : cameraController.customHeight().toInt();
+            const int acceptedBitDepth = latestCameraBitDepth > 0
+                ? latestCameraBitDepth
+                : cameraController.bitDepth().section(QLatin1Char('-'), 0, 0).toInt();
+            return QJsonObject{
+                {QStringLiteral("device_id"), cameraController.deviceId()},
+                {QStringLiteral("image_width"), acceptedWidth},
+                {QStringLiteral("image_height"), acceptedHeight},
+                {QStringLiteral("bit_depth"), acceptedBitDepth},
+                {QStringLiteral("source"), QStringLiteral("production_controller")},
+            };
+        },
+        QCoreApplication::applicationVersion());
+    captureWorkflowController.setSequenceLocation(workspacePaths.collections);
+    captureWorkflowController.setDatasetLocation(workspacePaths.datasets);
+
     desktop_app::v2::live::LiveSortingService liveSortingService(
         operationCoordinator, fastDetector, &modelLoadService, hitPulse, {}, {},
         {}, daqReadiness);
     desktop_app::v2::sequence_test::SequenceTestService sequenceTestService(
         operationCoordinator, fastDetector, &modelLoadService, {}, hitPulse,
         daqReadiness);
-
-    int latestCameraWidth = 0;
-    int latestCameraHeight = 0;
-    int latestCameraBitDepth = 0;
 
     desktop_app::v2::live::LiveSortingController liveSortingController(
         liveSortingService, cameraController,
@@ -276,8 +312,70 @@ int main(int argc, char *argv[])
                 facts.activeModelClasses = model->classes;
                 facts.activeModelLoadable = true;
             }
-            const int width = latestCameraWidth;
-            const int height = latestCameraHeight;
+            facts.activeModelId = modelLibraryController.activeId();
+            facts.applyCameraProfile =
+                [&cameraController](const QJsonObject &camera, QString *error) {
+                    desktop_app::v2::CameraAppliedSettings settings;
+                    settings.width =
+                        camera.value(QStringLiteral("image_width")).toInt();
+                    settings.height =
+                        camera.value(QStringLiteral("image_height")).toInt();
+                    settings.bitDepth =
+                        camera.value(QStringLiteral("bit_depth")).toInt();
+                    settings.pixelType = settings.bitDepth > 8
+                        ? desktop_app::v2::CameraPixelType::Mono16
+                        : desktop_app::v2::CameraPixelType::Mono8;
+                    settings.exposureMs =
+                        camera.value(QStringLiteral("exposure_ms")).toDouble();
+                    settings.readoutMode =
+                        camera.value(QStringLiteral("readout_mode")).toString()
+                                .compare(QStringLiteral("slow"),
+                                         Qt::CaseInsensitive) == 0
+                        ? desktop_app::v2::CameraReadoutMode::Slow
+                        : desktop_app::v2::CameraReadoutMode::Fast;
+                    const int lutMinimum =
+                        camera.value(QStringLiteral("preview_lut_min"))
+                            .toInt(cameraController.previewLutMinimum());
+                    const int lutMaximum =
+                        camera.value(QStringLiteral("preview_lut_max"))
+                            .toInt(cameraController.previewLutMaximum());
+                    const bool applied = cameraController.applyProfileSettings(
+                        settings, lutMinimum, lutMaximum);
+                    if (!applied && error)
+                        *error = cameraController.error();
+                    return applied;
+                };
+            facts.applyDaqProfile =
+                [&daqService](const QJsonObject &daq, QString *error) {
+                    desktop_app::v2::DaqAppliedSettings settings;
+                    settings.outputChannel =
+                        daq.value(QStringLiteral("channel")).toString();
+                    settings.frequencyHz =
+                        daq.value(QStringLiteral("frequency_hz")).toDouble();
+                    settings.durationMs =
+                        daq.value(QStringLiteral("duration_ms")).toDouble();
+                    settings.delayMs =
+                        daq.value(QStringLiteral("delay_ms")).toDouble();
+                    settings.amplitudeVpp =
+                        daq.value(QStringLiteral("amplitude_vpp")).toDouble();
+                    return daqService.applySettings(settings, error);
+                };
+            facts.activateModel =
+                [&modelLibraryController, &registryFilePath](
+                    const QString &id, QString *error) {
+                    const bool activated =
+                        activateModelRegistryEntry(registryFilePath, id, error);
+                    if (activated)
+                        modelLibraryController.refresh();
+                    return activated;
+                };
+            const int width = latestCameraWidth > 0
+                ? latestCameraWidth : cameraController.customWidth().toInt();
+            const int height = latestCameraHeight > 0
+                ? latestCameraHeight : cameraController.customHeight().toInt();
+            const int bitDepth = latestCameraBitDepth > 0
+                ? latestCameraBitDepth
+                : cameraController.bitDepth().section(QLatin1Char('-'), 0, 0).toInt();
             if (width > 0 && height > 0) {
                 facts.hitBoundary = {
                     height / 2.0,
@@ -291,7 +389,15 @@ int main(int argc, char *argv[])
                 {QStringLiteral("device_id"), cameraController.deviceId()},
                 {QStringLiteral("image_width"), width},
                 {QStringLiteral("image_height"), height},
-                {QStringLiteral("bit_depth"), latestCameraBitDepth},
+                {QStringLiteral("bit_depth"), bitDepth},
+                {QStringLiteral("exposure_ms"),
+                 cameraController.exposureMs().toDouble()},
+                {QStringLiteral("readout_mode"),
+                 cameraController.readoutMode()},
+                {QStringLiteral("preview_lut_min"),
+                 cameraController.previewLutMinimum()},
+                {QStringLiteral("preview_lut_max"),
+                 cameraController.previewLutMaximum()},
                 {QStringLiteral("source"), QStringLiteral("production_controller")},
             };
             facts.daqSettings = daqService.settingsSnapshot();
@@ -329,6 +435,11 @@ int main(int argc, char *argv[])
             detectorSettings, cropSettings, timingSettings,
             QCoreApplication::applicationVersion());
     QObject::connect(
+        &sequenceTestController,
+        &desktop_app::v2::sequence_test::SequenceTestController::
+            openRunFolderRequested,
+        &app, [](const QUrl &folder) { QDesktopServices::openUrl(folder); });
+    QObject::connect(
         &modelLibraryController, &desktop_app::v2::ModelLibraryController::changed,
         &liveSortingController,
         &desktop_app::v2::live::LiveSortingController::refresh);
@@ -336,6 +447,19 @@ int main(int argc, char *argv[])
         &modelLibraryController, &desktop_app::v2::ModelLibraryController::changed,
         &sequenceTestController,
         &desktop_app::v2::sequence_test::SequenceTestController::refreshPreflight);
+
+    const QString pythonExecutable = trainingPythonExecutable();
+    const QString automaticDevice =
+        QString::fromStdString(OnnxClassifier::plannedAutomaticDevice());
+    settingsController.setDiagnostics({
+        pythonExecutable.isEmpty()
+            ? QStringLiteral("Unavailable — Python runtime not found")
+            : QStringLiteral("Available — Python runtime found"),
+        automaticDevice == QStringLiteral("GPU")
+            ? QStringLiteral("Available — CUDA provider found")
+            : QStringLiteral("Unavailable — CUDA provider not found; automatic inference uses CPU"),
+        QCoreApplication::applicationDirPath(),
+    });
     QObject::connect(
         &daqController, &desktop_app::v2::DaqController::stateChanged,
         &liveSortingController,
@@ -367,6 +491,7 @@ int main(int argc, char *argv[])
                                  {QStringLiteral("daqController"), QVariant::fromValue(&daqController)},
                                  {QStringLiteral("runsResultsController"), QVariant::fromValue(&runsResultsController)},
                                  {QStringLiteral("sequenceViewerController"), QVariant::fromValue(&sequenceViewerController)},
+                                 {QStringLiteral("captureWorkflowController"), QVariant::fromValue(&captureWorkflowController)},
                                  {QStringLiteral("datasetLabelController"), QVariant::fromValue(&datasetLabelController)},
                                   {QStringLiteral("trainingController"), QVariant::fromValue(&trainingController)},
                                   {QStringLiteral("modelLibraryController"), QVariant::fromValue(&modelLibraryController)},

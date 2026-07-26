@@ -3,7 +3,6 @@
 #include "../v2/state/application_state_store.h"
 
 #include <QCoreApplication>
-#include <QDesktopServices>
 #include <QDir>
 #include <QFile>
 #include <QTemporaryDir>
@@ -18,20 +17,6 @@ int fail(int code, const char *message)
     std::cerr << message << '\n';
     return code;
 }
-
-class UrlCaptureHandler final : public QObject
-{
-    Q_OBJECT
-
-public:
-    QUrl capturedUrl;
-
-public slots:
-    void capture(const QUrl &url)
-    {
-        capturedUrl = url;
-    }
-};
 
 } // namespace
 
@@ -48,7 +33,13 @@ int main(int argc, char **argv)
     if (!repository.load() || !repository.setStorageRoot(temporaryDirectory.path()))
         return fail(2, "Unable to establish test preferences.");
 
-    desktop_app::v2::SettingsController controller(repository, store);
+    QVector<QUrl> openedUrls;
+    desktop_app::v2::SettingsController controller(
+        repository, store,
+        [&openedUrls](const QUrl &url) {
+            openedUrls.append(url);
+            return true;
+        });
     if (desktop_app::v2::SettingsController::staticMetaObject.indexOfMethod("openStorageRoot()") < 0)
         return fail(2, "Controller did not expose the storage-root opening API.");
     int textSizeChangedCount = 0;
@@ -95,12 +86,55 @@ int main(int argc, char **argv)
         return fail(5, "Controller accepted a nonlocal storage-root URL.");
     }
 
-    UrlCaptureHandler urlCaptureHandler;
-    QDesktopServices::setUrlHandler(QStringLiteral("file"), &urlCaptureHandler, "capture");
     const QString openStorageRootError = controller.openStorageRoot();
-    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
-    if (!openStorageRootError.isEmpty() || urlCaptureHandler.capturedUrl != controller.storageRoot())
+    if (!openStorageRootError.isEmpty() || openedUrls.size() != 1 ||
+        openedUrls.last() != controller.storageRoot())
         return fail(5, "Controller did not forward the authoritative storage-root URL.");
+
+    const QString diagnosticFolder =
+        temporaryDirectory.filePath(QStringLiteral("diagnostics"));
+    if (!QDir().mkpath(diagnosticFolder))
+        return fail(5, "Unable to create diagnostic folder fixture.");
+    controller.setDiagnostics(
+        {QStringLiteral("Available — Python runtime found"),
+         QStringLiteral("Unavailable — CUDA provider not found"),
+         diagnosticFolder});
+    if (controller.runtimeAvailability() !=
+            QStringLiteral("Available — Python runtime found") ||
+        controller.gpuEnvironmentAvailability() !=
+            QStringLiteral("Unavailable — CUDA provider not found") ||
+        !controller.diagnosticFolder().isLocalFile() ||
+        !controller.canOpenDiagnosticFolder() ||
+        !controller.diagnosticFolderUnavailableReason().isEmpty() ||
+        !controller.openDiagnosticFolder().isEmpty() ||
+        openedUrls.size() != 2 ||
+        openedUrls.last().toLocalFile() != diagnosticFolder) {
+        return fail(5, "Controller did not expose or open injected diagnostics.");
+    }
+
+    store.publishCamera(
+        {desktop_app::v2::CameraStatus::Ready, QStringLiteral("camera-001"), {},
+         true, {}});
+    desktop_app::v2::DaqState daq;
+    daq.status = desktop_app::v2::DaqStatus::Faulted;
+    daq.fault = QStringLiteral("NI driver missing");
+    store.publishDaq(daq);
+    if (!controller.cameraDriverAvailability().contains(
+            QStringLiteral("Available — ready")) ||
+        controller.daqDriverAvailability() !=
+            QStringLiteral("Unavailable — NI driver missing")) {
+        return fail(5, "Controller did not project factual Camera and DAQ readiness.");
+    }
+
+    controller.setDiagnostics(
+        {QStringLiteral("Unavailable — Python runtime not found"),
+         QStringLiteral("Unavailable — CUDA provider not found"),
+         temporaryDirectory.filePath(QStringLiteral("missing-diagnostics"))});
+    if (controller.canOpenDiagnosticFolder() ||
+        controller.diagnosticFolderUnavailableReason().isEmpty() ||
+        controller.openDiagnosticFolder().isEmpty() || openedUrls.size() != 2) {
+        return fail(5, "Controller attempted to open an unavailable diagnostic folder.");
+    }
 
     desktop_app::v2::ApplicationStateStore invalidRootStore;
     desktop_app::v2::SettingsRepository invalidRootRepository(
@@ -139,4 +173,3 @@ int main(int argc, char **argv)
     return 0;
 }
 
-#include "settings_controller_test.moc"

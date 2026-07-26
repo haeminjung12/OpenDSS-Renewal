@@ -231,19 +231,128 @@ int main(int argc, char** argv) {
     artifactWithoutDeclaredHash.remove("onnx_sha256");
     metadataWithoutDeclaredHash["artifact"] = artifactWithoutDeclaredHash;
     if (!writeJsonObject(metadataPath, metadataWithoutDeclaredHash)) {
-        return fail(74, "Could not create optional-hash Active Model fixture.");
+        return fail(74, "Could not create missing-hash Active Model fixture.");
     }
-    const auto optionalHashInspection = service.inspectPersistedActive();
-    if (!optionalHashInspection.loadable ||
-        optionalHashInspection.modelSha256 != sha256File(modelPath).toLower() ||
-        optionalHashInspection.classes.size() != 3 ||
-        !optionalHashInspection.error.isEmpty()) {
+    const auto missingHashInspection = service.inspectPersistedActive();
+    if (missingHashInspection.loadable ||
+        !missingHashInspection.modelSha256.isEmpty() ||
+        !missingHashInspection.error.contains(
+            "no trusted declared ONNX SHA-256")) {
         return fail(
             75,
-            "Compact-registry Active Model without a declared hash did not publish actual snapshot provenance.");
+            "Active Model inspection accepted or obscured a missing trusted ONNX hash.");
     }
     if (!writeBytes(metadataPath, validMetadataBytes))
-        return fail(76, "Could not restore metadata after optional-hash inspection.");
+        return fail(76, "Could not restore metadata after missing-hash inspection.");
+
+    const QString installedPackagePath =
+        QDir(temp.path()).filePath("installed-pretrained");
+    if (!QDir().mkpath(installedPackagePath) ||
+        !QFile::copy(modelPath,
+                     QDir(installedPackagePath).filePath("model.onnx")) ||
+        !writeJsonObject(
+            QDir(installedPackagePath).filePath("metadata.json"),
+            metadataWithoutDeclaredHash)) {
+        return fail(78, "Could not create installed pretrained repair fixture.");
+    }
+    QString repairError;
+    if (!repairTrustedPretrainedMetadataHash(
+            installedPackagePath, packagePath, &repairError)) {
+        return fail(79, "Trusted pretrained metadata repair failed: " +
+                            repairError);
+    }
+    const QJsonObject repairedMetadata = QJsonDocument::fromJson(
+        readBytes(QDir(installedPackagePath).filePath("metadata.json")))
+                                             .object();
+    if (repairedMetadata.value("artifact")
+            .toObject()
+            .value("onnx_sha256")
+            .toString()
+            .compare(validArtifact.value("onnx_sha256").toString(),
+                     Qt::CaseInsensitive) != 0) {
+        return fail(
+            80,
+            "Trusted pretrained metadata repair wrote the wrong hash.");
+    }
+
+    const QString mismatchedInstalledPath =
+        QDir(temp.path()).filePath("mismatched-installed-pretrained");
+    if (!QDir().mkpath(mismatchedInstalledPath) ||
+        !writeBytes(QDir(mismatchedInstalledPath).filePath("model.onnx"),
+                    QByteArray("different model bytes")) ||
+        !writeJsonObject(
+            QDir(mismatchedInstalledPath).filePath("metadata.json"),
+            metadataWithoutDeclaredHash)) {
+        return fail(81, "Could not create mismatched pretrained repair fixture.");
+    }
+    if (repairTrustedPretrainedMetadataHash(
+            mismatchedInstalledPath, packagePath, &repairError)) {
+        return fail(82, "Mismatched pretrained bytes received a trusted hash.");
+    }
+    const QJsonObject unrepairedMetadata = QJsonDocument::fromJson(
+        readBytes(QDir(mismatchedInstalledPath).filePath("metadata.json")))
+                                               .object();
+    if (!unrepairedMetadata.value("artifact")
+             .toObject()
+             .value("onnx_sha256")
+             .toString()
+             .isEmpty()) {
+        return fail(83, "Rejected pretrained repair modified metadata.");
+    }
+
+    QJsonObject tamperedPreprocessing = metadataWithoutDeclaredHash;
+    QJsonObject tamperedNormalization =
+        tamperedPreprocessing.value("normalization").toObject();
+    tamperedNormalization["mean"] = QJsonArray{0.0, 0.0, 0.0};
+    tamperedPreprocessing["normalization"] = tamperedNormalization;
+
+    QJsonObject tamperedClasses = metadataWithoutDeclaredHash;
+    tamperedClasses["classes"] = QJsonArray{"1", "0"};
+
+    QJsonObject tamperedRouting = metadataWithoutDeclaredHash;
+    QJsonObject tamperedSortingPolicy =
+        tamperedRouting.value("sorting_policy").toObject();
+    tamperedSortingPolicy["trigger_rule"] =
+        QStringLiteral("trigger_on_non_target_class");
+    tamperedRouting["sorting_policy"] = tamperedSortingPolicy;
+
+    const QList<QPair<QString, QJsonObject>> tamperedMetadataCases = {
+        {QStringLiteral("preprocessing"), tamperedPreprocessing},
+        {QStringLiteral("classes"), tamperedClasses},
+        {QStringLiteral("routing"), tamperedRouting},
+    };
+    for (const auto& tamperedCase : tamperedMetadataCases) {
+        const QString tamperedPackagePath =
+            QDir(temp.path()).filePath(
+                QStringLiteral("tampered-%1-installed-pretrained")
+                    .arg(tamperedCase.first));
+        const QString tamperedMetadataPath =
+            QDir(tamperedPackagePath).filePath("metadata.json");
+        if (!QDir().mkpath(tamperedPackagePath) ||
+            !QFile::copy(modelPath,
+                         QDir(tamperedPackagePath).filePath("model.onnx")) ||
+            !writeJsonObject(tamperedMetadataPath, tamperedCase.second)) {
+            return fail(
+                84,
+                "Could not create tampered pretrained metadata fixture: " +
+                    tamperedCase.first);
+        }
+        const QByteArray metadataBytesBeforeRepair =
+            readBytes(tamperedMetadataPath);
+        if (repairTrustedPretrainedMetadataHash(
+                tamperedPackagePath, packagePath, &repairError)) {
+            return fail(
+                85,
+                "Tampered pretrained metadata received a trusted hash: " +
+                    tamperedCase.first);
+        }
+        if (readBytes(tamperedMetadataPath) != metadataBytesBeforeRepair) {
+            return fail(
+                86,
+                "Rejected pretrained metadata repair changed file bytes: " +
+                    tamperedCase.first);
+        }
+    }
     qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
 
     QString activeDisplayName;

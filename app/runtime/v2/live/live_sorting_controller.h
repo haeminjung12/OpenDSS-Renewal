@@ -4,14 +4,17 @@
 #include "../camera/camera_device.h"
 
 #include <QObject>
+#include <QJsonObject>
 #include <QStringList>
 #include <QTimer>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
 
 #include <functional>
 #include <condition_variable>
 #include <mutex>
+#include <optional>
 #include <thread>
 
 namespace desktop_app::v2 {
@@ -26,6 +29,10 @@ struct LiveControllerFacts {
     QString activeModelName;
     QVector<run::RunClassSnapshot> activeModelClasses;
     bool activeModelLoadable = false;
+    QString activeModelId;
+    std::function<bool(const QJsonObject&, QString*)> applyCameraProfile;
+    std::function<bool(const QJsonObject&, QString*)> applyDaqProfile;
+    std::function<bool(const QString&, QString*)> activateModel;
     run::HitBoundarySnapshot hitBoundary;
     QJsonObject detectorSettings;
     QJsonObject cropSettings;
@@ -67,6 +74,9 @@ class LiveSortingController final : public QObject {
     Q_PROPERTY(QVariantMap integrity READ integrity NOTIFY changed)
     Q_PROPERTY(QString stopReason READ stopReason NOTIFY changed)
     Q_PROPERTY(QString runFolder READ runFolder NOTIFY changed)
+    Q_PROPERTY(QString profilePath READ profilePath NOTIFY changed)
+    Q_PROPERTY(QString profileStatus READ profileStatus NOTIFY changed)
+    Q_PROPERTY(bool canSaveProfile READ canSaveProfile NOTIFY changed)
 
 public:
     LiveSortingController(LiveSortingService& service,
@@ -108,6 +118,9 @@ public:
     QVariantMap integrity() const;
     QString stopReason() const;
     QString runFolder() const;
+    QString profilePath() const;
+    QString profileStatus() const;
+    bool canSaveProfile() const;
 
     Q_INVOKABLE bool startCamera();
     Q_INVOKABLE bool stopCamera();
@@ -119,6 +132,9 @@ public:
     Q_INVOKABLE bool secondaryAction();
     Q_INVOKABLE void startNewRun();
     Q_INVOKABLE void refresh();
+    Q_INVOKABLE bool openProfile(const QUrl& fileUrl);
+    Q_INVOKABLE bool saveProfile();
+    Q_INVOKABLE bool saveProfileAs(const QUrl& fileUrl);
 
 signals:
     void changed();
@@ -142,6 +158,8 @@ private:
     void updateSnapshot();
     void projectSnapshot(const LiveSortingSnapshot& snapshot);
     void setActionError(const QString& value);
+    QJsonObject profileDocument() const;
+    bool writeProfile(const QString& path);
 
     LiveSortingService& service_;
     CameraController& cameraController_;
@@ -158,12 +176,19 @@ private:
     QString saveLocation_;
     QString hitClassId_;
     QString actionError_;
+    QString profilePath_;
+    QString profileStatus_;
+    std::optional<run::HitBoundarySnapshot> profileHitBoundary_;
+    std::optional<QJsonObject> profileDetectorSettings_;
+    std::optional<QJsonObject> profileCropSettings_;
+    std::optional<QJsonObject> profileTimingSettings_;
     bool triggerEveryDroplet_ = true;
     bool daqOutputEnabled_ = false;
     bool recordFullImageSequence_ = false;
     bool outcomeCleared_ = false;
     bool resultsNotified_ = false;
     bool actionInProgress_ = false;
+    bool pollInProgress_ = false;
     quint64 lastDeliveryId_ = 0;
     qint64 lastTimestampNs_ = 0;
     qint64 droppedFrames_ = 0;

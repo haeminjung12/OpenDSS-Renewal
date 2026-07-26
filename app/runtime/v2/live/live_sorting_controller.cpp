@@ -3,9 +3,13 @@
 #include "../camera/camera_controller.h"
 #include "../camera/frame_conversion.h"
 #include "../../desktop_app/frame_types.h"
+#include "../../desktop_app/json_persistence.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonParseError>
 
 #include <cmath>
 #include <utility>
@@ -267,6 +271,46 @@ QString LiveSortingController::stopReason() const {
 
 QString LiveSortingController::runFolder() const { return snapshot_.runFolder; }
 
+QString LiveSortingController::profilePath() const { return profilePath_; }
+
+QString LiveSortingController::profileStatus() const { return profileStatus_; }
+
+bool LiveSortingController::canSaveProfile() const {
+    return !profilePath_.isEmpty() && !activeLifecycle(snapshot_.lifecycle);
+}
+
+QJsonObject boundaryJson(const run::HitBoundarySnapshot& boundary) {
+    return {
+        {QStringLiteral("boundary_y"), boundary.boundaryY},
+        {QStringLiteral("hit_side"),
+         boundary.hitSide == run::HitSide::PositiveY
+             ? QStringLiteral("positive_y")
+             : QStringLiteral("negative_y")},
+        {QStringLiteral("image_width"), boundary.imageWidth},
+        {QStringLiteral("image_height"), boundary.imageHeight},
+    };
+}
+
+std::optional<run::HitBoundarySnapshot> parseBoundary(const QJsonValue& value) {
+    if (!value.isObject())
+        return std::nullopt;
+    const QJsonObject object = value.toObject();
+    const QString side = object.value(QStringLiteral("hit_side")).toString();
+    run::HitBoundarySnapshot boundary;
+    boundary.boundaryY = object.value(QStringLiteral("boundary_y")).toDouble(-1.0);
+    boundary.hitSide = side == QStringLiteral("positive_y")
+        ? run::HitSide::PositiveY
+        : run::HitSide::NegativeY;
+    boundary.imageWidth = object.value(QStringLiteral("image_width")).toInt();
+    boundary.imageHeight = object.value(QStringLiteral("image_height")).toInt();
+    if ((side != QStringLiteral("positive_y")
+         && side != QStringLiteral("negative_y"))
+        || !validBoundary(boundary)) {
+        return std::nullopt;
+    }
+    return boundary;
+}
+
 bool LiveSortingController::startCamera() {
     setActionError({});
     if (!cameraController_.start()) {
@@ -398,9 +442,191 @@ void LiveSortingController::startNewRun() {
 void LiveSortingController::refresh() {
     if (factsProvider_)
         facts_ = factsProvider_();
+    if (profileHitBoundary_)
+        facts_.hitBoundary = *profileHitBoundary_;
+    if (profileDetectorSettings_)
+        facts_.detectorSettings = *profileDetectorSettings_;
+    if (profileCropSettings_)
+        facts_.cropSettings = *profileCropSettings_;
+    if (profileTimingSettings_)
+        facts_.timingSettings = *profileTimingSettings_;
     if (saveLocation_.trimmed().isEmpty())
         saveLocation_ = QDir::cleanPath(facts_.defaultRunRoot);
     updateSnapshot();
+}
+
+bool LiveSortingController::openProfile(const QUrl& fileUrl) {
+    if (activeLifecycle(snapshot_.lifecycle)) {
+        setActionError(QStringLiteral("Sorting is active."));
+        return false;
+    }
+    const QString path = fileUrl.toLocalFile();
+    QFile file(path);
+    if (path.isEmpty() || !file.open(QIODevice::ReadOnly)) {
+        setActionError(QStringLiteral("Setup Profile is not readable."));
+        return false;
+    }
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        setActionError(QStringLiteral("Setup Profile JSON is invalid: %1")
+                           .arg(parseError.errorString()));
+        return false;
+    }
+    const QJsonObject root = document.object();
+    if (root.value(QStringLiteral("schema_version")).toString() !=
+        QStringLiteral("opendss.setup_profile.v2")) {
+        setActionError(QStringLiteral("Unsupported Setup Profile schema."));
+        return false;
+    }
+    const QJsonObject run = root.value(QStringLiteral("run")).toObject();
+    if (run.isEmpty()) {
+        setActionError(QStringLiteral("Setup Profile run selections are missing."));
+        return false;
+    }
+
+    runName_ = run.value(QStringLiteral("run_name")).toString();
+    saveLocation_ = run.value(QStringLiteral("save_location")).toString();
+    hitClassId_ = run.value(QStringLiteral("hit_class_id")).toString();
+    triggerEveryDroplet_ =
+        run.value(QStringLiteral("trigger_every_droplet")).toBool(true);
+    daqOutputEnabled_ =
+        run.value(QStringLiteral("daq_output_enabled")).toBool(false);
+    recordFullImageSequence_ =
+        run.value(QStringLiteral("record_full_image_sequence")).toBool(false);
+
+    QStringList notices;
+    const auto boundary =
+        parseBoundary(root.value(QStringLiteral("hit_boundary")));
+    if (boundary) {
+        profileHitBoundary_ = *boundary;
+        facts_.hitBoundary = *boundary;
+    } else {
+        notices.push_back(QStringLiteral(
+            "Hit boundary values not applied — values are missing or invalid."));
+    }
+    const auto applySettingsObject =
+        [&root, &notices](const QString& key, const QString& label,
+                          std::optional<QJsonObject>& destination,
+                          QJsonObject& effective) {
+            const QJsonValue value = root.value(key);
+            if (!value.isObject() || value.toObject().isEmpty()) {
+                notices.push_back(QStringLiteral(
+                    "%1 values not applied — values are missing or invalid.")
+                                      .arg(label));
+                return;
+            }
+            destination = value.toObject();
+            effective = *destination;
+        };
+    applySettingsObject(QStringLiteral("detector_settings"),
+                        QStringLiteral("Detector"), profileDetectorSettings_,
+                        facts_.detectorSettings);
+    applySettingsObject(QStringLiteral("crop_settings"),
+                        QStringLiteral("Crop"), profileCropSettings_,
+                        facts_.cropSettings);
+    applySettingsObject(QStringLiteral("timing_settings"),
+                        QStringLiteral("Timing"), profileTimingSettings_,
+                        facts_.timingSettings);
+    const QJsonObject camera = root.value(QStringLiteral("camera")).toObject();
+    if (!camera.isEmpty() && facts_.applyCameraProfile) {
+        QString error;
+        if (!facts_.applyCameraProfile(camera, &error))
+            notices.push_back(QStringLiteral("Camera profile values not applied — %1")
+                                  .arg(error));
+    }
+    const QJsonObject daq = root.value(QStringLiteral("daq")).toObject();
+    if (!daq.isEmpty() && facts_.applyDaqProfile) {
+        QString error;
+        if (!facts_.applyDaqProfile(daq, &error))
+            notices.push_back(QStringLiteral("DAQ profile values not applied — %1")
+                                  .arg(error));
+    }
+    const QString modelId =
+        root.value(QStringLiteral("active_model_id")).toString().trimmed();
+    if (!modelId.isEmpty() && modelId != facts_.activeModelId &&
+        facts_.activateModel) {
+        QString error;
+        if (!facts_.activateModel(modelId, &error))
+            notices.push_back(QStringLiteral("Active Model not applied — %1")
+                                  .arg(error));
+    }
+
+    profilePath_ = QFileInfo(path).absoluteFilePath();
+    profileStatus_ = notices.isEmpty()
+                         ? QStringLiteral("Profile loaded: %1")
+                               .arg(QFileInfo(path).fileName())
+                         : notices.join(QStringLiteral("\n"));
+    actionError_.clear();
+    refresh();
+    emit changed();
+    return true;
+}
+
+bool LiveSortingController::saveProfile() {
+    if (profilePath_.isEmpty()) {
+        setActionError(QStringLiteral("Choose a Setup Profile file with Save As."));
+        return false;
+    }
+    return writeProfile(profilePath_);
+}
+
+bool LiveSortingController::saveProfileAs(const QUrl& fileUrl) {
+    QString path = fileUrl.toLocalFile();
+    if (path.isEmpty()) {
+        setActionError(QStringLiteral("Choose a Setup Profile file."));
+        return false;
+    }
+    if (QFileInfo(path).suffix().isEmpty())
+        path += QStringLiteral(".json");
+    return writeProfile(path);
+}
+
+QJsonObject LiveSortingController::profileDocument() const {
+    return {
+        {QStringLiteral("schema_version"),
+         QStringLiteral("opendss.setup_profile.v2")},
+        {QStringLiteral("active_model_id"), facts_.activeModelId},
+        {QStringLiteral("camera"), facts_.cameraSettings},
+        {QStringLiteral("daq"), facts_.daqSettings},
+        {QStringLiteral("hit_boundary"), boundaryJson(facts_.hitBoundary)},
+        {QStringLiteral("detector_settings"), facts_.detectorSettings},
+        {QStringLiteral("crop_settings"), facts_.cropSettings},
+        {QStringLiteral("timing_settings"), facts_.timingSettings},
+        {QStringLiteral("run"),
+         QJsonObject{
+             {QStringLiteral("run_name"), runName_},
+             {QStringLiteral("save_location"), saveLocation_},
+             {QStringLiteral("hit_class_id"), hitClassId_},
+             {QStringLiteral("trigger_every_droplet"), triggerEveryDroplet_},
+             {QStringLiteral("daq_output_enabled"), daqOutputEnabled_},
+             {QStringLiteral("record_full_image_sequence"),
+              recordFullImageSequence_},
+         }},
+    };
+}
+
+bool LiveSortingController::writeProfile(const QString& path) {
+    if (activeLifecycle(snapshot_.lifecycle)) {
+        setActionError(QStringLiteral("Sorting is active."));
+        return false;
+    }
+    QString error;
+    const QFileInfo info(path);
+    if (!QDir().mkpath(info.absolutePath()) ||
+        !desktop_app::writeJsonObjectAtomically(
+            info.absoluteFilePath(), profileDocument(), &error)) {
+        setActionError(error.isEmpty()
+                           ? QStringLiteral("Setup Profile could not be saved.")
+                           : error);
+        return false;
+    }
+    profilePath_ = info.absoluteFilePath();
+    profileStatus_ =
+        QStringLiteral("Profile saved: %1").arg(info.fileName());
+    actionError_.clear();
+    emit changed();
+    return true;
 }
 
 QString LiveSortingController::preflightError() const {
@@ -496,16 +722,34 @@ void LiveSortingController::acceptFrame(CameraFrame frame) {
 }
 
 bool LiveSortingController::requestServiceAction(ServiceAction action) {
+    bool userAction = action != ServiceAction::PollDuration;
     {
         std::lock_guard lock(actionMutex_);
-        if (actionWorkerStopping_ || actionInProgress_ || pendingAction_)
+        if (actionWorkerStopping_)
             return false;
+        if (!userAction) {
+            if (pollInProgress_ || actionInProgress_ || pendingAction_)
+                return false;
+            pollInProgress_ = true;
+        } else {
+            if (actionInProgress_ ||
+                (pendingAction_ &&
+                 *pendingAction_ != ServiceAction::PollDuration)) {
+                return false;
+            }
+            if (pendingAction_ &&
+                *pendingAction_ == ServiceAction::PollDuration) {
+                pollInProgress_ = false;
+            }
+            actionInProgress_ = true;
+        }
         pendingAction_ = action;
-        actionInProgress_ = true;
         actionReady_.notify_one();
     }
-    actionError_.clear();
-    emit changed();
+    if (userAction) {
+        actionError_.clear();
+        emit changed();
+    }
     return true;
 }
 
@@ -563,7 +807,10 @@ void LiveSortingController::serviceActionLoop() {
 void LiveSortingController::completeServiceAction(
     ServiceAction action, bool succeeded, const QString& error,
     const LiveSortingSnapshot& completedSnapshot) {
-    actionInProgress_ = false;
+    if (action == ServiceAction::PollDuration)
+        pollInProgress_ = false;
+    else
+        actionInProgress_ = false;
     if (!succeeded)
         actionError_ = error;
     else if (action != ServiceAction::PollDuration)

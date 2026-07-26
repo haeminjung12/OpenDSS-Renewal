@@ -239,8 +239,15 @@ TrainingRequest requestFor(
     const QString &outputDirectory,
     const QString &repositoryRoot,
     TrainingProfile profile,
-    const QString &device)
+    const QString &device,
+    const QString &initializationMode = QStringLiteral("imagenet"),
+    const QString &initializationPath = {})
 {
+    const QString localInitializationPath =
+        initializationPath.isEmpty()
+            ? QDir(QFileInfo(outputDirectory).absolutePath())
+                  .filePath(QStringLiteral("imagenet-weight.pth"))
+            : initializationPath;
     return TrainingRequest{
         datasetPath,
         profile,
@@ -249,6 +256,8 @@ TrainingRequest requestFor(
         QCoreApplication::applicationFilePath(),
         device,
         repositoryRoot,
+        initializationMode,
+        localInitializationPath,
     };
 }
 
@@ -305,6 +314,16 @@ int main(int argc, char **argv)
     }
 
     const QString repositoryRoot = QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT)).absoluteFilePath();
+    const QString imagenetWeightPath =
+        QDir(temporaryDirectory.path())
+            .filePath(QStringLiteral("imagenet-weight.pth"));
+    const QString checkpointPath =
+        QDir(temporaryDirectory.path())
+            .filePath(QStringLiteral("user-checkpoint.pth"));
+    if (!writeBytes(imagenetWeightPath, QByteArrayLiteral("imagenet"))
+        || !writeBytes(checkpointPath, QByteArrayLiteral("checkpoint"))) {
+        return fail(5, QStringLiteral("Could not write local weight fixtures."));
+    }
     OperationCoordinator operations;
     TrainingService service(operations);
     QString error;
@@ -322,6 +341,20 @@ int main(int argc, char **argv)
     });
 
     const QString fasterOutput = QDir(temporaryDirectory.path()).filePath(QStringLiteral("faster"));
+    TrainingRequest missingWeightRequest =
+        requestFor(datasetPath, fasterOutput, repositoryRoot,
+                   TrainingProfile::Faster, QStringLiteral("fake-success"));
+    missingWeightRequest.initializationPath =
+        QDir(temporaryDirectory.path())
+            .filePath(QStringLiteral("missing-imagenet-weight.pth"));
+    if (service.start(missingWeightRequest, &error)
+        || service.state() != TrainingState::Failed
+        || !error.contains(QStringLiteral("local ImageNet weight"))) {
+        return fail(
+            6,
+            QStringLiteral(
+                "Training accepted a missing local ImageNet weight path."));
+    }
     if (!service.start(
             requestFor(datasetPath, fasterOutput, repositoryRoot, TrainingProfile::Faster,
                        QStringLiteral("fake-success")),
@@ -348,6 +381,16 @@ int main(int argc, char **argv)
         || fasterConfig.value(QStringLiteral("batch_size")).toInt() != 64
         || fasterConfig.value(QStringLiteral("stages")).toArray().size() != 2
         || fasterConfig.value(QStringLiteral("input_size")).toArray() != QJsonArray{96, 96, 3}
+        || fasterConfig.value(QStringLiteral("initialization"))
+                   .toObject()
+                   .value(QStringLiteral("mode"))
+                   .toString()
+            != QStringLiteral("imagenet")
+        || fasterConfig.value(QStringLiteral("initialization"))
+                   .toObject()
+                   .value(QStringLiteral("weight_path"))
+                   .toString()
+            != QFileInfo(imagenetWeightPath).absoluteFilePath()
         || fasterConfig.value(QStringLiteral("imbalance")).toObject().value(
                QStringLiteral("sampler_alpha")).toDouble()
             != 0.65
@@ -424,11 +467,18 @@ int main(int argc, char **argv)
     const QString accurateOutput = QDir(temporaryDirectory.path()).filePath(QStringLiteral("accurate"));
     if (!service.start(
             requestFor(threeClassDatasetPath, accurateOutput, repositoryRoot, TrainingProfile::MoreAccurate,
-                       QStringLiteral("fake-success")),
+                       QStringLiteral("fake-success"),
+                       QStringLiteral("checkpoint"), checkpointPath),
             &error)
         || !waitForTerminalState(service, 5000) || service.state() != TrainingState::Completed
         || readJson(service.configPath()).value(QStringLiteral("architecture")).toString()
-            != QStringLiteral("efficientnet_b0")) {
+            != QStringLiteral("efficientnet_b0")
+        || readJson(service.configPath())
+                   .value(QStringLiteral("initialization"))
+                   .toObject()
+                   .value(QStringLiteral("checkpoint_path"))
+                   .toString()
+            != QFileInfo(checkpointPath).absoluteFilePath()) {
         return fail(10, QStringLiteral("More Accurate profile run failed: ") + service.lastError());
     }
     const QJsonObject threeClassPrepared = readJson(service.preparedManifestPath());

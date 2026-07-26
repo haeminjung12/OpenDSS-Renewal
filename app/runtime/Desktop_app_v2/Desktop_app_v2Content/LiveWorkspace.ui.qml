@@ -7,6 +7,7 @@ Item {
     id: root
     property string presentation: "ready"
     property bool cameraStreaming: false
+    property url cameraPreviewSource: ""
     property bool startSortingEnabled: false
     property bool rightPanelExpanded: true
     property string serviceDiagnosticText: qsTr("Resolve the current error before continuing.")
@@ -16,6 +17,7 @@ Item {
     property string integrityStatusText: ""
     property string finalOutcomeText: qsTr("User stopped")
     property string outputStatusText: qsTr("Each detected event records a Droplet Crop and factual Droplet Log row.")
+    property string profileAvailabilityText: ""
     property string runSummaryText: root.integrityStatusText !== "" ? root.integrityStatusText : (root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the footer.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the footer.") : qsTr("Pause or Stop this Run from the footer.")))
     property alias primaryActionButton: primaryActionButton
     property alias secondaryActionButton: secondaryActionButton
@@ -39,6 +41,7 @@ Item {
     property alias triggerEveryDropletControl: triggerEveryDropletControl
     property alias daqOutputControl: daqOutputControl
     property alias recordFullImageSequenceControl: recordFullImageSequenceControl
+    property alias cameraPreviewImage: cameraPreviewImage
     property bool setupProfileExpanded: !setupLocked
     property bool runInformationExpanded: !setupLocked
     property bool triggerTimingExpanded: !setupLocked
@@ -82,11 +85,23 @@ Item {
                 color: Constants.viewerColor
                 border.color: Constants.borderColor
 
+                Image {
+                    id: cameraPreviewImage
+                    anchors.fill: parent
+                    source: root.cameraPreviewSource
+                    sourceSize: Qt.size(Math.round(width), Math.round(height))
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: false
+                    visible: root.cameraPreviewSource.toString() !== "" && !root.unavailable
+                }
+
                 Text {
                     anchors.centerIn: parent
                     text: root.unavailable ? qsTr("Camera unavailable") : qsTr("Camera preview")
                     color: "#ffffff"
                     font: Constants.largeFont
+                    visible: !cameraPreviewImage.visible
                 }
 
                 Rectangle {
@@ -181,6 +196,7 @@ Item {
                                     AppButton { id: saveProfileButton; text: qsTr("Save Profile"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
                                     AppButton { id: saveProfileAsButton; text: qsTr("Save Profile As"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
                                 }
+                                Text { text: root.profileAvailabilityText; color: Constants.warningColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
                         }
                     }

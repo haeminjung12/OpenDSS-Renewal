@@ -97,7 +97,14 @@ int main(int argc, char** argv) {
         return fail(9, "Image provider did not return the current frame.");
     }
 
-    if (!controller.next() || controller.currentFrame() != 3 || currentFrameChanges != 2) {
+    if (!controller.jump(-50) || controller.currentFrame() != 1
+        || !controller.jump(50) || controller.currentFrame() != 3
+        || !controller.jump(-10) || controller.currentFrame() != 1
+        || currentFrameChanges != 3) {
+        return fail(12, "Jump navigation did not clamp to the Sequence bounds.");
+    }
+
+    if (!controller.next() || controller.currentFrame() != 3 || currentFrameChanges != 4) {
         return fail(5, "Navigation did not skip missing frames or respect bounds.");
     }
 
@@ -107,13 +114,13 @@ int main(int argc, char** argv) {
         return fail(10, "Image URL revision or provider pixels did not change after navigation.");
     }
 
-    if (controller.next() || currentFrameChanges != 2 ||
+    if (controller.next() || currentFrameChanges != 4 ||
         !controller.previous() || controller.currentFrame() != 1 ||
-        controller.previous() || currentFrameChanges != 3) {
+        controller.previous() || currentFrameChanges != 5) {
         return fail(5, "Navigation did not skip missing frames or respect bounds.");
     }
 
-    if (!controller.seek(3) || controller.currentFrame() != 3 || currentFrameChanges != 4 ||
+    if (!controller.seek(3) || controller.currentFrame() != 3 || currentFrameChanges != 6 ||
         controller.seek(0) || controller.error().isEmpty() || errorChanges != 1 ||
         controller.currentFrame() != 3 || controller.totalFrames() != 3) {
         return fail(6, "Seek bounds did not retain the factual frame state and error.");
@@ -122,9 +129,9 @@ int main(int argc, char** argv) {
     controller.clear();
     if (controller.presentation() != "empty" || controller.currentFrame() != 0 ||
         controller.totalFrames() != 0 || !controller.error().isEmpty() ||
-        presentationChanges != 2 || currentFrameChanges != 5 ||
+        presentationChanges != 2 || currentFrameChanges != 7 ||
         totalFramesChanges != 2 || errorChanges != 2 ||
-        !controller.currentFrameImageUrl().isEmpty() || imageUrlChanges != 5) {
+        !controller.currentFrameImageUrl().isEmpty() || imageUrlChanges != 7) {
         return fail(7, "Clear did not restore empty presentation and notify changed properties.");
     }
 

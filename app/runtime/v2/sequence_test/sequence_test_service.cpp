@@ -296,7 +296,10 @@ void SequenceTestService::requestStop() noexcept {
         pulseFinished_.wait(lock, [&] { return !pulseInFlight_; });
 }
 
-bool SequenceTestService::run(const SequenceTestRequest& request, QString* error) {
+bool SequenceTestService::run(const SequenceTestRequest& request, QString* error,
+                              QString* completedRunFolder) {
+    if (completedRunFolder)
+        completedRunFolder->clear();
     setError(error, {});
     {
         std::lock_guard lock(controlMutex_);
@@ -457,6 +460,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     }
 
     const QString runFolder = uniqueRunFolder(request.outputRoot, request.runName);
+    if (completedRunFolder)
+        *completedRunFolder = runFolder;
     const QString startedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
     run::RunManifestData data;
     data.runId = QUuid::createUuid().toString(QUuid::WithoutBraces);

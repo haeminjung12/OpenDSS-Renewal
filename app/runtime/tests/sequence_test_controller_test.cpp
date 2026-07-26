@@ -424,6 +424,24 @@ void selectionLoadingAndImmutableBuffer() {
                 fileBytes(archivedManifestPath) ==
                     acceptedManifestBytes,
             "Run facts and archived source did not use accepted snapshot");
+    require(controller.runFolderUrl().toLocalFile() == runFolder &&
+                controller.runSummaryUrl().toLocalFile() == runSummaryPath,
+            "completed Sequence Test did not expose exact Run recovery paths");
+    QUrl requestedRunFolder;
+    QObject::connect(
+        &controller, &SequenceTestController::openRunFolderRequested,
+        &controller, [&requestedRunFolder](const QUrl& value) {
+            requestedRunFolder = value;
+        });
+    require(controller.openRunFolder() &&
+                requestedRunFolder.toLocalFile() == runFolder,
+            "Open Run Folder did not request the validated exact Run folder");
+    controller.startAnotherTest();
+    require(controller.presentation() == QStringLiteral("ready") &&
+                controller.runFolderUrl().isEmpty() &&
+                controller.runSummaryUrl().isEmpty() &&
+                controller.memoryReady(),
+            "Start Another Sequence Test did not restore loaded pre-run state");
 
     const QString corruptRoot = QDir(temporary.path()).filePath("corrupt");
     const QString corruptManifest = makeSequence(corruptRoot, 2, true);
@@ -573,6 +591,58 @@ void modelRoutingAndDaqFacts() {
             "persist model, routing, DAQ, FPS, and immutable provenance facts");
 }
 
+void failedRunReasonSurvivesAutomaticPreflightRefresh() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create failed-run temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create failed-run output");
+    const QString manifest =
+        makeSequence(QDir(temporary.path()).filePath("sequence"), 2);
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    SequenceTestService service(
+        operations, detector, nullptr,
+        [](QString* error) -> std::optional<PreparedModel> {
+            if (error) {
+                *error = QStringLiteral(
+                    "The Active Model has no trusted declared ONNX SHA-256.");
+            }
+            return std::nullopt;
+        });
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller = makeController(
+        service, output, availableMemory, resultsRefreshes,
+        [](QString*) {
+            return std::optional<run::ModelSnapshot>(
+                activeModelSnapshot());
+        });
+
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load failed-run Sequence");
+    controller.setSelectedHitClassId(QStringLiteral("1"));
+    require(controller.canStart() && controller.start(),
+            "start failed-run Sequence");
+    require(waitUntil([&] {
+                return controller.presentation() ==
+                       QStringLiteral("error");
+            }) &&
+                controller.outputStatus() == QStringLiteral("Failed") &&
+                controller.processedFrames() == 0 &&
+                controller.errorMessage().contains(
+                    QStringLiteral("no trusted declared ONNX SHA-256")),
+            "publish actionable zero-frame failure reason");
+
+    controller.refreshPreflight();
+    require(controller.presentation() == QStringLiteral("error") &&
+                controller.errorMessage().contains(
+                    QStringLiteral("no trusted declared ONNX SHA-256")),
+            "automatic preflight refresh erased the Run failure reason");
+}
+
 void asynchronousStopAndTeardown() {
     QTemporaryDir temporary;
     require(temporary.isValid(), "create stop temporary directory");
@@ -691,6 +761,7 @@ int main(int argc, char** argv) {
     selectionLoadingAndImmutableBuffer();
     derivedBoundarySupportsArbitraryDimensions();
     modelRoutingAndDaqFacts();
+    failedRunReasonSurvivesAutomaticPreflightRefresh();
     asynchronousStopAndTeardown();
     return 0;
 }

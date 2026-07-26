@@ -34,10 +34,17 @@ Item {
     property alias browseSaveLocationButton: browseSaveLocationButton
     property alias sequenceTestHeadingButton: sequenceTestSection.headingButton
     property alias rightPanelToggleButton: rightPanelToggleButton
-    readonly property bool loaded: presentation === "ready" || presentation === "running" || presentation === "completed"
+    property string runLocationText: ""
+    property bool hasRunSummary: false
+    property bool hasRunFolder: false
+    property alias openRunSummaryButton: openRunSummaryButton
+    property alias openRunFolderButton: openRunFolderButton
+    property alias startAnotherTestButton: startAnotherTestButton
+    readonly property bool loaded: presentation === "ready" || presentation === "running" || presentation === "completed" || presentation === "interrupted"
     readonly property bool running: presentation === "running"
     readonly property bool unavailable: presentation === "unavailable"
     readonly property bool error: presentation === "error"
+    readonly property bool postOperation: presentation === "completed" || presentation === "interrupted" || presentation === "error"
 
     Rectangle {
         anchors.fill: parent
@@ -218,7 +225,7 @@ Item {
                                 Row {
                                     width: parent.width
                                     spacing: Constants.spacing
-                                    AppButton { id: loadSequenceButton; text: qsTr("Load Sequence"); enabled: !root.running && !root.error; width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
+                                    AppButton { id: loadSequenceButton; text: qsTr("Load Sequence"); enabled: !root.running; width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
                                     AppButton { id: loadToMemoryButton; text: qsTr("Load to Memory"); enabled: root.presentation === "selected"; width: (parent.width - parent.spacing) / 2; height: Constants.appStandardControlHeight }
                                 }
                                 Text { text: qsTr("Processing FPS"); color: Constants.textColor; font: Constants.font }
@@ -287,6 +294,28 @@ Item {
                                     width: parent.width
                                 }
                                 AppButton { id: startStopButton; text: root.running ? qsTr("Stop") : qsTr("Start Sequence Test"); visualRole: root.running ? "destructive" : "primary"; enabled: root.running || root.presentation === "ready"; height: Constants.appPrimaryButtonHeight }
+                                Text {
+                                    visible: root.postOperation && root.runLocationText !== ""
+                                    text: qsTr("Location: %1").arg(root.runLocationText)
+                                    color: Constants.mutedTextColor
+                                    font: Constants.smallFont
+                                    width: parent.width
+                                    elide: Text.ElideMiddle
+                                }
+                                Row {
+                                    visible: root.postOperation && (root.hasRunSummary || root.hasRunFolder)
+                                    width: parent.width
+                                    spacing: Constants.spacing
+                                    AppButton { id: openRunSummaryButton; text: qsTr("Open Run Summary"); visible: root.hasRunSummary; enabled: visible; width: root.hasRunFolder ? (parent.width - parent.spacing) / 2 : parent.width; height: Constants.appStandardControlHeight }
+                                    AppButton { id: openRunFolderButton; text: qsTr("Open Run Folder"); visible: root.hasRunFolder; enabled: visible; width: root.hasRunSummary ? (parent.width - parent.spacing) / 2 : parent.width; height: Constants.appStandardControlHeight }
+                                }
+                                AppButton {
+                                    id: startAnotherTestButton
+                                    visible: root.postOperation
+                                    text: qsTr("Start Another Sequence Test")
+                                    width: parent.width
+                                    height: Constants.appStandardControlHeight
+                                }
                             }
                         }
                         }

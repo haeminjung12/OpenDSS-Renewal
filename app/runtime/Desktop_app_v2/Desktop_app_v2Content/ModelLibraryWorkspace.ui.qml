@@ -16,6 +16,7 @@ Rectangle {
     property bool selectedModelExpanded: true
     property bool rightPanelExpanded: true
     property var modelRows: []
+    property bool designMockMode: true
     property bool hasDynamicModelRows: root.modelRows !== null && root.modelRows.length > 0
     property int selectedModelIndex: -1
     property string selectedModelName: ""
@@ -122,7 +123,7 @@ Rectangle {
                     }
                     Button {
                         id: productionModelRowButton
-                        visible: !root.hasDynamicModelRows
+                        visible: root.designMockMode && !root.hasDynamicModelRows
                         width: parent.width
                         height: Math.round(82 * Constants.textScale)
                         padding: Constants.spacing
@@ -144,7 +145,7 @@ Rectangle {
                     }
                     Button {
                         id: candidateModelRowButton
-                        visible: !root.hasDynamicModelRows
+                        visible: root.designMockMode && !root.hasDynamicModelRows
                         width: parent.width
                         height: Math.round(82 * Constants.textScale)
                         padding: Constants.spacing

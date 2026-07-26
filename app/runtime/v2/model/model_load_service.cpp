@@ -373,10 +373,14 @@ PersistedActiveModelInspection ModelLoadService::inspectPersistedActive() const 
         const QString declaredModelSha256 =
             artifact.value("onnx_sha256").toString().trimmed().toLower();
         const QString actualModelSha256 = sha256File(package.onnxPath).toLower();
+        if (declaredModelSha256.isEmpty()) {
+            result.error = QStringLiteral(
+                "The Active Model has no trusted declared ONNX SHA-256.");
+            return result;
+        }
         if (actualModelSha256.size() != 64 ||
-            (!declaredModelSha256.isEmpty() &&
-             (declaredModelSha256.size() != 64 ||
-              actualModelSha256 != declaredModelSha256))) {
+            declaredModelSha256.size() != 64 ||
+            actualModelSha256 != declaredModelSha256) {
             result.error = QStringLiteral(
                 "The Active Model ONNX SHA-256 does not match its package metadata.");
             return result;

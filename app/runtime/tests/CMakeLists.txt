@@ -254,6 +254,42 @@ add_test(
 )
 set_tests_properties(image_sequence_capture_service_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(capture_workflow_controller_test
+  capture_workflow_controller_test.cpp
+  ../crops/crop_service.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/camera/camera_controller.cpp
+  ../v2/camera/camera_preview_image_provider.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/camera/frame_conversion.cpp
+  ../v2/dataset/dataset_capture_service.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/sequence/capture_workflow_controller.cpp
+  ../v2/sequence/image_sequence_capture_service.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(capture_workflow_controller_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${DCAM_SDK_DIR}/inc
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(capture_workflow_controller_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  Qt6::Quick
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME capture_workflow_controller_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:capture_workflow_controller_test>
+)
+set_tests_properties(capture_workflow_controller_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(dataset_label_service_test
   dataset_label_service_test.cpp
   ../desktop_app/json_persistence.cpp
@@ -793,6 +829,41 @@ add_test(
     $<TARGET_FILE:sequence_test_service_test>
 )
 set_tests_properties(sequence_test_service_test PROPERTIES TIMEOUT 30)
+
+qt_add_executable(sequence_test_production_model_probe
+  sequence_test_production_model_probe.cpp
+  ../crops/crop_service.cpp
+  ../desktop_app/app_utils.cpp
+  ../desktop_app/json_persistence.cpp
+  ../desktop_app/model_registry_service.cpp
+  ../inference/onnx_inference_adapter.cpp
+  ../metadata_loader.cpp
+  ../onnx_classifier.cpp
+  ../v2/decision/decision_service.cpp
+  ../v2/model/model_load_service.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/run_manifest_v2.cpp
+  ../v2/run/run_writer_v2.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
+  ../v2/sequence_test/sequence_test_service.cpp
+)
+target_compile_definitions(sequence_test_production_model_probe PRIVATE
+  OPENDSS_MODEL_LOAD_NO_PIPELINE
+)
+target_include_directories(sequence_test_production_model_probe PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(sequence_test_production_model_probe PRIVATE
+  opendss_runtime
+  Qt6::Core
+  Qt6::Widgets
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
+)
 
 qt_add_executable(sequence_test_controller_test
   sequence_test_controller_test.cpp

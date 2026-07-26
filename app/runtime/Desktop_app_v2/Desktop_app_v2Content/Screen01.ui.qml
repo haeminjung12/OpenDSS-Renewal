@@ -38,6 +38,12 @@ Rectangle {
     property int sequenceFrameCount: 0
     property int datasetFrameCount: 0
     property int datasetCropCount: 0
+    property string sequenceElapsedTimeText: ""
+    property string sequenceCompletionText: ""
+    property string sequenceErrorText: ""
+    property string datasetElapsedTimeText: ""
+    property string datasetCompletionText: ""
+    property string datasetErrorText: ""
     property bool cameraLocked: false
     property bool cameraConfigurationAvailable: true
     property string cameraDeviceText: qsTr("Unavailable")
@@ -50,6 +56,7 @@ Rectangle {
     property string cameraLut: ""
     property string daqDevice: ""
     property string daqOutputChannel: ""
+    property bool continuousWaveformActive: false
     property string sequenceLocationText: ""
     property string datasetLocationText: ""
     property string datasetHandoffText: ""
@@ -94,6 +101,14 @@ Rectangle {
     property alias datasetLocationField: datasetLocationField
     property alias sequenceBrowseButton: sequenceBrowseButton
     property alias datasetBrowseButton: datasetBrowseButton
+    property alias sequenceNameField: sequenceNameField
+    property alias sequenceExperimentTypeField: sequenceExperimentTypeField
+    property alias sequenceNotesField: sequenceNotesField
+    property alias sequenceDurationField: sequenceDurationField
+    property alias datasetNameField: datasetNameField
+    property alias datasetExperimentTypeField: datasetExperimentTypeField
+    property alias datasetNotesField: datasetNotesField
+    property alias datasetDurationField: datasetDurationField
     property alias startCameraButton: startCameraButton
     property alias cameraDeviceSelector: cameraDeviceSelector
     property alias cameraResolutionSelector: cameraResolutionSelector
@@ -114,6 +129,7 @@ Rectangle {
     property alias daqFrequencySpinBox: daqFrequencySpinBox
     property alias daqEventDurationSpinBox: daqEventDurationSpinBox
     property alias daqDecisionDelaySpinBox: daqDecisionDelaySpinBox
+    property alias continuousSineWaveButton: continuousSineWaveButton
     property alias sequenceViewerButton: sequenceViewerButton
     property alias sequenceTestButton: sequenceTestButton
     property alias sequenceNewButton: sequenceNewButton
@@ -290,7 +306,7 @@ Rectangle {
                             Text { id: cameraErrorText; visible: root.cameraError !== ""; text: root.cameraError; color: Constants.warningColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             AppButton { id: restoreCameraButton; visible: root.cameraStatus === qsTr("Unavailable"); enabled: !root.cameraLocked; text: qsTr("Recover Camera"); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Device"); font: Constants.font }
-                            AppComboBox { id: cameraDeviceSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["Unavailable", "Illustrative Camera A"] : [root.cameraDeviceText]; currentIndex: root.cameraConfigurationAvailable ? root.cameraStatus === qsTr("Unavailable") ? 0 : 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
+                            AppComboBox { id: cameraDeviceSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? [qsTr("Unavailable"), root.cameraDeviceText] : [root.cameraDeviceText]; currentIndex: root.cameraConfigurationAvailable ? root.cameraStatus === qsTr("Unavailable") ? 0 : 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Resolution preset"); font: Constants.font }
                             AppComboBox { id: cameraResolutionSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["1024 × 1024", "2048 × 2048", "Custom"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraResolution === "2048 × 2048" ? 1 : root.cameraResolution === "Custom" ? 2 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Row { visible: root.cameraConfigurationAvailable && root.cameraResolution === "Custom"; spacing: 6
@@ -359,7 +375,9 @@ Rectangle {
                                     AppSpinBox { id: daqDecisionDelaySpinBox; from: 0; to: 500; value: 0; stepSize: 1; editable: true; enabled: root.daqStatus !== qsTr("Unavailable"); width: parent.width; height: Constants.appStandardControlHeight }
                                     AppButton {
                                         id: continuousSineWaveButton
-                                        text: qsTr("Start Sine Wave")
+                                        text: root.continuousWaveformActive
+                                              ? qsTr("Stop Sine Wave")
+                                              : qsTr("Start Sine Wave")
                                         enabled: root.daqStatus !== qsTr("Unavailable")
                                         width: parent.width
                                         height: Constants.appPrimaryButtonHeight
@@ -518,13 +536,13 @@ Rectangle {
                         id: imageSequenceSection; sectionTitle: qsTr("Image Sequence"); expanded: root.imageSequenceOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.sequencePresentation === "running" || root.sequencePresentation === "paused"; width: parent.width; useIntrinsicBodyHeight: true
                         Column { spacing: 6; width: parent.width; height: implicitHeight
                             Text { text: qsTr("Name"); font: Constants.font }
-                            AppTextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Sequence name") }
+                            AppTextField { id: sequenceNameField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Sequence name") }
                             Text { text: qsTr("Experiment Type"); font: Constants.font }
-                            AppTextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.appStandardControlHeight }
+                            AppTextField { id: sequenceExperimentTypeField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: qsTr(""); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Notes"); font: Constants.font }
-                            AppTextArea { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap }
+                            AppTextArea { id: sequenceNotesField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap }
                             Text { text: qsTr("Duration (optional — blank continues until Stop)"); font: Constants.font }
-                            AppTextField { enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Optional") }
+                            AppTextField { id: sequenceDurationField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Optional") }
                             Text { text: qsTr("Save Location"); font: Constants.font }
                             Row { spacing: 6; width: parent.width
                                 AppTextField { id: sequenceLocationField; enabled: root.sequencePresentation !== "running" && root.sequencePresentation !== "paused"; text: root.sequenceLocationText; width: parent.width - sequenceBrowseButton.width - 6; height: Constants.appStandardControlHeight }
@@ -535,22 +553,23 @@ Rectangle {
                                 AppButton { id: captureStopButton; text: qsTr("Stop"); visualRole: "destructive"; width: (parent.width - parent.spacing) * 0.8; height: Constants.appPrimaryButtonHeight }
                                 AppButton { id: capturePauseButton; text: root.sequencePresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); width: (parent.width - parent.spacing) * 0.2; height: Constants.appStandardControlHeight }
                             }
-                            Text { visible: root.sequencePresentation !== "ready"; text: root.sequencePresentation === "completed" ? qsTr("Completed — 24 frames captured.") : qsTr("Frames captured: ") + root.sequenceFrameCount + (root.sequencePresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Recording")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.sequencePresentation !== "ready"; text: root.sequencePresentation === "completed" ? (root.sequenceCompletionText !== "" ? root.sequenceCompletionText : qsTr("Completed — %1 frames captured.").arg(root.sequenceFrameCount)) : qsTr("Frames captured: %1%2%3").arg(root.sequenceFrameCount).arg(root.sequenceElapsedTimeText === "" ? "" : qsTr("   Elapsed: %1").arg(root.sequenceElapsedTimeText)).arg(root.sequencePresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Recording")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.sequenceErrorText !== ""; text: root.sequenceErrorText; color: Constants.warningColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             Row { visible: root.sequencePresentation === "completed"; spacing: 4; AppButton { id: sequenceViewerButton; text: qsTr("Open in Sequence Viewer"); height: Constants.appStandardControlHeight } AppButton { id: sequenceTestButton; text: qsTr("Open in Sequence Test"); height: Constants.appStandardControlHeight } }
-                            AppButton { id: sequenceNewButton; visible: root.sequencePresentation === "completed"; text: qsTr("Start New Recording"); width: parent.width; height: Constants.appStandardControlHeight }
+                            AppButton { id: sequenceNewButton; visible: root.sequencePresentation === "completed" || root.sequencePresentation === "error"; text: qsTr("Start New Recording"); width: parent.width; height: Constants.appStandardControlHeight }
                         }
                     }
                         AppAccordion {
                         id: datasetCaptureSection; sectionTitle: qsTr("Droplet Dataset Capture"); expanded: root.datasetOpen; headingEnabled: !root.otherCaptureHeadingsDisabled || root.datasetPresentation === "running" || root.datasetPresentation === "paused"; width: parent.width; useIntrinsicBodyHeight: true
                         Column { spacing: Constants.spacing; width: parent.width; height: implicitHeight
                             Text { text: qsTr("Dataset Name"); font: Constants.font }
-                            AppTextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Dataset name") }
+                            AppTextField { id: datasetNameField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Dataset name") }
                             Text { text: qsTr("Experiment Type"); font: Constants.font }
-                            AppTextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight }
+                            AppTextField { id: datasetExperimentTypeField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Notes"); font: Constants.font }
-                            AppTextArea { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap }
+                            AppTextArea { id: datasetNotesField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Math.round(72 * Constants.textScale); placeholderText: qsTr("Optional notes"); wrapMode: TextEdit.Wrap }
                             Text { text: qsTr("Duration (optional — blank continues until Stop)"); font: Constants.font }
-                            AppTextField { enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Optional") }
+                            AppTextField { id: datasetDurationField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; width: parent.width; height: Constants.appStandardControlHeight; placeholderText: qsTr("Optional") }
                             Text { text: qsTr("Save Location"); font: Constants.font }
                             Row { spacing: 6; width: parent.width
                                 AppTextField { id: datasetLocationField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: root.datasetLocationText; width: parent.width - datasetBrowseButton.width - 6; height: Constants.appStandardControlHeight }
@@ -562,9 +581,10 @@ Rectangle {
                                 AppButton { id: datasetStopButton; text: qsTr("Stop"); visualRole: "destructive"; width: (parent.width - parent.spacing) * 0.8; height: Constants.appPrimaryButtonHeight }
                                 AppButton { id: datasetPauseButton; text: root.datasetPresentation === "paused" ? qsTr("Resume") : qsTr("Pause"); width: (parent.width - parent.spacing) * 0.2; height: Constants.appStandardControlHeight }
                             }
-                            Text { visible: root.datasetPresentation !== "ready"; text: root.datasetPresentation === "completed" ? qsTr("Completed — 18 frames, 42 crops captured.") : qsTr("Frames: ") + root.datasetFrameCount + qsTr("   Crops: ") + root.datasetCropCount + (root.datasetPresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Capturing")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.datasetPresentation !== "ready"; text: root.datasetPresentation === "completed" ? (root.datasetCompletionText !== "" ? root.datasetCompletionText : qsTr("Completed — %1 frames, %2 crops captured.").arg(root.datasetFrameCount).arg(root.datasetCropCount)) : qsTr("Frames: %1   Crops: %2%3%4").arg(root.datasetFrameCount).arg(root.datasetCropCount).arg(root.datasetElapsedTimeText === "" ? "" : qsTr("   Elapsed: %1").arg(root.datasetElapsedTimeText)).arg(root.datasetPresentation === "paused" ? qsTr(" — Paused") : qsTr(" — Capturing")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.datasetErrorText !== ""; text: root.datasetErrorText; color: Constants.warningColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             Row { visible: root.datasetPresentation === "completed"; spacing: 4; AppButton { id: datasetLabelButton; text: qsTr("Open in Label"); height: Constants.appStandardControlHeight } AppButton { id: datasetFolderButton; text: qsTr("Open Folder"); height: Constants.appStandardControlHeight } }
-                            AppButton { id: datasetNewButton; visible: root.datasetPresentation === "completed"; text: qsTr("Start New Droplet Dataset Capture"); width: parent.width; height: Constants.appStandardControlHeight }
+                            AppButton { id: datasetNewButton; visible: root.datasetPresentation === "completed" || root.datasetPresentation === "error"; text: qsTr("Start New Droplet Dataset Capture"); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { visible: root.datasetHandoffText !== ""; text: root.datasetHandoffText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                         }
                     }

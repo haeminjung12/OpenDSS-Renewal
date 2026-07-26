@@ -90,7 +90,8 @@ public:
                         HitPulseCallback hitPulse = {},
                         DaqReadinessGate daqReadinessGate = {});
 
-    bool run(const SequenceTestRequest& request, QString* error = nullptr);
+    bool run(const SequenceTestRequest& request, QString* error = nullptr,
+             QString* runFolder = nullptr);
     void requestStop() noexcept;
 
 private:

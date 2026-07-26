@@ -12,9 +12,20 @@ Rectangle {
     property string settingsPresentation: "ready"
     property string defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite")
     property int textSizePercent: 100
+    property string settingsErrorMessage: ""
+    property string applicationVersion: qsTr("Unavailable")
+    property string schemaVersions: qsTr("Unavailable")
+    property string runtimeAvailability: qsTr("Unavailable — diagnostics not initialized")
+    property string cameraDriverAvailability: qsTr("Unavailable")
+    property string daqDriverAvailability: qsTr("Unavailable")
+    property string gpuEnvironmentAvailability: qsTr("Unavailable — diagnostics not initialized")
+    property string diagnosticFolder: ""
+    property bool diagnosticFolderAvailable: false
+    property string diagnosticFolderUnavailableReason: qsTr("Diagnostic folder is unavailable.")
     property alias textSizeSelector: textSizeSelector
     property alias chooseDataRootButton: chooseDataRootButton
     property alias openDataRootButton: openDataRootButton
+    property alias openDiagnosticFolderButton: openDiagnosticFolderButton
 
     Text {
         id: workspaceTitle
@@ -54,7 +65,7 @@ Rectangle {
             height: 52
             color: Constants.errorSurfaceColor
             border.color: Constants.faultColor
-            Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent }
+            Text { text: root.settingsErrorMessage === "" ? qsTr("Error") : root.settingsErrorMessage; color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent }
         }
 
         Rectangle {
@@ -80,12 +91,12 @@ Rectangle {
             border.color: Constants.borderColor
             Column { id: applicationInformationContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 6
                 Text { text: qsTr("Application Information"); font: Constants.headingFont; color: Constants.textColor }
-                Text { text: qsTr("OpenDSS Version: 2.0.0"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                Text { text: qsTr("Schema Versions: Run Summary v2, Sequence v2"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                Text { text: qsTr("Runtime Availability: Available"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                Text { text: qsTr("Camera Driver Availability: Available"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                Text { text: qsTr("DAQ Driver Availability: Available"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                Text { text: qsTr("GPU Environment Availability: Available"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("OpenDSS Version: %1").arg(root.applicationVersion); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("Schema Versions: %1").arg(root.schemaVersions); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("Runtime Availability: %1").arg(root.runtimeAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("Camera Driver Availability: %1").arg(root.cameraDriverAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("DAQ Driver Availability: %1").arg(root.daqDriverAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("GPU Environment Availability: %1").arg(root.gpuEnvironmentAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
             }
         }
 
@@ -96,8 +107,9 @@ Rectangle {
             border.color: Constants.borderColor
             Column { id: diagnosticsContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
                 Text { text: qsTr("Diagnostics"); font: Constants.headingFont; color: Constants.textColor }
-                Text { text: qsTr("Diagnostic Folder: C:/Users/Scientist/AppData/Local/OpenDSS/Logs"); elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; width: parent.width }
-                AppButton { id: openDiagnosticFolderButton; text: qsTr("Open Diagnostic Folder"); height: Constants.appStandardControlHeight }
+                Text { text: qsTr("Diagnostic Folder: %1").arg(root.diagnosticFolder === "" ? qsTr("Unavailable") : root.diagnosticFolder); elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; width: parent.width }
+                AppButton { id: openDiagnosticFolderButton; text: qsTr("Open Diagnostic Folder"); height: Constants.appStandardControlHeight; enabled: root.diagnosticFolderAvailable }
+                Text { visible: !openDiagnosticFolderButton.enabled; text: root.diagnosticFolderUnavailableReason; color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
             }
         }
 

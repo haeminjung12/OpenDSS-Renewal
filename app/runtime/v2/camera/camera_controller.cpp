@@ -5,6 +5,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
+
+#include <QEventLoop>
+#include <QTimer>
 
 namespace desktop_app::v2 {
 namespace {
@@ -91,7 +95,10 @@ CameraController::CameraController(CameraService &service,
                     }
                     pendingCustomResolutionSelected_.reset();
                 }
-                setError(error);
+                if (profileApplyTimedOut_)
+                    profileApplyTimedOut_ = false;
+                else
+                    setError(error);
                 setBusy(false);
             },
             Qt::QueuedConnection);
@@ -336,6 +343,48 @@ void CameraController::setPreviewLutRange(int blackLevel, int whiteLevel)
             QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
         emit previewSourceChanged();
     }
+}
+
+bool CameraController::applyProfileSettings(
+    const CameraAppliedSettings &settings, int lutMinimum, int lutMaximum,
+    int timeoutMs)
+{
+    if (!requestConfiguration(settings))
+        return false;
+
+    QEventLoop waitLoop;
+    QTimer timeout;
+    timeout.setSingleShot(true);
+    connect(this, &CameraController::busyChanged, &waitLoop, [this, &waitLoop] {
+        if (!busy_)
+            waitLoop.quit();
+    });
+    connect(&timeout, &QTimer::timeout, &waitLoop, &QEventLoop::quit);
+    timeout.start(std::max(1, timeoutMs));
+    if (busy_)
+        waitLoop.exec();
+    if (busy_) {
+        profileApplyTimedOut_ = true;
+        setError(QStringLiteral("Timed out waiting for the camera to apply the Setup Profile."));
+        return false;
+    }
+    const bool accepted = error().isEmpty()
+        && configurationAvailable_
+        && appliedSettings_.width == settings.width
+        && appliedSettings_.height == settings.height
+        && appliedSettings_.bitDepth == settings.bitDepth
+        && appliedSettings_.pixelType == settings.pixelType
+        && std::abs(appliedSettings_.exposureMs - settings.exposureMs) < 1e-9
+        && appliedSettings_.readoutMode == settings.readoutMode;
+    if (!accepted) {
+        if (error().isEmpty()) {
+            setError(QStringLiteral(
+                "The camera did not accept every value from the Setup Profile."));
+        }
+        return false;
+    }
+    setPreviewLutRange(lutMinimum, lutMaximum);
+    return true;
 }
 
 bool CameraController::request(void (CameraController::*signal)())

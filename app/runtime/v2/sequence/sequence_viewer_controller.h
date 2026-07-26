@@ -16,6 +16,8 @@ class SequenceViewerController final : public QObject {
     Q_PROPERTY(qint64 totalFrames READ totalFrames NOTIFY totalFramesChanged)
     Q_PROPERTY(QString error READ error NOTIFY errorChanged)
     Q_PROPERTY(QUrl currentFrameImageUrl READ currentFrameImageUrl NOTIFY currentFrameImageUrlChanged)
+    Q_PROPERTY(int imageWidth READ imageWidth NOTIFY currentFrameImageUrlChanged)
+    Q_PROPERTY(int imageHeight READ imageHeight NOTIFY currentFrameImageUrlChanged)
 
   public:
     explicit SequenceViewerController(QObject* parent = nullptr);
@@ -25,6 +27,8 @@ class SequenceViewerController final : public QObject {
     qint64 totalFrames() const;
     QString error() const;
     QUrl currentFrameImageUrl() const;
+    int imageWidth() const;
+    int imageHeight() const;
     QImage currentImage() const;
 
     Q_INVOKABLE bool open(const QString& path);
@@ -32,6 +36,7 @@ class SequenceViewerController final : public QObject {
     Q_INVOKABLE bool previous();
     Q_INVOKABLE bool next();
     Q_INVOKABLE bool seek(qint64 oneBasedFrame);
+    Q_INVOKABLE bool jump(qint64 delta);
 
   signals:
     void presentationChanged();

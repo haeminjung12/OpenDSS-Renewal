@@ -4,7 +4,9 @@
 
 #include <QObject>
 #include <QString>
+#include <QStringList>
 #include <QUrl>
+#include <QVector>
 
 class PipelineRunner;
 
@@ -36,12 +38,16 @@ class TrainingController final : public QObject
     Q_PROPERTY(QUrl metadataUrl READ metadataUrl NOTIFY changed)
     Q_PROPERTY(QUrl registeredPackageUrl READ registeredPackageUrl NOTIFY changed)
     Q_PROPERTY(bool retrySaveAvailable READ retrySaveAvailable NOTIFY changed)
+    Q_PROPERTY(QStringList weightOptions READ weightOptions NOTIFY changed)
+    Q_PROPERTY(int selectedWeightIndex READ selectedWeightIndex NOTIFY changed)
+    Q_PROPERTY(QString selectedWeightPath READ selectedWeightPath NOTIFY changed)
 
 public:
     TrainingController(OperationCoordinator &operations, ApplicationStateStore &stateStore,
                        ModelLoadService &modelLoadService, PipelineRunner &pipeline,
                        ModelLibraryController &modelLibraryController,
                        QString pythonExecutable, QString repositoryRoot,
+                       QString modelsRoot,
                        QObject *parent = nullptr);
 
     QUrl datasetManifestUrl() const;
@@ -60,6 +66,9 @@ public:
     QUrl metadataUrl() const;
     QUrl registeredPackageUrl() const;
     bool retrySaveAvailable() const;
+    QStringList weightOptions() const;
+    int selectedWeightIndex() const;
+    QString selectedWeightPath() const;
 
     void setDatasetManifestUrl(const QUrl &url);
     void setArchitecture(const QString &architecture);
@@ -70,11 +79,18 @@ public:
     Q_INVOKABLE bool start();
     Q_INVOKABLE void stop();
     Q_INVOKABLE bool retrySave();
+    Q_INVOKABLE bool loadWeights(int index);
 
 signals:
     void changed();
 
 private:
+    struct WeightOption {
+        QString label;
+        QString path;
+        QString initializationMode;
+    };
+
     enum class RegistrationState {
         NotStarted,
         Saving,
@@ -87,6 +103,7 @@ private:
     bool saveCompletedTraining();
     void handleServiceChanged();
     void publishTrainingState();
+    void refreshWeightOptions();
 
     TrainingService service_;
     ApplicationStateStore &stateStore_;
@@ -95,6 +112,9 @@ private:
     ModelLibraryController &modelLibraryController_;
     QString pythonExecutable_;
     QString repositoryRoot_;
+    QString modelsRoot_;
+    QVector<WeightOption> weightOptions_;
+    int selectedWeightIndex_ = -1;
     QUrl datasetManifestUrl_;
     QString architecture_ = QStringLiteral("mobilenet");
     QString modelName_;

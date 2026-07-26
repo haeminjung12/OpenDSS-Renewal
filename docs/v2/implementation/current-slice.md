@@ -1,55 +1,63 @@
-# OpenDSS v2 functional slice — accepted headless backend integration
+# OpenDSS v2 functional slice — production stabilization and integration
 
 ## Status
 
-**Accepted:** July 24, 2026  
-**Authorization:** The user explicitly authorized integrating accepted backend tip `3ed8025016a14dcb0b7e7fe5cf6f0c7738f99720` onto accepted GUI/design baseline `ea48ec3078adc068d57dd58e563e24f642289480` in a clean worktree, without requiring GUI completion.  
-**Integrated commit:** `0b5bda6bc0373b3fd8927db103d535f388d9c5f3`
+**State:** Integration release candidate; independent artifact validation pending  
+**Branch:** `codex/functional-orchestrator`  
+**Base:** `1e80f3b`  
+**Integration owner:** FUNCTIONAL orchestrator, sole writer
 
-The merge was conflict-free and has exactly those two parents. Independent review confirmed an empty remerge diff: the result is the direct union of the accepted GUI and backend parents with no manual resolution delta.
+The user explicitly authorized completing the recovered production stabilization
+diff, final GUI/controller wiring, focused fixes, build and runtime validation,
+independent read-only review, commit, and push to `renewal/main`. This instruction
+supersedes the former headless-only boundary for this slice. Visual redesign,
+dataset rebuilding, model-integrity weakening, and unrelated refactoring remain
+out of scope.
 
-## Integrated functional baseline
+## Active coordination ledger
 
-The accepted headless backend lineage now supplies:
+| ID | Owner | State | Requirement and evidence |
+|---|---|---|---|
+| `FI-001` | FUNCTIONAL | Automated checks accepted | Production wiring covers Capture, Label, Sequence Viewer, Training, Model Library, Live, Sequence Test, Runs, and Settings. Release GUI: `C:\b\odss-v2-fpath-8435\Release\Desktop_app_v2App.exe`. |
+| `CR-001` | FUNCTIONAL | Independent review accepted | `OperationCoordinator` callback invocation and destruction are serialized by a dedicated recursive mutex. The focused test runs 1,000 concurrent release/destruction iterations. |
+| `FI-TEST-001` | FUNCTIONAL | Passed | Thirteen affected C++ CTest targets passed 13/13 in `C:\b\odss-v2-sequence-model-8435`; QML shell suite passed 43/43 in `C:\b\odss-v2-fpath-8435`. |
+| `FI-MODEL-001` | FUNCTIONAL | Passed | The trusted installed EfficientNet model loaded locally without network fallback and the production probe processed exactly 2,103 frames with DAQ off. |
+| `FI-REVIEW-001` | Reviewer | Accepted | Initial three blockers, `CR-001`, and the exact camera-identity/continuous-Stop corrections received scoped read-only acceptance. |
+| `VG-001` | VALIDATION | Pending external retry | Corrected artifact launch is stable. Repeated physical Escape interruptions prevented the camera identity and continuous Start/Stop HIL rerun before any UI/hardware action. Validate only the pushed accepted commit and exact executable; Integration alone corrects any returned defect. |
+| `HIL-001` | VALIDATION | Authorized, pending | The user granted standing hardware authorization. Validation may exercise camera and DAQ after announcing exact actions, including continuous Start/Stop, stop-to-zero, finite immediate sine, delayed pulse, and arbitration. |
 
-- authoritative application state and operation/resource ownership;
-- Camera and Single Image service contracts;
-- Dataset, Sequence, Run, and model-package artifact contracts;
-- Image Sequence and Droplet Dataset Capture services;
-- Dataset Label and Sequence Viewer services;
-- Training, model activation/loading, and Model Test services;
-- software Sequence Test, Run persistence/recovery, and Results repository state;
-- bounded Live sorting with silent dropped-frame continuation and factual integrity metadata;
-- DAQ-LIVE binding with DAQ Output OFF by default, approved `Dev1/ao0`, 1 kHz, 5 ms, 0 ms delay, and fixed 5 Vpp mapped to 2.5 V peak; and
-- application Settings persistence for storage root and Text Size.
+## Delivered behavior
 
-These are backend/service contracts. They are not yet production GUI/controller wiring.
+- Production GUI controller and context wiring replaces mock-only runtime paths.
+- Camera profiles support asynchronous acceptance/readback; capture uses a global
+  workflow gate and production collection/dataset roots.
+- Sequence Viewer preserves native 1:1 frame dimensions.
+- Training and Model Library enforce trusted local weight/checkpoint metadata and
+  suppress production mock rows and mock empty/error data.
+- Live scheduling, finite immediate DAQ test output, preserved delayed event
+  output, continuous hardware Start/Stop, suppression, and stop-to-zero are
+  separated and covered by focused fake-output tests.
+- Hardware Configuration displays the factual production camera controller
+  identity instead of an illustrative fallback.
+- Continuous DAQ Stop, fault, and exit teardown release operation ownership only
+  after unlocking DAQ state. Focused tests prove re-entrant notification safety,
+  task Stop/clear, and an exact scalar zero write for Stop and exit.
+- Sequence Test completion/recovery, production Runs notes, Settings diagnostics,
+  and native folder opening are wired.
 
-## Protected integration boundary
+## Protected boundaries
 
-- Accepted `*.ui.qml` forms, ordinary QML wrappers, `MockDatas`, visual assets/tokens, `qds.cmake`, generated content CMake, `.qmlproject`, and `.qtds` files match the `ea48ec3` parent exactly.
-- Backend paths match the `3ed8025` parent exactly.
-- Protected `live_data_collection_writer.*` changes are inherited unchanged from the previously accepted backend lineage.
-- No shared dirty working-tree file was staged, overwritten, absorbed, or cleaned.
-
-## Validation
-
-- Independent merge review: no findings.
-- Fresh Qt 6.11.1 MSVC/Ninja configure: passed with the qualified Qt, vcpkg/OpenCV/Protobuf, ONNX Runtime, and DCAM SDK paths; NI-DAQmx was disabled.
-- Focused targets built: `daq_service_test`, `live_sorting_service_test`, `operation_coordinator_test`, and `settings_repository_test`.
-- Focused CTest result: 4/4 passed.
-- No GUI was launched and no physical hardware was accessed.
-
-## Out of scope
-
-- GUI/controller or ordinary-QML integration;
-- any accepted visual-form alias, signal, property, state, layout, token, or asset change;
-- physical DAQ output, camera operation, or other HIL;
-- Setup Profile schema/persistence;
-- model-export or protected vendor-mechanics changes;
-- broad legacy, Python, GUI, or hardware test suites; and
-- selection or implementation of another slice.
+- Preserve qualified DCAM, NI-DAQmx, detector/crop, ONNX, trainer, export, and
+  persistence mechanics except for the bounded stabilization changes above.
+- Do not rebuild datasets, introduce network fallback, accept untrusted weights,
+  weaken checkpoint metadata validation, or restore production mock data.
+- Do not broaden `CR-001` into a notification framework or Live service refactor.
+- Integration remains the sole writer; Validation and review remain read-only.
 
 ## Next gate
 
-This slice is complete. A later slice requires explicit user authorization and must name its exact interface and write boundaries. The simplest accepted integration is the direct two-parent merge plus these durable records; no integration-specific source, adapter, compatibility path, or framework was added.
+Commit and push the exact reviewed candidate, then hand its commit hash,
+executable, automated evidence, and runtime prerequisites to Validation. Retry
+the externally interrupted camera identity and continuous-DAQ HIL gates. Close
+the slice only after `VG-001` accepts the artifact or Integration corrects every
+exact returned defect.

@@ -1,8 +1,11 @@
 #pragma once
 
 #include <QObject>
+#include <QUrl>
 #include <QVariantList>
 #include <QVariantMap>
+
+#include <functional>
 
 namespace desktop_app::v2 {
 
@@ -21,8 +24,10 @@ class RunsResultsController final : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY errorMessageChanged)
 
 public:
+    using ArtifactOpener = std::function<bool(const QUrl &)>;
+
     RunsResultsController(RunRepository &repository, ApplicationStateStore &stateStore,
-                          QObject *parent = nullptr);
+                          ArtifactOpener artifactOpener = {}, QObject *parent = nullptr);
 
     QVariantList runs() const;
     QString selectedRunId() const;
@@ -33,18 +38,27 @@ public:
     Q_INVOKABLE bool selectRun(const QString &id);
     Q_INVOKABLE bool loadSelected();
     Q_INVOKABLE bool updateLoadedNotes(const QString &notes);
+    Q_INVOKABLE bool openDropletLog();
+    Q_INVOKABLE bool openRunFolder();
+    Q_INVOKABLE bool openDropletCrop(const QUrl &cropUrl);
+    Q_INVOKABLE bool openSavedSequence();
+    Q_INVOKABLE bool openRunSummary(const QUrl &summaryUrl);
 
 signals:
     void runsChanged();
     void selectedRunIdChanged();
     void loadedRunChanged();
     void errorMessageChanged();
+    void savedSequenceRequested(const QString &manifestPath);
 
 private:
     void publishError(const QString &message);
+    bool openExistingPath(const QString &path, bool requireDirectory,
+                          const QString &unavailableMessage);
 
     RunRepository &repository_;
     ApplicationStateStore &stateStore_;
+    ArtifactOpener artifactOpener_;
 };
 
 } // namespace results

@@ -108,4 +108,7 @@ QString runtimePathFromRegistryPath(const QString& path);
 QString registryEntrySummary(const QJsonObject& entry, const QString& registryPath, const QString& warning);
 QString resolvePackagedPathFromRegistryPath(const QString& registryPath);
 QJsonObject activeRegistryEntry(const QJsonArray& entries);
+bool repairTrustedPretrainedMetadataHash(const QString& installedPackagePath,
+                                         const QString& trustedPackagePath,
+                                         QString* error = nullptr);
 DefaultWorkspacePaths ensureDefaultWorkspaceAssets(const QJsonArray& registryEntries);

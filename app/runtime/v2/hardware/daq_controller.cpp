@@ -181,8 +181,14 @@ bool DaqController::ready() const
 bool DaqController::canApply() const
 {
     return !actionInProgress_ && selectedChannelExists()
+        && !service_.continuousActive()
         && DaqService::settingsValidationError(draftSettings()).isEmpty()
         && operations_.momentaryAvailable(ResourceLock::Daq);
+}
+
+bool DaqController::continuousWaveformActive() const
+{
+    return service_.continuousActive();
 }
 
 QString DaqController::error() const
@@ -281,6 +287,47 @@ bool DaqController::apply()
     emit settingsChanged();
     emit stateChanged();
     return applied;
+}
+
+bool DaqController::sendTestSineWave()
+{
+    if (actionInProgress_) {
+        setActionError(QStringLiteral("A DAQ action is already in progress."));
+        return false;
+    }
+    actionInProgress_ = true;
+    QString error;
+    const bool sent = service_.sendTestSine(&error);
+    actionInProgress_ = false;
+    if (!sent) {
+        setActionError(error.isEmpty()
+                           ? QStringLiteral("The DAQ test sine wave could not be sent.")
+                           : error);
+        emit stateChanged();
+        return false;
+    }
+    setActionError({});
+    emit stateChanged();
+    return true;
+}
+
+bool DaqController::toggleContinuousWaveform()
+{
+    if (actionInProgress_) {
+        setActionError(QStringLiteral("A DAQ action is already in progress."));
+        emit stateChanged();
+        return false;
+    }
+    actionInProgress_ = true;
+    emit stateChanged();
+    QString error;
+    const bool completed = service_.continuousActive()
+        ? service_.stopContinuous(&error)
+        : service_.startContinuous(&error);
+    actionInProgress_ = false;
+    setActionError(completed ? QString() : error);
+    emit stateChanged();
+    return completed;
 }
 
 DaqAppliedSettings DaqController::draftSettings() const

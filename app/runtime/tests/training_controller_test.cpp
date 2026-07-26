@@ -48,6 +48,42 @@ bool writeBytes(const QString &path, const QByteArray &bytes)
         && file.write(bytes) == bytes.size();
 }
 
+bool writeJson(const QString &path, const QJsonObject &object)
+{
+    return writeBytes(
+        path, QJsonDocument(object).toJson(QJsonDocument::Indented));
+}
+
+bool createCheckpointFixture(const QString &path, const QString &architecture,
+                             const QString &name, int classCount)
+{
+    const QFileInfo info(path);
+    QJsonArray classes;
+    for (int index = 0; index < classCount; ++index)
+        classes.append(QString::number(index));
+    return QDir().mkpath(info.absolutePath())
+        && writeBytes(path, QByteArrayLiteral("checkpoint"))
+        && writeJson(
+            QDir(info.absolutePath()).filePath(QStringLiteral("metadata.json")),
+            QJsonObject{
+                {QStringLiteral("schema_version"),
+                 QStringLiteral("model-metadata-v2")},
+                {QStringLiteral("model_id"),
+                 name.toLower().replace(QLatin1Char(' '), QLatin1Char('-'))},
+                {QStringLiteral("architecture"),
+                 QJsonObject{
+                     {QStringLiteral("id"), architecture},
+                     {QStringLiteral("num_classes"), classCount},
+                 }},
+                {QStringLiteral("classes"), classes},
+                {QStringLiteral("model_name"), name},
+                {QStringLiteral("artifact"),
+                 QJsonObject{
+                     {QStringLiteral("checkpoint_file"), info.fileName()},
+                 }},
+            });
+}
+
 void emitJsonLine(const QJsonObject &object)
 {
     std::cout << QJsonDocument(object).toJson(QJsonDocument::Compact).constData()
@@ -237,10 +273,139 @@ int main(int argc, char **argv)
     ModelLoadService modelLoadService(registryPath);
     PipelineRunner pipeline;
     ModelLibraryController modelLibraryController(registryPath, operations);
+    const QString modelsRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("models"));
+    const QString imagenetRoot =
+        QDir(modelsRoot).filePath(QStringLiteral("weights/imagenet"));
+    const QString mobilenetImageNetPath =
+        QDir(imagenetRoot)
+            .filePath(QStringLiteral("mobilenet_v3_small-047dcff4.pth"));
+    const QString efficientnetImageNetPath =
+        QDir(imagenetRoot)
+            .filePath(QStringLiteral(
+                "efficientnet_b0_rwightman-7f5810bc.pth"));
+    const QString efficientnetTrueFinalPath =
+        QDir(modelsRoot)
+            .filePath(QStringLiteral(
+                "weights/trained/efficientnet_b0/checkpoints/true_final.pth"));
+    const QString efficientnetUserCheckpointPath =
+        QDir(modelsRoot)
+            .filePath(QStringLiteral(
+                "user_models/efficientnet_b0/user_model/my_resume_weights.pth"));
+    const QString incompatibleEfficientnetPath =
+        QDir(modelsRoot)
+            .filePath(QStringLiteral(
+                "user_models/efficientnet_b0/incompatible_model/incompatible_weights.pth"));
+    const QString missingMetadataPath =
+        QDir(modelsRoot)
+            .filePath(QStringLiteral(
+                "user_models/efficientnet_b0/no_metadata/path_spoof.pth"));
+    const QString malformedMetadataPath =
+        QDir(modelsRoot)
+            .filePath(QStringLiteral(
+                "user_models/malformed/malformed_checkpoint.pth"));
+    const QString unrelatedMetadataPath =
+        QDir(modelsRoot)
+            .filePath(QStringLiteral(
+                "user_models/unrelated/unrelated_checkpoint.pth"));
+    const QString unknownClassCountPath =
+        QDir(modelsRoot)
+            .filePath(QStringLiteral(
+                "user_models/unknown_classes/unknown_classes.pth"));
+    const QString spoofedImageNetPath =
+        QDir(imagenetRoot)
+            .filePath(QStringLiteral(
+                "efficientnet_b0_rwightman-7f5810bc-copy.pth"));
+    const QFileInfo malformedInfo(malformedMetadataPath);
+    const QFileInfo unrelatedInfo(unrelatedMetadataPath);
+    const QFileInfo unknownClassesInfo(unknownClassCountPath);
+    if (!check(
+            QDir().mkpath(imagenetRoot)
+                && writeBytes(mobilenetImageNetPath,
+                              QByteArrayLiteral("mobilenet imagenet"))
+                && writeBytes(efficientnetImageNetPath,
+                              QByteArrayLiteral("efficientnet imagenet"))
+                && writeBytes(spoofedImageNetPath,
+                              QByteArrayLiteral("spoofed imagenet"))
+                && createCheckpointFixture(
+                    efficientnetTrueFinalPath,
+                    QStringLiteral("efficientnet_b0"),
+                    QStringLiteral("EfficientNet true final"), 2)
+                && createCheckpointFixture(
+                    efficientnetUserCheckpointPath,
+                    QStringLiteral("efficientnet_b0"),
+                    QStringLiteral("User checkpoint"), 2)
+                && createCheckpointFixture(
+                    incompatibleEfficientnetPath,
+                    QStringLiteral("efficientnet_b0"),
+                    QStringLiteral("Incompatible checkpoint"), 3)
+                && QDir().mkpath(QFileInfo(missingMetadataPath).absolutePath())
+                && writeBytes(missingMetadataPath,
+                              QByteArrayLiteral("no metadata"))
+                && QDir().mkpath(malformedInfo.absolutePath())
+                && writeBytes(malformedMetadataPath,
+                              QByteArrayLiteral("malformed checkpoint"))
+                && writeBytes(
+                    QDir(malformedInfo.absolutePath())
+                        .filePath(QStringLiteral("metadata.json")),
+                    QByteArrayLiteral("{not-json"))
+                && QDir().mkpath(unrelatedInfo.absolutePath())
+                && writeBytes(unrelatedMetadataPath,
+                              QByteArrayLiteral("unrelated checkpoint"))
+                && writeJson(
+                    QDir(unrelatedInfo.absolutePath())
+                        .filePath(QStringLiteral("metadata.json")),
+                    QJsonObject{
+                        {QStringLiteral("schema_version"),
+                         QStringLiteral("model-metadata-v2")},
+                        {QStringLiteral("model_id"),
+                         QStringLiteral("unrelated-package")},
+                        {QStringLiteral("model_name"),
+                         QStringLiteral("Unrelated metadata")},
+                        {QStringLiteral("architecture"),
+                         QJsonObject{
+                             {QStringLiteral("id"),
+                              QStringLiteral("efficientnet_b0")},
+                             {QStringLiteral("num_classes"), 2},
+                         }},
+                        {QStringLiteral("artifact"),
+                         QJsonObject{
+                             {QStringLiteral("checkpoint_file"),
+                              QStringLiteral("different.pth")},
+                         }},
+                    })
+                && QDir().mkpath(unknownClassesInfo.absolutePath())
+                && writeBytes(unknownClassCountPath,
+                              QByteArrayLiteral("unknown classes"))
+                && writeJson(
+                    QDir(unknownClassesInfo.absolutePath())
+                        .filePath(QStringLiteral("metadata.json")),
+                    QJsonObject{
+                        {QStringLiteral("schema_version"),
+                         QStringLiteral("model-metadata-v2")},
+                        {QStringLiteral("model_id"),
+                         QStringLiteral("unknown-classes-package")},
+                        {QStringLiteral("model_name"),
+                         QStringLiteral("Unknown classes checkpoint")},
+                        {QStringLiteral("architecture"),
+                         QJsonObject{
+                             {QStringLiteral("id"),
+                              QStringLiteral("efficientnet_b0")},
+                         }},
+                        {QStringLiteral("artifact"),
+                         QJsonObject{
+                             {QStringLiteral("checkpoint_file"),
+                              unknownClassesInfo.fileName()},
+                         }},
+                    }),
+            QStringLiteral("Could not create local weight fixtures."))) {
+        return 24;
+    }
     TrainingController controller(
         operations, stateStore, modelLoadService, pipeline, modelLibraryController,
         QCoreApplication::applicationFilePath(),
-        QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT)).absoluteFilePath());
+        QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT)).absoluteFilePath(),
+        modelsRoot);
 
     const QMetaObject *metaObject = controller.metaObject();
     const int changedSignal = metaObject->indexOfSignal("changed()");
@@ -248,7 +413,8 @@ int main(int argc, char **argv)
         "datasetManifestUrl", "architecture", "modelName", "outputDirectoryUrl",
         "requestedDevice", "presentation", "errorMessage", "stage", "stageEpochs",
         "epoch", "globalEpoch", "resultDirectoryUrl", "modelOnnxUrl", "metadataUrl",
-        "registeredPackageUrl", "retrySaveAvailable",
+        "registeredPackageUrl", "retrySaveAvailable", "weightOptions",
+        "selectedWeightIndex", "selectedWeightPath",
     };
     bool propertiesUseChangedSignal = changedSignal >= 0;
     for (const char *propertyName : propertyNames) {
@@ -268,7 +434,8 @@ int main(int argc, char **argv)
                QStringLiteral("Training paths are not QUrl properties.")) ||
         !check(metaObject->indexOfMethod("start()") >= 0
                    && metaObject->indexOfMethod("stop()") >= 0
-                   && metaObject->indexOfMethod("retrySave()") >= 0,
+                   && metaObject->indexOfMethod("retrySave()") >= 0
+                   && metaObject->indexOfMethod("loadWeights(int)") >= 0,
                QStringLiteral("Training action invokables are missing.")) ||
         !check(metaObject->indexOfProperty("effectiveDevice") < 0
                    && metaObject->indexOfProperty("elapsedMilliseconds") < 0
@@ -279,6 +446,15 @@ int main(int argc, char **argv)
                    && controller.errorMessage() == QStringLiteral("No dataset selected."),
                QStringLiteral("Initial Training presentation is incorrect."))) {
         return 5;
+    }
+    if (!check(!controller.weightOptions().isEmpty()
+                   && controller.weightOptions().front().startsWith(
+                       QStringLiteral("ImageNet-pretrained"))
+                   && controller.loadWeights(0)
+                   && controller.selectedWeightPath()
+                       == QFileInfo(mobilenetImageNetPath).absoluteFilePath(),
+               QStringLiteral("Local MobileNet ImageNet weights are not available as a real initialization choice."))) {
+        return 23;
     }
 
     controller.setDatasetManifestUrl(QUrl(QStringLiteral("https://example.invalid/dataset.json")));
@@ -296,6 +472,38 @@ int main(int argc, char **argv)
         return 7;
     }
     controller.setArchitecture(QStringLiteral("efficientnet"));
+    const QStringList efficientnetWeights = controller.weightOptions();
+    const int userCheckpointIndex =
+        efficientnetWeights.indexOf(
+            QStringLiteral("User checkpoint — OpenDSS checkpoint"));
+    if (!check(
+            efficientnetWeights.front().startsWith(
+                QStringLiteral("ImageNet-pretrained"))
+                && efficientnetWeights.contains(
+                    QStringLiteral(
+                        "EfficientNet true final — OpenDSS checkpoint"))
+                && userCheckpointIndex >= 0
+                && !efficientnetWeights.contains(
+                    QStringLiteral(
+                        "Incompatible checkpoint — OpenDSS checkpoint"))
+                && !efficientnetWeights.contains(
+                    QStringLiteral(
+                        "Unrelated metadata — OpenDSS checkpoint"))
+                && !efficientnetWeights.contains(
+                    QStringLiteral(
+                        "Unknown classes checkpoint — OpenDSS checkpoint"))
+                && efficientnetWeights.size() == 3
+                && controller.selectedWeightPath()
+                    == QFileInfo(efficientnetImageNetPath).absoluteFilePath()
+                && controller.loadWeights(userCheckpointIndex)
+                && controller.selectedWeightPath()
+                    == QFileInfo(efficientnetUserCheckpointPath)
+                           .canonicalFilePath()
+                && controller.loadWeights(0),
+            QStringLiteral(
+                "Architecture-compatible local ImageNet and user checkpoint discovery is incorrect."))) {
+        return 25;
+    }
     controller.setRequestedDevice(QStringLiteral("other"));
     if (!check(controller.requestedDevice() == QStringLiteral("gpu")
                    && !controller.errorMessage().isEmpty(),
@@ -353,8 +561,19 @@ int main(int argc, char **argv)
     if (!check(config.value(QStringLiteral("architecture")).toString()
                    == QStringLiteral("efficientnet_b0")
                    && config.value(QStringLiteral("device_request")).toString()
-                   == QStringLiteral("cpu"),
-               QStringLiteral("Architecture or requested device was not forwarded.")) ||
+                       == QStringLiteral("cpu")
+                   && config.value(QStringLiteral("initialization"))
+                              .toObject()
+                              .value(QStringLiteral("mode"))
+                              .toString()
+                       == QStringLiteral("imagenet")
+                   && config.value(QStringLiteral("initialization"))
+                              .toObject()
+                              .value(QStringLiteral("weight_path"))
+                              .toString()
+                       == QFileInfo(efficientnetImageNetPath)
+                              .absoluteFilePath(),
+               QStringLiteral("Architecture, device, or local ImageNet weight path was not forwarded.")) ||
         !check(trainingState.status == TrainingStatus::Completed
                    && trainingState.executionId.isEmpty()
                    && trainingState.fault.isEmpty(),

@@ -47,6 +47,8 @@ public:
         QString *error) override
     {
         ++applyConfigurationCalls;
+        if (configurationDelayMs.load() > 0)
+            QThread::msleep(static_cast<unsigned long>(configurationDelayMs.load()));
         if (rejectConfiguration.load()) {
             *error = QStringLiteral("Camera configuration was rejected.");
             return CameraConfigurationResult::Rejected;
@@ -77,6 +79,7 @@ public:
     std::atomic_bool failStart = false;
     std::atomic_bool failFrames = false;
     std::atomic_bool rejectConfiguration = false;
+    std::atomic_int configurationDelayMs = 0;
     std::atomic<quint64> delivery = 1;
     CameraAppliedSettings appliedSettings = [] {
         CameraAppliedSettings settings;
@@ -175,6 +178,39 @@ int main(int argc, char **argv)
                     && controller.resolution() == QStringLiteral("1152 x 1152")
                     && controller.resolutionPresetIndex() == 10,
                 "A successful preset apply must leave Custom draft mode.");
+
+    CameraAppliedSettings profileSettings = fake->appliedSettings;
+    profileSettings.width = 512;
+    profileSettings.height = 128;
+    profileSettings.exposureMs = 3.25;
+    ok &= check(controller.applyProfileSettings(profileSettings, 12, 220)
+                    && !controller.busy()
+                    && controller.resolution() == QStringLiteral("512 x 128")
+                    && controller.exposureMs() == QStringLiteral("3.25")
+                    && controller.previewLutMinimum() == 12
+                    && controller.previewLutMaximum() == 220,
+                "Setup Profile camera apply must return only after accepted hardware readback.");
+    fake->rejectConfiguration = true;
+    ok &= check(!controller.applyProfileSettings(profileSettings, 30, 200)
+                    && !controller.busy()
+                    && controller.error()
+                           == QStringLiteral("Camera configuration was rejected.")
+                    && controller.previewLutMinimum() == 12
+                    && controller.previewLutMaximum() == 220,
+                "Rejected profile camera settings must return failure and retain the prior LUT.");
+    fake->rejectConfiguration = false;
+    fake->configurationDelayMs = 30;
+    profileSettings.exposureMs = 4.25;
+    ok &= check(!controller.applyProfileSettings(profileSettings, 40, 180, 1)
+                    && controller.error()
+                           == QStringLiteral("Timed out waiting for the camera to apply the Setup Profile.")
+                    && waitForIdle(controller, busySpy)
+                    && controller.error()
+                           == QStringLiteral("Timed out waiting for the camera to apply the Setup Profile.")
+                    && controller.previewLutMinimum() == 12
+                    && controller.previewLutMaximum() == 220,
+                "A timed-out profile apply must retain its factual timeout and prior LUT after late completion.");
+    fake->configurationDelayMs = 0;
 
     ok &= check(controller.start() && waitForIdle(controller, busySpy)
                     && controller.streaming(),

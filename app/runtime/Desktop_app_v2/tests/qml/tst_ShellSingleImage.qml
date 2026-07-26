@@ -2121,6 +2121,8 @@ Item {
     function test_liveCameraPreviewSourcePort() {
         shell.form.navLiveButton.clicked()
         const workspace = shell.form.liveWorkspace
+        verify(shell.form.cameraPreviewImage.retainWhileLoading)
+        verify(workspace.cameraPreviewImage.retainWhileLoading)
         workspace.presentation = "ready"
         workspace.cameraPreviewSource = ""
         verify(!workspace.cameraPreviewImage.visible)

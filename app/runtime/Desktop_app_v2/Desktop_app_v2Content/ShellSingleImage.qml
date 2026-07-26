@@ -793,6 +793,7 @@ Item {
     Binding { target: screen.sequenceTestWorkspace; property: "hasRunSummary"; value: root.sequenceTestController && root.sequenceTestController.runSummaryUrl.toString() !== ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace; property: "hasRunFolder"; value: root.sequenceTestController && root.sequenceTestController.runFolderUrl.toString() !== ""; when: !!root.sequenceTestController }
     Binding { target: screen.cameraPreviewImage; property: "retainWhileLoading"; value: true }
+    Binding { target: screen.liveWorkspace.cameraPreviewImage; property: "retainWhileLoading"; value: true }
 
     Binding { target: screen.runsWorkspace; property: "selectedRunId"; value: root.runsResultsController ? root.runsResultsController.selectedRunId : state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? "" : "Run-042" }
     Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: root.runsResultsController ? root.runsResultsController.loadedRun.id || "" : state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }

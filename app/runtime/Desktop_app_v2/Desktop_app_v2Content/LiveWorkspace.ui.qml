@@ -9,6 +9,14 @@ Item {
     property bool cameraStreaming: false
     property bool startSortingEnabled: false
     property bool rightPanelExpanded: true
+    property string serviceDiagnosticText: qsTr("Resolve the current error before continuing.")
+    property string runArtifactPath: qsTr("C:/OpenDSS/Runs/Run-042")
+    property string elapsedTimeText: qsTr("00:02:18")
+    property string persistedEventCountText: qsTr("428")
+    property string integrityStatusText: ""
+    property string finalOutcomeText: qsTr("User stopped")
+    property string outputStatusText: qsTr("Each detected event records a Droplet Crop and factual Droplet Log row.")
+    property string runSummaryText: root.integrityStatusText !== "" ? root.integrityStatusText : (root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the footer.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the footer.") : qsTr("Pause or Stop this Run from the footer.")))
     property alias primaryActionButton: primaryActionButton
     property alias secondaryActionButton: secondaryActionButton
     property alias rightPanelToggleButton: rightPanelToggleButton
@@ -285,7 +293,7 @@ Item {
                                     checked: false
                                     enabled: !root.setupLocked
                                 }
-                                Text { text: qsTr("Each detected event records a Droplet Crop and factual Droplet Log row."); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { text: root.outputStatusText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
                         }
                     }
@@ -313,15 +321,11 @@ Item {
                                 spacing: Constants.spacing
 
                                 Text { text: root.presentation === "paused" ? qsTr("Status: Paused") : (root.completed ? qsTr("Status: Completed") : qsTr("Status: Running")); color: Constants.textColor; font: Constants.headingFont }
-                                Text { visible: root.completed; text: qsTr("Stop reason: User stopped"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { visible: root.completed; text: qsTr("Saved location: %1").arg("C:/OpenDSS/Runs/Run-042"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: qsTr("Elapsed time: 00:02:18"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Total Droplets: 428"); color: Constants.textColor; font: Constants.smallFont }
-                                Text { text: qsTr("Predicted Class 0: 216  •  Predicted Class 1: 212"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: qsTr("Decision Hit: 212  •  Decision Waste: 216"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: qsTr("Observed Hit: 205  •  Observed Waste: 211  •  Unresolved: 12"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: qsTr("Camera FPS: 61.3  •  Inference Time: 4.2 ms"); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                                Text { text: root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the footer.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the footer.") : qsTr("Pause or Stop this Run from the footer.")); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { visible: root.completed; text: qsTr("Stop reason: %1").arg(root.finalOutcomeText); color: Constants.textColor; font: Constants.smallFont }
+                                Text { visible: root.completed; text: qsTr("Saved location: %1").arg(root.runArtifactPath); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { text: qsTr("Elapsed time: %1").arg(root.elapsedTimeText); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Total Droplets: %1").arg(root.persistedEventCountText); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: root.runSummaryText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
                         }
                         }
@@ -339,7 +343,7 @@ Item {
                     anchors.bottom: parent.bottom
 
                     Text {
-                        text: root.unavailable ? qsTr("Camera unavailable — restore Hardware to continue.") : (root.error ? qsTr("Resolve the current error before continuing.") : (root.active ? (root.presentation === "paused" ? qsTr("Run paused.") : qsTr("Run in progress.")) : (root.completed ? qsTr("Run complete.") : (root.cameraStreaming ? (root.startSortingEnabled ? qsTr("Ready to start sorting.") : qsTr("Camera streaming — sorting is not ready.")) : qsTr("Start Camera to check sorting readiness.")))))
+                        text: root.unavailable ? qsTr("Camera unavailable — restore Hardware to continue.") : (root.error ? root.serviceDiagnosticText : (root.active ? (root.presentation === "paused" ? qsTr("Run paused.") : qsTr("Run in progress.")) : (root.completed ? qsTr("Run complete.") : (root.cameraStreaming ? (root.startSortingEnabled ? qsTr("Ready to start sorting.") : qsTr("Camera streaming — sorting is not ready.")) : qsTr("Start Camera to check sorting readiness.")))))
                         color: root.unavailable || root.error ? Constants.warningColor : Constants.textColor
                         font: Constants.smallFont
                         elide: Text.ElideRight

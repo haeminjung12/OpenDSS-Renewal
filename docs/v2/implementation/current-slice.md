@@ -23,9 +23,11 @@ out of scope.
 | `CR-001` | FUNCTIONAL | Independent review accepted | `OperationCoordinator` callback invocation and destruction are serialized by a dedicated recursive mutex. The focused test runs 1,000 concurrent release/destruction iterations. |
 | `FI-TEST-001` | FUNCTIONAL | Passed | Thirteen affected C++ CTest targets passed 13/13 in `C:\b\odss-v2-sequence-model-8435`; QML shell suite passed 43/43 in `C:\b\odss-v2-fpath-8435`. |
 | `FI-MODEL-001` | FUNCTIONAL | Passed | The trusted installed EfficientNet model loaded locally without network fallback and the production probe processed exactly 2,103 frames with DAQ off. |
-| `FI-REVIEW-001` | Reviewer | Accepted | Initial three blockers, `CR-001`, and the exact camera-identity/continuous-Stop corrections received scoped read-only acceptance. |
-| `VG-001` | VALIDATION | Pending external retry | Corrected artifact launch is stable. Repeated physical Escape interruptions prevented the camera identity and continuous Start/Stop HIL rerun before any UI/hardware action. Validate only the pushed accepted commit and exact executable; Integration alone corrects any returned defect. |
-| `HIL-001` | VALIDATION | Authorized, pending | The user granted standing hardware authorization. Validation may exercise camera and DAQ after announcing exact actions, including continuous Start/Stop, stop-to-zero, finite immediate sine, delayed pulse, and arbitration. |
+| `FI-REVIEW-001` | Reviewer | Accepted | Initial three blockers, `CR-001`, camera identity/continuous Stop, `VAL-DAQ-003`, and `VAL-GUI-003` received scoped read-only acceptance. |
+| `VG-001` | VALIDATION | Candidate passed; immutable hash pending | Maximized full-area validation at 1707 × 1019 passed factual camera identity, visible frames during streaming, and the corrected DAQ arbitration presentation. Final acceptance awaits the pushed correction hash. |
+| `HIL-001` | VALIDATION | Passed for corrected candidate | Real `DCAM:0` streaming preview passed. Real `Dev1/ao0` continuous 5 Vpp/10 kHz Start/Stop/exit passed with exact-zero regression evidence; the competing finite-test action is visibly disabled during continuous ownership. |
+| `VAL-DAQ-003` | FUNCTIONAL / VALIDATION | Corrected, reviewed, HIL passed | Live `Send Test Sine Wave` is disabled while continuous output owns DAQ. QML regression and maximized real-HIL evidence pass. |
+| `VAL-GUI-003` | FUNCTIONAL / VALIDATION | Corrected, reviewed, HIL passed | Camera acquisition remains full-rate while preview URL publication is bounded to 250 ms so asynchronous QML loads complete. Focused controller evidence and maximized real-DCAM visible-frame validation pass. |
 
 ## Delivered behavior
 
@@ -40,9 +42,13 @@ out of scope.
   separated and covered by focused fake-output tests.
 - Hardware Configuration displays the factual production camera controller
   identity instead of an illustrative fallback.
+- Live camera acquisition retains every latest frame while preview URL updates
+  are bounded so a visible asynchronous preview remains present during streaming.
 - Continuous DAQ Stop, fault, and exit teardown release operation ownership only
   after unlocking DAQ state. Focused tests prove re-entrant notification safety,
   task Stop/clear, and an exact scalar zero write for Stop and exit.
+- Competing finite DAQ test output is visibly unavailable while continuous output
+  owns the DAQ resource.
 - Sequence Test completion/recovery, production Runs notes, Settings diagnostics,
   and native folder opening are wired.
 
@@ -57,8 +63,6 @@ out of scope.
 
 ## Next gate
 
-Commit and push the exact reviewed candidate, then hand its commit hash,
-executable, automated evidence, and runtime prerequisites to Validation. Retry
-the externally interrupted camera identity and continuous-DAQ HIL gates. Close
-the slice only after `VG-001` accepts the artifact or Integration corrects every
-exact returned defect.
+Push the exact reviewed correction, hand its immutable commit hash and unchanged
+executable path to Validation, and close the slice after `VG-001` records final
+acceptance against that hash.

@@ -409,6 +409,50 @@ Item {
         }
     }
 
+    QtObject {
+        id: daqController
+        property var devices: []
+        property var outputChannels: []
+        property string selectedOutputChannel: ""
+        property real amplitudeVpp: 5
+        property real frequencyHz: 10000
+        property real durationMs: 5
+        property real delayMs: 0
+        property string daqStatus: "Ready"
+        property bool canApply: true
+        property string error: ""
+        property int refreshDevicesCallCount: 0
+        property int applyCallCount: 0
+
+        function reset() {
+            devices = [{ deviceId: "Dev1" }]
+            outputChannels = ["Dev1/ao0", "Dev1/ao1"]
+            selectedOutputChannel = "Dev1/ao0"
+            amplitudeVpp = 5
+            frequencyHz = 10000
+            durationMs = 5
+            delayMs = 0
+            daqStatus = "Ready"
+            canApply = true
+            error = ""
+            refreshDevicesCallCount = 0
+            applyCallCount = 0
+        }
+
+        function refreshDevices() {
+            ++refreshDevicesCallCount
+            devices = [{ deviceId: "Dev2" }]
+            outputChannels = ["Dev2/ao0", "Dev2/ao1"]
+            selectedOutputChannel = "Dev2/ao0"
+            return true
+        }
+
+        function apply() {
+            ++applyCallCount
+            return true
+        }
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
@@ -434,10 +478,12 @@ Item {
         shell.modelLibraryController = null
         shell.modelTestController = null
         shell.singleImageCaptureController = null
+        shell.daqController = null
         shell.settingsActionError = ""
         modelLibraryController.reset()
         modelTestController.reset()
         singleImageCaptureController.reset()
+        daqController.reset()
         shell.mockState.cameraAvailable = true
         shell.mockState.cameraStreaming = true
         shell.mockState.selectedWorkspace = "capture"
@@ -527,6 +573,102 @@ Item {
         shell.mockState.sequenceFrameCount = 0
         shell.mockState.datasetFrameCount = 0
         shell.mockState.datasetCropCount = 0
+    }
+
+    function test_daqControllerProjectionAndRefresh() {
+        shell.daqController = daqController
+
+        compare(shell.form.daqStatus, "Ready")
+        compare(shell.form.daqDevice, "Dev1")
+        compare(shell.form.daqStatusText.text, "Status: Ready")
+        compare(shell.form.daqChannelSelector.model.length, 2)
+        compare(shell.form.daqChannelSelector.model[0], "Dev1/ao0")
+        compare(shell.form.daqChannelSelector.currentIndex, 0)
+        compare(shell.form.daqVppSpinBox.value, 5)
+        compare(shell.form.daqFrequencySpinBox.value, 10)
+        compare(shell.form.daqEventDurationSpinBox.value, 5)
+        compare(shell.form.daqDecisionDelaySpinBox.value, 0)
+
+        shell.form.daqRefreshDevicesButton.clicked()
+        compare(daqController.refreshDevicesCallCount, 1)
+        compare(shell.form.daqDevice, "Dev2")
+        compare(shell.form.daqChannelSelector.model[0], "Dev2/ao0")
+        compare(shell.form.daqChannelSelector.currentIndex, 0)
+        compare(daqController.applyCallCount, 0)
+    }
+
+    function test_daqEditsApplyImmediatelyOnce() {
+        shell.daqController = daqController
+
+        shell.form.daqChannelSelector.currentIndex = 1
+        shell.form.daqChannelSelector.activated(1)
+        compare(daqController.selectedOutputChannel, "Dev1/ao1")
+        compare(daqController.applyCallCount, 1)
+
+        shell.form.daqVppSpinBox.value = 6
+        shell.form.daqVppSpinBox.valueModified()
+        compare(daqController.amplitudeVpp, 6)
+        compare(daqController.applyCallCount, 2)
+
+        shell.form.daqFrequencySpinBox.value = 11
+        shell.form.daqFrequencySpinBox.valueModified()
+        compare(daqController.frequencyHz, 11000)
+        compare(daqController.applyCallCount, 3)
+
+        shell.form.daqEventDurationSpinBox.value = 7
+        shell.form.daqEventDurationSpinBox.valueModified()
+        compare(daqController.durationMs, 7)
+        compare(daqController.applyCallCount, 4)
+
+        shell.form.daqDecisionDelaySpinBox.value = 2
+        shell.form.daqDecisionDelaySpinBox.valueModified()
+        compare(daqController.delayMs, 2)
+        compare(daqController.applyCallCount, 5)
+    }
+
+    function test_daqControllerProjectionRefreshDoesNotApply() {
+        shell.daqController = daqController
+        daqController.amplitudeVpp = 8
+        daqController.frequencyHz = 12000
+        daqController.durationMs = 9
+        daqController.delayMs = 3
+        daqController.selectedOutputChannel = "Dev1/ao1"
+
+        compare(shell.form.daqVppSpinBox.value, 8)
+        compare(shell.form.daqFrequencySpinBox.value, 12)
+        compare(shell.form.daqEventDurationSpinBox.value, 9)
+        compare(shell.form.daqDecisionDelaySpinBox.value, 3)
+        compare(shell.form.daqChannelSelector.currentIndex, 1)
+        compare(daqController.applyCallCount, 0)
+    }
+
+    function test_daqInvalidUnavailableAndLockedControlsDoNotApply() {
+        shell.daqController = daqController
+        daqController.canApply = false
+        daqController.daqStatus = "Unavailable"
+        daqController.error = "No DAQ analog-output channels were found."
+
+        verify(shell.form.daqRefreshDevicesButton.enabled)
+        verify(!shell.form.daqChannelSelector.enabled)
+        verify(!shell.form.daqVppSpinBox.enabled)
+        verify(!shell.form.daqFrequencySpinBox.enabled)
+        verify(!shell.form.daqEventDurationSpinBox.enabled)
+        verify(!shell.form.daqDecisionDelaySpinBox.enabled)
+        verify(shell.form.daqStatusText.text.indexOf("No DAQ analog-output channels") !== -1)
+
+        shell.form.daqRefreshDevicesButton.clicked()
+        compare(daqController.refreshDevicesCallCount, 1)
+        compare(daqController.applyCallCount, 0)
+
+        shell.form.daqVppSpinBox.value = 10
+        shell.form.daqVppSpinBox.valueModified()
+        compare(daqController.applyCallCount, 0)
+
+        daqController.daqStatus = "Ready"
+        daqController.error = "DAQ settings are locked by another operation."
+        verify(shell.form.daqStatusText.text.indexOf("locked by another operation") !== -1)
+        shell.form.daqChannelSelector.activated(1)
+        compare(daqController.applyCallCount, 0)
     }
 
     function labelCropDelegate(recordId) {

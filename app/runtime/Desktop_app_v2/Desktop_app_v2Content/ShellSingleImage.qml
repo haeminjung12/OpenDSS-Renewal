@@ -17,6 +17,7 @@ Item {
     property var trainingController
     property var modelLibraryController
     property var modelTestController
+    property bool daqDraftCommitInProgress: false
     property var cameraController: typeof cameraRuntimeController !== "undefined"
                                            ? cameraRuntimeController : null
     property var singleImageCaptureController:
@@ -36,6 +37,46 @@ Item {
     property alias modelDuplicateFolderDialog: modelDuplicateFolderDialog
     property alias modelDeleteDialog: modelDeleteDialog
     signal closeRequested()
+
+    function discoveredDaqDeviceText() {
+        if (!root.daqController || !root.daqController.devices)
+            return ""
+
+        const names = []
+        for (let index = 0; index < root.daqController.devices.length; ++index) {
+            const device = root.daqController.devices[index]
+            if (device && device.deviceId)
+                names.push(device.deviceId)
+        }
+        return names.join(", ")
+    }
+
+    function commitDaqDraft(spinBox, propertyName, scale) {
+        if (!root.daqController || root.daqDraftCommitInProgress
+                || !root.daqController.canApply)
+            return
+
+        const value = Number(spinBox.value)
+        if (!Number.isFinite(value) || value < spinBox.from || value > spinBox.to)
+            return
+
+        root.daqDraftCommitInProgress = true
+        root.daqController[propertyName] = value * scale
+        root.daqController.apply()
+        root.daqDraftCommitInProgress = false
+    }
+
+    function commitDaqChannel(index) {
+        if (!root.daqController || root.daqDraftCommitInProgress
+                || !root.daqController.canApply
+                || index < 0 || index >= root.daqController.outputChannels.length)
+            return
+
+        root.daqDraftCommitInProgress = true
+        root.daqController.selectedOutputChannel = root.daqController.outputChannels[index]
+        root.daqController.apply()
+        root.daqDraftCommitInProgress = false
+    }
 
     function focusCameraPrompt() {
         if (screen.cameraPromptVisible)
@@ -140,7 +181,7 @@ Item {
         cameraStatus: root.cameraController ? root.cameraController.cameraStatus
                                             : state.cameraStatus
         cameraPreviewSource: root.cameraController ? root.cameraController.previewSource : ""
-        daqStatus: state.projectedDaqStatus
+        daqStatus: root.daqController ? root.daqController.daqStatus : state.projectedDaqStatus
         activeModelText: root.modelTestController
                          ? root.modelTestController.activeModelName
                            || root.modelTestController.activeModelId
@@ -206,14 +247,37 @@ Item {
         cameraExposure: state.cameraExposure
         cameraReadoutMode: state.cameraReadoutMode
         cameraLut: state.cameraLut
-        daqDevice: state.daqDevice
-        daqOutputChannel: state.daqOutputChannel
+        daqDevice: root.daqController ? root.discoveredDaqDeviceText() : state.daqDevice
+        daqOutputChannel: root.daqController
+                          ? root.daqController.selectedOutputChannel : state.daqOutputChannel
         sequenceLocationText: state.sequenceLocationDraft
         datasetLocationText: state.datasetLocationDraft
         datasetHandoffText: state.datasetHandoffText
         hardwareActionEnabled: !state.liveOwnsOperation
         captureStartsAvailable: state.activeOperation === ""
     }
+
+    Binding {
+        target: screen.daqStatusText
+        property: "text"
+        value: !root.daqController || root.daqController.error === ""
+               ? root.daqController ? qsTr("Status: %1").arg(root.daqController.daqStatus) : ""
+               : qsTr("Status: %1 — %2").arg(root.daqController.daqStatus)
+                                      .arg(root.daqController.error)
+        when: root.daqController !== null
+    }
+    Binding { target: screen.daqChannelSelector; property: "model"; value: root.daqController ? root.daqController.outputChannels : []; when: root.daqController !== null }
+    Binding { target: screen.daqChannelSelector; property: "currentIndex"; value: root.daqController ? root.daqController.outputChannels.indexOf(root.daqController.selectedOutputChannel) : -1; when: root.daqController !== null }
+    Binding { target: screen.daqVppSpinBox; property: "value"; value: root.daqController ? root.daqController.amplitudeVpp : 0; when: root.daqController !== null }
+    Binding { target: screen.daqFrequencySpinBox; property: "value"; value: root.daqController ? root.daqController.frequencyHz / 1000 : 0; when: root.daqController !== null }
+    Binding { target: screen.daqEventDurationSpinBox; property: "value"; value: root.daqController ? root.daqController.durationMs : 0; when: root.daqController !== null }
+    Binding { target: screen.daqDecisionDelaySpinBox; property: "value"; value: root.daqController ? root.daqController.delayMs : 0; when: root.daqController !== null }
+    Binding { target: screen.daqRefreshDevicesButton; property: "enabled"; value: root.daqController !== null; when: root.daqController !== null }
+    Binding { target: screen.daqChannelSelector; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
+    Binding { target: screen.daqVppSpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
+    Binding { target: screen.daqFrequencySpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
+    Binding { target: screen.daqEventDurationSpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
+    Binding { target: screen.daqDecisionDelaySpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
 
     Binding { target: screen.labelWorkspace; property: "presentation"; value: root.datasetLabelController ? root.datasetLabelController.presentation : state.labelPresentation }
     Binding { target: screen.labelWorkspace; property: "currentFilter"; value: root.datasetLabelController ? root.datasetLabelController.filter : state.selectedLabelFilter }
@@ -576,7 +640,26 @@ Item {
     Connections { target: screen.cameraCustomHeightField; function onTextEdited() { state.cameraCustomHeight = screen.cameraCustomHeightField.text } }
     Connections { target: screen.cameraExposureField; function onTextEdited() { state.cameraExposure = screen.cameraExposureField.text } }
     Connections { target: screen.cameraLutSelector; function onActivated(index) { state.cameraLut = index === 1 ? qsTr("High contrast") : qsTr("Linear") } }
-    Connections { target: screen.daqChannelSelector; function onActivated(index) { state.daqOutputChannel = index === 1 ? qsTr("ao1") : qsTr("ao0") } }
+    Connections {
+        target: screen.daqRefreshDevicesButton
+        function onClicked() {
+            if (root.daqController)
+                root.daqController.refreshDevices()
+        }
+    }
+    Connections {
+        target: screen.daqChannelSelector
+        function onActivated(index) {
+            if (root.daqController)
+                root.commitDaqChannel(index)
+            else
+                state.daqOutputChannel = index === 1 ? qsTr("ao1") : qsTr("ao0")
+        }
+    }
+    Connections { target: screen.daqVppSpinBox; function onValueModified() { root.commitDaqDraft(screen.daqVppSpinBox, "amplitudeVpp", 1) } }
+    Connections { target: screen.daqFrequencySpinBox; function onValueModified() { root.commitDaqDraft(screen.daqFrequencySpinBox, "frequencyHz", 1000) } }
+    Connections { target: screen.daqEventDurationSpinBox; function onValueModified() { root.commitDaqDraft(screen.daqEventDurationSpinBox, "durationMs", 1) } }
+    Connections { target: screen.daqDecisionDelaySpinBox; function onValueModified() { root.commitDaqDraft(screen.daqDecisionDelaySpinBox, "delayMs", 1) } }
     Connections { target: screen.sequenceViewerButton; function onClicked() { state.openSequenceViewer() } }
     Connections { target: screen.sequenceTestButton; function onClicked() { state.openSequenceTest() } }
     Connections { target: screen.sequenceNewButton; function onClicked() { state.startNewSequence() } }

@@ -65,17 +65,27 @@ Rectangle {
     property alias errorMessageText: errorMessageText.text
     property alias selectedCropSource: selectedCropImage.source
 
-    Column {
-        anchors.fill: parent
+    Text {
+        id: workspaceTitle
+        text: qsTr("Label")
+        font: Constants.largeFont
+        color: Constants.textColor
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.right: parent.right
         anchors.margins: Constants.workspaceMargin
-        spacing: Constants.spacing
+    }
 
-        Text { text: qsTr("Label"); font: Constants.largeFont; color: Constants.textColor; height: Constants.controlHeight }
-
-        SplitView {
+    SplitView {
             font: Constants.font
-            width: parent.width
-            height: parent.height - y
+            anchors.top: workspaceTitle.bottom
+            anchors.topMargin: Constants.spacing
+            anchors.left: parent.left
+            anchors.right: parent.right
+            anchors.bottom: parent.bottom
+            anchors.leftMargin: Constants.workspaceMargin
+            anchors.rightMargin: Constants.workspaceMargin
+            anchors.bottomMargin: Constants.workspaceMargin
 
             Rectangle {
                 id: cropArea
@@ -98,8 +108,8 @@ Rectangle {
                     anchors.leftMargin: Constants.spacing
                     anchors.rightMargin: Constants.spacing
                 }
-                ScrollView {
-                    id: cropGridScroll
+                GridView {
+                    id: cropGridHost
                     visible: root.presentation !== "empty"
                     anchors.top: errorMessageText.visible ? errorMessageText.bottom : cropGridTitle.bottom
                     anchors.topMargin: Constants.spacing
@@ -107,20 +117,10 @@ Rectangle {
                     anchors.left: parent.left
                     anchors.right: parent.right
                     anchors.margins: Constants.spacing
-                    contentWidth: availableWidth
-                    contentHeight: Math.max(availableHeight, cropGridHost.implicitHeight)
                     clip: true
-
-                Grid {
-                    id: cropGridHost
-                    readonly property int cellWidth: 318
-                    readonly property int cellHeight: 246
-                    columns: Math.max(1, Math.floor((cropGridScroll.availableWidth + spacing) / (cellWidth + spacing)))
-                    spacing: Constants.spacing
-                    width: columns * cellWidth + Math.max(0, columns - 1) * spacing
-                    x: Math.max(0, (cropGridScroll.availableWidth - width) / 2)
-                    y: Math.max(0, (parent.height - height) / 2)
-                }
+                    cellWidth: 239
+                    cellHeight: 185
+                    reuseItems: true
                 }
                 Text {
                     visible: root.presentation === "empty"
@@ -343,7 +343,6 @@ Rectangle {
                     AppButton { id: saveAsButton; width: 120; height: Constants.appStandardControlHeight; text: qsTr("Save As"); anchors.right: parent.right; anchors.rightMargin: Constants.spacing; anchors.verticalCenter: parent.verticalCenter }
                 }
             }
-        }
     }
 
     states: [

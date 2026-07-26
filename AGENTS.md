@@ -191,6 +191,14 @@ tokscale tui --client codex
 - Never terminate an OpenDSS instance while training or testing is active. Never terminate unrelated user applications, camera/vendor tools, DAQ utilities, or build processes targeting another workspace.
 - After terminating a blocking process, report its PID/path or command line and retry the original build. Do not create a one-off build output merely to avoid a verified lock.
 
+## RULE-TOOL-001 — validation tool priority
+
+- Use Windows Computer Use only when strictly necessary to establish user-observable GUI behavior that cannot be proven reliably through a narrower interface.
+- Prefer, in order: focused Qt unit/integration tests and `QTest`; direct Qt object, property, signal, state, or in-process verifier probes; application CLI/verifier interfaces and structured logs; then Computer Use for the remaining visual or interactive question.
+- Do not use Computer Use merely to launch an app, read text or state available through Qt/CLI, repeat unchanged successful evidence, or diagnose behavior that a deterministic probe can isolate.
+- Appropriate Computer Use scope includes layout, rendering, focus, pointer interaction, flicker, timing perception, and other user-visible behavior for which Qt/CLI evidence is insufficient. State the exact unresolved GUI question and intended action before use, follow existing approval and hardware rules, and perform only the minimum interaction needed.
+- Preserve the maximized full-available-work-area GUI validation authority. Stop Computer Use as soon as decisive evidence is captured and return further diagnosis to Qt tooling, tests, probes, CLI interfaces, or logs.
+
 ## OpenDSS v2 source authority
 
 Apply the following authority order repository-wide:

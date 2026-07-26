@@ -20,6 +20,16 @@ For workflow bootstrap or maintenance, update the existing `AGENTS.md`, this ski
 3. Before invoking Windows Computer Use or other UI automation to launch or operate a GUI app, tell the user the intended app and action and receive explicit approval. Without approval, do not invoke Computer Use.
 4. Do not stage, discard, stash, overwrite, or absorb unrelated changes. Stop if safety cannot be established.
 
+## Choose the narrowest validation tool
+
+Use Qt-native and application-owned interfaces before Windows Computer Use:
+
+1. focused Qt tests, `QTest`, or a direct Qt object/property/signal/state probe;
+2. an in-process verifier, application CLI/verifier interface, or structured log;
+3. Windows Computer Use only for the unresolved user-observable visual or interactive behavior.
+
+Do not use Computer Use for deterministic state already available through Qt/CLI, routine launch-only checks, repeated unchanged evidence, or diagnosis that a focused probe can isolate. Reserve it for layout, rendering, focus, pointer interaction, flicker, perceived timing, or another GUI question that cannot be established otherwise. Before use, state the exact unresolved question and minimum intended action, preserve the maximized full-available-work-area authority, and follow all existing approval and hardware rules. Stop once decisive GUI evidence is captured; continue technical diagnosis through Qt tooling, tests, probes, CLI interfaces, or logs.
+
 ## Load only authorized context
 
 Read in order:

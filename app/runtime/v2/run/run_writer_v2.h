@@ -5,12 +5,15 @@
 #include <QByteArray>
 #include <QFile>
 
+#include <functional>
 #include <memory>
 #include <optional>
 
 namespace desktop_app::v2::run {
 
 struct RunWriterV2TestAccess;
+
+using BeforeFinalSummaryPublish = std::function<bool(QString*)>;
 
 class RunWriterV2 {
   public:
@@ -30,7 +33,8 @@ class RunWriterV2 {
     bool checkpoint(const RunIntegrity& integrity, QString* error = nullptr);
     bool flush(QString* error = nullptr);
     bool finalize(RunStatus status, const QString& endedAt, const QString& stopReason,
-                  double achievedProcessingFps, QString* error = nullptr);
+                  double achievedProcessingFps, QString* error = nullptr,
+                  BeforeFinalSummaryPublish beforeFinalSummaryPublish = {});
 
     const RunManifestData& data() const noexcept;
 

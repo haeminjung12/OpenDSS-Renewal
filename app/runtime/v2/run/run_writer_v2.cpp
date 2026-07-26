@@ -392,7 +392,8 @@ bool RunWriterV2::flush(QString* error) {
 
 bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
                            const QString& stopReason, double achievedProcessingFps,
-                           QString* error) {
+                           QString* error,
+                           BeforeFinalSummaryPublish beforeFinalSummaryPublish) {
     if (error)
         error->clear();
     if (finalized_)
@@ -447,17 +448,24 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
             data_, error)) {
         return false;
     }
+    if (beforeFinalSummaryPublish && !beforeFinalSummaryPublish(error))
+        return false;
     if (!RunManifestV2::save(
             QDir(runFolder_).filePath(QStringLiteral("run_summary.json")), data_, error)) {
         return false;
     }
+    finalized_ = true;
     if (status == RunStatus::Completed || status == RunStatus::Stopped) {
         const QString partialSummary =
             QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json"));
-        if (!QFile::remove(partialPath) || !QFile::remove(partialSummary))
-            return fail(error, "Cleanly finalized Run could not remove recoverable partial files.");
+        const bool partialLogRemoved = QFile::remove(partialPath);
+        const bool partialSummaryRemoved = QFile::remove(partialSummary);
+        if (!partialLogRemoved || !partialSummaryRemoved) {
+            fail(error,
+                 "Final Run is durable, but recoverable partial files could not "
+                 "be completely removed.");
+        }
     }
-    finalized_ = true;
     return true;
 }
 

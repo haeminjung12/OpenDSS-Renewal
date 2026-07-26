@@ -4,6 +4,8 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include <cstdlib>
@@ -286,6 +288,137 @@ void testIntegrityStatusBoundary() {
             qPrintable(error));
 }
 
+void testFinalSummaryCommitOrdering() {
+    stage = "final summary commit ordering";
+    QTemporaryDir temporary;
+    QString error;
+    const QString baselineRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("baseline"));
+    auto baseline = RunWriterV2::start(baselineRoot, data(), &error);
+    require(baseline.has_value(), qPrintable(error));
+    require(baseline->appendEvent(event(), "crop", &error), qPrintable(error));
+    require(baseline->finalize(RunStatus::Completed,
+                               "2026-07-24T12:00:01Z", "user", 10.0,
+                               &error),
+            qPrintable(error));
+
+    const QString callbackRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("callback"));
+    auto callbackWriter = RunWriterV2::start(callbackRoot, data(), &error);
+    require(callbackWriter.has_value(), qPrintable(error));
+    require(callbackWriter->appendEvent(event(), "crop", &error),
+            qPrintable(error));
+    int callbackCalls = 0;
+    require(callbackWriter->finalize(
+                RunStatus::Completed, "2026-07-24T12:00:01Z", "user", 10.0,
+                &error, [&](QString*) {
+                    ++callbackCalls;
+                    require(!QFileInfo::exists(
+                                QDir(callbackRoot)
+                                    .filePath(QStringLiteral("run_summary.json"))),
+                            "callback must precede final Run summary publication");
+                    auto partial = RunManifestV2::load(
+                        QDir(callbackRoot)
+                            .filePath(QStringLiteral("run_summary.partial.json")),
+                        nullptr);
+                    require(partial.has_value() &&
+                                partial->data().status == RunStatus::Completed,
+                            "callback observes staged final Run truth");
+                    return true;
+                }),
+            qPrintable(error));
+    require(callbackCalls == 1, "final summary callback runs exactly once");
+
+    const auto readBytes = [](const QString& path) {
+        QFile file(path);
+        require(file.open(QIODevice::ReadOnly), "read durable comparison output");
+        return file.readAll();
+    };
+    require(readBytes(QDir(baselineRoot).filePath("run_summary.json")) ==
+                    readBytes(QDir(callbackRoot).filePath("run_summary.json")) &&
+                readBytes(QDir(baselineRoot).filePath("events.csv")) ==
+                    readBytes(QDir(callbackRoot).filePath("events.csv")),
+            "default and successful-callback durable bytes remain identical");
+
+    const QString failureRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("callback-failure"));
+    auto failing = RunWriterV2::start(failureRoot, data(), &error);
+    require(failing.has_value(), qPrintable(error));
+    require(!failing->finalize(
+                RunStatus::Completed, "2026-07-24T12:00:01Z", "user", 10.0,
+                &error, [](QString* callbackError) {
+                    *callbackError = QStringLiteral("injected publication failure");
+                    return false;
+                }),
+            "callback failure must abort final Run summary publication");
+    require(!QFileInfo::exists(
+                QDir(failureRoot).filePath(QStringLiteral("run_summary.json"))) &&
+                error.contains(QStringLiteral("injected publication failure")),
+            "failed callback leaves no authoritative final Run summary");
+}
+
+void testPostCommitCleanupFailureIsNonfatal() {
+    stage = "post-commit cleanup failure";
+    QTemporaryDir temporary;
+    QString error;
+    const QString root =
+        QDir(temporary.path()).filePath(QStringLiteral("cleanup-failure"));
+    RunManifestData cleanupData = data();
+    cleanupData.files.sequencePath =
+        QStringLiteral("sequence/sequence.json");
+    auto writer = RunWriterV2::start(root, cleanupData, &error);
+    require(writer.has_value(), qPrintable(error));
+    require(writer->appendEvent(event(), "crop", &error), qPrintable(error));
+    const QString partialSummary =
+        QDir(root).filePath(QStringLiteral("run_summary.partial.json"));
+    const QString sequencePath =
+        QDir(root).filePath(QStringLiteral("sequence/sequence.json"));
+    require(writer->finalize(
+                RunStatus::Completed, "2026-07-24T12:00:01Z", "user", 10.0,
+                &error, [&](QString*) {
+                    require(QDir().mkpath(QFileInfo(sequencePath).absolutePath()),
+                            "create representative sequence folder");
+                    QFile sequence(sequencePath);
+                    require(sequence.open(QIODevice::WriteOnly),
+                            "create representative sequence manifest");
+                    require(sequence.write(
+                                QJsonDocument(QJsonObject{
+                                                  {"status", "completed"}})
+                                    .toJson(QJsonDocument::Compact)) > 0,
+                            "write representative sequence manifest");
+                    sequence.close();
+                    require(QFile::remove(partialSummary) &&
+                                QDir().mkpath(partialSummary),
+                            "inject recoverable partial cleanup failure");
+                    QFile blocker(
+                        QDir(partialSummary).filePath(QStringLiteral("retain")));
+                    require(blocker.open(QIODevice::WriteOnly) &&
+                                blocker.write("retain") == 6,
+                            "retain injected partial directory");
+                    return true;
+                }),
+            "cleanup after durable summary must be nonfatal");
+    require(!error.isEmpty(),
+            "cleanup failure must remain available as a diagnostic");
+    auto finalRun = RunManifestV2::load(
+        QDir(root).filePath(QStringLiteral("run_summary.json")), &error);
+    QFile sequence(sequencePath);
+    require(finalRun.has_value() &&
+                finalRun->data().status == RunStatus::Completed &&
+                finalRun->data().files.sequencePath ==
+                    std::optional<QString>(
+                        QStringLiteral("sequence/sequence.json")) &&
+                sequence.open(QIODevice::ReadOnly),
+            "durable Run and representative sequence remain readable");
+    const QJsonDocument sequenceDocument =
+        QJsonDocument::fromJson(sequence.readAll());
+    require(sequenceDocument.isObject() &&
+                sequenceDocument.object().value(QStringLiteral("status")) ==
+                    QStringLiteral("completed") &&
+                QFileInfo(partialSummary).isDir(),
+            "cleanup failure preserves status consistency and recoverable partial");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -298,5 +431,7 @@ int main(int argc, char** argv) {
     testLinkedCropDirectoryRejectedWhenSupported();
     testStoppedCleanup();
     testIntegrityStatusBoundary();
+    testFinalSummaryCommitOrdering();
+    testPostCommitCleanupFailureIsNonfatal();
     return 0;
 }

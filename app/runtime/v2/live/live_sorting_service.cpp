@@ -4,6 +4,7 @@
 #include "../model/model_load_service.h"
 #include "../routing/observed_route_tracker.h"
 #include "../run/run_writer_v2.h"
+#include "../sequence/sequence_manifest_v2.h"
 #include "../../crops/crop_service.h"
 #include "../../desktop_app/live_frame_dispatcher.h"
 #include "../../detection/droplet_detector.h"
@@ -16,9 +17,11 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QImageReader>
 #include <QImageWriter>
 #include <QJsonDocument>
 #include <QRegularExpression>
+#include <QTemporaryFile>
 #include <QUuid>
 
 #include <algorithm>
@@ -31,6 +34,14 @@
 #include <stdexcept>
 #include <thread>
 #include <utility>
+
+#ifdef Q_OS_WIN
+#include <windows.h>
+#else
+#include <cerrno>
+#include <cstring>
+#include <unistd.h>
+#endif
 
 namespace desktop_app::v2::live {
 namespace {
@@ -171,8 +182,12 @@ void addRange(run::RunIntegritySeries& series, qint64 first, qint64 last) {
 }
 
 struct PersistenceItem {
-    run::RunEvent event;
+    std::optional<run::RunEvent> event;
     QByteArray cropBytes;
+    QImage sequenceFrame;
+    FrameMeta sequenceMeta;
+    double sequenceFps = 0.0;
+    qint64 sourceIndex = 0;
 };
 
 struct PendingEvent {
@@ -185,6 +200,104 @@ struct PendingEvent {
 };
 
 class ConsumerFault final {};
+
+bool publishWithoutReplace(const QString& temporaryPath,
+                           const QString& targetPath, QString* error) {
+#ifdef Q_OS_WIN
+    if (MoveFileExW(reinterpret_cast<LPCWSTR>(temporaryPath.utf16()),
+                    reinterpret_cast<LPCWSTR>(targetPath.utf16()),
+                    MOVEFILE_WRITE_THROUGH)) {
+        return true;
+    }
+    setError(error, QStringLiteral("Could not publish a sequence artifact "
+                                   "(Windows error %1).")
+                        .arg(GetLastError()));
+#else
+    const QByteArray temporaryNative = QFile::encodeName(temporaryPath);
+    const QByteArray targetNative = QFile::encodeName(targetPath);
+    if (::link(temporaryNative.constData(), targetNative.constData()) == 0 &&
+        ::unlink(temporaryNative.constData()) == 0) {
+        return true;
+    }
+    setError(error, QStringLiteral("Could not publish a sequence artifact: %1")
+                        .arg(QString::fromLocal8Bit(std::strerror(errno))));
+#endif
+    return false;
+}
+
+bool writeTiffWithoutReplace(const QImage& image, const QString& target,
+                             QString* error) {
+    if (QFileInfo::exists(target)) {
+        setError(error, QStringLiteral("A sequence frame already exists."));
+        return false;
+    }
+    if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
+        setError(error, QStringLiteral("Could not create the sequence frames folder."));
+        return false;
+    }
+    QString temporaryPath;
+    {
+        QTemporaryFile temporary(
+            QDir(QFileInfo(target).absolutePath())
+                .filePath(QStringLiteral(".live-frame-XXXXXX.tmp")));
+        if (!temporary.open()) {
+            setError(error,
+                     QStringLiteral("Could not create a temporary sequence frame."));
+            return false;
+        }
+        {
+            QImageWriter imageWriter(&temporary, "tiff");
+            if (!imageWriter.write(image)) {
+                setError(error, imageWriter.errorString().isEmpty()
+                                    ? QStringLiteral(
+                                          "Could not write a TIFF sequence frame.")
+                                    : imageWriter.errorString());
+                return false;
+            }
+        }
+        if (!temporary.flush()) {
+            setError(error,
+                     QStringLiteral("Could not flush a TIFF sequence frame."));
+            return false;
+        }
+        temporaryPath = temporary.fileName();
+        temporary.close();
+        temporary.setAutoRemove(false);
+    }
+    if (!publishWithoutReplace(temporaryPath, target, error)) {
+        QFile::remove(temporaryPath);
+        return false;
+    }
+    QImageReader reader(target);
+    if (!reader.canRead()) {
+        setError(error, QStringLiteral("The published TIFF sequence frame is unreadable."));
+        return false;
+    }
+    return true;
+}
+
+sequence::SequenceLossCategory sequenceCategory(
+    const run::RunIntegritySeries& source) {
+    sequence::SequenceLossCategory result;
+    result.count = source.count;
+    for (const auto& range : source.ranges)
+        result.ranges.push_back({range.first, range.last});
+    return result;
+}
+
+QString sequenceStatus(run::RunStatus status) {
+    switch (status) {
+    case run::RunStatus::Completed:
+        return QStringLiteral("completed");
+    case run::RunStatus::Stopped:
+        return QStringLiteral("stopped");
+    case run::RunStatus::Interrupted:
+        return QStringLiteral("interrupted");
+    case run::RunStatus::Failed:
+        return QStringLiteral("failed");
+    }
+    return QStringLiteral("failed");
+}
 
 } // namespace
 
@@ -359,6 +472,8 @@ public:
         data.daqSettings = value.daqSettings;
         data.timingSettings = value.timingSettings;
         data.hitBoundary = value.hitBoundary;
+        if (value.recordFullImageSequence)
+            data.files.sequencePath = QStringLiteral("sequence/sequence.json");
         writer = run::RunWriterV2::start(folder, data, &localError);
         if (!writer) {
             lease.transition(OperationLifecycle::Failed);
@@ -382,6 +497,12 @@ public:
         persistenceWriting = false;
         integrity = {};
         diagnostic.clear();
+        stopReason.clear();
+        sequenceFrameCount = 0;
+        sequenceWidth = 0;
+        sequenceHeight = 0;
+        sequenceBitDepth = 0;
+        sequenceNominalFps = 0.0;
         haveDelivered = false;
         elapsedBeforeCurrentRun = 0.0;
         activeElapsed.start();
@@ -566,7 +687,8 @@ public:
     LiveSortingSnapshot snapshot() const {
         std::lock_guard lock(stateMutex);
         return {lifecycle, runFolder, elapsedSecondsLocked(),
-                persistedEvents.load(std::memory_order_acquire), integrity, diagnostic};
+                persistedEvents.load(std::memory_order_acquire), integrity,
+                diagnostic, stopReason};
     }
 
 private:
@@ -600,16 +722,18 @@ private:
 
     void createDispatcher() {
         dispatcher = std::make_unique<LiveFrameDispatcher>(
-            [this](const QImage& image, const FrameMeta& meta, double,
+            [this](const QImage& image, const FrameMeta& meta, double fps,
                    std::uint64_t, LiveFrameDispatcher::Membership) {
+                if (!request.recordFullImageSequence &&
+                    !processingAllowed.load(std::memory_order_acquire)) {
+                    return;
+                }
                 {
                     std::lock_guard lock(stateMutex);
                     dispatcherWorkerId = std::this_thread::get_id();
                 }
-                if (!processingAllowed.load(std::memory_order_acquire))
-                    return;
                 try {
-                    consumeFrame(image, meta);
+                    consumeFrame(image, meta, fps);
                 } catch (const ConsumerFault&) {
                     throw;
                 } catch (const std::exception& exception) {
@@ -634,9 +758,8 @@ private:
         throw ConsumerFault{};
     }
 
-    void consumeFrame(const QImage& supplied, const FrameMeta& meta) {
-        if (fatal.load(std::memory_order_acquire) ||
-            !processingAllowed.load(std::memory_order_acquire))
+    void consumeFrame(const QImage& supplied, const FrameMeta& meta, double fps) {
+        if (fatal.load(std::memory_order_acquire))
             return;
         if (supplied.isNull())
             consumerFault(frameIndex(meta), QStringLiteral("Live frame is empty."));
@@ -648,6 +771,16 @@ private:
         }
         cv::Mat frame(image.height(), image.width(), CV_8UC1, image.bits(),
                       image.bytesPerLine());
+        if (request.recordFullImageSequence) {
+            PersistenceItem item;
+            item.sequenceFrame = image;
+            item.sequenceMeta = meta;
+            item.sequenceFps = fps;
+            item.sourceIndex = frameIndex(meta);
+            enqueue(std::move(item));
+        }
+        if (!processingAllowed.load(std::memory_order_acquire))
+            return;
         const DropletDetectionFrame detection = detector.processFrame(frame);
         if (!processingAllowed.load(std::memory_order_acquire))
             return;
@@ -767,17 +900,21 @@ private:
         if (!pending)
             return;
         pending->event.observedRoute = pending->route.finalize();
-        enqueue({std::move(pending->event), std::move(pending->cropBytes)});
+        PersistenceItem item;
+        item.sourceIndex = pending->event.sourceFrameIndex;
+        item.event = std::move(pending->event);
+        item.cropBytes = std::move(pending->cropBytes);
+        enqueue(std::move(item));
         pending.reset();
     }
 
     bool enqueue(PersistenceItem item) {
         std::lock_guard lock(persistenceMutex);
         if (persistenceQueue.size() == PersistenceCapacity) {
-            recordQueueRejectionLocked(item.event.sourceFrameIndex);
+            recordQueueRejectionLocked(item.sourceIndex);
             qWarning().noquote()
                 << "Live Sorting persistence queue rejected source frame"
-                << item.event.sourceFrameIndex;
+                << item.sourceIndex;
             return false;
         }
         persistenceQueue.push_back(std::move(item));
@@ -876,18 +1013,26 @@ private:
                         lastCheckpoint = std::chrono::steady_clock::now();
                     }
                 } else {
-                    bool accepted =
-                        !persistenceGate || persistenceGate(&localError);
-                    if (accepted) {
+                    bool accepted = !persistenceGate || persistenceGate(&localError);
+                    if (accepted && item.event) {
                         accepted = writer->appendEvent(
-                            item.event, item.cropBytes, &localError);
+                            *item.event, item.cropBytes, &localError);
+                    } else if (accepted) {
+                        const QString target =
+                            QDir(runFolder)
+                                .filePath(QStringLiteral("sequence/frames/frame_%1.tif")
+                                              .arg(sequenceFrameCount + 1, 8, 10,
+                                                   QLatin1Char('0')));
+                        accepted =
+                            writeTiffWithoutReplace(item.sequenceFrame, target,
+                                                    &localError);
                     }
                     if (!accepted) {
-                        persistenceFailure(item.event.sourceFrameIndex, localError);
-                    } else {
+                        persistenceFailure(item.sourceIndex, localError);
+                    } else if (item.event) {
                         persistedEvents.fetch_add(1, std::memory_order_release);
                         ++eventsSinceCheckpoint;
-                        lastSourceIndex = item.event.sourceFrameIndex;
+                        lastSourceIndex = item.sourceIndex;
                         const bool checkpointDue =
                             eventsSinceCheckpoint >= 50 ||
                             std::chrono::steady_clock::now() - lastCheckpoint >=
@@ -900,16 +1045,27 @@ private:
                                 lastCheckpoint = std::chrono::steady_clock::now();
                             }
                         }
+                    } else {
+                        ++sequenceFrameCount;
+                        if (sequenceFrameCount == 1) {
+                            sequenceWidth = item.sequenceMeta.width;
+                            sequenceHeight = item.sequenceMeta.height;
+                            sequenceBitDepth = item.sequenceMeta.bits;
+                        }
+                        if (std::isfinite(item.sequenceFps) &&
+                            item.sequenceFps > 0.0) {
+                            sequenceNominalFps = item.sequenceFps;
+                        }
                     }
                 }
             } catch (const std::exception& exception) {
                 persistenceFailure(
-                    haveItem ? item.event.sourceFrameIndex : lastSourceIndex,
+                    haveItem ? item.sourceIndex : lastSourceIndex,
                     QStringLiteral("Live event persistence threw: %1")
                         .arg(exception.what()));
             } catch (...) {
                 persistenceFailure(
-                    haveItem ? item.event.sourceFrameIndex : lastSourceIndex,
+                    haveItem ? item.sourceIndex : lastSourceIndex,
                     QStringLiteral("Live event persistence threw."));
             }
             {
@@ -1005,6 +1161,8 @@ private:
                 stopReason = QStringLiteral("source_frame_gap");
             }
         }
+        const QString endedAt =
+            QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
         QString localError;
         if (!checkpointWriter(&localError)) {
             recordConsumerFailure(positiveFrameIndex());
@@ -1013,11 +1171,82 @@ private:
             stopReason = QStringLiteral("event_integrity_loss");
             checkpointWriter(nullptr);
         }
+        QString stagedSequencePath;
+        QString finalSequencePath;
+        bool sequenceStaged = false;
+        if (request.recordFullImageSequence) {
+            sequence::SequenceManifestData sequenceData;
+            sequenceData.sequenceId = writer ? writer->data().runId : QString{};
+            sequenceData.name = writer ? writer->data().runName : QString{};
+            sequenceData.experimentType = request.experimentType;
+            sequenceData.notes = request.notes;
+            sequenceData.status = sequenceStatus(status);
+            sequenceData.createdAt = writer ? writer->data().startedAt : endedAt;
+            sequenceData.startedAt = sequenceData.createdAt;
+            sequenceData.endedAt = endedAt;
+            sequenceData.requestedDurationSeconds =
+                request.requestedDurationSeconds;
+            sequenceData.stopReason = stopReason;
+            sequenceData.opendssVersion = request.opendssVersion;
+            sequenceData.frameCount = sequenceFrameCount;
+            sequenceData.cameraSettings = request.cameraSettings;
+            sequenceData.imageWidth = sequenceWidth;
+            sequenceData.imageHeight = sequenceHeight;
+            sequenceData.bitDepth = sequenceBitDepth;
+            sequenceData.nominalFps = sequenceNominalFps;
+            sequenceData.integrity.sourceFrameGaps =
+                sequenceCategory(integrity.sourceFrameGaps);
+            sequenceData.integrity.queueRejections =
+                sequenceCategory(integrity.queueRejections);
+            sequenceData.integrity.consumerFailures =
+                sequenceCategory(integrity.consumerFailures);
+            stagedSequencePath =
+                QDir(runFolder)
+                    .filePath(QStringLiteral("sequence/sequence.staged.json"));
+            finalSequencePath =
+                QDir(runFolder)
+                    .filePath(QStringLiteral("sequence/sequence.json"));
+            sequenceStaged =
+                sequenceFrameCount > 0 && sequenceNominalFps > 0.0 &&
+                sequence::SequenceManifestV2::save(
+                    stagedSequencePath, sequenceData, &localError);
+            if (!sequenceStaged) {
+                const QString sequenceError =
+                    localError.isEmpty()
+                        ? sequenceFrameCount <= 0
+                              ? QStringLiteral(
+                                    "No accepted Live frames were available for "
+                                    "the requested full Image Sequence.")
+                              : QStringLiteral(
+                                    "The requested full Image Sequence has no "
+                                    "valid frame rate.")
+                        : localError;
+                recordConsumerFailure(positiveFrameIndex());
+                fatal.store(true, std::memory_order_release);
+                status = run::RunStatus::Failed;
+                stopReason = QStringLiteral("sequence_integrity_loss");
+                {
+                    std::lock_guard lock(stateMutex);
+                    diagnostic = sequenceError;
+                }
+                checkpointWriter(nullptr);
+            }
+        }
+        run::BeforeFinalSummaryPublish publishSequence;
+        if (sequenceStaged) {
+            publishSequence = [&](QString* publicationError) {
+                return publishWithoutReplace(
+                    stagedSequencePath, finalSequencePath, publicationError);
+            };
+        }
         const bool finalized =
             writer && writer->finalize(
                           status,
-                          QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
-                          stopReason, 0.0, &localError);
+                          endedAt,
+                          stopReason, 0.0, &localError,
+                          std::move(publishSequence));
+        if (!finalized && sequenceStaged)
+            QFile::remove(stagedSequencePath);
         if (!finalized) {
             status = run::RunStatus::Failed;
             if (localError.isEmpty())
@@ -1040,6 +1269,7 @@ private:
             lifecycle = finalLifecycle;
             if (!localError.isEmpty())
                 diagnostic = localError;
+            this->stopReason = stopReason;
             lastFinishResult = finalized;
             lastFinishError = finalized ? QString{} : localError;
             finishInProgress = false;
@@ -1074,6 +1304,7 @@ private:
     std::optional<PreparedLiveModel> model;
     QString runFolder;
     QString diagnostic;
+    QString stopReason;
     run::RunIntegrity integrity;
     bool haveDelivered = false;
     qint64 lastDelivered = 0;
@@ -1089,6 +1320,11 @@ private:
     std::atomic_bool processingAllowed{false};
     std::atomic_bool pulseAllowed{false};
     std::atomic<qint64> persistedEvents{0};
+    qint64 sequenceFrameCount = 0;
+    int sequenceWidth = 0;
+    int sequenceHeight = 0;
+    int sequenceBitDepth = 0;
+    double sequenceNominalFps = 0.0;
 
     std::mutex persistenceMutex;
     std::condition_variable persistenceReady;

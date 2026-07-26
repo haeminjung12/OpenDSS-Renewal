@@ -56,6 +56,7 @@ struct LiveSortingRequest {
     QJsonObject cameraSettings;
     QJsonObject daqSettings;
     bool daqOutputEnabled = false;
+    bool recordFullImageSequence = false;
 };
 
 struct LiveSortingSnapshot {
@@ -65,6 +66,7 @@ struct LiveSortingSnapshot {
     qint64 persistedEvents = 0;
     run::RunIntegrity integrity;
     QString diagnostic;
+    QString stopReason;
 };
 
 class LiveSortingService final {

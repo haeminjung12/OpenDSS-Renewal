@@ -453,11 +453,49 @@ Item {
         }
     }
 
+    QtObject {
+        id: unavailableCameraController
+        property bool busy: false
+        property string cameraStatus: "Unavailable"
+        property string error: "Camera hardware unavailable"
+        property string deviceId: "Hamamatsu ORCA-Flash4.0"
+        property string previewSource: ""
+        property bool streaming: false
+        property int startCallCount: 0
+        property int stopCallCount: 0
+        property int recoverCallCount: 0
+
+        function start() { ++startCallCount }
+        function stop() { ++stopCallCount }
+        function recover() { ++recoverCallCount; error = "" }
+    }
+
+    QtObject {
+        id: unavailableCaptureController
+        property url outputFolder: "file:///C:/OpenDSS/Images"
+        property string fileName: "accepted-name"
+        property bool canCapture: false
+        property string disabledReason: "Camera unavailable"
+        property string presentation: "ready"
+        property string error: ""
+        property url savedArtifactUrl: ""
+
+        function setOutputFolderPath(path) {}
+        function capture() {}
+    }
+
     ShellSingleImage {
         id: shell
         anchors.fill: parent
         settingsController: textSizeController
         modelLibraryController: modelLibraryController
+    }
+
+    ShellSingleImage {
+        id: unavailableCameraShell
+        visible: false
+        cameraController: unavailableCameraController
+        singleImageCaptureController: unavailableCaptureController
     }
 
     TestCase {
@@ -581,6 +619,7 @@ Item {
         compare(shell.form.daqStatus, "Ready")
         compare(shell.form.daqDevice, "Dev1")
         compare(shell.form.daqStatusText.text, "Status: Ready")
+        verify(shell.form.daqStatusText.text.indexOf("mock") === -1)
         compare(shell.form.daqChannelSelector.model.length, 2)
         compare(shell.form.daqChannelSelector.model[0], "Dev1/ao0")
         compare(shell.form.daqChannelSelector.currentIndex, 0)
@@ -595,6 +634,55 @@ Item {
         compare(shell.form.daqChannelSelector.model[0], "Dev2/ao0")
         compare(shell.form.daqChannelSelector.currentIndex, 0)
         compare(daqController.applyCallCount, 0)
+    }
+
+    function test_realUnavailableCameraDoesNotShowStartupPrompt() {
+        compare(unavailableCameraShell.form.cameraStatus, "Unavailable")
+        compare(unavailableCameraShell.form.disabledReason, "Camera unavailable")
+        compare(unavailableCameraShell.form.cameraErrorText.text,
+                "Camera hardware unavailable")
+        verify(unavailableCameraShell.form.cameraErrorText.visible)
+        verify(!unavailableCameraShell.form.cameraPromptVisible)
+        verify(unavailableCameraShell.form.cameraStatusText.text.indexOf("mock") === -1)
+        compare(unavailableCameraShell.form.cameraDeviceSelector.model[0],
+                "Hamamatsu ORCA-Flash4.0")
+        verify(!unavailableCameraShell.form.cameraDeviceSelector.enabled)
+        verify(unavailableCameraShell.form.cameraDeviceSelector.model[0].indexOf("Illustrative") === -1)
+        verify(!unavailableCameraShell.form.cameraResolutionSelector.enabled)
+        verify(!unavailableCameraShell.form.cameraBitDepthSelector.enabled)
+        verify(!unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(!unavailableCameraShell.form.cameraReadoutSelector.enabled)
+        verify(!unavailableCameraShell.form.previewLutRangeSlider.enabled)
+        compare(unavailableCameraShell.form.cameraResolutionSelector.currentIndex, -1)
+        compare(unavailableCameraShell.form.cameraBitDepthSelector.currentIndex, -1)
+        compare(unavailableCameraShell.form.cameraReadoutSelector.currentIndex, -1)
+        compare(unavailableCameraShell.form.cameraExposureField.text, "")
+        const originalCameraResolution = unavailableCameraShell.mockState.cameraResolution
+        unavailableCameraShell.form.cameraResolutionSelector.activated(2)
+        compare(unavailableCameraShell.mockState.cameraResolution, originalCameraResolution)
+        const originalCameraLut = unavailableCameraShell.mockState.cameraLut
+        unavailableCameraShell.form.cameraLutSelector.activated(1)
+        compare(unavailableCameraShell.mockState.cameraLut, originalCameraLut)
+        unavailableCameraShell.form.restoreCameraButton.clicked()
+        compare(unavailableCameraController.recoverCallCount, 1)
+        compare(unavailableCameraShell.form.cameraErrorText.text, "")
+        verify(!unavailableCameraShell.form.cameraErrorText.visible)
+
+        unavailableCameraController.cameraStatus = "Connected"
+        unavailableCameraShell.form.startCameraButton.clicked()
+        compare(unavailableCameraController.startCallCount, 1)
+        unavailableCameraController.cameraStatus = "Streaming"
+        unavailableCameraController.streaming = true
+        unavailableCameraShell.form.startCameraButton.clicked()
+        compare(unavailableCameraController.stopCallCount, 1)
+        unavailableCameraController.cameraStatus = "Unavailable"
+        unavailableCameraController.error = "Camera disconnected"
+        verify(!unavailableCameraShell.form.cameraPromptVisible)
+        compare(unavailableCameraShell.form.cameraErrorText.text, "Camera disconnected")
+        verify(unavailableCameraShell.form.cameraErrorText.visible)
+        unavailableCameraShell.form.restoreCameraButton.clicked()
+        compare(unavailableCameraController.recoverCallCount, 2)
+        verify(!unavailableCameraShell.form.cameraErrorText.visible)
     }
 
     function test_daqEditsApplyImmediatelyOnce() {

@@ -9,6 +9,7 @@ Rectangle {
     height: Constants.height
     color: Constants.backgroundColor
     property string cameraStatus: qsTr("Unavailable")
+    property string cameraError: ""
     property string cameraPreviewSource: ""
     property string daqStatus: qsTr("Ready")
     property string activeModelText: qsTr("No Active Model")
@@ -38,6 +39,8 @@ Rectangle {
     property int datasetFrameCount: 0
     property int datasetCropCount: 0
     property bool cameraLocked: false
+    property bool cameraConfigurationAvailable: true
+    property string cameraDeviceText: qsTr("Unavailable")
     property string cameraResolution: ""
     property string cameraCustomWidth: ""
     property string cameraCustomHeight: ""
@@ -79,6 +82,8 @@ Rectangle {
     property alias cameraPromptYesButton: cameraPromptYesButton
     property alias cameraPromptNoButton: cameraPromptNoButton
     property alias restoreCameraButton: restoreCameraButton
+    property alias cameraStatusText: cameraStatusText
+    property alias cameraErrorText: cameraErrorText
     property alias sequenceStartButton: sequenceStartButton
     property alias datasetStartButton: datasetStartButton
     property alias capturePauseButton: capturePauseButton
@@ -97,7 +102,10 @@ Rectangle {
     property alias cameraPreviewImage: cameraPreviewImage
     property alias cameraPreviewPlaceholder: cameraPreviewPlaceholder
     property alias cameraExposureField: cameraExposureField
+    property alias cameraBitDepthSelector: cameraBitDepthSelector
+    property alias cameraReadoutSelector: cameraReadoutSelector
     property alias cameraLutSelector: cameraLutSelector
+    property alias previewLutRangeSlider: previewLutRangeSlider
     property alias daqStatusText: daqStatusText
     property alias daqDeviceText: daqDeviceText
     property alias daqRefreshDevicesButton: daqRefreshDevicesButton
@@ -278,26 +286,28 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             spacing: Constants.spacing
-                            Text { text: qsTr("Status: ") + root.cameraStatus + (root.cameraLocked ? qsTr(" — locked by current capture") : qsTr(" — mock only")); color: root.cameraStatus === qsTr("Unavailable") ? Constants.warningColor : Constants.readyColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
-                            AppButton { id: restoreCameraButton; visible: root.cameraStatus === qsTr("Unavailable"); enabled: !root.cameraLocked; text: qsTr("Restore Camera (mock)"); width: parent.width; height: Constants.appStandardControlHeight }
+                            Text { id: cameraStatusText; text: qsTr("Status: ") + root.cameraStatus + (root.cameraLocked ? qsTr(" — locked by current capture") : ""); color: root.cameraStatus === qsTr("Unavailable") ? Constants.warningColor : Constants.readyColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { id: cameraErrorText; visible: root.cameraError !== ""; text: root.cameraError; color: Constants.warningColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                            AppButton { id: restoreCameraButton; visible: root.cameraStatus === qsTr("Unavailable"); enabled: !root.cameraLocked; text: qsTr("Recover Camera"); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Device"); font: Constants.font }
-                            AppComboBox { id: cameraDeviceSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Unavailable", "Illustrative Camera A"]; currentIndex: root.cameraStatus === qsTr("Unavailable") ? 0 : 1; width: parent.width; height: Constants.appStandardControlHeight }
+                            AppComboBox { id: cameraDeviceSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["Unavailable", "Illustrative Camera A"] : [root.cameraDeviceText]; currentIndex: root.cameraConfigurationAvailable ? root.cameraStatus === qsTr("Unavailable") ? 0 : 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Resolution preset"); font: Constants.font }
-                            AppComboBox { id: cameraResolutionSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["1024 × 1024", "2048 × 2048", "Custom"]; currentIndex: root.cameraResolution === "2048 × 2048" ? 1 : root.cameraResolution === "Custom" ? 2 : 0; width: parent.width; height: Constants.appStandardControlHeight }
-                            Row { visible: root.cameraResolution === "Custom"; spacing: 6
-                                AppTextField { id: cameraCustomWidthField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomWidth; width: (parent.width - 6) / 2; height: Constants.appStandardControlHeight; placeholderText: qsTr("Custom Width") }
-                                AppTextField { id: cameraCustomHeightField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomHeight; width: (parent.width - 6) / 2; height: Constants.appStandardControlHeight; placeholderText: qsTr("Custom Height") }
+                            AppComboBox { id: cameraResolutionSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["1024 × 1024", "2048 × 2048", "Custom"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraResolution === "2048 × 2048" ? 1 : root.cameraResolution === "Custom" ? 2 : 0; width: parent.width; height: Constants.appStandardControlHeight }
+                            Row { visible: root.cameraConfigurationAvailable && root.cameraResolution === "Custom"; spacing: 6
+                                AppTextField { id: cameraCustomWidthField; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomWidth; width: (parent.width - 6) / 2; height: Constants.appStandardControlHeight; placeholderText: qsTr("Custom Width") }
+                                AppTextField { id: cameraCustomHeightField; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraCustomHeight; width: (parent.width - 6) / 2; height: Constants.appStandardControlHeight; placeholderText: qsTr("Custom Height") }
                             }
                             Text { text: qsTr("Bit Depth"); font: Constants.font }
-                            AppComboBox { id: cameraBitDepthSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["8-bit", "12-bit", "16-bit"]; currentIndex: root.cameraBitDepth === "16-bit" ? 2 : root.cameraBitDepth === "12-bit" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
+                            AppComboBox { id: cameraBitDepthSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["8-bit", "12-bit", "16-bit"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraBitDepth === "16-bit" ? 2 : root.cameraBitDepth === "12-bit" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Exposure"); font: Constants.font }
-                            AppTextField { id: cameraExposureField; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: parent.width; height: Constants.appStandardControlHeight }
+                            AppTextField { id: cameraExposureField; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Readout"); font: Constants.font }
-                            AppComboBox { id: cameraReadoutSelector; enabled: !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: ["Fast", "Slow"]; currentIndex: root.cameraReadoutMode === "Slow" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
+                            AppComboBox { id: cameraReadoutSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["Fast", "Slow"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraReadoutMode === "Slow" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Preview LUT"); font: Constants.font }
                             AppComboBox { id: cameraLutSelector; visible: false; enabled: false; model: ["Linear", "High contrast"]; currentIndex: root.cameraLut === "High contrast" ? 1 : 0; width: 0; height: 0 }
                             RangeSlider {
                                 id: previewLutRangeSlider
+                                enabled: root.cameraConfigurationAvailable
                                 width: parent.width
                                 from: 0
                                 to: 255
@@ -322,7 +332,7 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             spacing: Constants.spacing
-                            Text { id: daqStatusText; text: qsTr("Status: ") + root.daqStatus + qsTr(" — mock only"); color: Constants.readyColor; font: Constants.smallFont }
+                            Text { id: daqStatusText; text: qsTr("Status: ") + root.daqStatus; color: Constants.readyColor; font: Constants.smallFont }
                             Text { text: qsTr("Device"); font: Constants.font }
                             Text { id: daqDeviceText; text: root.daqDevice; font: Constants.smallFont }
                             AppButton { id: daqRefreshDevicesButton; text: qsTr("Refresh Devices"); width: parent.width; height: Constants.appStandardControlHeight }

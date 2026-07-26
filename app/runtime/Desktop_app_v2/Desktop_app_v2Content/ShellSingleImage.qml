@@ -161,8 +161,7 @@ Item {
     }
 
     Component.onCompleted: {
-        if (root.cameraController
-                && root.cameraController.cameraStatus !== "Unavailable")
+        if (root.cameraController)
             state.cameraPromptHandled = true
         focusCameraPrompt()
         if (root.runsResultsController)
@@ -180,6 +179,7 @@ Item {
         anchors.fill: parent
         cameraStatus: root.cameraController ? root.cameraController.cameraStatus
                                             : state.cameraStatus
+        cameraError: root.cameraController ? root.cameraController.error : ""
         cameraPreviewSource: root.cameraController ? root.cameraController.previewSource : ""
         daqStatus: root.daqController ? root.daqController.daqStatus : state.projectedDaqStatus
         activeModelText: root.modelTestController
@@ -226,11 +226,7 @@ Item {
         otherCaptureHeadingsDisabled:
             state.otherCaptureHeadingsDisabled
             || root.singleImageCapturing
-        cameraPromptVisible: root.cameraController
-                             ? !root.cameraController.busy
-                               && root.cameraController.cameraStatus === "Unavailable"
-                               && !state.cameraPromptHandled
-                             : state.cameraPromptVisible
+        cameraPromptVisible: root.cameraController ? false : state.cameraPromptVisible
         cameraPromptChoice: state.cameraPromptChoice
         sequencePresentation: state.capturePresentation === "sequence" ? state.capturePhase : "ready"
         datasetPresentation: state.capturePresentation === "dataset" ? state.capturePhase : "ready"
@@ -240,12 +236,17 @@ Item {
         cameraLocked: state.cameraLocked
                       || (root.cameraController && root.cameraController.busy)
                       || root.singleImageCapturing
-        cameraResolution: state.cameraResolution
-        cameraCustomWidth: state.cameraCustomWidth
-        cameraCustomHeight: state.cameraCustomHeight
-        cameraBitDepth: state.cameraBitDepth
-        cameraExposure: state.cameraExposure
-        cameraReadoutMode: state.cameraReadoutMode
+        cameraConfigurationAvailable: !root.cameraController
+        cameraDeviceText: root.cameraController
+                          ? root.cameraController.deviceId || qsTr("No camera")
+                          : state.cameraAvailable ? qsTr("Illustrative Camera A")
+                                                : qsTr("Unavailable")
+        cameraResolution: root.cameraController ? "" : state.cameraResolution
+        cameraCustomWidth: root.cameraController ? "" : state.cameraCustomWidth
+        cameraCustomHeight: root.cameraController ? "" : state.cameraCustomHeight
+        cameraBitDepth: root.cameraController ? "" : state.cameraBitDepth
+        cameraExposure: root.cameraController ? "" : state.cameraExposure
+        cameraReadoutMode: root.cameraController ? "" : state.cameraReadoutMode
         cameraLut: state.cameraLut
         daqDevice: root.daqController ? root.discoveredDaqDeviceText() : state.daqDevice
         daqOutputChannel: root.daqController
@@ -634,12 +635,12 @@ Item {
         }
     }
     Connections { target: screen.restoreCameraButton; function onClicked() { if (root.cameraController) root.cameraController.recover(); else state.selectCameraDevice(true) } }
-    Connections { target: screen.cameraDeviceSelector; function onActivated(index) { state.selectCameraDevice(index === 1) } }
-    Connections { target: screen.cameraResolutionSelector; function onActivated(index) { state.cameraResolution = index === 1 ? qsTr("2048 × 2048") : index === 2 ? qsTr("Custom") : qsTr("1024 × 1024") } }
-    Connections { target: screen.cameraCustomWidthField; function onTextEdited() { state.cameraCustomWidth = screen.cameraCustomWidthField.text } }
-    Connections { target: screen.cameraCustomHeightField; function onTextEdited() { state.cameraCustomHeight = screen.cameraCustomHeightField.text } }
-    Connections { target: screen.cameraExposureField; function onTextEdited() { state.cameraExposure = screen.cameraExposureField.text } }
-    Connections { target: screen.cameraLutSelector; function onActivated(index) { state.cameraLut = index === 1 ? qsTr("High contrast") : qsTr("Linear") } }
+    Connections { target: screen.cameraDeviceSelector; function onActivated(index) { if (!root.cameraController) state.selectCameraDevice(index === 1) } }
+    Connections { target: screen.cameraResolutionSelector; function onActivated(index) { if (!root.cameraController) state.cameraResolution = index === 1 ? qsTr("2048 × 2048") : index === 2 ? qsTr("Custom") : qsTr("1024 × 1024") } }
+    Connections { target: screen.cameraCustomWidthField; function onTextEdited() { if (!root.cameraController) state.cameraCustomWidth = screen.cameraCustomWidthField.text } }
+    Connections { target: screen.cameraCustomHeightField; function onTextEdited() { if (!root.cameraController) state.cameraCustomHeight = screen.cameraCustomHeightField.text } }
+    Connections { target: screen.cameraExposureField; function onTextEdited() { if (!root.cameraController) state.cameraExposure = screen.cameraExposureField.text } }
+    Connections { target: screen.cameraLutSelector; function onActivated(index) { if (!root.cameraController) state.cameraLut = index === 1 ? qsTr("High contrast") : qsTr("Linear") } }
     Connections {
         target: screen.daqRefreshDevicesButton
         function onClicked() {

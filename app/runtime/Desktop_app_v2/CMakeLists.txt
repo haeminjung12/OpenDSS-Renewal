@@ -32,6 +32,26 @@ endif()
 
 include(qds)
 
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/Desktop_app_v2Content/FullSizeImageViewer.qml
+    PROPERTIES
+        QT_RESOURCE_ALIAS FullSizeImageViewer.qml
+        QT_QML_SKIP_CACHEGEN TRUE
+)
+set_source_files_properties(
+    ${CMAKE_CURRENT_SOURCE_DIR}/Desktop_app_v2Content/FullSizeImageViewerForm.ui.qml
+    PROPERTIES
+        QT_RESOURCE_ALIAS FullSizeImageViewerForm.ui.qml
+        QT_QML_SKIP_CACHEGEN TRUE
+)
+qt_target_qml_sources(Desktop_app_v2Content
+    QML_FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/Desktop_app_v2Content/FullSizeImageViewer.qml
+        ${CMAKE_CURRENT_SOURCE_DIR}/Desktop_app_v2Content/FullSizeImageViewerForm.ui.qml
+)
+# The generated content subdirectory finalizes qmldir while include(qds) runs.
+_qt_internal_write_deferred_qmldir_file(Desktop_app_v2Content)
+
 include(CTest)
 if (BUILD_TESTING)
     add_subdirectory(tests)

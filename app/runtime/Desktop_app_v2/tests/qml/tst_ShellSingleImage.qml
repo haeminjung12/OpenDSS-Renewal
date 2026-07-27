@@ -2421,6 +2421,16 @@ Item {
         const appWindow = component.createObject(null)
         verify(appWindow !== null)
         tryCompare(appWindow, "visibility", Window.Maximized)
+        compare(appWindow.minimumWidth, 1600)
+        compare(appWindow.minimumHeight, 900)
+
+        appWindow.showNormal()
+        tryCompare(appWindow, "visibility", Window.Windowed)
+
+        appWindow.width = 1800
+        appWindow.height = 1000
+        tryCompare(appWindow, "width", 1800)
+        tryCompare(appWindow, "height", 1000)
 
         appWindow.destroy()
         component.destroy()

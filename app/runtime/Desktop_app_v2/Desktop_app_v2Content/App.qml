@@ -17,6 +17,8 @@ Window {
     property var captureWorkflowController: null
 
     title: qsTr("OpenDSS")
+    minimumWidth: 1600
+    minimumHeight: 900
     visibility: Window.Maximized
 
     ShellSingleImage {

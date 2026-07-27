@@ -6,7 +6,6 @@
 #include <QMutex>
 #include <QString>
 #include <QStringList>
-#include <QTimer>
 
 #include <optional>
 
@@ -72,6 +71,7 @@ public:
     Q_INVOKABLE bool applyExposureMs(double exposureMs);
     Q_INVOKABLE bool applyReadoutMode(const QString &readoutMode);
     Q_INVOKABLE void setPreviewLutRange(int blackLevel, int whiteLevel);
+    Q_INVOKABLE void acknowledgePreviewReady(const QString &previewSource);
     bool applyProfileSettings(const CameraAppliedSettings &settings,
                               int lutMinimum, int lutMaximum,
                               int timeoutMs = 5000);
@@ -118,10 +118,10 @@ private:
     CameraAppliedSettings appliedSettings_;
     int previewLutMinimum_ = 0;
     int previewLutMaximum_ = 255;
-    QTimer previewPublishTimer_;
     QMutex pendingPreviewFrameMutex_;
     std::optional<CameraFrame> pendingPreviewFrame_;
-    bool previewDeliveryQueued_ = false;
+    bool previewDeliveryScheduled_ = false;
+    bool previewRevisionInFlight_ = false;
 };
 
 } // namespace desktop_app::v2

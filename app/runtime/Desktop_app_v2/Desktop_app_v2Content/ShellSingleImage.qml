@@ -43,6 +43,27 @@ Item {
         root.liveSortingController ? root.realLiveOwnsOperation : state.liveActive
     readonly property bool effectiveLiveCompleted:
         root.effectiveLivePresentation === "completed"
+    property string lastAcknowledgedPreviewSource: ""
+    function acknowledgeActiveCameraPreview() {
+        if (!root.cameraController
+                || typeof root.cameraController.acknowledgePreviewReady !== "function")
+            return
+        const useLivePreview = screen.selectedWorkspace === "live"
+                && screen.liveWorkspace.visible
+        const image = useLivePreview
+                ? screen.liveWorkspace.cameraPreviewImage
+                : screen.cameraPreviewImage
+        const source = image.source.toString()
+        if (source === "") {
+            root.lastAcknowledgedPreviewSource = ""
+            return
+        }
+        if (source === root.lastAcknowledgedPreviewSource
+                || image.status !== Image.Ready)
+            return
+        root.lastAcknowledgedPreviewSource = source
+        root.cameraController.acknowledgePreviewReady(source)
+    }
     readonly property bool realSequenceDaqOwnsOperation:
         !!root.sequenceTestController
         && root.sequenceTestController.physicalDaqOutputEnabled
@@ -791,6 +812,25 @@ Item {
     Binding { target: screen.sequenceTestWorkspace; property: "hasRunFolder"; value: root.sequenceTestController && root.sequenceTestController.runFolderUrl.toString() !== ""; when: !!root.sequenceTestController }
     Binding { target: screen.cameraPreviewImage; property: "retainWhileLoading"; value: true }
     Binding { target: screen.liveWorkspace.cameraPreviewImage; property: "retainWhileLoading"; value: true }
+
+    Connections {
+        target: screen.cameraPreviewImage
+        function onStatusChanged() { root.acknowledgeActiveCameraPreview() }
+    }
+    Connections {
+        target: screen.liveWorkspace.cameraPreviewImage
+        function onStatusChanged() { root.acknowledgeActiveCameraPreview() }
+    }
+    Connections {
+        target: screen
+        function onSelectedWorkspaceChanged() {
+            root.acknowledgeActiveCameraPreview()
+        }
+    }
+    Connections {
+        target: screen.liveWorkspace
+        function onVisibleChanged() { root.acknowledgeActiveCameraPreview() }
+    }
 
     Binding { target: screen.runsWorkspace; property: "selectedRunId"; value: root.runsResultsController ? root.runsResultsController.selectedRunId : state.runsPresentation === "runsEmpty" || state.runsPresentation === "runsError" ? "" : "Run-042" }
     Binding { target: screen.runsWorkspace; property: "loadedRunId"; value: root.runsResultsController ? root.runsResultsController.loadedRun.id || "" : state.runsPresentation === "runsLoaded" || state.runsPresentation === "runsNotesEditing" ? "Run-042" : "" }

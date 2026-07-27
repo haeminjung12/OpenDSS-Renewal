@@ -32,7 +32,7 @@ struct PreviewSample
     qint64 publishedAtMs = 0;
     qint64 acceptedAtMs = -1;
     quint64 deliveryId = 0;
-    quint64 revision = 0;
+    quint64 minimumExpectedDeliveryId = 0;
     uchar firstPixel = 0;
 };
 
@@ -86,6 +86,8 @@ public:
             *error = QStringLiteral("Camera transport failed.");
             return CameraFrameResult::Error;
         }
+        if (manualFramesOnly.load())
+            return CameraFrameResult::NoFrame;
         const quint64 id = delivery.fetch_add(1);
         frame.pixelFormat = CameraPixelFormat::Mono8;
         frame.width = 2;
@@ -104,6 +106,7 @@ public:
     std::atomic_bool failFrames = false;
     std::atomic_bool rejectConfiguration = false;
     std::atomic_bool movingFrames = false;
+    std::atomic_bool manualFramesOnly = false;
     std::atomic_int configurationDelayMs = 0;
     std::atomic<quint64> delivery = 1;
     CameraAppliedSettings appliedSettings = [] {
@@ -252,6 +255,15 @@ int main(int argc, char **argv)
     QHash<quint64, qint64> acceptedAtMs;
     QVector<CapturedFrame> capturedFrames;
     QVector<PreviewSample> previewSamples;
+    std::atomic<quint64> latestOfferedId = 0;
+    quint64 minimumNextDeliveryId = 0;
+    int previewRevisionsInFlight = 0;
+    int maximumPreviewRevisionsInFlight = 0;
+    fake->manualFramesOnly = true;
+    controller.acknowledgePreviewReady(controller.previewSource());
+    QCoreApplication::processEvents();
+    controller.acknowledgePreviewReady(controller.previewSource());
+    QCoreApplication::processEvents();
     fake->movingFrames = true;
     frameSpy.clear();
     stressClock.start();
@@ -261,6 +273,7 @@ int main(int argc, char **argv)
             QMutexLocker locker(&acceptedFramesMutex);
             acceptedAtMs.insert(frame.deliveryId, stressClock.elapsed());
             capturedFrames.append({frame.deliveryId, frame.monotonicTimestampNs});
+            latestOfferedId = frame.deliveryId;
         }, Qt::DirectConnection);
     const QMetaObject::Connection previewConnection = QObject::connect(
         &controller, &CameraController::previewSourceChanged, &controller, [&] {
@@ -268,6 +281,10 @@ int main(int argc, char **argv)
             blankPreviewWhileStreaming |= controller.streaming() && source.isEmpty();
             if (source.isEmpty())
                 return;
+            ++previewRevisionsInFlight;
+            maximumPreviewRevisionsInFlight =
+                std::max(maximumPreviewRevisionsInFlight,
+                         previewRevisionsInFlight);
             const quint64 deliveryId = controller.latestDeliveryId();
             qint64 acceptedAt = -1;
             {
@@ -277,53 +294,103 @@ int main(int argc, char **argv)
             const QImage image =
                 provider.requestImage(QStringLiteral("frame"), nullptr, {});
             previewSamples.append({stressClock.elapsed(), acceptedAt, deliveryId,
-                                   source.mid(source.lastIndexOf(QLatin1Char('=')) + 1)
-                                       .toULongLong(),
+                                   minimumNextDeliveryId,
                                    static_cast<uchar>(image.isNull()
                                        ? 0 : image.constScanLine(0)[0])});
+            QTimer::singleShot(20, &controller, [&, source] {
+                minimumNextDeliveryId = latestOfferedId.load();
+                --previewRevisionsInFlight;
+                controller.acknowledgePreviewReady(source);
+            });
         });
+
+    QTimer *stressProducer = nullptr;
+    const bool producerStarted = QMetaObject::invokeMethod(service,
+        [&] {
+            stressProducer = new QTimer(service);
+            stressProducer->setTimerType(Qt::PreciseTimer);
+            stressProducer->setInterval(1);
+            QObject::connect(stressProducer, &QTimer::timeout, service,
+                [service, fake] {
+                    const quint64 id = fake->delivery.fetch_add(1);
+                    CameraFrame frame;
+                    frame.pixelFormat = CameraPixelFormat::Mono8;
+                    frame.width = 2;
+                    frame.height = 1;
+                    frame.rowBytes = 2;
+                    frame.bitDepth = 8;
+                    frame.deliveryId = id;
+                    frame.monotonicTimestampNs =
+                        static_cast<qint64>(id * 1'000'000);
+                    frame.bytes = QByteArray(
+                        2, static_cast<char>(id & 1 ? 0xff : 0x00));
+                    emit service->frameReady(std::move(frame));
+                });
+            stressProducer->start();
+        }, Qt::BlockingQueuedConnection);
     QEventLoop previewStressWait;
-    QTimer::singleShot(1150, &previewStressWait, &QEventLoop::quit);
+    QTimer::singleShot(1000, &previewStressWait, &QEventLoop::quit);
     previewStressWait.exec();
     const bool producerStopped = QMetaObject::invokeMethod(service,
-        [frameConnection, fake] {
+        [frameConnection, stressProducer] {
+            stressProducer->stop();
             QObject::disconnect(frameConnection);
-            fake->movingFrames = false;
+            stressProducer->deleteLater();
         }, Qt::BlockingQueuedConnection);
     const int stressFrameSignals = frameSpy.count();
+    const quint64 finalOfferedId = latestOfferedId.load();
+    QElapsedTimer finalCatchupClock;
+    finalCatchupClock.start();
+    while (controller.latestDeliveryId() != finalOfferedId
+           && finalCatchupClock.elapsed() < 70) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 5);
+    }
+    const qint64 finalCatchupMs = finalCatchupClock.elapsed();
+    const bool finalReached = controller.latestDeliveryId() == finalOfferedId;
+    const qint64 stressDurationMs = stressClock.elapsed();
     QObject::disconnect(previewConnection);
+    fake->manualFramesOnly = false;
+    fake->movingFrames = false;
     QEventLoop staticPreviewWait;
     QTimer::singleShot(300, &staticPreviewWait, &QEventLoop::quit);
     staticPreviewWait.exec();
 
     bool framesOrdered = stressFrameSignals == capturedFrames.size()
-        && capturedFrames.size() >= 20;
+        && capturedFrames.size() >= 500;
     for (qsizetype index = 1; framesOrdered && index < capturedFrames.size(); ++index) {
         framesOrdered = capturedFrames.at(index - 1).deliveryId
                 < capturedFrames.at(index).deliveryId
             && capturedFrames.at(index - 1).timestampNs
                 < capturedFrames.at(index).timestampNs;
     }
-    bool previewsFresh = previewSamples.size() >= 4 && previewSamples.size() <= 6;
+    bool previewsFresh = previewSamples.size() >= 25;
+    qint64 maximumFrameAgeMs = 0;
     for (qsizetype index = 0; previewsFresh && index < previewSamples.size(); ++index) {
         const PreviewSample &sample = previewSamples.at(index);
+        const qint64 frameAgeMs = sample.publishedAtMs - sample.acceptedAtMs;
+        maximumFrameAgeMs = std::max(maximumFrameAgeMs, frameAgeMs);
         previewsFresh = sample.acceptedAtMs >= 0
-            && sample.publishedAtMs - sample.acceptedAtMs <= 350
+            && frameAgeMs <= 70
+            && sample.deliveryId >= sample.minimumExpectedDeliveryId
             && sample.firstPixel == (sample.deliveryId & 1 ? 255 : 0);
         if (index > 0) {
             const PreviewSample &previous = previewSamples.at(index - 1);
             previewsFresh = previewsFresh
-                && sample.deliveryId > previous.deliveryId
-                && sample.revision == previous.revision + 1
-                && sample.publishedAtMs - previous.publishedAtMs >= 150
-                && sample.publishedAtMs - previous.publishedAtMs <= 450;
+                && sample.deliveryId > previous.deliveryId;
         }
     }
-    ok &= check(producerStopped && framesOrdered && previewsFresh
+    const double displayedFps = previewSamples.size() * 1000.0
+        / std::max<qint64>(1, stressDurationMs);
+    ok &= check(producerStarted && producerStopped
+                    && framesOrdered && previewsFresh
+                    && maximumPreviewRevisionsInFlight == 1
+                    && finalReached
+                    && finalCatchupMs <= 70
+                    && displayedFps >= 25.0
                     && !controller.previewSource().isEmpty()
                     && !blankPreviewWhileStreaming,
-                "Moving high-rate frames must remain ordered while provider revisions "
-                "and fresh rendered payloads advance only at the preview cadence.");
+                "Completion-driven preview delivery must retain ordered acquisition, "
+                "one in-flight revision, newest-frame freshness, and final catch-up.");
 
     const QString previewBeforeLut = controller.previewSource();
     controller.setPreviewLutRange(20, 30);

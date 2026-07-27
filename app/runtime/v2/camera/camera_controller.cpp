@@ -88,10 +88,6 @@ CameraController::CameraController(CameraService &service,
             this, &CameraController::setError, Qt::QueuedConnection);
     connect(&service_, &CameraService::configurationChanged,
             this, &CameraController::updateConfiguration, Qt::QueuedConnection);
-    previewPublishTimer_.setSingleShot(true);
-    previewPublishTimer_.setInterval(250);
-    connect(&previewPublishTimer_, &QTimer::timeout,
-            this, &CameraController::updateFrame);
     connect(&service_, &CameraService::commandFinished, this,
             [this](bool success, const QString &error) {
                 if (pendingCustomResolutionSelected_) {
@@ -345,10 +341,35 @@ void CameraController::setPreviewLutRange(int blackLevel, int whiteLevel)
         previewProvider_.setPreviewLutRange(blackLevel, whiteLevel);
     emit previewLutChanged();
     if (hasFrame_) {
+        {
+            QMutexLocker locker(&pendingPreviewFrameMutex_);
+            previewRevisionInFlight_ = true;
+        }
         previewSource_ =
             QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
         emit previewSourceChanged();
-        previewPublishTimer_.start();
+    }
+}
+
+void CameraController::acknowledgePreviewReady(const QString &previewSource)
+{
+    if (previewSource != previewSource_)
+        return;
+
+    bool scheduleDelivery = false;
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        if (!previewRevisionInFlight_)
+            return;
+        previewRevisionInFlight_ = false;
+        if (pendingPreviewFrame_ && !previewDeliveryScheduled_) {
+            previewDeliveryScheduled_ = true;
+            scheduleDelivery = true;
+        }
+    }
+    if (scheduleDelivery) {
+        QMetaObject::invokeMethod(this, [this] { updateFrame(); },
+                                  Qt::QueuedConnection);
     }
 }
 
@@ -437,9 +458,9 @@ void CameraController::updateState(int status, const QString &deviceId,
         {
             QMutexLocker locker(&pendingPreviewFrameMutex_);
             pendingPreviewFrame_.reset();
-            previewDeliveryQueued_ = false;
+            previewDeliveryScheduled_ = false;
+            previewRevisionInFlight_ = false;
         }
-        previewPublishTimer_.stop();
         if (!previewSource_.isEmpty()) {
             previewSource_.clear();
             emit previewSourceChanged();
@@ -477,8 +498,8 @@ void CameraController::acceptFrame(CameraFrame frame)
     {
         QMutexLocker locker(&pendingPreviewFrameMutex_);
         pendingPreviewFrame_ = std::move(frame);
-        if (!previewDeliveryQueued_) {
-            previewDeliveryQueued_ = true;
+        if (!previewDeliveryScheduled_ && !previewRevisionInFlight_) {
+            previewDeliveryScheduled_ = true;
             queueDelivery = true;
         }
     }
@@ -493,12 +514,15 @@ void CameraController::updateFrame()
     std::optional<CameraFrame> frame;
     {
         QMutexLocker locker(&pendingPreviewFrameMutex_);
+        previewDeliveryScheduled_ = false;
+        if (previewRevisionInFlight_)
+            return;
         if (!pendingPreviewFrame_) {
-            previewDeliveryQueued_ = false;
             return;
         }
         frame = std::move(pendingPreviewFrame_);
         pendingPreviewFrame_.reset();
+        previewRevisionInFlight_ = true;
     }
 
     setError({});
@@ -508,7 +532,6 @@ void CameraController::updateFrame()
     previewSource_ =
         QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
     emit previewSourceChanged();
-    previewPublishTimer_.start();
 }
 
 void CameraController::setError(const QString &error)

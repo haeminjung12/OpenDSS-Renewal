@@ -770,6 +770,8 @@ Item {
         property int exposureCallCount: 0
         property int readoutCallCount: 0
         property int lutCallCount: 0
+        property int previewReadyCallCount: 0
+        property string lastPreviewReadySource: ""
         property int requestedWidth: 0
         property int requestedHeight: 0
         property int requestedBitDepth: 0
@@ -817,6 +819,10 @@ Item {
             ++lutCallCount
             previewLutMinimum = minimum
             previewLutMaximum = maximum
+        }
+        function acknowledgePreviewReady(source) {
+            ++previewReadyCallCount
+            lastPreviewReadySource = source
         }
     }
 
@@ -1228,6 +1234,38 @@ Item {
                 return item
         }
         return null
+    }
+
+    function test_cameraPreviewReadyAcknowledgesActiveSurface() {
+        const firstSource =
+                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%23ff0000'/%3E%3C/svg%3E"
+        const secondSource =
+                "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='1' height='1'%3E%3Crect width='1' height='1' fill='%230000ff'/%3E%3C/svg%3E"
+        unavailableCameraShell.visible = true
+        unavailableCameraController.cameraStatus = "Connected"
+        unavailableCameraController.previewReadyCallCount = 0
+        unavailableCameraController.lastPreviewReadySource = ""
+        unavailableCameraController.previewSource = firstSource
+
+        tryCompare(unavailableCameraShell.form.cameraPreviewImage,
+                   "status", Image.Ready)
+        tryCompare(unavailableCameraController, "previewReadyCallCount", 1)
+        compare(unavailableCameraController.lastPreviewReadySource, firstSource)
+        verify(unavailableCameraShell.form.cameraPreviewImage.retainWhileLoading)
+
+        unavailableCameraShell.form.navLiveButton.clicked()
+        tryCompare(unavailableCameraShell.form, "selectedWorkspace", "live")
+        unavailableCameraController.previewSource = secondSource
+        tryCompare(unavailableCameraShell.form.liveWorkspace.cameraPreviewImage,
+                   "status", Image.Ready)
+        tryCompare(unavailableCameraController, "previewReadyCallCount", 2)
+        compare(unavailableCameraController.lastPreviewReadySource, secondSource)
+        verify(unavailableCameraShell.form.liveWorkspace.cameraPreviewImage
+                   .retainWhileLoading)
+
+        unavailableCameraController.previewSource = ""
+        unavailableCameraShell.mockState.selectedWorkspace = "capture"
+        unavailableCameraShell.visible = false
     }
 
     function verifyLabelFilterSelection(expectedFilter, expectedButton) {

@@ -204,7 +204,7 @@ void testDaqOutputReadinessAndPersistence() {
     {
         QTemporaryDir temporary;
         FakeDetector detector;
-        detector.results = {detection(true, true, 2.0f),
+        detector.results = {detection(true, true, 6.0f),
                             detection(false, false, 0.0f)};
         OperationCoordinator operations;
         int readinessChecks = 0;
@@ -229,6 +229,8 @@ void testDaqOutputReadinessAndPersistence() {
                 qPrintable(error));
         offerAndWait(service, detector, 1, 1);
         offerAndWait(service, detector, 2, 2);
+        require(waitFor([&] { return pulses == 1; }),
+                "DAQ Output OFF finalization reached pulse callback");
         require(service.stop(&error), qPrintable(error));
         const auto data = loadRun(temporary.path());
         require(readinessChecks == 0 && pulses == 1 && !pulseOutputEnabled
@@ -1058,6 +1060,85 @@ void testThrowingPersistenceAndPromptFatalOffer() {
         }
         gateReady.notify_all();
         require(service.stop(&error), qPrintable(error));
+    }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f),
+                            detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
+        OperationCoordinator operations;
+        std::mutex gateMutex;
+        std::condition_variable gateReady;
+        bool persistenceEntered = false;
+        bool releasePersistence = false;
+        bool disappearanceEntered = false;
+        bool releaseDisappearance = false;
+        detector.onProcess = [&](int index) {
+            if (index != 3)
+                return;
+            std::unique_lock lock(gateMutex);
+            disappearanceEntered = true;
+            gateReady.notify_all();
+            gateReady.wait(lock, [&] { return releaseDisappearance; });
+        };
+        std::atomic_int pulses{0};
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [&](bool outputEnabled, QString*) {
+                pulses.fetch_add(1);
+                return pulseStatus(outputEnabled);
+            },
+            {},
+            [&](QString*) -> bool {
+                std::unique_lock lock(gateMutex);
+                persistenceEntered = true;
+                gateReady.notify_all();
+                gateReady.wait(lock, [&] { return releasePersistence; });
+                throw std::runtime_error("injected concurrent persistence failure");
+            },
+            {},
+            [](QString*) { return true; });
+        auto value = request(temporary.path());
+        value.daqOutputEnabled = true;
+        QString error;
+        require(service.start(value, &error), qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        {
+            std::unique_lock lock(gateMutex);
+            require(gateReady.wait_for(lock, std::chrono::seconds(2),
+                                       [&] { return persistenceEntered; }),
+                    "first event persistence blocked");
+        }
+        offerAndWait(service, detector, 3, 3);
+        require(service.offerFrame(image(), meta(4), 100.0),
+                "offer disappearance frame");
+        {
+            std::unique_lock lock(gateMutex);
+            require(gateReady.wait_for(lock, std::chrono::seconds(2),
+                                       [&] { return disappearanceEntered; }),
+                    "disappearance processing blocked");
+            releasePersistence = true;
+        }
+        gateReady.notify_all();
+        require(waitFor([&] {
+                    return service.snapshot().integrity.consumerFailures.count == 1;
+                }),
+                "concurrent persistence failure observed");
+        {
+            std::lock_guard lock(gateMutex);
+            releaseDisappearance = true;
+        }
+        gateReady.notify_all();
+        require(waitFor([&] { return detector.processed.load() >= 4; }),
+                "disappearance frame completed");
+        require(pulses.load() == 1,
+                "concurrent persistence failure suppresses later finalization pulse");
+        service.stop(&error);
+        require(!operations.snapshot().kind,
+                "concurrent persistence failure releases operation lease");
     }
 }
 

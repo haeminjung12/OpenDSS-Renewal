@@ -874,6 +874,7 @@ private:
         if (*decision == run::Route::Waste) {
             pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
         } else if (pending->event.observedRoute == run::Route::Unresolved ||
+                   fatal.load(std::memory_order_acquire) ||
                    !pulseAllowed.load(std::memory_order_acquire) ||
                    !reserveExternalCallback(true)) {
             pending->event.daqPulseStatus =

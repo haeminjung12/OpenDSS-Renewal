@@ -2,6 +2,44 @@ set(OPENDSS_CUDA_RUNTIME_DIR
   "$ENV{LOCALAPPDATA}/OpenVisualDropletSorter/training-venv-gpu/Lib/site-packages/torch/lib"
   CACHE PATH "Qualified CUDA 13 and cuDNN runtime DLL directory"
 )
+
+get_target_property(_opendss_test_qmake Qt6::qmake IMPORTED_LOCATION)
+execute_process(
+  COMMAND "${_opendss_test_qmake}" -query QT_INSTALL_PLUGINS
+  OUTPUT_VARIABLE OPENDSS_TEST_QT_PLUGIN_PATH
+  OUTPUT_STRIP_TRAILING_WHITESPACE
+  COMMAND_ERROR_IS_FATAL ANY
+)
+if(NOT EXISTS "${OPENDSS_TEST_QT_PLUGIN_PATH}/platforms/qoffscreen.dll")
+  message(FATAL_ERROR
+    "OpenDSS GUI-capable tests require the Qt offscreen platform plugin at "
+    "${OPENDSS_TEST_QT_PLUGIN_PATH}/platforms/qoffscreen.dll"
+  )
+endif()
+
+function(opendss_configure_offscreen_test test_name target_name)
+  set_tests_properties(${test_name} PROPERTIES
+    WORKING_DIRECTORY "$<TARGET_FILE_DIR:${target_name}>"
+    ENVIRONMENT
+      "QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${OPENDSS_TEST_QT_PLUGIN_PATH};QML_IMPORT_PATH=${QT_QML_OUTPUT_DIRECTORY}"
+  )
+endfunction()
+
+qt_add_executable(qt_offscreen_platform_smoke_test
+  qt_offscreen_platform_smoke_test.cpp
+)
+target_link_libraries(qt_offscreen_platform_smoke_test PRIVATE Qt6::Gui)
+add_test(
+  NAME qt_offscreen_platform_smoke_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:qt_offscreen_platform_smoke_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
+    $<TARGET_FILE:qt_offscreen_platform_smoke_test>
+)
+opendss_configure_offscreen_test(
+  qt_offscreen_platform_smoke_test
+  qt_offscreen_platform_smoke_test
+)
+
 function(opendss_deploy_qualified_cuda target_name)
   set(qualified_runtime_file_hashes
     "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll" "a64bdd69d14f3685142c34ff46546a98cdd9ccae6130619bbee7414b5dd83b1b"
@@ -940,10 +978,16 @@ target_link_libraries(sequence_test_controller_test PRIVATE
 add_test(
   NAME sequence_test_controller_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:sequence_test_controller_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:sequence_test_controller_test>
 )
-set_tests_properties(sequence_test_controller_test PROPERTIES TIMEOUT 30)
+set_tests_properties(sequence_test_controller_test PROPERTIES
+  TIMEOUT 30
+)
+opendss_configure_offscreen_test(
+  sequence_test_controller_test
+  sequence_test_controller_test
+)
 
 qt_add_executable(live_sorting_service_test
   live_sorting_service_test.cpp

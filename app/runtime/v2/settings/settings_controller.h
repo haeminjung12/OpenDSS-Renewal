@@ -1,5 +1,7 @@
 #pragma once
 
+#include "settings_repository.h"
+
 #include <QObject>
 #include <QString>
 #include <QUrl>
@@ -9,7 +11,6 @@
 namespace desktop_app::v2 {
 
 class ApplicationStateStore;
-class SettingsRepository;
 
 struct SettingsDiagnostics {
     QString runtimeAvailability;
@@ -43,6 +44,10 @@ public:
     QUrl storageRoot() const;
     Q_INVOKABLE QString setStorageRoot(const QUrl &storageRoot);
     Q_INVOKABLE QString openStorageRoot() const;
+    QUrl outputRoot(OutputRootSelector selector) const;
+    bool outputRootFellBack(OutputRootSelector selector) const;
+    QString outputRootFallbackReason(OutputRootSelector selector) const;
+    QString setOutputRoot(OutputRootSelector selector, const QUrl &outputRoot);
     QString applicationVersion() const;
     QString schemaVersions() const;
     QString runtimeAvailability() const;
@@ -59,6 +64,7 @@ public:
 signals:
     void textSizePercentChanged();
     void storageRootChanged();
+    void outputRootsChanged();
     void applicationInformationChanged();
 
 private:

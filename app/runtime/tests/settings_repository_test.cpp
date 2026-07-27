@@ -9,6 +9,7 @@
 #include <QStandardPaths>
 #include <QTemporaryDir>
 
+#include <array>
 #include <iostream>
 #include <initializer_list>
 #include <utility>
@@ -41,6 +42,24 @@ QJsonObject validDocument(const QString &root, int textSizePercent = 100)
             {QStringLiteral("text_size_percent"), textSizePercent}};
 }
 
+struct OutputRootCase {
+    OutputRootSelector selector;
+    const char *key;
+    const char *fallbackFolder;
+};
+
+constexpr std::array<OutputRootCase, 9> outputRootCases{{
+    {OutputRootSelector::CaptureSingle, "capture_single_output_root", "datasets"},
+    {OutputRootSelector::CaptureSequence, "capture_sequence_output_root", "datasets"},
+    {OutputRootSelector::CaptureDataset, "capture_dataset_output_root", "datasets"},
+    {OutputRootSelector::Train, "train_output_root", "models"},
+    {OutputRootSelector::ModelTest, "model_test_output_root", "reports"},
+    {OutputRootSelector::Live, "live_output_root", "runs"},
+    {OutputRootSelector::SequenceTest, "sequence_test_output_root", "runs"},
+    {OutputRootSelector::LibraryCreate, "library_create_output_root", "models"},
+    {OutputRootSelector::LibraryExport, "library_export_output_root", "models"},
+}};
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -65,6 +84,15 @@ int main(int argc, char **argv)
         || store.snapshot().preferences.textSizePercent != 100 || QFile::exists(preferencesPath)) {
         return fail(3, "Missing preferences did not publish unwritten defaults.");
     }
+    for (const OutputRootCase &item : outputRootCases) {
+        const QString expectedOutputRoot =
+            QDir(expectedDefaultRoot).filePath(QString::fromLatin1(item.fallbackFolder));
+        if (repository.outputRoot(item.selector) != expectedOutputRoot
+            || repository.outputRootFellBack(item.selector)
+            || !repository.outputRootFallbackReason(item.selector).isEmpty()) {
+            return fail(3, "Missing preferences did not expose canonical output defaults.");
+        }
+    }
 
     if (!repository.setStorageRoot(root) || !repository.setTextSizePercent(125))
         return fail(4, "Valid preferences did not save.");
@@ -86,6 +114,56 @@ int main(int argc, char **argv)
         || roundTripStore.snapshot().preferences.textSizePercent != 125) {
         return fail(6, "Valid preferences did not round trip.");
     }
+    std::array<QString, outputRootCases.size()> selectedOutputRoots;
+    for (std::size_t index = 0; index < outputRootCases.size(); ++index) {
+        selectedOutputRoots[index] =
+            temporaryDirectory.filePath(QStringLiteral("output-%1").arg(index));
+        if (!QDir().mkpath(selectedOutputRoots[index])
+            || !repository.setOutputRoot(outputRootCases[index].selector,
+                                         selectedOutputRoots[index])
+            || repository.outputRoot(outputRootCases[index].selector)
+                != selectedOutputRoots[index]
+            || repository.outputRootFellBack(outputRootCases[index].selector)) {
+            return fail(6, "Independent output roots did not save.");
+        }
+    }
+    ApplicationStateStore outputReloadStore;
+    SettingsRepository outputReload(preferencesPath, outputReloadStore);
+    if (!outputReload.load())
+        return fail(6, "Independent output roots did not reload.");
+    for (std::size_t index = 0; index < outputRootCases.size(); ++index) {
+        if (outputReload.outputRoot(outputRootCases[index].selector)
+                != selectedOutputRoots[index]
+            || outputReload.outputRootFellBack(outputRootCases[index].selector)) {
+            return fail(6, "Independent output roots did not round trip.");
+        }
+    }
+
+    const std::size_t invalidOutputIndex =
+        static_cast<std::size_t>(OutputRootSelector::Live);
+    if (!QDir().rmdir(selectedOutputRoots[invalidOutputIndex])) {
+        return fail(6, "Unable to invalidate a persisted output root.");
+    }
+    ApplicationStateStore fallbackStore;
+    SettingsRepository fallbackRepository(preferencesPath, fallbackStore);
+    if (!fallbackRepository.load()
+        || fallbackRepository.outputRoot(OutputRootSelector::Live)
+            != QDir(expectedDefaultRoot).filePath(QStringLiteral("runs"))
+        || !fallbackRepository.outputRootFellBack(OutputRootSelector::Live)
+        || fallbackRepository.outputRootFallbackReason(OutputRootSelector::Live).isEmpty()) {
+        return fail(6, "Invalid persisted output root did not fall back factually.");
+    }
+    QFile normalizedOutputFile(preferencesPath);
+    const QJsonDocument normalizedOutputDocument =
+        normalizedOutputFile.open(QIODevice::ReadOnly)
+        ? QJsonDocument::fromJson(normalizedOutputFile.readAll()) : QJsonDocument();
+    normalizedOutputFile.close();
+    if (!normalizedOutputDocument.isObject()
+        || normalizedOutputDocument.object().contains(
+            QStringLiteral("live_output_root"))) {
+        return fail(6, "Invalid persisted output root was retained.");
+    }
+
     for (const int supportedTextSize : {80, 100, 125}) {
         if (!repository.setTextSizePercent(supportedTextSize)
             || store.snapshot().preferences.textSizePercent != supportedTextSize) {
@@ -143,6 +221,7 @@ int main(int argc, char **argv)
         {{QStringLiteral("schema_version"), 1}, {QStringLiteral("storage_root"), root}, {QStringLiteral("text_size_percent"), 125.5}},
         {{QStringLiteral("schema_version"), 1}, {QStringLiteral("storage_root"), root}},
         {{QStringLiteral("schema_version"), 1}, {QStringLiteral("storage_root"), root}, {QStringLiteral("text_size_percent"), 125}, {QStringLiteral("extra"), true}},
+        {{QStringLiteral("schema_version"), 1}, {QStringLiteral("storage_root"), root}, {QStringLiteral("text_size_percent"), 125}, {QStringLiteral("live_output_root"), 7}},
         validDocument(QStringLiteral("relative-root"), 125),
         validDocument(temporaryDirectory.filePath(QStringLiteral("missing-root")), 125)};
     for (const QJsonObject &invalid : invalidDocuments) {

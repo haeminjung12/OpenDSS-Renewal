@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDir>
 #include <QFile>
+#include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QUrl>
 
@@ -44,10 +45,13 @@ int main(int argc, char **argv)
         return fail(2, "Controller did not expose the storage-root opening API.");
     int textSizeChangedCount = 0;
     int storageRootChangedCount = 0;
+    int outputRootsChangedCount = 0;
     QObject::connect(&controller, &desktop_app::v2::SettingsController::textSizePercentChanged,
                      &controller, [&textSizeChangedCount] { ++textSizeChangedCount; });
     QObject::connect(&controller, &desktop_app::v2::SettingsController::storageRootChanged,
                      &controller, [&storageRootChangedCount] { ++storageRootChangedCount; });
+    QObject::connect(&controller, &desktop_app::v2::SettingsController::outputRootsChanged,
+                     &controller, [&outputRootsChangedCount] { ++outputRootsChangedCount; });
 
     if (controller.textSizePercent() != 100)
         return fail(3, "Controller did not expose the default text size.");
@@ -55,6 +59,18 @@ int main(int argc, char **argv)
         || controller.storageRoot().toLocalFile() != temporaryDirectory.path()
         || controller.storageRoot().isRelative()) {
         return fail(3, "Controller did not expose the stored root as an absolute local URL.");
+    }
+    const QString expectedDatasetsRoot =
+        QDir(QDir(QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation))
+                 .filePath(QStringLiteral("OpenDropletSortingSuite")))
+            .filePath(QStringLiteral("datasets"));
+    if (controller.outputRoot(desktop_app::v2::OutputRootSelector::CaptureSingle)
+            != QUrl::fromLocalFile(expectedDatasetsRoot)
+        || controller.outputRootFellBack(
+            desktop_app::v2::OutputRootSelector::CaptureSingle)
+        || !controller.outputRootFallbackReason(
+                desktop_app::v2::OutputRootSelector::CaptureSingle).isEmpty()) {
+        return fail(3, "Controller did not expose the canonical output default.");
     }
 
     const QString alternateRoot = temporaryDirectory.filePath(QStringLiteral("alternate-root"));
@@ -67,12 +83,36 @@ int main(int argc, char **argv)
         || storageRootChangedCount != 1) {
         return fail(4, "Controller emitted for an unchanged storage root.");
     }
+    const QString captureOutputRoot =
+        temporaryDirectory.filePath(QStringLiteral("capture-output"));
+    if (!QDir().mkpath(captureOutputRoot)
+        || !controller.setOutputRoot(
+                desktop_app::v2::OutputRootSelector::CaptureSingle,
+                QUrl::fromLocalFile(captureOutputRoot)).isEmpty()
+        || controller.outputRoot(
+                desktop_app::v2::OutputRootSelector::CaptureSingle).toLocalFile()
+            != captureOutputRoot
+        || controller.outputRootFellBack(
+            desktop_app::v2::OutputRootSelector::CaptureSingle)
+        || outputRootsChangedCount != 1) {
+        return fail(4, "Controller did not persist a selected output root.");
+    }
+    if (!controller.setOutputRoot(
+            desktop_app::v2::OutputRootSelector::CaptureSingle,
+            QUrl::fromLocalFile(captureOutputRoot)).isEmpty()
+        || outputRootsChangedCount != 1) {
+        return fail(4, "Controller emitted for an unchanged output root.");
+    }
     desktop_app::v2::ApplicationStateStore reloadStore;
     desktop_app::v2::SettingsRepository reloadRepository(
         temporaryDirectory.filePath(QStringLiteral("preferences.json")), reloadStore);
     if (!reloadRepository.load() || reloadStore.snapshot().preferences.storageRoot != alternateRoot
         || reloadStore.snapshot().preferences.textSizePercent != 100) {
         return fail(4, "Controller storage-root persistence did not reload.");
+    }
+    if (reloadRepository.outputRoot(
+            desktop_app::v2::OutputRootSelector::CaptureSingle) != captureOutputRoot) {
+        return fail(4, "Controller output-root persistence did not reload.");
     }
 
     const QString priorStorageRoot = controller.storageRoot().toLocalFile();
@@ -84,6 +124,29 @@ int main(int argc, char **argv)
     if (controller.setStorageRoot(QUrl(QStringLiteral("https://example.invalid/root"))).isEmpty()
         || controller.storageRoot().toLocalFile() != priorStorageRoot || storageRootChangedCount != 1) {
         return fail(5, "Controller accepted a nonlocal storage-root URL.");
+    }
+    if (controller.setOutputRoot(
+            desktop_app::v2::OutputRootSelector::CaptureSingle,
+            QUrl::fromLocalFile(temporaryDirectory.filePath(
+                QStringLiteral("missing-output")))).isEmpty()
+        || controller.setOutputRoot(
+            desktop_app::v2::OutputRootSelector::CaptureSingle,
+            QUrl(QStringLiteral("https://example.invalid/output"))).isEmpty()
+        || controller.outputRoot(
+                desktop_app::v2::OutputRootSelector::CaptureSingle).toLocalFile()
+            != captureOutputRoot
+        || outputRootsChangedCount != 1) {
+        return fail(5, "Controller accepted an invalid output root.");
+    }
+    if (!QDir().rmdir(captureOutputRoot)
+        || !controller.outputRootFellBack(
+            desktop_app::v2::OutputRootSelector::CaptureSingle)
+        || controller.outputRootFallbackReason(
+               desktop_app::v2::OutputRootSelector::CaptureSingle).isEmpty()
+        || controller.outputRoot(
+               desktop_app::v2::OutputRootSelector::CaptureSingle).toLocalFile()
+            != expectedDatasetsRoot) {
+        return fail(5, "Controller did not expose a factual unavailable-root fallback.");
     }
 
     const QString openStorageRootError = controller.openStorageRoot();

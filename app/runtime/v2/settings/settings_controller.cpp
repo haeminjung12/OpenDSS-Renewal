@@ -128,6 +128,45 @@ QString SettingsController::openStorageRoot() const
     return openExistingFolder(storageRoot(), {});
 }
 
+QUrl SettingsController::outputRoot(OutputRootSelector selector) const
+{
+    return QUrl::fromLocalFile(repository_.outputRoot(selector));
+}
+
+bool SettingsController::outputRootFellBack(OutputRootSelector selector) const
+{
+    return repository_.outputRootFellBack(selector);
+}
+
+QString SettingsController::outputRootFallbackReason(OutputRootSelector selector) const
+{
+    return repository_.outputRootFallbackReason(selector);
+}
+
+QString SettingsController::setOutputRoot(OutputRootSelector selector,
+                                          const QUrl &outputRoot)
+{
+    if (!outputRoot.isLocalFile() || outputRoot.hasQuery() || outputRoot.hasFragment())
+        return QStringLiteral("Output location must be a local folder URL.");
+
+    const QString localOutputRoot = outputRoot.toLocalFile();
+    if (localOutputRoot.isEmpty())
+        return QStringLiteral("Output location must be a local folder URL.");
+
+    const QUrl previousRoot = this->outputRoot(selector);
+    const bool previouslyFellBack = outputRootFellBack(selector);
+    const QString previousReason = outputRootFallbackReason(selector);
+    QString error;
+    if (!repository_.setOutputRoot(selector, localOutputRoot, &error))
+        return error;
+    if (this->outputRoot(selector) != previousRoot
+        || outputRootFellBack(selector) != previouslyFellBack
+        || outputRootFallbackReason(selector) != previousReason) {
+        emit outputRootsChanged();
+    }
+    return {};
+}
+
 QString SettingsController::applicationVersion() const
 {
     const QString version = QCoreApplication::applicationVersion().trimmed();

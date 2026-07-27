@@ -16,6 +16,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QRegularExpression>
+#include <QTemporaryDir>
 #include <QTextStream>
 
 #include <array>
@@ -33,6 +34,8 @@ constexpr auto ExpectedDatasetJsonSha256 =
     "e6bcea0f2f7e192008381329e4d8c355ba2ae2f0baf867feada0f60f255f1c72";
 constexpr auto ExpectedDatasetId =
     "droplet_target_nontarget_3class_starter";
+constexpr auto RepresentativeDatasetId =
+    "droplet_target_nontarget_3class_starter_representative_6";
 constexpr auto ExpectedRegistryEntryId =
     "trained_saved_pre-trained_mobilenetv3-small_-_faster_copy2";
 constexpr auto ExpectedMetadataModelId =
@@ -44,16 +47,23 @@ constexpr auto ExpectedPackagePath =
     "trained/Pre-trained MobileNetV3-Small - Faster copy2";
 constexpr auto ExpectedOnnxSha256 =
     "18c2fb4ff61a82316bf46aa9d76ef91e8b134b63e21a9bc0ca8b11c367487615";
-constexpr qint64 ExpectedTotal = 3625;
-constexpr qint64 ExpectedEligible = 3620;
+constexpr qint64 ExpectedRepresentativeCount = 6;
+constexpr int ExpectedPerClass = 2;
 
 const std::array<QString, 3> ExpectedClassIds{
     QStringLiteral("0"), QStringLiteral("1"), QStringLiteral("2")};
 const std::array<QString, 3> ExpectedClassNames{
     QStringLiteral("Empty"), QStringLiteral("Single"),
     QStringLiteral("MoreThanOne")};
-constexpr std::array<qint64, 3> ExpectedAuditSupports{3142, 387, 91};
-constexpr std::array<qint64, 3> ExpectedProductionSupports{3142, 386, 92};
+
+struct RepresentativeItem {
+    QString classId;
+    QString sourcePath;
+    QString sourceSha256;
+    QString fixtureCropPath;
+    QString recordId;
+    qint64 manifestIndex = -1;
+};
 
 QString normalizedAbsolutePath(const QString& path) {
     return QDir::cleanPath(
@@ -65,22 +75,42 @@ QString canonicalPath(const QString& path) {
         QDir::fromNativeSeparators(QFileInfo(path).canonicalFilePath()));
 }
 
-bool samePath(const QString& left, const QString& right) {
+Qt::CaseSensitivity pathCaseSensitivity() {
 #ifdef Q_OS_WIN
-    constexpr Qt::CaseSensitivity sensitivity = Qt::CaseInsensitive;
+    return Qt::CaseInsensitive;
 #else
-    constexpr Qt::CaseSensitivity sensitivity = Qt::CaseSensitive;
+    return Qt::CaseSensitive;
 #endif
+}
+
+bool samePath(const QString& left, const QString& right) {
     const QString leftCanonical = canonicalPath(left);
     const QString rightCanonical = canonicalPath(right);
     return !leftCanonical.isEmpty() && !rightCanonical.isEmpty() &&
-           leftCanonical.compare(rightCanonical, sensitivity) == 0;
+           leftCanonical.compare(rightCanonical, pathCaseSensitivity()) == 0;
+}
+
+bool containedPath(const QString& root, const QString& path) {
+    const QString rootCanonical = canonicalPath(root);
+    const QString pathCanonical = canonicalPath(path);
+    if (rootCanonical.isEmpty() || pathCanonical.isEmpty())
+        return false;
+    const QString prefix = rootCanonical.endsWith('/')
+                               ? rootCanonical
+                               : rootCanonical + '/';
+    return pathCanonical.startsWith(prefix, pathCaseSensitivity());
 }
 
 bool localAbsolutePath(const QString& path) {
     const QString normalized = QDir::fromNativeSeparators(path);
     return QFileInfo(path).isAbsolute() && !normalized.startsWith("//") &&
            !normalized.contains("://");
+}
+
+bool validSha256(const QString& value) {
+    return QRegularExpression(QStringLiteral("^[0-9a-f]{64}$"))
+        .match(value)
+        .hasMatch();
 }
 
 QString fileSha256(const QString& path) {
@@ -110,6 +140,15 @@ std::optional<QJsonObject> readObject(const QString& path, QString* error) {
         return std::nullopt;
     }
     return document.object();
+}
+
+int expectedClassIndex(const QString& classId) {
+    for (int index = 0; index < static_cast<int>(ExpectedClassIds.size());
+         ++index) {
+        if (classId == ExpectedClassIds[index])
+            return index;
+    }
+    return -1;
 }
 
 bool expectedClasses(const QJsonArray& classes, const QString& nameKey) {
@@ -183,46 +222,40 @@ int main(int argc, char** argv) {
     const QString usage =
         QStringLiteral("Usage: model_test_production_model_probe "
                        "--dataset-manifest <path> --model-registry <path> "
-                       "--output-root <fresh-root> --python <path> "
-                       "--working-directory <path>");
+                       "--python <path> --working-directory <path>");
 
     const QStringList arguments = application.arguments();
-    if (arguments.size() != 11 ||
+    if (arguments.size() != 9 ||
         arguments.at(1) != QStringLiteral("--dataset-manifest") ||
         arguments.at(3) != QStringLiteral("--model-registry") ||
-        arguments.at(5) != QStringLiteral("--output-root") ||
-        arguments.at(7) != QStringLiteral("--python") ||
-        arguments.at(9) != QStringLiteral("--working-directory") ||
+        arguments.at(5) != QStringLiteral("--python") ||
+        arguments.at(7) != QStringLiteral("--working-directory") ||
         arguments.at(2).trimmed().isEmpty() ||
         arguments.at(4).trimmed().isEmpty() ||
         arguments.at(6).trimmed().isEmpty() ||
-        arguments.at(8).trimmed().isEmpty() ||
-        arguments.at(10).trimmed().isEmpty()) {
+        arguments.at(8).trimmed().isEmpty()) {
         failure << usage << '\n';
         return 2;
     }
 
     const QString auditManifestArgument = arguments.at(2).trimmed();
     const QString registryArgument = arguments.at(4).trimmed();
-    const QString outputArgument = arguments.at(6).trimmed();
-    const QString pythonArgument = arguments.at(8).trimmed();
-    const QString workingDirectoryArgument = arguments.at(10).trimmed();
+    const QString pythonArgument = arguments.at(6).trimmed();
+    const QString workingDirectoryArgument = arguments.at(8).trimmed();
     if (!localAbsolutePath(auditManifestArgument) ||
         !localAbsolutePath(registryArgument) ||
-        !localAbsolutePath(outputArgument) ||
         !localAbsolutePath(pythonArgument) ||
         !localAbsolutePath(workingDirectoryArgument)) {
         failure << "FAIL: All inputs must be absolute local paths.\n";
         return 3;
     }
+
     const QString auditManifestPath =
         normalizedAbsolutePath(auditManifestArgument);
     const QString registryPath = normalizedAbsolutePath(registryArgument);
-    const QString outputRoot = normalizedAbsolutePath(outputArgument);
     const QString pythonPath = normalizedAbsolutePath(pythonArgument);
     const QString workingDirectory =
         normalizedAbsolutePath(workingDirectoryArgument);
-    output << "output_root=" << outputRoot << Qt::endl;
     const auto fail = [&](int code, const QString& message) {
         failure << "FAIL: " << message << '\n';
         return code;
@@ -240,121 +273,190 @@ int main(int argc, char** argv) {
         !QFileInfo(workingDirectory).isDir()) {
         return fail(6, QStringLiteral("Installed Python runtime is unavailable."));
     }
-    if (QFileInfo::exists(outputRoot)) {
-        return fail(7, QStringLiteral("Output root already exists; refusing to replace it."));
-    }
-    const QFileInfo outputInfo(outputRoot);
-    const QFileInfo outputParent(outputInfo.absolutePath());
-    if (!outputParent.isDir() || !outputParent.isWritable() ||
-        outputParent.fileName().compare(QStringLiteral("reports"),
-                                        Qt::CaseInsensitive) != 0 ||
-        !QRegularExpression(QStringLiteral("^model-test-[1-9][0-9]*$"))
-             .match(outputInfo.fileName())
-             .hasMatch()) {
-        return fail(
-            7,
-            QStringLiteral(
-                "Output root must be a fresh reports/model-test-N directory."));
-    }
 
     const QString auditManifestHash = fileSha256(auditManifestPath);
     if (auditManifestHash != QLatin1String(ExpectedAuditManifestSha256)) {
-        return fail(8, QStringLiteral("Dataset audit manifest SHA-256 mismatch: %1")
+        return fail(7, QStringLiteral("Dataset audit manifest SHA-256 mismatch: %1")
                            .arg(auditManifestHash));
     }
 
-    QDir datasetRoot(QFileInfo(auditManifestPath).absolutePath());
-    if (!datasetRoot.cdUp()) {
-        return fail(9, QStringLiteral("Could not derive the Dataset root."));
+    QDir sourceDatasetRoot(QFileInfo(auditManifestPath).absolutePath());
+    if (!sourceDatasetRoot.cdUp()) {
+        return fail(8, QStringLiteral("Could not derive the source Dataset root."));
     }
-    const QString datasetJsonPath = datasetRoot.filePath("dataset.json");
-    if (!QFileInfo(datasetJsonPath).isFile() ||
-        QFileInfo(datasetJsonPath).isSymLink()) {
-        return fail(10, QStringLiteral("Derived production dataset.json is unavailable."));
+    const QString productionDatasetJsonPath =
+        sourceDatasetRoot.filePath("dataset.json");
+    if (!QFileInfo(productionDatasetJsonPath).isFile() ||
+        QFileInfo(productionDatasetJsonPath).isSymLink()) {
+        return fail(9, QStringLiteral("Production dataset.json is unavailable."));
     }
-    const QString datasetJsonHash = fileSha256(datasetJsonPath);
-    if (datasetJsonHash != QLatin1String(ExpectedDatasetJsonSha256)) {
-        return fail(11, QStringLiteral("Production dataset.json SHA-256 mismatch: %1")
-                            .arg(datasetJsonHash));
+    const QString productionDatasetJsonHash =
+        fileSha256(productionDatasetJsonPath);
+    if (productionDatasetJsonHash !=
+        QLatin1String(ExpectedDatasetJsonSha256)) {
+        return fail(10, QStringLiteral("Production dataset.json SHA-256 mismatch: %1")
+                            .arg(productionDatasetJsonHash));
     }
 
     QString error;
     const auto audit = readObject(auditManifestPath, &error);
     if (!audit) {
-        return fail(12, error);
+        return fail(11, error);
     }
     const QJsonArray auditItems = audit->value("items").toArray();
     if (audit->value("schema_version").toString() !=
             QStringLiteral("dataset-manifest-v1") ||
         audit->value("dataset_id").toString() !=
             QLatin1String(ExpectedDatasetId) ||
-        audit->value("items_total").toInteger(-1) != ExpectedTotal ||
-        audit->value("items_included").toInteger(-1) != ExpectedEligible ||
-        audit->value("items_excluded").toInteger(-1) !=
-            ExpectedTotal - ExpectedEligible ||
-        auditItems.size() != ExpectedTotal ||
+        auditItems.isEmpty() ||
         !expectedClasses(audit->value("classes").toArray(),
                          QStringLiteral("display_name"))) {
-        return fail(13, QStringLiteral("Dataset audit manifest facts mismatch."));
+        return fail(12, QStringLiteral("Pinned Dataset audit facts mismatch."));
     }
-    std::array<qint64, 3> auditSupports{};
-    qint64 auditEligible = 0;
-    for (const QJsonValue& value : auditItems) {
-        const QJsonObject item = value.toObject();
-        if (item.value("status").toString() != QStringLiteral("included") ||
+
+    std::array<int, 3> selectedPerClass{};
+    QVector<RepresentativeItem> selected;
+    selected.reserve(ExpectedRepresentativeCount);
+    for (qsizetype index = 0; index < auditItems.size(); ++index) {
+        const QJsonObject item = auditItems.at(index).toObject();
+        const int classIndex =
+            expectedClassIndex(item.value("label").toString());
+        if (classIndex < 0 ||
+            selectedPerClass[classIndex] >= ExpectedPerClass ||
+            item.value("status").toString() != QStringLiteral("included") ||
             !item.value("trainer_eligible").toBool()) {
             continue;
         }
-        const int classIndex =
-            ExpectedClassIds[0] == item.value("label").toString()
-                ? 0
-                : ExpectedClassIds[1] == item.value("label").toString()
-                      ? 1
-                      : ExpectedClassIds[2] == item.value("label").toString()
-                            ? 2
-                            : -1;
-        if (classIndex < 0) {
-            return fail(14, QStringLiteral("Eligible audit item has an unknown class."));
-        }
-        ++auditEligible;
-        ++auditSupports[classIndex];
-    }
-    if (auditEligible != ExpectedEligible ||
-        auditSupports != ExpectedAuditSupports) {
-        return fail(15, QStringLiteral("Dataset audit support counts mismatch."));
-    }
 
-    auto dataset = DatasetManifestV2::load(datasetJsonPath, &error);
-    if (!dataset) {
-        return fail(16, error);
-    }
-    std::array<qint64, 3> productionSupports{};
-    qint64 productionEligible = 0;
-    for (const auto& label : dataset->labels()) {
-        if (label.excluded)
+        const QString relativePath = QDir::cleanPath(
+            QDir::fromNativeSeparators(item.value("path").toString()));
+        const QString declaredHash =
+            item.value("hash_sha256").toString().trimmed().toLower();
+        if (relativePath.isEmpty() || QDir::isAbsolutePath(relativePath) ||
+            relativePath == QStringLiteral("..") ||
+            relativePath.startsWith(QStringLiteral("../")) ||
+            !validSha256(declaredHash)) {
             continue;
-        const int classIndex =
-            ExpectedClassIds[0] == label.classId
-                ? 0
-                : ExpectedClassIds[1] == label.classId
-                      ? 1
-                      : ExpectedClassIds[2] == label.classId ? 2 : -1;
-        if (classIndex < 0) {
-            return fail(17, QStringLiteral("Production Dataset has an unknown class."));
         }
-        ++productionEligible;
-        ++productionSupports[classIndex];
+        const QString sourcePath =
+            normalizedAbsolutePath(sourceDatasetRoot.filePath(relativePath));
+        const QFileInfo sourceInfo(sourcePath);
+        if (!sourceInfo.isFile() || !sourceInfo.isReadable() ||
+            sourceInfo.isSymLink() ||
+            !containedPath(sourceDatasetRoot.absolutePath(), sourcePath) ||
+            fileSha256(sourcePath) != declaredHash) {
+            continue;
+        }
+
+        RepresentativeItem representative;
+        representative.classId = ExpectedClassIds[classIndex];
+        representative.sourcePath = sourcePath;
+        representative.sourceSha256 = declaredHash;
+        representative.recordId =
+            QStringLiteral("representative-%1").arg(index, 6, 10, QLatin1Char('0'));
+        representative.manifestIndex = index;
+        selected.push_back(representative);
+        ++selectedPerClass[classIndex];
     }
-    if (dataset->datasetId() != QLatin1String(ExpectedDatasetId) ||
-        dataset->records().size() != ExpectedTotal ||
-        productionEligible != ExpectedEligible ||
-        !expectedClasses(dataset->classes())) {
-        return fail(18, QStringLiteral("Production Dataset facts mismatch."));
+    if (selected.size() != ExpectedRepresentativeCount ||
+        selectedPerClass !=
+            std::array<int, 3>{ExpectedPerClass, ExpectedPerClass,
+                               ExpectedPerClass}) {
+        return fail(
+            13,
+            QStringLiteral(
+                "Could not select exactly two manifest-order, declared-hash-valid "
+                "included trainer records per class."));
     }
-    if (productionSupports != ExpectedProductionSupports) {
-        return fail(19, QStringLiteral("Production Dataset support counts mismatch."));
+    for (qsizetype index = 1; index < selected.size(); ++index) {
+        if (selected.at(index - 1).manifestIndex >=
+            selected.at(index).manifestIndex) {
+            return fail(14, QStringLiteral("Representative selection order changed."));
+        }
     }
 
+    QTemporaryDir temporary(
+        QDir::tempPath() +
+        QStringLiteral("/opendss-model-test-representative-XXXXXX"));
+    temporary.setAutoRemove(true);
+    if (!temporary.isValid() || !temporary.autoRemove()) {
+        return fail(15, QStringLiteral("Disposable fixture root is unavailable."));
+    }
+    const QString fixtureRoot =
+        QDir(temporary.path()).filePath("representative-dataset");
+    const QString cropsRoot = QDir(fixtureRoot).filePath("crops");
+    const QString reportsRoot = QDir(temporary.path()).filePath("reports");
+    if (!QDir().mkpath(cropsRoot) || !QDir().mkpath(reportsRoot)) {
+        return fail(16, QStringLiteral("Could not create disposable fixture folders."));
+    }
+
+    DatasetManifestData fixtureData;
+    fixtureData.datasetId = QLatin1String(RepresentativeDatasetId);
+    auto& provenance = fixtureData.provenance;
+    provenance.name = QStringLiteral("Pinned representative Model Test Dataset");
+    provenance.opendssVersion = QStringLiteral("2");
+    provenance.createdAt = QStringLiteral("2026-07-27T00:00:00Z");
+    provenance.updatedAt = provenance.createdAt;
+    provenance.captureStartedAt = provenance.createdAt;
+    provenance.captureEndedAt = provenance.createdAt;
+    provenance.stopReason = QStringLiteral("representative_validation_fixture");
+    provenance.status = QStringLiteral("completed");
+    provenance.sequence.frameCount = ExpectedRepresentativeCount;
+    provenance.sequence.imageWidth = 64;
+    provenance.sequence.imageHeight = 64;
+    provenance.sequence.bitDepth = 8;
+    provenance.sequence.nominalFps = 1.0;
+    for (qsizetype index = 0;
+         index < static_cast<qsizetype>(ExpectedClassIds.size()); ++index) {
+        fixtureData.classes.push_back(
+            {ExpectedClassIds[index], ExpectedClassNames[index]});
+    }
+
+    for (qsizetype index = 0; index < selected.size(); ++index) {
+        auto& item = selected[index];
+        const QString destination =
+            QDir(cropsRoot)
+                .filePath(QStringLiteral("%1.png")
+                              .arg(index, 2, 10, QLatin1Char('0')));
+        if (!QFile::copy(item.sourcePath, destination)) {
+            return fail(17, QStringLiteral("Could not copy representative image %1.")
+                                .arg(index));
+        }
+        item.fixtureCropPath = QDir::fromNativeSeparators(
+            QDir(fixtureRoot).relativeFilePath(destination));
+        fixtureData.records.push_back(
+            {item.recordId,
+             item.fixtureCropPath,
+             item.sourceSha256,
+             QStringLiteral("source-%1").arg(item.manifestIndex),
+             QStringLiteral("representative"),
+             provenance.createdAt,
+             QRect(0, 0, 64, 64),
+             item.manifestIndex});
+        fixtureData.labels.push_back(
+            {QStringLiteral("label-%1").arg(index), item.recordId,
+             item.classId, false});
+    }
+
+    const QString fixtureDatasetJson =
+        QDir(fixtureRoot).filePath("dataset.json");
+    if (!DatasetManifestV2::save(fixtureDatasetJson, fixtureData, &error)) {
+        return fail(18, QStringLiteral("Could not write representative dataset.json: %1")
+                            .arg(error));
+    }
+    const auto fixture =
+        DatasetManifestV2::load(fixtureDatasetJson, &error);
+    if (!fixture ||
+        fixture->datasetId() != QLatin1String(RepresentativeDatasetId) ||
+        fixture->records().size() != ExpectedRepresentativeCount ||
+        fixture->trainingSamples(&error).size() !=
+            ExpectedRepresentativeCount ||
+        !expectedClasses(fixture->classes())) {
+        return fail(19, fixture ? QStringLiteral("Representative Dataset facts mismatch.")
+                                : error);
+    }
+
+    const QString registryHashBefore = fileSha256(registryPath);
     QString registryWarning;
     const QJsonArray registryEntries =
         readModelRegistryEntriesFromPath(registryPath, &registryWarning);
@@ -392,17 +494,21 @@ int main(int argc, char** argv) {
         !samePath(package.packagePath, QLatin1String(ExpectedPackagePath)) ||
         !samePath(package.onnxPath, expectedOnnxPath) ||
         !samePath(package.metadataPath, expectedMetadataPath) ||
+        !QFileInfo(package.checkpointPath).isFile() ||
         QFileInfo(package.onnxPath).isSymLink() ||
+        QFileInfo(package.checkpointPath).isSymLink() ||
         QFileInfo(package.metadataPath).isSymLink()) {
         return fail(22, package.message.isEmpty()
                             ? QStringLiteral("Active Model package mismatch.")
                             : package.message);
     }
-    const QString onnxHash = fileSha256(package.onnxPath);
-    const QString checkpointHash = fileSha256(package.checkpointPath);
-    if (onnxHash != QLatin1String(ExpectedOnnxSha256)) {
-        return fail(23, QStringLiteral("Active Model ONNX SHA-256 mismatch: %1")
-                            .arg(onnxHash));
+    const QString onnxHashBefore = fileSha256(package.onnxPath);
+    const QString checkpointHashBefore = fileSha256(package.checkpointPath);
+    const QString metadataHashBefore = fileSha256(package.metadataPath);
+    if (onnxHashBefore != QLatin1String(ExpectedOnnxSha256) ||
+        !validSha256(checkpointHashBefore) ||
+        !validSha256(metadataHashBefore)) {
+        return fail(23, QStringLiteral("Active Model artifact hash mismatch."));
     }
     const auto metadata = readObject(package.metadataPath, &error);
     if (!metadata ||
@@ -412,8 +518,10 @@ int main(int argc, char** argv) {
             QLatin1String(ExpectedModelName) ||
         metadata->value("classes").toArray() !=
             QJsonArray{ExpectedClassIds[0], ExpectedClassIds[1],
-                       ExpectedClassIds[2]}) {
-        return fail(24, metadata ? QStringLiteral("Active Model metadata identity mismatch.")
+                       ExpectedClassIds[2]} ||
+        metadata->value("checkpoint_sha256").toString().toLower() !=
+            checkpointHashBefore) {
+        return fail(24, metadata ? QStringLiteral("Active Model metadata mismatch.")
                                  : error);
     }
 
@@ -424,6 +532,7 @@ int main(int argc, char** argv) {
         inspection.id != QLatin1String(ExpectedRegistryEntryId) ||
         inspection.displayName != QLatin1String(ExpectedModelName) ||
         inspection.modelSha256 != QLatin1String(ExpectedOnnxSha256) ||
+        inspection.plannedDevice.trimmed().isEmpty() ||
         !expectedClasses(inspection.classes)) {
         return fail(25, inspection.error.isEmpty()
                             ? QStringLiteral("Active Model loader inspection mismatch.")
@@ -432,113 +541,180 @@ int main(int argc, char** argv) {
     const PersistedActiveCheckpointInspection checkpointInspection =
         loader.inspectAndMigratePersistedActiveCheckpoint();
     if (!checkpointInspection.loadable ||
-        checkpointInspection.checkpointSha256 != checkpointHash) {
-        return fail(25, checkpointInspection.error.isEmpty()
-                            ? QStringLiteral("Active checkpoint provenance mismatch.")
-                            : checkpointInspection.error);
+        checkpointInspection.checkpointSha256 != checkpointHashBefore ||
+        checkpointInspection.metadataSha256 != metadataHashBefore ||
+        fileSha256(package.metadataPath) != metadataHashBefore ||
+        fileSha256(registryPath) != registryHashBefore) {
+        return fail(
+            26,
+            checkpointInspection.error.isEmpty()
+                ? QStringLiteral(
+                      "Active checkpoint provenance required an unexpected mutation.")
+                : checkpointInspection.error);
     }
-    const QString metadataHash = checkpointInspection.metadataSha256;
 
-    const QString registryHashBefore = fileSha256(registryPath);
-    qint64 progressProcessed = -1;
-    qint64 progressEligible = -1;
+    qint64 progressProcessed = 0;
+    qint64 progressEligible = 0;
+    int completedBatches = 0;
     OperationCoordinator operations;
     ModelTestService service(
         operations, &loader, {},
         [&](qint64 processed, qint64 eligible) {
+            if (processed > progressProcessed)
+                ++completedBatches;
             progressProcessed = processed;
             progressEligible = eligible;
         },
         pythonPath, workingDirectory);
+    const QString outputRoot =
+        QDir(reportsRoot).filePath("model-test-1");
     QElapsedTimer elapsed;
     elapsed.start();
-    const bool ran =
-        service.run({datasetJsonPath, outputRoot, QStringLiteral("2")}, &error);
+    const bool ran = service.run(
+        {fixtureDatasetJson, outputRoot, QStringLiteral("2")}, &error);
     const qint64 elapsedMs = elapsed.elapsed();
-    output << "elapsed_ms=" << elapsedMs
-           << " progress=" << progressProcessed << '/' << progressEligible
-           << Qt::endl;
 
-    if (fileSha256(auditManifestPath) != auditManifestHash ||
-        fileSha256(datasetJsonPath) != datasetJsonHash ||
-        fileSha256(registryPath) != registryHashBefore ||
-        fileSha256(package.onnxPath) != onnxHash ||
-        fileSha256(package.checkpointPath) != checkpointHash ||
-        fileSha256(package.metadataPath) != metadataHash) {
-        return fail(26, QStringLiteral("A supplied input changed during the probe."));
+    const auto sourceInputsUnchanged = [&]() {
+        if (fileSha256(auditManifestPath) != auditManifestHash ||
+            fileSha256(productionDatasetJsonPath) !=
+                productionDatasetJsonHash ||
+            fileSha256(registryPath) != registryHashBefore ||
+            fileSha256(package.onnxPath) != onnxHashBefore ||
+            fileSha256(package.checkpointPath) != checkpointHashBefore ||
+            fileSha256(package.metadataPath) != metadataHashBefore) {
+            return false;
+        }
+        for (const auto& item : selected) {
+            if (fileSha256(item.sourcePath) != item.sourceSha256)
+                return false;
+        }
+        return true;
+    };
+    if (!sourceInputsUnchanged()) {
+        return fail(27, QStringLiteral("A pinned source input changed during the probe."));
     }
     if (!ran) {
-        return fail(27, QStringLiteral("Production Model Test failed: %1").arg(error));
+        return fail(28, QStringLiteral("Production Model Test failed: %1").arg(error));
+    }
+    if (elapsedMs <= 0 || elapsedMs > 30000 ||
+        completedBatches < 1 ||
+        progressProcessed != ExpectedRepresentativeCount ||
+        progressEligible != ExpectedRepresentativeCount) {
+        return fail(29, QStringLiteral("Bounded durable-batch progress mismatch."));
     }
 
     const QString summaryPath =
         QDir(outputRoot).filePath("model_test_summary.json");
     const QString predictionsPath =
         QDir(outputRoot).filePath("predictions.csv");
+    const auto summaryObject = readObject(summaryPath, &error);
     auto summary = ModelTestSummaryV2::load(summaryPath, &error);
-    if (!summary) {
-        return fail(28, QStringLiteral("Final summary/CSV coherence failed: %1")
+    if (!summaryObject || !summary) {
+        return fail(30, QStringLiteral("Final summary/CSV coherence failed: %1")
                             .arg(error));
     }
     const auto& data = summary->data();
+    const auto& predictions = summary->predictions();
     const auto& derived = summary->derivedResults();
+    const QJsonObject rawActiveModel =
+        summaryObject->value("active_model").toObject();
+    const QJsonObject rawDevice = summaryObject->value("device").toObject();
+    const QString expectedEffective =
+        data.effectiveDevice == EffectiveDevice::Cuda
+            ? QStringLiteral("cuda")
+            : QStringLiteral("cpu");
+    const bool truthfulFallback =
+        (data.effectiveDevice == EffectiveDevice::Cuda &&
+         !data.fallbackWarning && !rawDevice.contains("fallback_warning")) ||
+        (data.effectiveDevice == EffectiveDevice::Cpu &&
+         data.fallbackWarning &&
+         !data.fallbackWarning->trimmed().isEmpty() &&
+         rawDevice.value("fallback_warning").toString() ==
+             *data.fallbackWarning);
+    if (rawDevice.value("policy").toString() !=
+            QLatin1String(ModelTestSummaryV2::DevicePolicy) ||
+        rawDevice.value("effective").toString() != expectedEffective ||
+        !truthfulFallback) {
+        return fail(31, QStringLiteral("GPU-first/effective fallback facts mismatch."));
+    }
+
     qint64 confusionSum = 0;
     for (const auto& row : derived.confusionMatrix) {
         for (qint64 value : row)
             confusionSum += value;
     }
-    if (data.status != ModelTestStatus::Completed ||
+    if (data.schemaVersion !=
+            QLatin1String(ModelTestSummaryV2::SchemaVersion) ||
+        data.status != ModelTestStatus::Completed ||
         data.stopReason != QStringLiteral("end_of_dataset") ||
-        data.eligibleImages != ExpectedEligible ||
-        derived.processedImages != ExpectedEligible ||
-        summary->predictions().size() != ExpectedEligible ||
-        confusionSum != ExpectedEligible ||
-        data.dataset.id != QLatin1String(ExpectedDatasetId) ||
-        !samePath(data.dataset.sourcePath, datasetRoot.absolutePath()) ||
+        data.eligibleImages != ExpectedRepresentativeCount ||
+        derived.processedImages != ExpectedRepresentativeCount ||
+        predictions.size() != ExpectedRepresentativeCount ||
+        confusionSum != ExpectedRepresentativeCount ||
+        data.dataset.id != QLatin1String(RepresentativeDatasetId) ||
+        !samePath(data.dataset.sourcePath, fixtureRoot) ||
         !expectedClasses(data.dataset.classes) ||
         data.activeModel.id != QLatin1String(ExpectedRegistryEntryId) ||
         data.activeModel.name != QLatin1String(ExpectedModelName) ||
-        data.activeModel.checkpointSha256 != checkpointHash ||
-        data.activeModel.metadataSha256 != metadataHash ||
+        data.activeModel.checkpointSha256 != checkpointHashBefore ||
+        data.activeModel.metadataSha256 != metadataHashBefore ||
+        !data.activeModel.onnxSha256.isEmpty() ||
+        rawActiveModel.contains("onnx_sha256") ||
+        rawActiveModel.value("checkpoint_sha256").toString() !=
+            checkpointHashBefore ||
+        rawActiveModel.value("metadata_sha256").toString() !=
+            metadataHashBefore ||
         !expectedClasses(data.activeModel.classes)) {
-        return fail(29, QStringLiteral("Final Model Test summary facts mismatch."));
+        return fail(32, QStringLiteral("Final Model Test summary facts mismatch."));
     }
     if (derived.perClass.size() !=
-        static_cast<qsizetype>(ExpectedProductionSupports.size())) {
-        return fail(30, QStringLiteral("Final per-class metric count mismatch."));
+        static_cast<qsizetype>(ExpectedClassIds.size())) {
+        return fail(33, QStringLiteral("Final per-class metric count mismatch."));
     }
     for (qsizetype index = 0; index < derived.perClass.size(); ++index) {
-        if (derived.perClass.at(index).support !=
-            ExpectedProductionSupports[index]) {
-            return fail(31, QStringLiteral("Final per-class support mismatch."));
+        if (derived.perClass.at(index).classId != ExpectedClassIds[index] ||
+            derived.perClass.at(index).support != ExpectedPerClass) {
+            return fail(34, QStringLiteral("Final per-class support mismatch."));
+        }
+    }
+    for (qsizetype index = 0; index < predictions.size(); ++index) {
+        if (predictions.at(index).imagePath !=
+                selected.at(index).fixtureCropPath ||
+            predictions.at(index).trueClassId !=
+                selected.at(index).classId) {
+            return fail(35, QStringLiteral("Ordered prediction facts mismatch."));
         }
     }
 
-    QFile predictions(predictionsPath);
-    if (!predictions.open(QIODevice::ReadOnly)) {
-        return fail(32, QStringLiteral("Final predictions.csv is unreadable."));
+    QFile predictionsFile(predictionsPath);
+    if (!predictionsFile.open(QIODevice::ReadOnly)) {
+        return fail(36, QStringLiteral("Final predictions.csv is unreadable."));
     }
-    const QByteArray predictionsBytes = predictions.readAll();
-    if (predictionsBytes.count('\n') != ExpectedEligible + 1) {
-        return fail(33, QStringLiteral("predictions.csv line count mismatch."));
+    const QByteArray predictionsBytes = predictionsFile.readAll();
+    if (predictionsBytes.count('\n') != ExpectedRepresentativeCount + 1) {
+        return fail(37, QStringLiteral("predictions.csv line count mismatch."));
     }
     QString partialPath;
-    if (!noPartialArtifacts(outputRoot, &partialPath)) {
-        return fail(34, QStringLiteral("Partial artifact remains: %1")
+    if (!noPartialArtifacts(temporary.path(), &partialPath)) {
+        return fail(38, QStringLiteral("Partial artifact remains: %1")
                             .arg(partialPath));
     }
+    if (!sourceInputsUnchanged()) {
+        return fail(39, QStringLiteral("A pinned source input changed after validation."));
+    }
 
-    output << "PASS dataset_id=" << data.dataset.id
+    output << "PASS source_dataset_id=" << ExpectedDatasetId
+           << " representative_dataset_id=" << data.dataset.id
            << " audit_sha256=" << auditManifestHash.toUpper()
-           << " total=" << ExpectedTotal
-           << " eligible_processed=" << derived.processedImages
-           << " audit_supports=3142,387,91"
-           << " production_supports=3142,386,92"
-           << " model_id=" << data.activeModel.id
-           << " model_name=\"" << data.activeModel.name << '"'
+           << " selected=6 supports=2,2,2"
+           << " planned_policy=" << ModelTestSummaryV2::DevicePolicy
+           << " effective_device=" << expectedEffective
+           << " completed_batches=" << completedBatches
+           << " elapsed_ms=" << elapsedMs
            << " checkpoint_sha256="
            << data.activeModel.checkpointSha256.toUpper()
-           << " confusion_sum=" << confusionSum
+           << " metadata_sha256="
+           << data.activeModel.metadataSha256.toUpper()
            << " predictions_lines=" << predictionsBytes.count('\n')
            << Qt::endl;
     return 0;

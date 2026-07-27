@@ -1330,6 +1330,36 @@ target_link_libraries(model_test_production_model_probe PRIVATE
   ${OpenCV_LIBS}
 )
 opendss_deploy_qualified_cuda(model_test_production_model_probe)
+add_test(
+  NAME model_test_production_model_representative_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    --unset=PYTHONPATH
+    --unset=PYTHONHOME
+    "PYTHONNOUSERSITE=1"
+    "PIP_NO_INDEX=1"
+    "HF_HUB_OFFLINE=1"
+    "TRANSFORMERS_OFFLINE=1"
+    "PATH=$<TARGET_FILE_DIR:model_test_production_model_probe>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
+    $<TARGET_FILE:model_test_production_model_probe>
+    --dataset-manifest
+    "C:/Users/goals/OneDrive/Documents/OpenDropletSortingSuite/datasets/prepared/droplet_target_nontarget_3class_starter/metadata/dataset_manifest.json"
+    --model-registry
+    "C:/Users/goals/OneDrive/Documents/OpenDropletSortingSuite/models/model_registry.json"
+    --python
+    "${OPENDSS_TEST_INSTALLER_PYTHON}"
+    --working-directory
+    "$ENV{LOCALAPPDATA}/OpenDSS"
+)
+set_tests_properties(
+  model_test_production_model_representative_test
+  PROPERTIES
+    RUN_SERIAL TRUE
+    TIMEOUT 45
+)
+opendss_configure_offscreen_test(
+  model_test_production_model_representative_test
+  model_test_production_model_probe
+)
 
 qt_add_executable(model_test_controller_test
   model_test_controller_test.cpp

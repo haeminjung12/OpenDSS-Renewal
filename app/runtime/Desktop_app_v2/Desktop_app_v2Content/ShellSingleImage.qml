@@ -489,28 +489,35 @@ Item {
             id: cropDelegate
             required property var model
             readonly property string recordId: model.recordId
-            width: 239
+            width: 185
             height: 185
             color: model.state === "excluded" ? "#d1d5db" : Constants.backgroundColor
-            border.width: activeFocus || model.selected ? 6 : 3
-            border.color: activeFocus || model.selected ? Constants.accentColor
-                                                  : model.state === "class0" ? Constants.appClass0Color
-                                                  : model.state === "class1" ? Constants.appClass1Color
-                                                  : model.state === "class2" ? Constants.appClass2Color
-                                                  : Constants.borderColor
             activeFocusOnTab: !!root.datasetLabelController
             Accessible.name: qsTr("Droplet Crop %1").arg(recordId)
             Accessible.role: Accessible.Button
             GridView.onPooled: cropDelegate.focus = false
 
-            Image {
+            Rectangle {
+                id: cropBorderLayer
+                objectName: "labelCropBorderLayer"
                 anchors.fill: parent
-                anchors.margins: 5
-                source: cropDelegate.model.cropUrl
-                fillMode: Image.PreserveAspectFit
-                sourceSize: Qt.size(Math.round(width), Math.round(height))
-                asynchronous: true
-                cache: false
+                anchors.margins: 3
+                color: "#00000000"
+                border.width: 6
+                border.color: cropDelegate.model.state === "class0" ? Constants.appClass0Color
+                                                                    : cropDelegate.model.state === "class1" ? Constants.appClass1Color
+                                                                    : cropDelegate.model.state === "class2" ? Constants.appClass2Color
+                                                                    : Constants.borderColor
+
+                Image {
+                    anchors.fill: parent
+                    anchors.margins: 6
+                    source: cropDelegate.model.cropUrl
+                    fillMode: Image.PreserveAspectFit
+                    sourceSize: Qt.size(Math.round(width), Math.round(height))
+                    asynchronous: true
+                    cache: false
+                }
             }
 
             Text {
@@ -519,6 +526,27 @@ Item {
                 text: "×"
                 color: Constants.textColor
                 font: Constants.largeFont
+            }
+
+            Rectangle {
+                id: selectionIndicator
+                objectName: "labelCropSelectionIndicator"
+                anchors.fill: cropBorderLayer
+                anchors.margins: 8
+                color: "#00000000"
+                border.width: 3
+                border.color: Constants.accentColor
+                visible: cropDelegate.model.selected
+            }
+
+            Rectangle {
+                id: keyboardFocusRing
+                objectName: "labelCropKeyboardFocusRing"
+                anchors.fill: parent
+                color: "#00000000"
+                border.width: 3
+                border.color: Constants.accentColor
+                visible: cropDelegate.activeFocus
             }
 
             MouseArea {

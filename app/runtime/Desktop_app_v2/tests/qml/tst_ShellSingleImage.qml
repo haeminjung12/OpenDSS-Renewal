@@ -1931,14 +1931,40 @@ Item {
         verify(firstCrop !== null)
         compare(firstCrop.width, shell.form.labelWorkspace.cropGridHost.cellWidth)
         compare(firstCrop.height, shell.form.labelWorkspace.cropGridHost.cellHeight)
-        compare(firstCrop.width, 239)
+        compare(firstCrop.width, 185)
         compare(firstCrop.height, 185)
-        compare(firstCrop.border.width, 6)
+        const firstCropBorder = findChild(firstCrop, "labelCropBorderLayer")
+        const firstSelectionIndicator =
+                findChild(firstCrop, "labelCropSelectionIndicator")
+        const firstFocusRing =
+                findChild(firstCrop, "labelCropKeyboardFocusRing")
+        verify(firstCropBorder !== null)
+        verify(firstSelectionIndicator !== null)
+        verify(firstFocusRing !== null)
+        compare(firstCropBorder.border.width, 6)
+        verify(firstSelectionIndicator.visible)
+        verify(firstCropBorder !== firstSelectionIndicator)
+        verify(firstCropBorder !== firstFocusRing)
+        verify(firstSelectionIndicator !== firstFocusRing)
+        cropGrid.positionViewAtIndex(1, GridView.Contain)
+        tryVerify(function() { return labelCropDelegate("r2") !== null })
         const secondCrop = labelCropDelegate("r2")
         verify(secondCrop !== null)
-        compare(secondCrop.border.width, 3)
+        const secondCropBorder = findChild(secondCrop, "labelCropBorderLayer")
+        const secondSelectionIndicator =
+                findChild(secondCrop, "labelCropSelectionIndicator")
+        const secondFocusRing =
+                findChild(secondCrop, "labelCropKeyboardFocusRing")
+        verify(secondCropBorder !== null)
+        verify(secondSelectionIndicator !== null)
+        verify(secondFocusRing !== null)
+        compare(secondCropBorder.border.width, 6)
+        verify(!secondSelectionIndicator.visible)
+        verify(!secondFocusRing.visible)
         secondCrop.forceActiveFocus()
-        tryCompare(secondCrop.border, "width", 6)
+        tryCompare(secondFocusRing, "visible", true)
+        compare(secondCropBorder.border.width, 6)
+        verify(!secondSelectionIndicator.visible)
 
         labelController.classNames = ["", "Target"]
         wait(0)
@@ -1993,6 +2019,7 @@ Item {
         compare(labelController.renamedClassIndex, 1)
         compare(labelController.renamedClassName, "Single")
 
+        cropGrid.positionViewAtIndex(0, GridView.Contain)
         tryVerify(function() { return labelCropDelegate("r1") !== null })
         const crop = labelCropDelegate("r1")
         mouseClick(crop)
@@ -2017,6 +2044,14 @@ Item {
                 ++instantiatedDelegates
         }
         verify(instantiatedDelegates < cropGrid.count)
+        const visibleColumns = Math.max(
+                                 1, Math.floor(cropGrid.width
+                                               / cropGrid.cellWidth))
+        const visibleRows = Math.max(
+                              1, Math.ceil(cropGrid.height
+                                           / cropGrid.cellHeight))
+        verify(instantiatedDelegates
+               <= visibleColumns * (visibleRows + 2))
     }
 
     function test_outerPanelToggleKeepsWorkspace() {

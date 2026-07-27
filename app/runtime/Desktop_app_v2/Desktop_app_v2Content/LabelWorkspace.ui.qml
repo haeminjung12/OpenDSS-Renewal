@@ -247,7 +247,7 @@ Rectangle {
                             id: labelSplitView
                             orientation: Qt.Vertical
                             width: parent.width
-                            height: selectedCropPane.SplitView.maximumHeight + labelActionContent.implicitHeight + Constants.spacing
+                            height: selectedCropPane.SplitView.preferredHeight + labelActionContent.implicitHeight + Constants.spacing
                             handle: Rectangle {
                                 implicitHeight: Constants.spacing
                                 color: Constants.borderColor

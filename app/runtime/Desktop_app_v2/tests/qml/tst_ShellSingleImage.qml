@@ -2018,6 +2018,59 @@ Item {
         verify(typeof shell.form.modelTestWorkspace.modelTestResultsHeadingButton === "undefined")
     }
 
+    function test_labelHeaderUsesCurrentPreviewHeightAtMaximizedSize() {
+        const originalWidth = testRoot.width
+        const originalHeight = testRoot.height
+
+        try {
+            testRoot.width = 1707
+            testRoot.height = 1019
+            shell.form.navLabelButton.clicked()
+
+            const workspace = shell.form.labelWorkspace
+            tryCompare(workspace, "visible", true)
+            tryVerify(function() {
+                const labelY =
+                        workspace.labelHeadingButton.mapToItem(workspace, 0, 0).y
+                const filterY =
+                        workspace.filterHeadingButton.mapToItem(workspace, 0, 0).y
+                return filterY > labelY
+                       + workspace.labelHeadingButton.height
+            })
+            compare(testRoot.width, 1707)
+            compare(testRoot.height, 1019)
+            compare(workspace.cropGridHost.cellWidth, 185)
+            compare(workspace.cropGridHost.cellHeight, 185)
+            compare(workspace.cropGridHost.reuseItems, true)
+
+            const labelHeading = workspace.labelHeadingButton
+            const filterHeading = workspace.filterHeadingButton
+            const labelPosition = labelHeading.mapToItem(workspace, 0, 0)
+            const filterPosition = filterHeading.mapToItem(workspace, 0, 0)
+            const classActionPosition =
+                    workspace.class0Button.mapToItem(workspace, 0, 0)
+            const navigationPosition =
+                    workspace.previousButton.mapToItem(workspace, 0, 0)
+            const actionContentHeight =
+                    navigationPosition.y + workspace.previousButton.height
+                    - classActionPosition.y
+            const preferredPreviewHeight =
+                    Math.min(Math.round(180 * Constants.textScale),
+                             labelHeading.width)
+            const actualLabelBodyHeight =
+                    filterPosition.y - labelPosition.y - labelHeading.height - 2
+            const expectedLabelBodyHeight =
+                    preferredPreviewHeight + actionContentHeight
+                    + Constants.spacing
+
+            compare(Math.round(actualLabelBodyHeight),
+                    Math.round(expectedLabelBodyHeight))
+        } finally {
+            testRoot.width = originalWidth
+            testRoot.height = originalHeight
+        }
+    }
+
     function test_labelControllerDirectWiring() {
         shell.datasetLabelController = labelController
         shell.form.navLabelButton.clicked()

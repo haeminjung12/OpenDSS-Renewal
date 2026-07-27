@@ -134,7 +134,7 @@ Rectangle {
                                 Text { text: qsTr("✓"); visible: row.active; color: Constants.readyColor; font: Constants.appBodyFont; Accessible.name: qsTr("Active Model") }
                                 Column {
                                     width: parent.width - (row.active ? 48 : 0)
-                                    Text { text: row.name; font: Constants.appBodyFont; font.bold: true; elide: Text.ElideRight; width: parent.width }
+                                    Text { text: row.name; font: Constants.appButtonFont; elide: Text.ElideRight; width: parent.width }
                                     Text { text: qsTr("Architecture: %1").arg(row.architecture); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: parent.width }
                                     Text { text: qsTr("%1  •  %2").arg(row.performanceLabel).arg(row.classSummary); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
                                 }
@@ -157,7 +157,7 @@ Rectangle {
                             Text { text: qsTr("✓"); visible: true; color: Constants.readyColor; font: Constants.appBodyFont; Accessible.name: qsTr("Active Model") }
                             Column {
                                 width: productionModelRowButton.width - 48
-                                Text { text: qsTr("DropletNet-04"); font: Constants.appBodyFont; font.bold: true }
+                                Text { text: qsTr("DropletNet-04"); font: Constants.appButtonFont }
                                 Text { text: qsTr("Architecture: EfficientNet-B0"); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: parent.width }
                                 Text { text: qsTr("More Accurate  •  Labels: Class 0, Class 1"); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
                             }
@@ -175,7 +175,7 @@ Rectangle {
                             border.color: Constants.borderColor
                         }
                         contentItem: Column {
-                            Text { text: qsTr("DropletNet-03"); font: Constants.appBodyFont; font.bold: true }
+                            Text { text: qsTr("DropletNet-03"); font: Constants.appButtonFont }
                             Text { text: qsTr("Architecture: MobileNetV3-Small"); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: candidateModelRowButton.width - Constants.spacing * 2 }
                             Text { text: qsTr("Faster  •  Labels: Class 0, Class 1"); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: candidateModelRowButton.width - Constants.spacing * 2 }
                         }

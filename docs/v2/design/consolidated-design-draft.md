@@ -48,7 +48,7 @@ Model Test and Sequence Test display the Active Model as read-only context and c
 
 Live keeps one workspace. Its right panel contains Setup Profile, Run Information, Trigger & Timing, Output & Recording, and Running disclosures. Running is collapsed before Start. Start collapses setup, expands Running, makes other setup fields read-only, keeps Set Decision Boundary available for one-click replacement, and retains the Camera preview. `CameraActionBar` below the preview contains Start Camera and Start Sorting.
 
-Trigger & Timing contains Active Model, Hit Class, independent Trigger Every Droplet and DAQ Output toggles, Send Test Pulse, and `Decision Boundary`. `Set Decision Boundary` arms exactly one placement click in the owning Camera frame; ordinary frame clicks do nothing. The clicked source-image X/Y point begins a horizontal operational Hit/Waste segment that extends to the right edge only. `Top is Hit` or `Bottom is Hit` selects the operational side, and `Reset` clears the boundary.
+Trigger & Timing contains Active Model, Hit Class, independent Trigger Every Droplet and DAQ Output toggles, Send Test Pulse, and `Decision Boundary`. `Set Decision Boundary` arms exactly one placement click in the owning Camera frame; ordinary frame clicks do nothing. The clicked source-image X/Y point begins a horizontal observer/comparison segment that extends to the right edge only. `Top is Hit` or `Bottom is Hit` selects the Observed Route mapping, and `Reset` clears the boundary. Decision Boundary affects only Observed Route; it never changes Predicted Class, Decision, or DAQ output.
 
 Running contains status, elapsed time, Total Droplets, Predicted Class counts, Decision Hit/Waste, Observed Hit/Waste/Unresolved, Camera FPS, Inference Time, Pause/Resume, and Stop.
 
@@ -56,7 +56,7 @@ Running contains status, elapsed time, Total Droplets, Predicted Class counts, D
 
 Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, its own editable Decision Boundary, Start, and Stop. It does not reuse or modify Live Decision Boundary state. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default, and Sequence Test inference defaults to CPU.
 
-Results keeps the loaded Run in the center. `RunListSection` on the right contains the selectable Run list and a bottom Load button. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
+Results keeps the loaded Run in the center. `RunListSection` on the right is internally scrollable and contains the selectable Run list plus bottom Load and Remove Run actions. Remove Run deletes only the selected Run files/folder and only after explicit confirmation. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
 
 Settings uses a centered column with Storage, Application Information, and Diagnostics only.
 
@@ -2018,13 +2018,14 @@ Run Name, Experiment Type, Notes, Duration, and Save Location are user selection
 - Hit Class is required and lists Class ID plus Class Name from the Active Model.
 - Predicted Class is the class with the largest Class Score.
 - Decision is Hit only when Predicted Class equals Hit Class; all other predictions produce Decision Waste.
+- For an accepted droplet, enabled DAQ output follows Decision: Decision Hit requests physical output and Decision Waste does not.
 - No Class Score or confidence threshold is editable or used to alter routing.
 
 ### Trigger Every Droplet
 
 - Active Model is optional.
 - Hit Class is hidden or disabled with a clear `Not used for Trigger Every Droplet` explanation.
-- Every detected droplet produces Decision Hit.
+- Every accepted droplet produces Decision Hit and therefore requests physical output when DAQ output is enabled.
 - If a model is present, Predicted Class and Class Scores may still be logged and displayed; they do not control Decision.
 - If no model is present, model-dependent fields remain absent or explicitly empty rather than displaying fabricated values.
 
@@ -2032,30 +2033,32 @@ Trigger Every Droplet choices are first-class peers and remain visible in pre-ru
 
 ## 15.7 Decision Boundary
 
-The visible concept and control label is `Decision Boundary`. It is the actual horizontal Hit/Waste decision line, not a visual-only route-observation aid.
+The visible concept and control label is `Decision Boundary`. It is the horizontal observer/comparison line used to calculate Observed Route. It is not a Decision or DAQ arbitration line.
 
 Placement is explicit:
 
 1. `Set Decision Boundary` arms one placement click in the owning workspace's currently visible full-size frame.
 2. Ordinary frame clicks while placement is not armed MUST NOT create, move, or clear the boundary.
 3. The armed click maps its X and Y position through the displayed-frame transform to exact source-image coordinates.
-4. The operational Decision Boundary segment begins at that clicked source-image X/Y point and extends horizontally to the **right edge** of the frame. It MUST NOT extend leftward and MUST NOT span the full frame. The overlay is shown only in the owning viewer.
+4. The observer Decision Boundary segment begins at that clicked source-image X/Y point and extends horizontally to the **right edge** of the frame. It MUST NOT extend leftward and MUST NOT span the full frame. The overlay is shown only in the owning viewer.
 5. After the successful click, placement disarms and focus returns to the Decision Boundary controls.
 6. `Reset` clears the owning workspace's boundary.
 
-The clicked X and Y coordinates are workspace-local authoritative operation state. Live and Sequence Test own independent Decision Boundaries and MUST NOT read, reuse, overwrite, synchronize, or display each other's boundary.
+The clicked X and Y coordinates are workspace-local authoritative observer state. Live and Sequence Test own independent Decision Boundaries and MUST NOT read, reuse, overwrite, synchronize, or display each other's boundary.
 
 The coordinate MUST NOT be written to Setup Profiles, Run files, `events.csv`, `run_summary.json`, Results, logs, or any other exported artifact. No coordinate history, timestamp, event association, or cross-workspace projection may be inferred.
 
-Droplets flow left to right and EventDetector tracks each droplet through the frame. Decision timing is:
+Droplets flow left to right and EventDetector tracks each droplet through the frame. Observed Route timing is:
 
-- While a tracked droplet remains in the frame, including while it is left of the clicked Decision Boundary X, it is tracking-only. No Hit/Waste classification or physical routing output occurs before the track ends.
-- The clicked X defines only the start of the visible right-edge segment. It is not an operational or early-classification threshold.
-- Classification occurs when the track ends or the droplet disappears. The final tracked source-image Y is compared with the Decision Boundary Y, and `Top is Hit` / `Bottom is Hit` supplies the Hit/Waste mapping.
+- While a tracked droplet remains in the frame, including while it is left of the clicked Decision Boundary X, the observer calculation remains pending.
+- The clicked X defines only the start of the visible right-edge segment. It is not a Decision or DAQ threshold.
+- Observed Route is calculated when the track ends or the droplet disappears. The final tracked source-image Y is compared with the Decision Boundary Y, and `Top is Hit` / `Bottom is Hit` supplies the observed Hit/Waste mapping.
 - The same final-Y comparison applies even in the unexpected case where the track ends or disappears before ever reaching the clicked X; clicked X alone never makes the outcome Unresolved.
-- When final Y is exactly equal to the Decision Boundary Y, the outcome is `Unresolved`. Equality MUST NOT be forced to Hit or Waste and MUST NOT emit a Hit pulse.
+- When final Y is exactly equal to the Decision Boundary Y, Observed Route is `Unresolved`. Equality MUST NOT be forced to observed Hit or Waste.
 
-The user must also explicitly choose the operational side:
+This entire boundary/final-Y calculation is observer-only. It never changes Predicted Class or Decision and never requests, suppresses, or otherwise controls DAQ output. Trigger Every Droplet OFF makes the model Decision control DAQ; Trigger Every Droplet ON makes every accepted droplet Decision Hit. Observed Route is persisted only for factual comparison with Decision and is never a DAQ gate.
+
+The user must also explicitly choose the observer mapping:
 
 ```text
 Top is Hit
@@ -2073,7 +2076,7 @@ This mapping should use a small coordinate diagram plus text. It must not use th
 
 Start is unavailable until the owning workspace has a Decision Boundary and an operational side selection. The direct disabled reason is **No Decision Boundary set**.
 
-Decision Boundary remains editable during an active Live or Sequence Test Run. A successfully placed replacement boundary becomes the operational Hit/Waste line immediately for subsequent processing; it does not rewrite prior events or create persisted boundary provenance. `Reset` clears the boundary; a new Start remains unavailable until it is set again.
+Decision Boundary remains editable during an active Live or Sequence Test Run. A successfully placed replacement boundary becomes the observer Hit/Waste line immediately for subsequent Observed Route calculations; it does not rewrite prior events or create persisted boundary provenance. `Reset` clears the boundary; a new Start remains unavailable until it is set again.
 
 The selected Top-is-Hit/Bottom-is-Hit mapping may follow the applicable profile and Run configuration contracts, but the boundary coordinate is explicitly excluded from all persistence and provenance.
 
@@ -2197,10 +2200,10 @@ When no model is used, Predicted Class and Inference Time groups are absent or d
 
 - Live real-time sorting inference uses the qualified C++ ONNX Runtime CPU path. GPU status is not presented as a Live prerequisite.
 - Decision Boundary placement and mapping remain editable after Start. `Set Decision Boundary` arms exactly one replacement click; ordinary frame clicks remain inert.
-- The replacement segment begins at the new clicked source-image X/Y point and extends horizontally to the right edge only. It applies immediately to subsequent routing decisions and never rewrites a prior event.
+- The replacement segment begins at the new clicked source-image X/Y point and extends horizontally to the right edge only. It applies immediately to subsequent Observed Route calculations and never rewrites a prior event.
 - No timestamped boundary history or boundary-version association is created, and no clicked X or Y value is written to a Run, event, Result, log, profile, or exported artifact.
-- Every finalized event saves one Droplet Crop and one Droplet Log row.
-- Record Full Image Sequence controls only full-frame retention. Droplet Crops and event data are always saved.
+- Every Live or Sequence Test detection writes one Droplet Log row whose integer `rejected` field is exactly `0` or `1`. An undersized detection writes `rejected=1` and produces no crop image; no `rejection_reason` field or column exists.
+- Every non-rejected finalized event saves one Droplet Crop. Record Full Image Sequence controls only full-frame retention.
 - Optional nonpersistent detection/trajectory overlays MAY appear on the live preview when they add no controls, do not alter source images, and do not obscure the factual feed.
 - The Configuration action remains available during Live. Camera and DAQ sections are read-only with **Camera and DAQ settings are locked while sorting is active**; Detector Configuration remains editable.
 - Navigation away is permitted when nonconflicting, but Pause/Resume/Stop remain available only in the owning Live workspace. The header continues to show Sorting.
@@ -2377,7 +2380,9 @@ A new Sequence Test setup initializes Physical DAQ Output as unchecked. This def
 - No Class Score threshold or manual compute-device control is shown.
 - Sequence Test real-time sorting inference uses the qualified C++ ONNX Runtime path and defaults to CPU.
 
-Sequence Test owns and edits its own workspace-local operational Decision Boundary. It MUST NOT read, reuse, overwrite, display, or synchronize Live state. `Set Decision Boundary` arms exactly one placement click; ordinary frame clicks are inert. The click maps through the current presentation transform to an exact source-image X/Y point. The horizontal operational segment begins at that point and extends to the right edge of the source frame only; it never extends leftward or across the full frame. `Top is Hit` or `Bottom is Hit` selects the operational side, and Reset clears the boundary. Start is unavailable until the boundary is set. The clicked point MUST NOT leave the Sequence Test workspace or be persisted, logged, exported, or associated with an event or history.
+Sequence Test owns and edits its own workspace-local observer Decision Boundary. It MUST NOT read, reuse, overwrite, display, or synchronize Live state. `Set Decision Boundary` arms exactly one placement click; ordinary frame clicks are inert. The click maps through the current presentation transform to an exact source-image X/Y point. The horizontal observer segment begins at that point and extends to the right edge of the source frame only; it never extends leftward or across the full frame. `Top is Hit` or `Bottom is Hit` selects the Observed Route mapping, and Reset clears the boundary. Start is unavailable until the boundary is set. The clicked point MUST NOT leave the Sequence Test workspace or be persisted, logged, exported, or associated with an event or history.
+
+When Physical DAQ Output is enabled, accepted-droplet output follows Decision exactly as defined in §15.6. The observer Decision Boundary and persisted Observed Route never control DAQ output.
 
 ## 16.5 Physical DAQ Output
 
@@ -2464,7 +2469,7 @@ Results > Runs
 │ <row>                                                                      │
 └────────────────────────────────────────────────────────────────────────────┘
 
-[ Load selected Run ]
+[ Load selected Run ]  [ Remove Run ]
 ```
 
 ### List design contract
@@ -2475,7 +2480,7 @@ Results > Runs
 | **Major regions** | Workspace heading; Runs table; optional simple filter/search if implemented; action region; fault banner. |
 | **Dominant hierarchy** | Factual list columns and current selection. |
 | **Primary action** | Load selected Run. |
-| **Secondary actions** | Select another Run; open storage location only where a row remains identifiable but summary is unreadable. |
+| **Secondary actions** | Select another Run; Remove Run; open storage location only where a row remains identifiable but summary is unreadable. |
 | **Required artifact/hardware** | Discoverable Run folders. No hardware. |
 | **Output** | None. |
 | **Direct disabled reasons** | **No Runs found** in Empty; **No Run selected** before selection; direct unreadable Run reason. |
@@ -2494,6 +2499,8 @@ Required list columns:
 Status values use factual semantic badges. A Failed Run is not removed from the list. A Run without a model displays `—` or `No model`, not `Unknown model`.
 
 Rows must remain identifiable when optional metadata is missing. An unreadable entry may retain path/name facts and expose a direct file reason.
+
+Remove Run deletes only the selected Run's files and folder. It performs no deletion until the user explicitly confirms; cancelling the confirmation changes nothing.
 
 ## 17.3 Selected Run layout
 
@@ -2589,7 +2596,7 @@ The interface MUST NOT label this matrix Actual Destination, Ground Truth Route,
 ## 17.7 Keyboard, responsive behavior, and mock states
 
 - Table headers and cells expose accessible names. Up/Down changes focused row; selection does not load or replace the center Run.
-- The right-side Runs panel remains present and its bottom Load button explicitly replaces the center detail.
+- The right-side Runs panel remains present, scrolls internally when its content exceeds the available height, and keeps its bottom actions reachable. Load explicitly replaces the center detail.
 - The selected and loaded Run use separate visual states at every supported width.
 - The matrix may horizontally scroll only if enlarged text makes it necessary; row/column headers remain visible or repeated for accessibility.
 - Required mocks: no Runs; mixed Live/Sequence Test list; Completed, Stopped, Interrupted, Failed; Run with model; Trigger Every Droplet/no model; Run with Unresolved values; full sequence present/absent; missing Droplet Log; unreadable Run Summary; Notes edit/save success; Notes save failure; long paths/names; 200% scaling.

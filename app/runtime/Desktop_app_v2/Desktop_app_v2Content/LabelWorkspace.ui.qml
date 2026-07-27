@@ -118,6 +118,9 @@ Rectangle {
                 GridView {
                     id: cropGridHost
                     visible: root.presentation !== "empty"
+                    activeFocusOnTab: true
+                    Accessible.role: Accessible.List
+                    Accessible.name: qsTr("Droplet crop grid")
                     anchors.top: errorMessageText.visible ? errorMessageText.bottom : cropGridTitle.bottom
                     anchors.topMargin: Constants.spacing
                     anchors.bottom: parent.bottom
@@ -128,6 +131,60 @@ Rectangle {
                     cellWidth: 185
                     cellHeight: 185
                     reuseItems: true
+                    currentIndex: root.selectedCropIndex
+                    highlightMoveDuration: 0
+                    highlight: Item {
+                        width: cropGridHost.cellWidth
+                        height: cropGridHost.cellHeight
+                        z: 2
+                        Accessible.ignored: true
+
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 6
+                            color: Constants.backgroundColor
+                            opacity: 0.55
+                            Accessible.ignored: true
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            color: "transparent"
+                            border.color: Constants.borderColor
+                            border.width: 6
+                            Accessible.ignored: true
+                        }
+
+                        Rectangle {
+                            width: 28
+                            height: 28
+                            anchors.top: parent.top
+                            anchors.right: parent.right
+                            anchors.margins: 10
+                            color: Constants.backgroundColor
+                            border.color: Constants.textColor
+                            border.width: 2
+                            Accessible.ignored: true
+
+                            Text {
+                                text: qsTr("✓")
+                                anchors.centerIn: parent
+                                color: Constants.textColor
+                                font.bold: true
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        Rectangle {
+                            anchors.fill: parent
+                            anchors.margins: 1
+                            visible: cropGridHost.activeFocus
+                            color: "transparent"
+                            border.color: Constants.accentColor
+                            border.width: 2
+                            Accessible.ignored: true
+                        }
+                    }
                 }
                 Text {
                     visible: root.presentation === "empty"

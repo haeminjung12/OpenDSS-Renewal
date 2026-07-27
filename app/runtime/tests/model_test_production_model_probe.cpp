@@ -8,6 +8,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -846,6 +847,24 @@ int main(int argc, char** argv) {
         return finish(
             41,
             QStringLiteral("A pinned source input changed after validation."));
+    }
+    QStringList residualOutputNames;
+    QDirIterator residualOutput(
+        outputRoot,
+        {QStringLiteral("*.partial*"),
+         QStringLiteral("model_test_checkpoint.json")},
+        QDir::Files, QDirIterator::Subdirectories);
+    const QDir outputDirectory(outputRoot);
+    while (residualOutput.hasNext()) {
+        residualOutputNames.push_back(QDir::fromNativeSeparators(
+            outputDirectory.relativeFilePath(residualOutput.next())));
+    }
+    residualOutputNames.sort(Qt::CaseInsensitive);
+    if (!residualOutputNames.isEmpty()) {
+        return finish(
+            42,
+            QStringLiteral("Residual Model Test output artifacts remain: %1")
+                .arg(residualOutputNames.join(QStringLiteral(", "))));
     }
 
     QString cleanupError;

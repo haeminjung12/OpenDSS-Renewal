@@ -530,10 +530,14 @@ target_link_libraries(training_service_protocol_test PRIVATE
 add_test(
   NAME training_service_protocol_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:training_service_protocol_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:training_service_protocol_test>
 )
 set_tests_properties(training_service_protocol_test PROPERTIES TIMEOUT 30)
+opendss_configure_offscreen_test(
+  training_service_protocol_test
+  training_service_protocol_test
+)
 
 qt_add_executable(training_controller_test
   training_controller_test.cpp
@@ -570,10 +574,14 @@ target_link_libraries(training_controller_test PRIVATE
 add_test(
   NAME training_controller_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:training_controller_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:training_controller_test>
 )
 set_tests_properties(training_controller_test PROPERTIES TIMEOUT 30)
+opendss_configure_offscreen_test(
+  training_controller_test
+  training_controller_test
+)
 
 qt_add_executable(application_state_store_test
   application_state_store_test.cpp

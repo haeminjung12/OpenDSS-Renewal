@@ -10,6 +10,11 @@ Item {
     property url cameraPreviewSource: ""
     property bool startSortingEnabled: false
     property bool rightPanelExpanded: true
+    property bool hitBoundaryDefined: false
+    property real hitBoundaryXRatio: 0.0
+    property real hitBoundaryYRatio: 0.5
+    property string hitBoundarySide: "top"
+    property bool hitBoundaryEditable: true
     property string serviceDiagnosticText: qsTr("Resolve the current error before continuing.")
     property string runArtifactPath: qsTr("C:/OpenDSS/Runs/Run-042")
     property string elapsedTimeText: qsTr("00:02:18")
@@ -42,6 +47,9 @@ Item {
     property alias daqOutputControl: daqOutputControl
     property alias recordFullImageSequenceControl: recordFullImageSequenceControl
     property alias cameraPreviewImage: cameraPreviewImage
+    property alias hitBoundaryInputArea: hitBoundaryInputArea
+    property alias topIsHitControl: topIsHitControl
+    property alias bottomIsHitControl: bottomIsHitControl
     property bool setupProfileExpanded: !setupLocked
     property bool runInformationExpanded: !setupLocked
     property bool triggerTimingExpanded: !setupLocked
@@ -94,6 +102,55 @@ Item {
                     asynchronous: true
                     cache: false
                     visible: root.cameraPreviewSource.toString() !== "" && !root.unavailable
+                }
+
+                Item {
+                    id: hitBoundaryOverlay
+                    x: cameraPreviewImage.x + (cameraPreviewImage.width - cameraPreviewImage.paintedWidth) / 2
+                    y: cameraPreviewImage.y + (cameraPreviewImage.height - cameraPreviewImage.paintedHeight) / 2
+                    width: cameraPreviewImage.paintedWidth
+                    height: cameraPreviewImage.paintedHeight
+                    visible: cameraPreviewImage.visible
+                    clip: true
+                    readonly property real boundaryX: Math.max(0, Math.min(1, root.hitBoundaryXRatio)) * width
+                    readonly property real boundaryY: Math.max(0, Math.min(1, root.hitBoundaryYRatio)) * height
+
+                    MouseArea {
+                        id: hitBoundaryInputArea
+                        anchors.fill: parent
+                        enabled: root.hitBoundaryEditable && cameraPreviewImage.visible
+                    }
+
+                    Rectangle {
+                        visible: root.hitBoundaryDefined
+                        x: hitBoundaryOverlay.boundaryX
+                        y: hitBoundaryOverlay.boundaryY - height / 2
+                        width: Math.max(0, hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX)
+                        height: 4
+                        color: Constants.textColor
+                        Accessible.ignored: true
+
+                        Rectangle {
+                            anchors.verticalCenter: parent.verticalCenter
+                            width: parent.width
+                            height: 2
+                            color: Constants.surfaceColor
+                            Accessible.ignored: true
+                        }
+                    }
+
+                    Rectangle {
+                        visible: root.hitBoundaryDefined
+                        x: hitBoundaryOverlay.boundaryX - width / 2
+                        y: hitBoundaryOverlay.boundaryY - height / 2
+                        width: 12
+                        height: 12
+                        radius: width / 2
+                        color: Constants.surfaceColor
+                        border.color: Constants.textColor
+                        border.width: 2
+                        Accessible.ignored: true
+                    }
                 }
 
                 Text {
@@ -277,6 +334,29 @@ Item {
                                     text: qsTr("DAQ Output")
                                     checked: true
                                     enabled: !root.setupLocked
+                                }
+                                Text { text: qsTr("Hit boundary calibration"); color: Constants.textColor; font: Constants.font }
+                                Row {
+                                    spacing: Constants.spacing
+                                    AppRadioButton {
+                                        id: topIsHitControl
+                                        text: qsTr("Top is Hit")
+                                        checked: root.hitBoundarySide === "top"
+                                        enabled: root.hitBoundaryEditable
+                                    }
+                                    AppRadioButton {
+                                        id: bottomIsHitControl
+                                        text: qsTr("Bottom is Hit")
+                                        checked: root.hitBoundarySide === "bottom"
+                                        enabled: root.hitBoundaryEditable
+                                    }
+                                }
+                                Text {
+                                    text: root.hitBoundarySide === "top" ? qsTr("Hit: −Y ↑   Waste: +Y ↓") : qsTr("Hit: +Y ↓   Waste: −Y ↑")
+                                    color: Constants.mutedTextColor
+                                    font: Constants.smallFont
+                                    wrapMode: Text.WordWrap
+                                    width: parent.width
                                 }
                                 AppButton { id: sendTestPulseButton; text: qsTr("Send Test Sine Wave"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
                             }

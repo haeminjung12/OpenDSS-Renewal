@@ -9,6 +9,10 @@ Item {
     property string activeModelText: qsTr("No Active Model")
     property bool sequenceTestExpanded: true
     property bool rightPanelExpanded: true
+    property bool hitBoundaryDefined: false
+    property real hitBoundaryXRatio: 0.0
+    property real hitBoundaryYRatio: 0.5
+    property string hitBoundarySide: "top"
     property alias loadSequenceButton: loadSequenceButton
     property alias loadToMemoryButton: loadToMemoryButton
     property alias startStopButton: startStopButton
@@ -90,6 +94,48 @@ Item {
                         fillMode: Image.PreserveAspectFit
                         asynchronous: true
                         visible: source !== ""
+                    }
+                    Item {
+                        id: hitBoundaryOverlay
+                        x: sequencePreviewImage.x + (sequencePreviewImage.width - sequencePreviewImage.paintedWidth) / 2
+                        y: sequencePreviewImage.y + (sequencePreviewImage.height - sequencePreviewImage.paintedHeight) / 2
+                        width: sequencePreviewImage.paintedWidth
+                        height: sequencePreviewImage.paintedHeight
+                        visible: sequencePreviewImage.visible
+                        clip: true
+                        readonly property real boundaryX: Math.max(0, Math.min(1, root.hitBoundaryXRatio)) * width
+                        readonly property real boundaryY: Math.max(0, Math.min(1, root.hitBoundaryYRatio)) * height
+
+                        Rectangle {
+                            visible: root.hitBoundaryDefined
+                            x: hitBoundaryOverlay.boundaryX
+                            y: hitBoundaryOverlay.boundaryY - height / 2
+                            width: Math.max(0, hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX)
+                            height: 4
+                            color: Constants.textColor
+                            Accessible.ignored: true
+
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: 2
+                                color: Constants.surfaceColor
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        Rectangle {
+                            visible: root.hitBoundaryDefined
+                            x: hitBoundaryOverlay.boundaryX - width / 2
+                            y: hitBoundaryOverlay.boundaryY - height / 2
+                            width: 12
+                            height: 12
+                            radius: width / 2
+                            color: Constants.surfaceColor
+                            border.color: Constants.textColor
+                            border.width: 2
+                            Accessible.ignored: true
+                        }
                     }
                     Text {
                         id: sequencePreviewPlaceholder
@@ -197,6 +243,14 @@ Item {
                                 anchors.margins: Constants.spacing
                                 spacing: Constants.spacing
                                 Text { text: qsTr("Active Model: %1").arg(root.activeModelText); color: Constants.textColor; font: Constants.smallFont }
+                                Text {
+                                    visible: root.hitBoundaryDefined
+                                    text: root.hitBoundarySide === "top" ? qsTr("Hit: −Y ↑   Waste: +Y ↓") : qsTr("Hit: +Y ↓   Waste: −Y ↑")
+                                    color: Constants.mutedTextColor
+                                    font: Constants.smallFont
+                                    wrapMode: Text.WordWrap
+                                    width: parent.width
+                                }
                                 Text { text: qsTr("Image Sequence"); color: Constants.textColor; font: Constants.headingFont }
                                 AppTextField {
                                     id: sequenceNameField

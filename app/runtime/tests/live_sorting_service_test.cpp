@@ -595,6 +595,76 @@ void testFinalActiveConfigurationSnapshot() {
             "existing event configuration linkage changed");
 }
 
+void testStopClosesConfigurationCommitGate() {
+    stage = "stop closes configuration commit gate";
+    QTemporaryDir temporary;
+    FakeDetector detector;
+    OperationCoordinator operations;
+    std::mutex gateMutex;
+    std::condition_variable gateChanged;
+    bool readinessEntered = false;
+    bool releaseReadiness = false;
+    bool snapshotEntered = false;
+    bool releaseSnapshot = false;
+    live::LiveSortingService service(
+        operations, detector, nullptr,
+        [](bool enabled, QString*) { return pulseStatus(enabled); },
+        {}, {}, {},
+        [&](QString*) {
+            std::unique_lock lock(gateMutex);
+            readinessEntered = true;
+            gateChanged.notify_all();
+            gateChanged.wait(lock, [&] { return releaseReadiness; });
+            return true;
+        },
+        [&] {
+            std::unique_lock lock(gateMutex);
+            snapshotEntered = true;
+            gateChanged.notify_all();
+            gateChanged.wait(lock, [&] { return releaseSnapshot; });
+            return QJsonObject{{QStringLiteral("frequency_hz"), 10000.0}};
+        });
+
+    QString error;
+    require(service.start(request(temporary.path()), &error), qPrintable(error));
+    bool updateResult = true;
+    QString updateError;
+    std::thread updateThread([&] {
+        updateResult = service.updateActiveConfiguration(
+            {run::TriggerMode::EveryDroplet, std::nullopt, true},
+            &updateError);
+    });
+    {
+        std::unique_lock lock(gateMutex);
+        gateChanged.wait(lock, [&] { return readinessEntered; });
+    }
+    bool stopResult = false;
+    QString stopError;
+    std::thread stopThread([&] {
+        stopResult = service.stop(&stopError);
+    });
+    {
+        std::unique_lock lock(gateMutex);
+        gateChanged.wait(lock, [&] { return snapshotEntered; });
+        releaseReadiness = true;
+    }
+    gateChanged.notify_all();
+    updateThread.join();
+    {
+        std::lock_guard lock(gateMutex);
+        releaseSnapshot = true;
+    }
+    gateChanged.notify_all();
+    stopThread.join();
+
+    const auto data = loadRun(temporary.path());
+    require(stopResult && stopError.isEmpty() && !updateResult &&
+                !updateError.isEmpty() &&
+                !data.routing.physicalDaqOutputEnabled,
+            "Stop snapshot must close the commit gate before a delayed update "
+            "can report success or replace the final active routing");
+}
+
 void testPauseResumeSourceGapAndDuration() {
     stage = "lifecycle";
     {
@@ -1944,6 +2014,7 @@ int main(int argc, char** argv) {
     testRejectedEveryDropletSkipsCropInferenceRouteAndPulse();
     testClassBasedTwoAndThreeClass();
     testFinalActiveConfigurationSnapshot();
+    testStopClosesConfigurationCommitGate();
     testPauseResumeSourceGapAndDuration();
     testBacklogCancellationAtPauseAndStop();
     testExternalCallbackQuiescence();

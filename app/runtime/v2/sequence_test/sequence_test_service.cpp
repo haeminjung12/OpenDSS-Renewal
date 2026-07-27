@@ -348,28 +348,19 @@ bool SequenceTestService::updateDecisionBoundary(
         boundary.boundaryY >= boundary.imageHeight) {
         return false;
     }
-    {
-        std::lock_guard lock(controlMutex_);
-        if (!running_)
-            return false;
-    }
-    std::lock_guard lock(boundaryMutex_);
+    std::lock_guard configurationLock(configurationMutex_);
+    if (!configurationReady_)
+        return false;
+    std::lock_guard boundaryLock(boundaryMutex_);
     currentBoundary_ = boundary;
     return true;
 }
 
 bool SequenceTestService::resetDecisionBoundary() {
-    {
-        std::lock_guard lock(controlMutex_);
-        if (!running_)
-            return false;
-    }
-    {
-        std::lock_guard lock(configurationMutex_);
-        if (!configurationReady_)
-            return false;
-    }
-    std::lock_guard lock(boundaryMutex_);
+    std::lock_guard configurationLock(configurationMutex_);
+    if (!configurationReady_)
+        return false;
+    std::lock_guard boundaryLock(boundaryMutex_);
     currentBoundary_.boundaryY = -1.0;
     return true;
 }
@@ -869,11 +860,10 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
 
     run::FinalConfigurationSnapshot finalConfiguration;
     {
-        std::lock_guard lock(configurationMutex_);
+        std::lock_guard configurationLock(configurationMutex_);
+        configurationReady_ = false;
         finalConfiguration.routing = currentRouting_;
-    }
-    {
-        std::lock_guard lock(boundaryMutex_);
+        std::lock_guard boundaryLock(boundaryMutex_);
         finalConfiguration.hitSide = currentBoundary_.hitSide;
     }
     try {

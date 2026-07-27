@@ -483,9 +483,14 @@ public:
         }
 
         request = value;
-        currentRouting = {value.triggerMode, value.hitClassId,
-                          value.daqOutputEnabled};
-        currentBoundary = value.hitBoundary;
+        {
+            std::lock_guard configurationLock(configurationMutex);
+            currentRouting = {value.triggerMode, value.hitClassId,
+                              value.daqOutputEnabled};
+            std::lock_guard boundaryLock(boundaryMutex);
+            currentBoundary = value.hitBoundary;
+            configurationUpdatesOpen = true;
+        }
         model = std::move(prepared);
         runFolder = folder;
         detector.reset();
@@ -702,23 +707,19 @@ public:
             boundary.boundaryY >= boundary.imageHeight) {
             return false;
         }
-        {
-            std::lock_guard lock(stateMutex);
-            if (lifecycle != OperationLifecycle::Running)
-                return false;
-        }
-        std::lock_guard lock(boundaryMutex);
+        std::lock_guard configurationLock(configurationMutex);
+        if (!configurationUpdatesOpen)
+            return false;
+        std::lock_guard boundaryLock(boundaryMutex);
         currentBoundary = boundary;
         return true;
     }
 
     bool resetDecisionBoundary() {
-        {
-            std::lock_guard lock(stateMutex);
-            if (lifecycle != OperationLifecycle::Running)
-                return false;
-        }
-        std::lock_guard lock(boundaryMutex);
+        std::lock_guard configurationLock(configurationMutex);
+        if (!configurationUpdatesOpen)
+            return false;
+        std::lock_guard boundaryLock(boundaryMutex);
         currentBoundary.boundaryY = -1.0;
         return true;
     }
@@ -761,6 +762,10 @@ public:
             }
         }
         std::lock_guard lock(configurationMutex);
+        if (!configurationUpdatesOpen) {
+            setError(error, QStringLiteral("Live Sorting is not running."));
+            return false;
+        }
         currentRouting = routing;
         return true;
     }
@@ -1375,11 +1380,10 @@ private:
         }
         run::FinalConfigurationSnapshot finalConfiguration;
         {
-            std::lock_guard lock(configurationMutex);
+            std::lock_guard configurationLock(configurationMutex);
+            configurationUpdatesOpen = false;
             finalConfiguration.routing = currentRouting;
-        }
-        {
-            std::lock_guard lock(boundaryMutex);
+            std::lock_guard boundaryLock(boundaryMutex);
             finalConfiguration.hitSide = currentBoundary.hitSide;
         }
         try {
@@ -1459,6 +1463,7 @@ private:
     LiveSortingRequest request;
     std::mutex configurationMutex;
     run::RoutingSnapshot currentRouting;
+    bool configurationUpdatesOpen = false;
     std::mutex boundaryMutex;
     run::HitBoundarySnapshot currentBoundary;
     std::optional<PreparedLiveModel> model;

@@ -274,6 +274,66 @@ void lifecycleAndBoundaryReplacement() {
             "Hit mapping with the Running Waste mapping failed.");
 }
 
+void finalizationClosesConfigurationCommitGate() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create finalization output.");
+    const QString manifest = makeSequence(sequenceRoot, 1, {1});
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    std::mutex mutex;
+    std::condition_variable snapshotEnteredCondition;
+    std::condition_variable releaseSnapshotCondition;
+    bool snapshotEntered = false;
+    bool releaseSnapshot = false;
+    sequence_test::SequenceTestService service(
+        operations, detector, nullptr, {}, {}, {},
+        [&] {
+            std::unique_lock lock(mutex);
+            snapshotEntered = true;
+            snapshotEnteredCondition.notify_one();
+            releaseSnapshotCondition.wait(lock, [&] { return releaseSnapshot; });
+            return QJsonObject{{QStringLiteral("frequency_hz"), 10000.0}};
+        });
+
+    bool runResult = false;
+    QString runError;
+    std::thread runThread([&] {
+        runResult = service.run(request(manifest, output), &runError);
+    });
+    {
+        std::unique_lock lock(mutex);
+        snapshotEnteredCondition.wait(lock, [&] { return snapshotEntered; });
+    }
+
+    bool updateResult = true;
+    QString updateError;
+    std::thread updateThread([&] {
+        updateResult = service.updateActiveConfiguration(
+            {run::TriggerMode::EveryDroplet, std::nullopt, true},
+            &updateError);
+    });
+    updateThread.join();
+    {
+        std::lock_guard lock(mutex);
+        releaseSnapshot = true;
+    }
+    releaseSnapshotCondition.notify_one();
+    runThread.join();
+
+    const auto data = loadRun(output);
+    auto successorDaq = operations.acquireMomentary(ResourceLock::Daq);
+    require(runResult && runError.isEmpty() && !updateResult &&
+                !updateError.isEmpty() &&
+                !data.routing.physicalDaqOutputEnabled &&
+                successorDaq.acquired(),
+            "Sequence finalization allowed a late configuration commit, "
+            "captured the wrong final state, or retained DAQ ownership.");
+    successorDaq.lease.release();
+}
+
 void classBasedModel() {
     QTemporaryDir temporary;
     const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
@@ -1251,6 +1311,7 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     noModelEveryDroplet();
     lifecycleAndBoundaryReplacement();
+    finalizationClosesConfigurationCommitGate();
     classBasedModel();
     productionModelPreparationRequestsCpu();
     daqOffRequiresNoReadinessOrOwnership();

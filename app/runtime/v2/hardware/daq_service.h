@@ -45,7 +45,7 @@ private:
 
     OperationCoordinator &operations_;
     ApplicationStateStore &stateStore_;
-    std::mutex operationOrderMutex_;
+    mutable std::recursive_mutex operationOrderMutex_;
     mutable std::mutex stateMutex_;
     std::unique_ptr<IDaqOutput> output_;
     MomentaryLease continuousLease_;

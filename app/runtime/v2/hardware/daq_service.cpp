@@ -207,6 +207,7 @@ bool DaqService::ready() const
 
 QJsonObject DaqService::settingsSnapshot() const
 {
+    std::lock_guard operationOrderLock(operationOrderMutex_);
     std::lock_guard stateLock(stateMutex_);
     const DaqAppliedSettings &settings = state_.appliedSettings;
     return {

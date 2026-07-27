@@ -49,6 +49,11 @@ struct FakeDaq {
 };
 
 FakeDaq fake;
+std::mutex createGateMutex;
+std::condition_variable createGateChanged;
+bool blockCreate = false;
+bool createEntered = false;
+bool releaseCreate = false;
 
 bool check(bool condition, const char *message)
 {
@@ -104,6 +109,14 @@ extern "C" int32 DAQmxGetDevAOMaxRate(const char[], float64 *value)
 
 extern "C" int32 DAQmxCreateTask(const char[], TaskHandle *task)
 {
+    {
+        std::unique_lock lock(createGateMutex);
+        if (blockCreate) {
+            createEntered = true;
+            createGateChanged.notify_all();
+            createGateChanged.wait(lock, [] { return releaseCreate; });
+        }
+    }
     ++fake.createCalls;
     if (fake.createStatus < 0)
         return fake.createStatus;
@@ -345,10 +358,51 @@ int main(int argc, char **argv)
     custom.frequencyHz = 2000.0;
     custom.durationMs = 4.0;
     custom.delayMs = 3.0;
-    ok &= check(daq.applySettings(custom, &error)
+    {
+        std::lock_guard lock(createGateMutex);
+        blockCreate = true;
+        createEntered = false;
+        releaseCreate = false;
+    }
+    bool concurrentApplied = false;
+    QString concurrentApplyError;
+    std::thread applyThread([&] {
+        concurrentApplied =
+            daq.applySettings(custom, &concurrentApplyError);
+    });
+    {
+        std::unique_lock lock(createGateMutex);
+        createGateChanged.wait(lock, [] { return createEntered; });
+    }
+    std::atomic_bool snapshotStarted{false};
+    QJsonObject concurrentSnapshot;
+    std::thread snapshotThread([&] {
+        snapshotStarted.store(true, std::memory_order_release);
+        concurrentSnapshot = daq.settingsSnapshot();
+    });
+    while (!snapshotStarted.load(std::memory_order_acquire))
+        std::this_thread::yield();
+    {
+        std::lock_guard lock(createGateMutex);
+        releaseCreate = true;
+        blockCreate = false;
+    }
+    createGateChanged.notify_all();
+    applyThread.join();
+    snapshotThread.join();
+    auto successor = operations.acquire(OperationKind::LiveSorting,
+                                        ResourceLock::Daq);
+    ok &= check(concurrentApplied && concurrentApplyError.isEmpty()
+                    && concurrentSnapshot
+                           .value(QStringLiteral("amplitude_vpp")).toDouble() == 8.0
+                    && concurrentSnapshot
+                           .value(QStringLiteral("frequency_hz")).toDouble() == 2000.0
+                    && successor.acquired()
                     && fake.timingRate == 100000.0
                     && fake.timingSamples == 401,
-                "Custom frequency and duration must pass unchanged.");
+                "Snapshot must serialize behind a blocked apply, return the "
+                "successfully applied settings, and leave DAQ ownership releasable.");
+    successor.lease.release();
     fake.waveform.clear();
     ok &= check(daq.issueLiveHit(true, &error)
                         == run::DaqPulseStatus::Issued

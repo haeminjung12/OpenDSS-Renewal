@@ -1665,7 +1665,7 @@ During and after Training, the actual execution device is shown and recorded. Th
 
 Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval.
 
-`UAT-MODEL-005` treats this dataset-wide operation as Dataset Validation for backend throughput. It does not change Model Test's visible workflow name, scientific meaning, artifacts, metrics, or observational status.
+`UAT-MODEL-005` treats this dataset-wide operation as Dataset Validation for backend throughput. The visible, non-engineering-facing workspace name remains exactly `Model Test`. Its one input remains a structured, labeled OpenDSS Dataset selected through the existing Dataset workflow; it does not add arbitrary image-file or folder input. Automatic multi-image batches are an internal processing detail and do not change the visible input model, scientific meaning, artifacts, metrics, or observational status.
 
 ## 13.2 Layout
 
@@ -2044,7 +2044,8 @@ Droplets flow left to right and EventDetector tracks each droplet through the fr
 - While a tracked droplet remains in the frame, including while it is left of the clicked Decision Boundary X, it is tracking-only. No Hit/Waste classification or physical routing output occurs before the track ends.
 - The clicked X defines only the start of the visible right-edge segment. It is not an operational or early-classification threshold.
 - Classification occurs when the track ends or the droplet disappears. The final tracked source-image Y is compared with the Decision Boundary Y, and `Top is Hit` / `Bottom is Hit` supplies the Hit/Waste mapping.
-- The same final-Y classification applies even in the unexpected case where the track ends or disappears before ever reaching the clicked X. This case does not introduce an Unresolved outcome.
+- The same final-Y comparison applies even in the unexpected case where the track ends or disappears before ever reaching the clicked X; clicked X alone never makes the outcome Unresolved.
+- When final Y is exactly equal to the Decision Boundary Y, the outcome is `Unresolved`. Equality MUST NOT be forced to Hit or Waste and MUST NOT emit a Hit pulse.
 
 The user must also explicitly choose the operational side:
 
@@ -2753,9 +2754,11 @@ Small-droplet rejection    <current pixel area>    [ Set ]
 - `Set` is enabled only when the current workspace presents a visible frame.
 - When enabled, `Set` enters a rectangle-draw mode in that currently visible frame workspace. Escape cancels the mode and returns focus to `Set`.
 - The drawn rectangle is mapped through the displayed-frame transform into source-image pixels.
+- Fractional mapped source-image rectangle dimensions are rounded to the nearest whole source pixel before area is calculated; the minimum contour-area threshold is the resulting integer width × integer height in `px²`.
 - The rectangle's source-pixel area becomes the existing detector minimum contour-area threshold. Rectangle width and height are not separate thresholds, and no new width/height rejection, detector mode, or parallel detector state may be invented.
 - The rectangle is an input gesture, not a second persisted geometry setting. The one authoritative applied value is the existing minimum contour-area threshold expressed in source pixels.
 - The initial authoritative minimum contour-area threshold is exactly `100 px²`. The product MUST NOT present or retain `Automatic` or `-1` as its initial/default state.
+- Loading a legacy Small-droplet rejection value of `-1` converts it to the authoritative numeric value `100 px²`; `-1` is not retained in product state.
 - When no frame view exists, `Set` is disabled with **No frame is available**.
 - The control remains editable during an active Run. A successfully committed change applies immediately to subsequent detector processing.
 - An in-run change MUST NOT be written to logs, `events.csv`, Run summaries, Results, or any other Run file. No history, timestamp, frame association, or Run provenance may be inferred or added.
@@ -3194,7 +3197,7 @@ OpenDSS v2 targets desktop use on Windows 11.
 | Reference | Window state | Design use |
 |---|---|---|
 | **Maximized** | Current display's full available work area | Startup and primary validation state. Balanced navigation, viewer, and operation-panel proportions. |
-| **Restored minimum** | Exactly 1600 × 900 logical px | Supported design, GUI, Qt Design Studio, and Computer Use validation state. The window may grow larger but never resizes below this minimum. |
+| **Restored minimum** | Exactly 1600 × 900 through the application's native Qt minimum-size clamp | Supported design, GUI, Qt Design Studio, and Computer Use validation state. The current Qt logical-unit implementation is acceptable; no separate physical-pixel interpretation or acceptance gate exists. The window may grow larger but never resizes below this minimum. |
 
 Supported Windows scaling factors:
 

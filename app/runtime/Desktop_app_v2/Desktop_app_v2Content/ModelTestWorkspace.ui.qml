@@ -87,7 +87,7 @@ Rectangle {
                 height: parent.height * 0.3
                 color: Constants.surfaceColor
                 border.color: Constants.borderColor
-                Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Dataset Summary"); font: Constants.headingFont } Text { text: qsTr("Active Model (read-only): ") + root.activeModelText } Text { text: qsTr("Dataset: ") + root.datasetText } }
+                Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Dataset Summary"); font: Constants.headingFont } Text { text: qsTr("Active Model (read-only): ") + root.activeModelText; font: Constants.appBodyFont } Text { text: qsTr("Dataset: ") + root.datasetText; font: Constants.appBodyFont } }
             }
 
             Rectangle {
@@ -106,10 +106,10 @@ Rectangle {
                     Row {
                         width: parent.width
                         spacing: Constants.spacing
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Overall Accuracy\n%1").arg(root.overallAccuracyText) : qsTr("Overall Accuracy") } }
-                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Per-Class Accuracy\n%1").arg(root.perClassAccuracyText) : qsTr("Per-Class Accuracy") } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Overall Accuracy\n%1").arg(root.overallAccuracyText) : qsTr("Overall Accuracy"); font: Constants.appBodyFont } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Per-Class Accuracy\n%1").arg(root.perClassAccuracyText) : qsTr("Per-Class Accuracy"); font: Constants.appBodyFont } }
                     }
-                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Confusion Matrix\n%1").arg(root.confusionMatrixText) : root.threeClassResult ? qsTr("Confusion Matrix (3 classes)") : qsTr("Confusion Matrix (2 classes)") } }
+                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Confusion Matrix\n%1").arg(root.confusionMatrixText) : root.threeClassResult ? qsTr("Confusion Matrix (3 classes)") : qsTr("Confusion Matrix (2 classes)"); font: Constants.appBodyFont } }
                     Rectangle {
                         width: parent.width
                         height: root.serviceFactsOnly ? 132 : 72
@@ -119,10 +119,10 @@ Rectangle {
                             anchors.fill: parent
                             anchors.margins: Constants.spacing
                             spacing: 2
-                            Text { text: root.serviceFactsOnly ? root.predictionSummaryText : qsTr("Prediction summary"); wrapMode: Text.Wrap; width: parent.width }
-                            Text { visible: root.serviceFactsOnly && root.fallbackWarningText !== ""; text: root.fallbackWarningText; color: Constants.warningColor; wrapMode: Text.Wrap; width: parent.width }
-                            Text { visible: root.serviceFactsOnly && root.predictionsPathText !== ""; text: qsTr("Predictions: %1").arg(root.predictionsPathText); elide: Text.ElideMiddle; width: parent.width }
-                            Text { visible: root.serviceFactsOnly && root.summaryPathText !== ""; text: qsTr("Summary: %1").arg(root.summaryPathText); elide: Text.ElideMiddle; width: parent.width }
+                            Text { text: root.serviceFactsOnly ? root.predictionSummaryText : qsTr("Prediction summary"); font: Constants.appBodyFont; wrapMode: Text.Wrap; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.fallbackWarningText !== ""; text: root.fallbackWarningText; font: Constants.appCaptionFont; color: Constants.warningColor; wrapMode: Text.Wrap; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.predictionsPathText !== ""; text: qsTr("Predictions: %1").arg(root.predictionsPathText); font: Constants.appCaptionFont; elide: Text.ElideMiddle; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.summaryPathText !== ""; text: qsTr("Summary: %1").arg(root.summaryPathText); font: Constants.appCaptionFont; elide: Text.ElideMiddle; width: parent.width }
                         }
                     }
                     Row {
@@ -133,7 +133,7 @@ Rectangle {
                         AppButton { id: openOutputFolderButton; text: qsTr("Open Output Folder"); enabled: root.outputLocationText !== ""; height: Constants.appStandardControlHeight }
                         AppButton { id: startAnotherButton; text: qsTr("Start Another"); height: Constants.appStandardControlHeight }
                     }
-                    Text { visible: root.serviceFactsOnly && root.actionErrorText !== ""; text: root.actionErrorText; color: Constants.faultColor; wrapMode: Text.Wrap; width: parent.width }
+                    Text { visible: root.serviceFactsOnly && root.actionErrorText !== ""; text: root.actionErrorText; font: Constants.appCaptionFont; color: Constants.faultColor; wrapMode: Text.Wrap; width: parent.width }
                 }
             }
         }
@@ -206,8 +206,8 @@ Rectangle {
                             AppButton { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.appStandardControlHeight }
                             Text { text: root.serviceFactsOnly ? qsTr("Output Parent Folder") : qsTr("Output Location"); font: Constants.font }
                             Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: outputLocationField; text: root.outputLocationText; readOnly: root.serviceFactsOnly; width: parent.width - browseButton.width - Constants.spacing; height: Constants.appStandardControlHeight } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }
-                            Text { visible: !root.startEnabled; text: root.blockerText; color: Constants.warningColor }
-                            Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; color: Constants.mutedTextColor }
+                            Text { visible: !root.startEnabled; text: root.blockerText; font: Constants.appCaptionFont; color: Constants.warningColor }
+                            Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; font: Constants.appCaptionFont; color: Constants.mutedTextColor }
                             AppButton { id: startButton; text: qsTr("Start Model Test"); visualRole: "primary"; enabled: root.startEnabled; height: Constants.appPrimaryButtonHeight }
                         }
                     }
@@ -231,8 +231,8 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
-                            Text { text: qsTr("Device: ") + root.deviceText }
-                            Text { text: qsTr("Processed: %1 of %2").arg(root.processedCount).arg(root.eligibleCount) }
+                            Text { text: qsTr("Device: ") + root.deviceText; font: Constants.appCaptionFont }
+                            Text { text: qsTr("Processed: %1 of %2").arg(root.processedCount).arg(root.eligibleCount); font: Constants.appCaptionFont }
                             AppProgressBar { value: root.progressValue; width: parent.width }
                             AppButton { id: stopButton; text: qsTr("Stop Model Test"); visualRole: "destructive"; height: Constants.appPrimaryButtonHeight }
                         }
@@ -251,7 +251,7 @@ Rectangle {
                         spacing: Constants.spacing
 
                         Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor }
-                        Text { text: root.blockerText; wrapMode: Text.Wrap; width: parent.width }
+                        Text { text: root.blockerText; font: Constants.appCaptionFont; wrapMode: Text.Wrap; width: parent.width }
                     }
                 }
 
@@ -274,11 +274,12 @@ Rectangle {
                         }
                         Text {
                             text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText
+                            font: Constants.appBodyFont
                             wrapMode: Text.Wrap
                             width: parent.width
                         }
-                        Text { text: root.partialSummaryAvailable ? qsTr("Partial summary: Available") : qsTr("Partial summary: Not available") }
-                        Text { text: root.partialPredictionsAvailable ? qsTr("Partial predictions CSV: Available") : qsTr("Partial predictions CSV: Not available") }
+                        Text { text: root.partialSummaryAvailable ? qsTr("Partial summary: Available") : qsTr("Partial summary: Not available"); font: Constants.appCaptionFont }
+                        Text { text: root.partialPredictionsAvailable ? qsTr("Partial predictions CSV: Available") : qsTr("Partial predictions CSV: Not available"); font: Constants.appCaptionFont }
                         Row {
                             spacing: Constants.spacing
 

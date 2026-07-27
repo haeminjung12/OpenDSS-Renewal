@@ -155,12 +155,12 @@ Rectangle {
                     AppButton { id: jumpForward10Button; text: qsTr("+10"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }
                     AppButton { id: jumpForward50Button; text: qsTr("+50"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }
                     Slider { id: frameSlider; from: 1; to: Math.max(1, root.totalFrames); value: root.currentFrame; enabled: root.presentation === "ready"; Layout.fillWidth: true; Layout.minimumWidth: 120 * Constants.textScale }
-                    Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : root.currentFrame + qsTr(" / ") + root.totalFrames; Layout.alignment: Qt.AlignVCenter }
+                    Text { text: root.totalFrames === 0 ? qsTr("No sequence selected") : root.currentFrame + qsTr(" / ") + root.totalFrames; font: Constants.appCaptionFont; Layout.alignment: Qt.AlignVCenter }
                 }
                 RowLayout {
                     width: parent.width
                     spacing: 6
-                    Text { text: qsTr("Go to frame"); Layout.alignment: Qt.AlignVCenter }
+                    Text { text: qsTr("Go to frame"); font: Constants.appLabelFont; Layout.alignment: Qt.AlignVCenter }
                     AppTextField { id: directSeekField; enabled: root.presentation === "ready"; placeholderText: qsTr("Frame"); Layout.preferredWidth: 84 * Constants.textScale; Layout.preferredHeight: Constants.appStandardControlHeight }
                     Item { Layout.fillWidth: true }
                     AppButton { id: zoomOutButton; text: qsTr("Zoom -"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }

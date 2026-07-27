@@ -162,7 +162,7 @@ Rectangle {
                                 text: qsTr("✓")
                                 anchors.centerIn: parent
                                 color: Constants.textColor
-                                font.bold: true
+                                font: Constants.appButtonFont
                                 Accessible.ignored: true
                             }
                         }
@@ -261,7 +261,7 @@ Rectangle {
                             spacing: 6
                             Text { text: qsTr("Load Dataset"); font: Constants.headingFont; color: Constants.textColor }
                             Row { width: parent.width; spacing: 6
-                                Text { text: root.presentation === "empty" ? qsTr("No Dataset selected") : root.datasetName; width: parent.width - openDatasetButton.width - 6; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
+                                Text { text: root.presentation === "empty" ? qsTr("No Dataset selected") : root.datasetName; font: Constants.appBodyFont; width: parent.width - openDatasetButton.width - 6; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter }
                                 AppButton { id: openDatasetButton; text: qsTr("Open Dataset"); height: Constants.appStandardControlHeight }
                             }
                         }
@@ -277,15 +277,15 @@ Rectangle {
                             width: parent.width
                             height: implicitHeight
                             spacing: 6
-                            Text { text: qsTr("Total: %1").arg(root.totalCount) }
-                            Text { text: qsTr("Labeled: %1").arg(root.labeledCount) }
+                            Text { text: qsTr("Total: %1").arg(root.totalCount); font: Constants.appBodyFont }
+                            Text { text: qsTr("Labeled: %1").arg(root.labeledCount); font: Constants.appBodyFont }
                             Row {
                                 spacing: Constants.spacing
                                 Text { text: qsTr("Class setup"); font: Constants.font; verticalAlignment: Text.AlignVCenter }
                                 AppRadioButton { id: twoClassChoice; text: qsTr("2 classes"); checked: root.classCount === 2; height: Constants.appStandardControlHeight }
                                 AppRadioButton { id: threeClassChoice; text: qsTr("3 classes"); checked: root.classCount === 3; height: Constants.appStandardControlHeight }
                             }
-                            Text { text: qsTr("Configured schema: %1 classes").arg(root.classCount); color: Constants.mutedTextColor; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { text: qsTr("Configured schema: %1 classes").arg(root.classCount); font: Constants.appCaptionFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap; width: parent.width }
                             Text { text: qsTr("Class names"); font: Constants.font; color: Constants.textColor }
                             AppTextField { id: class0NameField; width: parent.width; height: Constants.appStandardControlHeight; enabled: root.classCount > 0; text: root.classNames.length > 0 ? root.classNames[0] : ""; Accessible.name: qsTr("Class 0 name") }
                             AppTextField { id: class1NameField; width: parent.width; height: Constants.appStandardControlHeight; enabled: root.classCount > 0; text: root.classNames.length > 1 ? root.classNames[1] : ""; Accessible.name: qsTr("Class 1 name") }

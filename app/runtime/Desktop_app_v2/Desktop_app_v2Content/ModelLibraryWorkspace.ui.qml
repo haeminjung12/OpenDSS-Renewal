@@ -131,10 +131,10 @@ Rectangle {
                             }
                             contentItem: Row {
                                 spacing: Constants.spacing
-                                Text { text: qsTr("✓"); visible: row.active; color: Constants.readyColor; Accessible.name: qsTr("Active Model") }
+                                Text { text: qsTr("✓"); visible: row.active; color: Constants.readyColor; font: Constants.appBodyFont; Accessible.name: qsTr("Active Model") }
                                 Column {
                                     width: parent.width - (row.active ? 48 : 0)
-                                    Text { text: row.name; font.bold: true; elide: Text.ElideRight; width: parent.width }
+                                    Text { text: row.name; font: Constants.appBodyFont; font.bold: true; elide: Text.ElideRight; width: parent.width }
                                     Text { text: qsTr("Architecture: %1").arg(row.architecture); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: parent.width }
                                     Text { text: qsTr("%1  •  %2").arg(row.performanceLabel).arg(row.classSummary); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
                                 }
@@ -154,10 +154,10 @@ Rectangle {
                         }
                         contentItem: Row {
                             spacing: Constants.spacing
-                            Text { text: qsTr("✓"); visible: true; color: Constants.readyColor; Accessible.name: qsTr("Active Model") }
+                            Text { text: qsTr("✓"); visible: true; color: Constants.readyColor; font: Constants.appBodyFont; Accessible.name: qsTr("Active Model") }
                             Column {
                                 width: productionModelRowButton.width - 48
-                                Text { text: qsTr("DropletNet-04"); font.bold: true }
+                                Text { text: qsTr("DropletNet-04"); font: Constants.appBodyFont; font.bold: true }
                                 Text { text: qsTr("Architecture: EfficientNet-B0"); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: parent.width }
                                 Text { text: qsTr("More Accurate  •  Labels: Class 0, Class 1"); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: parent.width }
                             }
@@ -175,13 +175,13 @@ Rectangle {
                             border.color: Constants.borderColor
                         }
                         contentItem: Column {
-                            Text { text: qsTr("DropletNet-03"); font.bold: true }
+                            Text { text: qsTr("DropletNet-03"); font: Constants.appBodyFont; font.bold: true }
                             Text { text: qsTr("Architecture: MobileNetV3-Small"); color: Constants.textColor; font: Constants.font; elide: Text.ElideRight; width: candidateModelRowButton.width - Constants.spacing * 2 }
                             Text { text: qsTr("Faster  •  Labels: Class 0, Class 1"); color: Constants.mutedTextColor; font: Constants.smallFont; elide: Text.ElideRight; width: candidateModelRowButton.width - Constants.spacing * 2 }
                         }
                     }
                 }
-                Text { visible: root.presentation === "empty"; text: qsTr("No discovered v2 Model Packages"); color: Constants.mutedTextColor; wrapMode: Text.WordWrap; width: parent.width }
+                Text { visible: root.presentation === "empty"; text: qsTr("No discovered v2 Model Packages"); font: Constants.appBodyFont; color: Constants.mutedTextColor; wrapMode: Text.WordWrap; width: parent.width }
             }
             }
         }
@@ -254,9 +254,9 @@ Rectangle {
                             spacing: Constants.spacing
                             Text { visible: root.showError; text: qsTr("Error"); font: Constants.largeFont; color: Constants.faultColor }
                             Text { visible: root.hasSelection && !root.showError; text: root.selectedModelName; font: Constants.headingFont }
-                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Active state: %1").arg(root.selectedActive ? qsTr("Active Model") : qsTr("Not Active")) }
-                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: %1\nDataset: %2\nArchitecture: %3\n%4\nLabels: %5\nTraining results: %6\nPackage: %7").arg(root.selectedModelCreationDate).arg(root.selectedModelSourceDataset).arg(root.selectedModelArchitecture).arg(root.selectedModelPerformanceLabel).arg(root.selectedModelClassSummary).arg(root.selectedModelTrainingMetrics).arg(root.selectedModelPackageLocation); wrapMode: Text.WordWrap; width: parent.width }
-                            Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Active state: %1").arg(root.selectedActive ? qsTr("Active Model") : qsTr("Not Active")); font: Constants.appCaptionFont }
+                            Text { visible: root.hasSelection && !root.showError; text: qsTr("Trained: %1\nDataset: %2\nArchitecture: %3\n%4\nLabels: %5\nTraining results: %6\nPackage: %7").arg(root.selectedModelCreationDate).arg(root.selectedModelSourceDataset).arg(root.selectedModelArchitecture).arg(root.selectedModelPerformanceLabel).arg(root.selectedModelClassSummary).arg(root.selectedModelTrainingMetrics).arg(root.selectedModelPackageLocation); font: Constants.appCaptionFont; wrapMode: Text.WordWrap; width: parent.width }
+                            Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); font: Constants.appCaptionFont; color: Constants.warningColor; wrapMode: Text.WordWrap; width: parent.width }
                             AppButton { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); visualRole: "primary"; enabled: !root.selectedActive && !root.modelLocked; height: Constants.appPrimaryButtonHeight }
                             AppButton { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.appStandardControlHeight }
                             Flow { visible: root.hasSelection; width: parent.width; height: implicitHeight; spacing: Constants.spacing; AppButton { id: exportButton; text: qsTr("Export"); height: Constants.appStandardControlHeight } AppButton { id: duplicateButton; text: qsTr("Duplicate"); height: Constants.appStandardControlHeight } AppButton { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.appStandardControlHeight } }
@@ -306,6 +306,7 @@ Rectangle {
             }
             Text {
                 text: qsTr("Approved locally available weights compatible with the selected architecture.")
+                font: Constants.appCaptionFont
                 color: Constants.mutedTextColor
                 wrapMode: Text.WordWrap
                 width: parent.width
@@ -313,6 +314,7 @@ Rectangle {
             Text {
                 id: addModelValidationText
                 text: root.addModelValidationMessage
+                font: Constants.appCaptionFont
                 color: Constants.warningColor
                 wrapMode: Text.WordWrap
                 width: parent.width

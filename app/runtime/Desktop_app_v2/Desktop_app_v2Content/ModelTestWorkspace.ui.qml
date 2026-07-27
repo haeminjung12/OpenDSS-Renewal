@@ -46,6 +46,7 @@ Rectangle {
     property alias stopButton: stopButton
     property alias openPredictionsButton: openPredictionsButton
     property alias openSummaryButton: openSummaryButton
+    property alias openOutputFolderButton: openOutputFolderButton
     property alias startAnotherButton: startAnotherButton
     property alias openPartialSummaryButton: openPartialSummaryButton
     property alias openPartialPredictionsButton: openPartialPredictionsButton
@@ -128,8 +129,9 @@ Rectangle {
                         visible: root.showCompleted
                         spacing: Constants.spacing
                         AppButton { id: openPredictionsButton; text: qsTr("Open Predictions CSV"); enabled: !root.serviceFactsOnly || root.predictionsPathText !== ""; height: Constants.appStandardControlHeight }
-                        AppButton { id: openSummaryButton; text: qsTr("Open Summary"); enabled: !root.serviceFactsOnly || root.summaryPathText !== ""; height: Constants.appStandardControlHeight }
-                        AppButton { id: startAnotherButton; text: qsTr("Start Another"); visible: !root.serviceFactsOnly; height: Constants.appStandardControlHeight }
+                        AppButton { id: openSummaryButton; text: qsTr("Open Model Test Summary"); enabled: !root.serviceFactsOnly || root.summaryPathText !== ""; height: Constants.appStandardControlHeight }
+                        AppButton { id: openOutputFolderButton; text: qsTr("Open Output Folder"); enabled: root.outputLocationText !== ""; height: Constants.appStandardControlHeight }
+                        AppButton { id: startAnotherButton; text: qsTr("Start Another"); height: Constants.appStandardControlHeight }
                     }
                     Text { visible: root.serviceFactsOnly && root.actionErrorText !== ""; text: root.actionErrorText; color: Constants.faultColor; wrapMode: Text.Wrap; width: parent.width }
                 }
@@ -238,7 +240,23 @@ Rectangle {
                 }
 
                 Rectangle {
-                    visible: root.showError
+                    visible: root.showError && root.presentation === "error"
+                    width: parent.width
+                    height: 130
+                    color: Constants.errorSurfaceColor
+                    border.color: Constants.faultColor
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: Constants.spacing * 2
+                        spacing: Constants.spacing
+
+                        Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor }
+                        Text { text: root.blockerText; wrapMode: Text.Wrap; width: parent.width }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.showError && (root.presentation === "interrupted" || root.presentation === "failed")
                     width: parent.width
                     height: recoveryContent.implicitHeight + Constants.spacing * 4
                     color: Constants.errorSurfaceColor

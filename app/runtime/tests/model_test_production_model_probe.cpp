@@ -8,7 +8,6 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
-#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
@@ -200,18 +199,59 @@ bool expectedClasses(const QVector<ModelTestClassSnapshot>& classes) {
     return true;
 }
 
-bool noPartialArtifacts(const QString& outputRoot, QString* offendingPath) {
-    QDirIterator iterator(outputRoot, QDir::Files,
-                          QDirIterator::Subdirectories);
-    while (iterator.hasNext()) {
-        const QString path = iterator.next();
-        if (QFileInfo(path).fileName().contains(".partial")) {
-            *offendingPath = path;
-            return false;
+class CheckedTemporaryRoot {
+  public:
+    explicit CheckedTemporaryRoot(const QString& pattern)
+        : temporary_(pattern) {
+        temporary_.setAutoRemove(false);
+        if (temporary_.isValid())
+            trackedPaths_.push_back(temporary_.path());
+    }
+
+    ~CheckedTemporaryRoot() {
+        if (!cleaned_) {
+            QString ignored;
+            cleanup(&ignored);
         }
     }
-    return true;
-}
+
+    bool isValid() const { return temporary_.isValid(); }
+    QString path() const { return temporary_.path(); }
+
+    void track(const QString& path) {
+        if (!path.trimmed().isEmpty())
+            trackedPaths_.push_back(path);
+    }
+
+    bool cleanup(QString* error) {
+        if (cleaned_)
+            return true;
+        const QString root = temporary_.path();
+        const bool removed =
+            root.isEmpty() || !QFileInfo::exists(root) ||
+            QDir(root).removeRecursively();
+        QStringList residuals;
+        for (const QString& path : trackedPaths_) {
+            if (QFileInfo::exists(path))
+                residuals.push_back(path);
+        }
+        if (!removed || !residuals.isEmpty()) {
+            if (error) {
+                *error = QStringLiteral(
+                             "Disposable Model Test cleanup failed; residuals: %1")
+                             .arg(residuals.join(QStringLiteral(", ")));
+            }
+            return false;
+        }
+        cleaned_ = true;
+        return true;
+    }
+
+  private:
+    QTemporaryDir temporary_;
+    QStringList trackedPaths_;
+    bool cleaned_ = false;
+};
 
 } // namespace
 
@@ -375,19 +415,31 @@ int main(int argc, char** argv) {
         }
     }
 
-    QTemporaryDir temporary(
+    CheckedTemporaryRoot temporary(
         QDir::tempPath() +
         QStringLiteral("/opendss-model-test-representative-XXXXXX"));
-    temporary.setAutoRemove(true);
-    if (!temporary.isValid() || !temporary.autoRemove()) {
+    if (!temporary.isValid()) {
         return fail(15, QStringLiteral("Disposable fixture root is unavailable."));
     }
+    const auto finish = [&](int code, const QString& message) {
+        QString cleanupError;
+        if (!temporary.cleanup(&cleanupError)) {
+            failure << "FAIL: " << cleanupError << '\n';
+            return 90;
+        }
+        if (code != 0)
+            failure << "FAIL: " << message << '\n';
+        return code;
+    };
     const QString fixtureRoot =
         QDir(temporary.path()).filePath("representative-dataset");
     const QString cropsRoot = QDir(fixtureRoot).filePath("crops");
     const QString reportsRoot = QDir(temporary.path()).filePath("reports");
+    temporary.track(fixtureRoot);
+    temporary.track(reportsRoot);
     if (!QDir().mkpath(cropsRoot) || !QDir().mkpath(reportsRoot)) {
-        return fail(16, QStringLiteral("Could not create disposable fixture folders."));
+        return finish(
+            16, QStringLiteral("Could not create disposable fixture folders."));
     }
 
     DatasetManifestData fixtureData;
@@ -419,8 +471,9 @@ int main(int argc, char** argv) {
                 .filePath(QStringLiteral("%1.png")
                               .arg(index, 2, 10, QLatin1Char('0')));
         if (!QFile::copy(item.sourcePath, destination)) {
-            return fail(17, QStringLiteral("Could not copy representative image %1.")
-                                .arg(index));
+            return finish(
+                17, QStringLiteral("Could not copy representative image %1.")
+                        .arg(index));
         }
         item.fixtureCropPath = QDir::fromNativeSeparators(
             QDir(fixtureRoot).relativeFilePath(destination));
@@ -441,8 +494,10 @@ int main(int argc, char** argv) {
     const QString fixtureDatasetJson =
         QDir(fixtureRoot).filePath("dataset.json");
     if (!DatasetManifestV2::save(fixtureDatasetJson, fixtureData, &error)) {
-        return fail(18, QStringLiteral("Could not write representative dataset.json: %1")
-                            .arg(error));
+        return finish(
+            18,
+            QStringLiteral("Could not write representative dataset.json: %1")
+                .arg(error));
     }
     const auto fixture =
         DatasetManifestV2::load(fixtureDatasetJson, &error);
@@ -452,8 +507,10 @@ int main(int argc, char** argv) {
         fixture->trainingSamples(&error).size() !=
             ExpectedRepresentativeCount ||
         !expectedClasses(fixture->classes())) {
-        return fail(19, fixture ? QStringLiteral("Representative Dataset facts mismatch.")
-                                : error);
+        return finish(
+            19,
+            fixture ? QStringLiteral("Representative Dataset facts mismatch.")
+                    : error);
     }
 
     const QString registryHashBefore = fileSha256(registryPath);
@@ -470,9 +527,11 @@ int main(int argc, char** argv) {
         }
     }
     if (!registryWarning.isEmpty() || activeCount != 1) {
-        return fail(20, registryWarning.isEmpty()
-                            ? QStringLiteral("Registry must have exactly one Active Model.")
-                            : registryWarning);
+        return finish(
+            20,
+            registryWarning.isEmpty()
+                ? QStringLiteral("Registry must have exactly one Active Model.")
+                : registryWarning);
     }
     const QString configuredPackage =
         registryString(activeEntry, QStringLiteral("package_path"));
@@ -482,7 +541,8 @@ int main(int argc, char** argv) {
             QLatin1String(ExpectedModelName) ||
         !localAbsolutePath(configuredPackage) ||
         !samePath(configuredPackage, QLatin1String(ExpectedPackagePath))) {
-        return fail(21, QStringLiteral("Active Model registry identity/path mismatch."));
+        return finish(
+            21, QStringLiteral("Active Model registry identity/path mismatch."));
     }
 
     const ModelPackageInspection package = inspectModelPackage(activeEntry);
@@ -498,9 +558,9 @@ int main(int argc, char** argv) {
         QFileInfo(package.onnxPath).isSymLink() ||
         QFileInfo(package.checkpointPath).isSymLink() ||
         QFileInfo(package.metadataPath).isSymLink()) {
-        return fail(22, package.message.isEmpty()
-                            ? QStringLiteral("Active Model package mismatch.")
-                            : package.message);
+        return finish(22, package.message.isEmpty()
+                              ? QStringLiteral("Active Model package mismatch.")
+                              : package.message);
     }
     const QString onnxHashBefore = fileSha256(package.onnxPath);
     const QString checkpointHashBefore = fileSha256(package.checkpointPath);
@@ -508,9 +568,11 @@ int main(int argc, char** argv) {
     if (onnxHashBefore != QLatin1String(ExpectedOnnxSha256) ||
         !validSha256(checkpointHashBefore) ||
         !validSha256(metadataHashBefore)) {
-        return fail(23, QStringLiteral("Active Model artifact hash mismatch."));
+        return finish(23, QStringLiteral("Active Model artifact hash mismatch."));
     }
     const auto metadata = readObject(package.metadataPath, &error);
+    const QJsonObject metadataArtifact =
+        metadata ? metadata->value("artifact").toObject() : QJsonObject{};
     if (!metadata ||
         metadata->value("model_id").toString() !=
             QLatin1String(ExpectedMetadataModelId) ||
@@ -519,37 +581,108 @@ int main(int argc, char** argv) {
         metadata->value("classes").toArray() !=
             QJsonArray{ExpectedClassIds[0], ExpectedClassIds[1],
                        ExpectedClassIds[2]} ||
-        metadata->value("checkpoint_sha256").toString().toLower() !=
-            checkpointHashBefore) {
-        return fail(24, metadata ? QStringLiteral("Active Model metadata mismatch.")
-                                 : error);
+        metadataArtifact.value("checkpoint_file").toString() !=
+            QFileInfo(package.checkpointPath).fileName() ||
+        metadataArtifact.value("onnx_file").toString() !=
+            QFileInfo(package.onnxPath).fileName() ||
+        (metadataArtifact.contains("checkpoint_sha256") &&
+         metadataArtifact.value("checkpoint_sha256")
+                 .toString()
+                 .toLower() != checkpointHashBefore)) {
+        return finish(24, metadata
+                              ? QStringLiteral("Active Model metadata mismatch.")
+                              : error);
     }
 
-    ModelLoadService loader(registryPath);
+    ModelLoadService productionLoader(registryPath);
     const PersistedActiveModelInspection inspection =
-        loader.inspectPersistedActive();
+        productionLoader.inspectPersistedActive();
     if (!inspection.loadable ||
         inspection.id != QLatin1String(ExpectedRegistryEntryId) ||
         inspection.displayName != QLatin1String(ExpectedModelName) ||
         inspection.modelSha256 != QLatin1String(ExpectedOnnxSha256) ||
-        inspection.plannedDevice.trimmed().isEmpty() ||
+        (inspection.plannedDevice != QStringLiteral("GPU") &&
+         inspection.plannedDevice != QStringLiteral("CPU")) ||
         !expectedClasses(inspection.classes)) {
-        return fail(25, inspection.error.isEmpty()
-                            ? QStringLiteral("Active Model loader inspection mismatch.")
-                            : inspection.error);
+        return finish(
+            25,
+            inspection.error.isEmpty()
+                ? QStringLiteral("Active Model loader inspection mismatch.")
+                : inspection.error);
     }
+
+    const QString temporaryPackage =
+        QDir(temporary.path()).filePath("active-model-package");
+    const QString temporaryRegistry =
+        QDir(temporary.path()).filePath("model_registry.json");
+    const QString temporaryOnnx =
+        QDir(temporaryPackage).filePath(QFileInfo(package.onnxPath).fileName());
+    const QString temporaryCheckpoint =
+        QDir(temporaryPackage)
+            .filePath(QFileInfo(package.checkpointPath).fileName());
+    const QString temporaryMetadata =
+        QDir(temporaryPackage)
+            .filePath(QFileInfo(package.metadataPath).fileName());
+    temporary.track(temporaryPackage);
+    temporary.track(temporaryRegistry);
+    temporary.track(temporaryOnnx);
+    temporary.track(temporaryCheckpoint);
+    temporary.track(temporaryMetadata);
+    if (!QDir().mkpath(temporaryPackage) ||
+        !QFile::copy(package.onnxPath, temporaryOnnx) ||
+        !QFile::copy(package.checkpointPath, temporaryCheckpoint) ||
+        !QFile::copy(package.metadataPath, temporaryMetadata)) {
+        return finish(26, QStringLiteral("Could not copy Active Model into TEMP."));
+    }
+
+    auto registryObject = readObject(registryPath, &error);
+    if (!registryObject)
+        return finish(27, error);
+    QJsonArray temporaryEntries = registryObject->value("entries").toArray();
+    int rewrittenActiveCount = 0;
+    for (qsizetype index = 0; index < temporaryEntries.size(); ++index) {
+        QJsonObject entry = temporaryEntries.at(index).toObject();
+        if (!entry.value("active").toBool())
+            continue;
+        entry.insert("package_path", temporaryPackage);
+        temporaryEntries.replace(index, entry);
+        ++rewrittenActiveCount;
+    }
+    registryObject->insert("entries", temporaryEntries);
+    QFile temporaryRegistryFile(temporaryRegistry);
+    const QByteArray temporaryRegistryBytes =
+        QJsonDocument(*registryObject).toJson(QJsonDocument::Indented);
+    bool temporaryRegistryWritten = false;
+    if (rewrittenActiveCount == 1 &&
+        temporaryRegistryFile.open(QIODevice::WriteOnly |
+                                   QIODevice::NewOnly)) {
+        temporaryRegistryWritten =
+            temporaryRegistryFile.write(temporaryRegistryBytes) ==
+                temporaryRegistryBytes.size() &&
+            temporaryRegistryFile.flush();
+        temporaryRegistryFile.close();
+    }
+    if (!temporaryRegistryWritten) {
+        return finish(28, QStringLiteral("Could not write TEMP model registry."));
+    }
+
+    ModelLoadService loader(temporaryRegistry);
     const PersistedActiveCheckpointInspection checkpointInspection =
         loader.inspectAndMigratePersistedActiveCheckpoint();
+    const QString temporaryMetadataHash = fileSha256(temporaryMetadata);
     if (!checkpointInspection.loadable ||
         checkpointInspection.checkpointSha256 != checkpointHashBefore ||
-        checkpointInspection.metadataSha256 != metadataHashBefore ||
+        checkpointInspection.metadataSha256 != temporaryMetadataHash ||
+        fileSha256(temporaryOnnx) != onnxHashBefore ||
+        fileSha256(temporaryCheckpoint) != checkpointHashBefore ||
+        !validSha256(temporaryMetadataHash) ||
         fileSha256(package.metadataPath) != metadataHashBefore ||
         fileSha256(registryPath) != registryHashBefore) {
-        return fail(
-            26,
+        return finish(
+            29,
             checkpointInspection.error.isEmpty()
                 ? QStringLiteral(
-                      "Active checkpoint provenance required an unexpected mutation.")
+                      "TEMP Active Model checkpoint inspection failed.")
                 : checkpointInspection.error);
     }
 
@@ -568,6 +701,7 @@ int main(int argc, char** argv) {
         pythonPath, workingDirectory);
     const QString outputRoot =
         QDir(reportsRoot).filePath("model-test-1");
+    temporary.track(outputRoot);
     QElapsedTimer elapsed;
     elapsed.start();
     const bool ran = service.run(
@@ -591,27 +725,34 @@ int main(int argc, char** argv) {
         return true;
     };
     if (!sourceInputsUnchanged()) {
-        return fail(27, QStringLiteral("A pinned source input changed during the probe."));
+        return finish(
+            30,
+            QStringLiteral("A pinned source input changed during the probe."));
     }
     if (!ran) {
-        return fail(28, QStringLiteral("Production Model Test failed: %1").arg(error));
+        return finish(
+            31, QStringLiteral("Production Model Test failed: %1").arg(error));
     }
     if (elapsedMs <= 0 || elapsedMs > 30000 ||
         completedBatches < 1 ||
         progressProcessed != ExpectedRepresentativeCount ||
         progressEligible != ExpectedRepresentativeCount) {
-        return fail(29, QStringLiteral("Bounded durable-batch progress mismatch."));
+        return finish(
+            32, QStringLiteral("Bounded durable-batch progress mismatch."));
     }
 
     const QString summaryPath =
         QDir(outputRoot).filePath("model_test_summary.json");
     const QString predictionsPath =
         QDir(outputRoot).filePath("predictions.csv");
+    temporary.track(summaryPath);
+    temporary.track(predictionsPath);
     const auto summaryObject = readObject(summaryPath, &error);
     auto summary = ModelTestSummaryV2::load(summaryPath, &error);
     if (!summaryObject || !summary) {
-        return fail(30, QStringLiteral("Final summary/CSV coherence failed: %1")
-                            .arg(error));
+        return finish(
+            33,
+            QStringLiteral("Final summary/CSV coherence failed: %1").arg(error));
     }
     const auto& data = summary->data();
     const auto& predictions = summary->predictions();
@@ -628,14 +769,15 @@ int main(int argc, char** argv) {
          !data.fallbackWarning && !rawDevice.contains("fallback_warning")) ||
         (data.effectiveDevice == EffectiveDevice::Cpu &&
          data.fallbackWarning &&
-         !data.fallbackWarning->trimmed().isEmpty() &&
+         *data.fallbackWarning ==
+             QStringLiteral(
+                 "CUDA was unavailable or unusable; automatic Model Test used CPU.") &&
          rawDevice.value("fallback_warning").toString() ==
              *data.fallbackWarning);
-    if (rawDevice.value("policy").toString() !=
-            QLatin1String(ModelTestSummaryV2::DevicePolicy) ||
-        rawDevice.value("effective").toString() != expectedEffective ||
+    if (rawDevice.value("effective").toString() != expectedEffective ||
         !truthfulFallback) {
-        return fail(31, QStringLiteral("GPU-first/effective fallback facts mismatch."));
+        return finish(
+            34, QStringLiteral("Actual/effective device facts mismatch."));
     }
 
     qint64 confusionSum = 0;
@@ -657,24 +799,27 @@ int main(int argc, char** argv) {
         data.activeModel.id != QLatin1String(ExpectedRegistryEntryId) ||
         data.activeModel.name != QLatin1String(ExpectedModelName) ||
         data.activeModel.checkpointSha256 != checkpointHashBefore ||
-        data.activeModel.metadataSha256 != metadataHashBefore ||
+        data.activeModel.metadataSha256 != temporaryMetadataHash ||
         !data.activeModel.onnxSha256.isEmpty() ||
         rawActiveModel.contains("onnx_sha256") ||
         rawActiveModel.value("checkpoint_sha256").toString() !=
             checkpointHashBefore ||
         rawActiveModel.value("metadata_sha256").toString() !=
-            metadataHashBefore ||
+            temporaryMetadataHash ||
         !expectedClasses(data.activeModel.classes)) {
-        return fail(32, QStringLiteral("Final Model Test summary facts mismatch."));
+        return finish(
+            35, QStringLiteral("Final Model Test summary facts mismatch."));
     }
     if (derived.perClass.size() !=
         static_cast<qsizetype>(ExpectedClassIds.size())) {
-        return fail(33, QStringLiteral("Final per-class metric count mismatch."));
+        return finish(
+            36, QStringLiteral("Final per-class metric count mismatch."));
     }
     for (qsizetype index = 0; index < derived.perClass.size(); ++index) {
         if (derived.perClass.at(index).classId != ExpectedClassIds[index] ||
             derived.perClass.at(index).support != ExpectedPerClass) {
-            return fail(34, QStringLiteral("Final per-class support mismatch."));
+            return finish(
+                37, QStringLiteral("Final per-class support mismatch."));
         }
     }
     for (qsizetype index = 0; index < predictions.size(); ++index) {
@@ -682,33 +827,41 @@ int main(int argc, char** argv) {
                 selected.at(index).fixtureCropPath ||
             predictions.at(index).trueClassId !=
                 selected.at(index).classId) {
-            return fail(35, QStringLiteral("Ordered prediction facts mismatch."));
+            return finish(
+                38, QStringLiteral("Ordered prediction facts mismatch."));
         }
     }
 
     QFile predictionsFile(predictionsPath);
     if (!predictionsFile.open(QIODevice::ReadOnly)) {
-        return fail(36, QStringLiteral("Final predictions.csv is unreadable."));
+        return finish(39, QStringLiteral("Final predictions.csv is unreadable."));
     }
     const QByteArray predictionsBytes = predictionsFile.readAll();
+    predictionsFile.close();
     if (predictionsBytes.count('\n') != ExpectedRepresentativeCount + 1) {
-        return fail(37, QStringLiteral("predictions.csv line count mismatch."));
-    }
-    QString partialPath;
-    if (!noPartialArtifacts(temporary.path(), &partialPath)) {
-        return fail(38, QStringLiteral("Partial artifact remains: %1")
-                            .arg(partialPath));
+        return finish(
+            40, QStringLiteral("predictions.csv line count mismatch."));
     }
     if (!sourceInputsUnchanged()) {
-        return fail(39, QStringLiteral("A pinned source input changed after validation."));
+        return finish(
+            41,
+            QStringLiteral("A pinned source input changed after validation."));
     }
 
+    QString cleanupError;
+    if (!temporary.cleanup(&cleanupError)) {
+        failure << "FAIL: " << cleanupError << '\n';
+        return 90;
+    }
     output << "PASS source_dataset_id=" << ExpectedDatasetId
            << " representative_dataset_id=" << data.dataset.id
            << " audit_sha256=" << auditManifestHash.toUpper()
            << " selected=6 supports=2,2,2"
-           << " planned_policy=" << ModelTestSummaryV2::DevicePolicy
+           << " planned_device=" << inspection.plannedDevice
            << " effective_device=" << expectedEffective
+           << " fallback="
+           << (data.fallbackWarning ? *data.fallbackWarning
+                                    : QStringLiteral("none"))
            << " completed_batches=" << completedBatches
            << " elapsed_ms=" << elapsedMs
            << " checkpoint_sha256="

@@ -550,5 +550,43 @@ int main(int argc, char **argv)
     waitForIdle(controller, busySpy);
     worker.quit();
     worker.wait();
+
+    ApplicationStateStore retryStore;
+    auto retryDevice = std::make_unique<FakeCameraDevice>();
+    FakeCameraDevice *retryFake = retryDevice.get();
+    retryFake->rejectConfiguration = true;
+    auto *retryService =
+        new CameraService(std::move(retryDevice), retryStore);
+    CameraPreviewImageProvider retryProvider;
+    CameraController retryController(*retryService, retryProvider);
+    QThread retryWorker;
+    retryService->moveToThread(&retryWorker);
+    QObject::connect(&retryWorker, &QThread::finished,
+                     retryService, &QObject::deleteLater);
+    retryWorker.start();
+    QSignalSpy retryBusySpy(&retryController,
+                            &CameraController::busyChanged);
+
+    ok &= check(retryController.open()
+                    && waitForIdle(retryController, retryBusySpy)
+                    && retryController.bitDepth() == QStringLiteral("12-bit"),
+                "A failed initial 8-bit apply must retain factual readback.");
+    retryFake->rejectConfiguration = false;
+    ok &= check(retryController.applyBitDepth(12)
+                    && waitForIdle(retryController, retryBusySpy)
+                    && retryController.bitDepth() == QStringLiteral("12-bit"),
+                "A successful explicit depth must resolve default initialization.");
+    const int appliesBeforeRecovery = retryFake->applyConfigurationCalls;
+    ok &= check(retryController.recover()
+                    && waitForIdle(retryController, retryBusySpy)
+                    && retryController.bitDepth() == QStringLiteral("12-bit")
+                    && retryFake->applyConfigurationCalls
+                        == appliesBeforeRecovery,
+                "Recovery must not overwrite an accepted explicit depth.");
+
+    retryController.close();
+    waitForIdle(retryController, retryBusySpy);
+    retryWorker.quit();
+    retryWorker.wait();
     return ok ? 0 : 1;
 }

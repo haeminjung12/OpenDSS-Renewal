@@ -104,6 +104,14 @@ CameraController::CameraController(CameraService &service,
                         success && configurationAvailable_
                         && appliedSettings_.bitDepth == 8;
                 }
+                if (pendingExplicitBitDepth_) {
+                    if (success && configurationAvailable_
+                        && appliedSettings_.bitDepth
+                            == *pendingExplicitBitDepth_) {
+                        defaultBitDepthInitialized_ = true;
+                    }
+                    pendingExplicitBitDepth_.reset();
+                }
                 if (pendingCustomResolutionSelected_) {
                     if (success) {
                         customResolutionSelected_ = *pendingCustomResolutionSelected_;
@@ -322,7 +330,10 @@ bool CameraController::applyBitDepth(int bitDepth)
     requested.bitDepth = bitDepth;
     requested.pixelType =
         bitDepth == 8 ? CameraPixelType::Mono8 : CameraPixelType::Mono16;
-    return requestConfiguration(requested);
+    if (!requestConfiguration(requested))
+        return false;
+    pendingExplicitBitDepth_ = bitDepth;
+    return true;
 }
 
 bool CameraController::applyExposureMs(double exposureMs)
@@ -404,6 +415,7 @@ bool CameraController::applyProfileSettings(
 {
     if (!requestConfiguration(settings))
         return false;
+    pendingExplicitBitDepth_ = settings.bitDepth;
 
     QEventLoop waitLoop;
     QTimer timeout;

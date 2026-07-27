@@ -127,6 +127,7 @@ private:
     bool previewLutUpdatePending_ = false;
     bool defaultBitDepthInitializationPending_ = false;
     bool defaultBitDepthInitialized_ = false;
+    std::optional<int> pendingExplicitBitDepth_;
 };
 
 } // namespace desktop_app::v2

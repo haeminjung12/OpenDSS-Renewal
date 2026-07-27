@@ -346,6 +346,36 @@ int main(int argc, char** argv) {
                     && appliedCameraBitDepth == 12,
                 "An explicit supported profile Bit Depth must remain unchanged.");
 
+    facts.cameraSettings.insert(QStringLiteral("bit_depth"), 12);
+    controller->refresh();
+    QJsonObject absentCameraProfile = savedProfile;
+    absentCameraProfile.remove(QStringLiteral("camera"));
+    const QString absentCameraPath =
+        QDir(runs.path()).filePath(QStringLiteral("absent-camera-profile.json"));
+    QString absentCameraError;
+    appliedCameraBitDepth = 12;
+    ok &= check(desktop_app::writeJsonObjectAtomically(
+                    absentCameraPath, absentCameraProfile,
+                    &absentCameraError)
+                    && controller->openProfile(
+                        QUrl::fromLocalFile(absentCameraPath))
+                    && appliedCameraBitDepth == 8,
+                "An absent legacy Camera object must resolve Bit Depth to 8.");
+
+    QJsonObject emptyCameraProfile = savedProfile;
+    emptyCameraProfile.insert(QStringLiteral("camera"), QJsonObject{});
+    const QString emptyCameraPath =
+        QDir(runs.path()).filePath(QStringLiteral("empty-camera-profile.json"));
+    QString emptyCameraError;
+    appliedCameraBitDepth = 12;
+    ok &= check(desktop_app::writeJsonObjectAtomically(
+                    emptyCameraPath, emptyCameraProfile,
+                    &emptyCameraError)
+                    && controller->openProfile(
+                        QUrl::fromLocalFile(emptyCameraPath))
+                    && appliedCameraBitDepth == 8,
+                "An empty legacy Camera object must resolve Bit Depth to 8.");
+
     QJsonObject partialProfile = savedProfile;
     partialProfile.insert(QStringLiteral("hit_boundary"),
                           QJsonObject{{QStringLiteral("boundary_y"), 3.0}});

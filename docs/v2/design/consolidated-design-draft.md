@@ -2039,6 +2039,13 @@ The clicked X and Y coordinates are workspace-local authoritative operation stat
 
 The coordinate MUST NOT be written to Setup Profiles, Run files, `events.csv`, `run_summary.json`, Results, logs, or any other exported artifact. No coordinate history, timestamp, event association, or cross-workspace projection may be inferred.
 
+Droplets flow left to right and EventDetector tracks each droplet through the frame. Decision timing is:
+
+- While a tracked droplet remains in the frame, including while it is left of the clicked Decision Boundary X, it is tracking-only. No Hit/Waste classification or physical routing output occurs before the track ends.
+- The clicked X defines only the start of the visible right-edge segment. It is not an operational or early-classification threshold.
+- Classification occurs when the track ends or the droplet disappears. The final tracked source-image Y is compared with the Decision Boundary Y, and `Top is Hit` / `Bottom is Hit` supplies the Hit/Waste mapping.
+- The same final-Y classification applies even in the unexpected case where the track ends or disappears before ever reaching the clicked X. This case does not introduce an Unresolved outcome.
+
 The user must also explicitly choose the operational side:
 
 ```text

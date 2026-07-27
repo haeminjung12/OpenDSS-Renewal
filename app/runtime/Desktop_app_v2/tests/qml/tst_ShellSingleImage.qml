@@ -1290,6 +1290,8 @@ Item {
         unavailableCameraController.bitDepth = "12-bit"
         unavailableCameraController.exposureMs = "10"
         unavailableCameraController.readoutMode = "Fast"
+        unavailableCameraController.previewLutMinimum = 12
+        unavailableCameraController.previewLutMaximum = 220
         unavailableCameraController.resolutionCallCount = 0
         wait(0)
         verify(unavailableCameraShell.form.cameraResolutionSelector.enabled)
@@ -1306,6 +1308,10 @@ Item {
         compare(unavailableCameraShell.form.cameraResolutionSelector.model[21], "512 x 128")
         compare(unavailableCameraShell.form.cameraLutSelector.model.length, 1)
         compare(unavailableCameraShell.form.cameraLutSelector.model[0], "Linear")
+        compare(unavailableCameraShell.form.previewLutRangeSlider.Accessible.name,
+                qsTr("LUT"))
+        compare(unavailableCameraShell.form.previewLutRangeSlider.first.value, 12)
+        compare(unavailableCameraShell.form.previewLutRangeSlider.second.value, 220)
         unavailableCameraShell.form.cameraResolutionSelector.activated(10)
         compare(unavailableCameraController.resolutionCallCount, 1)
         compare(unavailableCameraController.requestedWidth, 1152)
@@ -1333,7 +1339,7 @@ Item {
         unavailableCameraShell.form.previewLutRangeSlider.first.moved()
         compare(unavailableCameraController.lutCallCount, 1)
         compare(unavailableCameraController.previewLutMinimum, 24)
-        compare(unavailableCameraController.previewLutMaximum, 255)
+        compare(unavailableCameraController.previewLutMaximum, 220)
 
         unavailableCameraShell.form.startCameraButton.clicked()
         compare(unavailableCameraController.startCallCount, 1)
@@ -2636,21 +2642,41 @@ Item {
     function test_textSizeProjection() {
         compare(textSizeController.textSizePercent, 100)
         compare(Constants.textSizePercent, 100)
+        verifyVisibleNonTitleFontFloor()
         textSizeController.textSizePercent = 80
         compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 0)
         shell.form.settingsWorkspace.textSizeSelector.activated(0)
         compare(textSizeController.lastRequestedTextSizePercent, 80)
         compare(textSizeController.textSizePercent, 80)
         compare(Constants.textSizePercent, 80)
+        verifyVisibleNonTitleFontFloor()
         textSizeController.textSizePercent = 100
         compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 1)
         shell.form.settingsWorkspace.textSizeSelector.activated(1)
         compare(textSizeController.lastRequestedTextSizePercent, 100)
+        compare(Constants.textSizePercent, 100)
+        verifyVisibleNonTitleFontFloor()
         textSizeController.textSizePercent = 125
         compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 2)
         shell.form.settingsWorkspace.textSizeSelector.activated(2)
         compare(textSizeController.lastRequestedTextSizePercent, 125)
         compare(Constants.textSizePercent, 125)
+        verifyVisibleNonTitleFontFloor()
+    }
+
+    function verifyVisibleNonTitleFontFloor() {
+        const visibleNonTitleFonts = [
+            Constants.font,
+            Constants.smallFont,
+            Constants.appBodyFont,
+            Constants.appLabelFont,
+            Constants.appButtonFont,
+            Constants.appSectionFont,
+            Constants.appCaptionFont,
+            Constants.appInspectorRailGlyphFont
+        ]
+        for (let index = 0; index < visibleNonTitleFonts.length; ++index)
+            verify(visibleNonTitleFonts[index].pointSize >= 10)
     }
 
     function test_settingsStorageControllerWiring() {
@@ -3129,6 +3155,47 @@ Item {
         compare(shell.mockState.runsPresentation, "runsLoaded")
     }
 
+    function test_runsListScrollKeepsActionsFixed() {
+        const overflowRuns = []
+        for (let index = 0; index < 12; ++index) {
+            overflowRuns.push({
+                id: "run-" + index,
+                runName: qsTr("Run %1").arg(index),
+                loadable: true,
+                statusText: qsTr("Live | Completed"),
+                timingText: qsTr("Started: 2026-07-27 10:00 | Duration: 00:01:00"),
+                summaryText: qsTr("Total Droplets: 10 | Model: Test Model")
+            })
+        }
+        runsControllerMock.runs = overflowRuns
+        runsControllerMock.selectedRunId = "run-0"
+        runsControllerMock.errorMessage = ""
+        shell.runsResultsController = runsControllerMock
+        shell.form.navRunsButton.clicked()
+        wait(0)
+
+        const rows = shell.form.runsWorkspace.runsRowsHost
+        const loadButton = shell.form.runsWorkspace.loadSelectedRunButton
+        const removeButton = shell.form.runsWorkspace.removeSelectedRunButton
+        verify(rows.height > shell.form.runsWorkspace.height)
+        const rowsY = rows.mapToItem(testRoot, 0, 0).y
+        const loadY = loadButton.mapToItem(testRoot, 0, 0).y
+        const removeY = removeButton.mapToItem(testRoot, 0, 0).y
+
+        mouseWheel(rows, rows.width / 2, 20, 0, -360)
+        tryVerify(function() {
+            return rows.mapToItem(testRoot, 0, 0).y < rowsY
+        })
+        tryVerify(function() {
+            return Math.abs(loadButton.mapToItem(testRoot, 0, 0).y - loadY)
+                    < 0.001
+        })
+        tryVerify(function() {
+            return Math.abs(removeButton.mapToItem(testRoot, 0, 0).y - removeY)
+                    < 0.001
+        })
+    }
+
     function test_liveAndSequenceTestUseProductionControllers() {
         shell.liveSortingController = liveSortingController
         shell.sequenceTestController = sequenceTestController
@@ -3565,6 +3632,7 @@ Item {
         compare(liveSortingController.minimumContourAreaSetCallCount, 1)
         compare(liveSortingController.minimumContourArea, 77)
         compare(shell.form.smallDropletRejectionArea, 77)
+        compare(shell.form.smallDropletRejectionValueText.text, qsTr("77"))
         compare(shell.smallDropletSelectionWorkspace, "")
         verify(!shell.form.sequenceTestWorkspace.smallDropletSelectionArmed)
         verify(!shell.form.sequenceTestWorkspace.smallDropletSelectionVisible)

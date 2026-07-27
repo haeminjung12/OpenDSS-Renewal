@@ -107,6 +107,133 @@ function Assert-Wheel {
     }
 }
 
+function Get-CanonicalItem {
+    param([string]$Path, [string]$Description)
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    $pathRoot = [System.IO.Path]::GetPathRoot($fullPath)
+    $rootItem = Get-Item -LiteralPath $pathRoot -Force
+    if (($rootItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Description path root is a reparse point or symlink: $($rootItem.FullName)"
+    }
+    $cursor = $rootItem.FullName
+    foreach ($segment in $fullPath.Substring($pathRoot.Length).Split(
+        [char[]]@("\", "/"), [System.StringSplitOptions]::RemoveEmptyEntries)) {
+        $cursor = Join-Path $cursor $segment
+        if (-not (Test-Path -LiteralPath $cursor)) {
+            throw "$Description is missing: $cursor"
+        }
+        $item = Get-Item -LiteralPath $cursor -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Description contains a reparse point or symlink: $($item.FullName)"
+        }
+        $cursor = $item.FullName
+    }
+    $finalItem = Get-Item -LiteralPath $cursor -Force
+    return $finalItem
+}
+
+function Assert-CanonicalDescendant {
+    param([object]$Item, [object]$Root, [string]$Description)
+    $rootPath = $Root.FullName.TrimEnd("\")
+    $cursor = if ($Item.PSIsContainer) { $Item } else { $Item.Directory }
+    while ($null -ne $cursor) {
+        if ($cursor.FullName.TrimEnd("\") -ieq $rootPath) {
+            if ($Item.FullName.TrimEnd("\") -ieq $rootPath) {
+                throw "$Description must be a child of, not equal to, $rootPath."
+            }
+            return
+        }
+        $cursor = $cursor.Parent
+    }
+    throw "$Description is not canonically contained by $rootPath`: $($Item.FullName)"
+}
+
+function Assert-NoReparseTree {
+    param([object]$Item, [string]$Description)
+    if (($Item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$Description is a reparse point or symlink: $($Item.FullName)"
+    }
+    if (-not $Item.PSIsContainer) {
+        return
+    }
+    foreach ($child in @(Get-ChildItem -LiteralPath $Item.FullName -Force -Recurse)) {
+        if (($child.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "$Description contains a reparse point or symlink: $($child.FullName)"
+        }
+    }
+}
+
+function Get-EnvironmentRoots {
+    param([string]$EnvironmentRoot)
+    $environment = Get-CanonicalItem -Path $EnvironmentRoot -Description "Training environment"
+    if (-not $environment.PSIsContainer) {
+        throw "Training environment is not a directory: $($environment.FullName)"
+    }
+    $lib = Get-CanonicalItem -Path (Join-Path $environment.FullName "Lib") `
+        -Description "Training environment Lib directory"
+    $sitePackages = Get-CanonicalItem -Path (Join-Path $lib.FullName "site-packages") `
+        -Description "Training environment site-packages directory"
+    $scripts = Get-CanonicalItem -Path (Join-Path $environment.FullName "Scripts") `
+        -Description "Training environment Scripts directory"
+    foreach ($root in @($lib, $sitePackages, $scripts)) {
+        if (-not $root.PSIsContainer) {
+            throw "Required training environment path is not a directory: $($root.FullName)"
+        }
+        Assert-CanonicalDescendant -Item $root -Root $environment `
+            -Description "Training environment directory"
+    }
+    return [pscustomobject]@{
+        Environment = $environment
+        Lib = $lib
+        SitePackages = $sitePackages
+        Scripts = $scripts
+    }
+}
+
+function Get-TrainerCandidateArtifacts {
+    param([object]$Roots)
+    $artifacts = @()
+    foreach ($item in @(Get-ChildItem -LiteralPath $Roots.SitePackages.FullName -Force)) {
+        $name = $item.Name.ToLowerInvariant()
+        $normalized = $name -replace "[-.]+", "_"
+        $isPackage = $name -eq "droplet_trainer"
+        $isDistInfo = $normalized -match "^droplet_trainer_.+_dist_info(?:_.*)?$"
+        $isPipRename = $normalized -match "^(?:~roplet_trainer|~droplet_trainer)(?:$|_.*)"
+        $isTrainerTemp = $name -match
+            "^droplet_trainer[-_.~](?:tmp|old|bak|deleteme)(?:$|[-_.~].*)"
+        if (-not ($isPackage -or $isDistInfo -or $isPipRename -or $isTrainerTemp)) {
+            continue
+        }
+        $canonical = Get-CanonicalItem -Path $item.FullName `
+            -Description "Trainer site-packages candidate"
+        Assert-CanonicalDescendant -Item $canonical -Root $Roots.SitePackages `
+            -Description "Trainer site-packages candidate"
+        Assert-NoReparseTree -Item $canonical -Description "Trainer site-packages candidate"
+        $artifacts += [pscustomobject]@{
+            Path = $canonical.FullName
+            RelativePath = "Lib\site-packages\$($canonical.Name)"
+            IsDirectory = [bool]$canonical.PSIsContainer
+        }
+    }
+    foreach ($item in @(Get-ChildItem -LiteralPath $Roots.Scripts.FullName -Force)) {
+        if ($item.Name.ToLowerInvariant() -notmatch
+            "^(?:droplet-trainer|~roplet-trainer|~droplet-trainer)") {
+            continue
+        }
+        $canonical = Get-CanonicalItem -Path $item.FullName `
+            -Description "Trainer entry-script candidate"
+        Assert-CanonicalDescendant -Item $canonical -Root $Roots.Scripts `
+            -Description "Trainer entry-script candidate"
+        Assert-NoReparseTree -Item $canonical -Description "Trainer entry-script candidate"
+        $artifacts += [pscustomobject]@{
+            Path = $canonical.FullName
+            RelativePath = "Scripts\$($canonical.Name)"
+            IsDirectory = [bool]$canonical.PSIsContainer
+        }
+    }
+    return @($artifacts | Sort-Object RelativePath)
+}
+
 function Get-InstalledTrainerLayout {
     param([string]$EnvironmentRoot)
     $sitePackages = Join-Path $EnvironmentRoot "Lib\site-packages"
@@ -164,96 +291,163 @@ function Get-InstalledTrainerLayout {
     }
 }
 
-function Get-LayoutManifest {
-    param([object]$Layout)
+function Get-ArtifactManifest {
+    param([object[]]$Artifacts)
     $manifest = @()
-    foreach ($directory in @(
-        [pscustomobject]@{ Path = $Layout.PackagePath; Label = "site-packages\droplet_trainer" },
-        [pscustomobject]@{
-            Path = $Layout.DistInfoPath
-            Label = "site-packages\$([System.IO.Path]::GetFileName($Layout.DistInfoPath))"
-        }
-    )) {
-        $prefixLength = ([string]$directory.Path).TrimEnd("\").Length + 1
-        foreach ($file in @(Get-ChildItem -LiteralPath $directory.Path -File -Recurse)) {
-            $relative = $file.FullName.Substring($prefixLength)
-            $manifest += [pscustomobject]@{
-                path = "$($directory.Label)\$relative"
-                length = $file.Length
-                sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
+    foreach ($artifact in @($Artifacts)) {
+        $item = Get-CanonicalItem -Path $artifact.Path -Description "Trainer candidate artifact"
+        Assert-NoReparseTree -Item $item -Description "Trainer candidate artifact"
+        $manifest += [pscustomobject]@{
+            path = [string]$artifact.RelativePath
+            kind = if ($item.PSIsContainer) { "directory" } else { "file" }
+            length = if ($item.PSIsContainer) { 0 } else { $item.Length }
+            sha256 = if ($item.PSIsContainer) {
+                ""
+            } else {
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $item.FullName).Hash.ToLowerInvariant()
             }
         }
-    }
-    foreach ($script in @($Layout.EntryScripts)) {
-        $file = Get-Item -LiteralPath $script
-        $manifest += [pscustomobject]@{
-            path = "Scripts\$($file.Name)"
-            length = $file.Length
-            sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $file.FullName).Hash.ToLowerInvariant()
+        if (-not $item.PSIsContainer) {
+            continue
+        }
+        $prefixLength = $item.FullName.TrimEnd("\").Length + 1
+        foreach ($child in @(Get-ChildItem -LiteralPath $item.FullName -Force -Recurse)) {
+            $relative = $child.FullName.Substring($prefixLength)
+            $manifest += [pscustomobject]@{
+                path = "$($artifact.RelativePath)\$relative"
+                kind = if ($child.PSIsContainer) { "directory" } else { "file" }
+                length = if ($child.PSIsContainer) { 0 } else { $child.Length }
+                sha256 = if ($child.PSIsContainer) {
+                    ""
+                } else {
+                    (Get-FileHash -Algorithm SHA256 -LiteralPath $child.FullName).Hash.ToLowerInvariant()
+                }
+            }
         }
     }
     return @($manifest | Sort-Object path)
 }
 
-function Assert-Manifest {
-    param([object[]]$Expected, [object]$Layout, [string]$Description)
-    $actual = @(Get-LayoutManifest -Layout $Layout)
+function Assert-ArtifactManifest {
+    param([object[]]$Expected, [object[]]$Artifacts, [string]$Description)
+    $actual = @(Get-ArtifactManifest -Artifacts $Artifacts)
     if (($Expected | ConvertTo-Json -Compress) -cne ($actual | ConvertTo-Json -Compress)) {
-        throw "$Description does not match the exact pre-update trainer snapshot."
+        throw "$Description candidate artifact set or hashes differ from the pre-update snapshot."
     }
 }
 
-function Copy-Layout {
-    param([object]$Source, [string]$DestinationRoot)
-    $destinationSitePackages = Join-Path $DestinationRoot "Lib\site-packages"
-    $destinationScripts = Join-Path $DestinationRoot "Scripts"
-    New-Item -ItemType Directory -Path $destinationSitePackages, $destinationScripts -Force | Out-Null
-    $packageDestination = Join-Path $destinationSitePackages "droplet_trainer"
-    $distInfoDestination = Join-Path $destinationSitePackages (
-        [System.IO.Path]::GetFileName($Source.DistInfoPath))
-    Copy-Item -LiteralPath $Source.PackagePath -Destination $packageDestination -Recurse
-    Copy-Item -LiteralPath $Source.DistInfoPath -Destination $distInfoDestination -Recurse
-    $entryDestinations = @()
-    foreach ($script in @($Source.EntryScripts)) {
-        $destination = Join-Path $destinationScripts ([System.IO.Path]::GetFileName($script))
-        Copy-Item -LiteralPath $script -Destination $destination
-        $entryDestinations += $destination
+function New-SafeSnapshotRoot {
+    param([string]$Path, [object]$InstallRoot)
+    $canonicalInstallRoot = Get-CanonicalItem -Path $InstallRoot.FullName `
+        -Description "OpenDSS install root"
+    if (Test-Path -LiteralPath $Path) {
+        throw "Trainer snapshot path already exists: $Path"
     }
-    return [pscustomobject]@{
-        SitePackages = $destinationSitePackages
-        Scripts = $destinationScripts
-        PackagePath = $packageDestination
-        DistInfoPath = $distInfoDestination
-        EntryScripts = $entryDestinations
+    $parent = Get-CanonicalItem -Path ([System.IO.Path]::GetDirectoryName($Path)) `
+        -Description "Trainer snapshot parent"
+    if ($parent.FullName -ine $canonicalInstallRoot.FullName) {
+        Assert-CanonicalDescendant -Item $parent -Root $canonicalInstallRoot `
+            -Description "Trainer snapshot parent"
+    }
+    $created = New-Item -ItemType Directory -Path $Path
+    $canonical = Get-CanonicalItem -Path $created.FullName -Description "Trainer snapshot root"
+    Assert-CanonicalDescendant -Item $canonical -Root $canonicalInstallRoot `
+        -Description "Trainer snapshot root"
+    return $canonical
+}
+
+function Copy-ArtifactSet {
+    param(
+        [object[]]$Artifacts,
+        [object]$SourceRoot,
+        [object]$DestinationRoot
+    )
+    $canonicalSourceRoot = Get-CanonicalItem -Path $SourceRoot.FullName `
+        -Description "Trainer artifact copy source root"
+    $canonicalDestinationRoot = Get-CanonicalItem -Path $DestinationRoot.FullName `
+        -Description "Trainer artifact copy destination root"
+    $destinationLibPath = Join-Path $canonicalDestinationRoot.FullName "Lib"
+    $destinationLib = if (Test-Path -LiteralPath $destinationLibPath) {
+        Get-CanonicalItem -Path $destinationLibPath -Description "Trainer artifact copy Lib"
+    } else {
+        New-Item -ItemType Directory -Path $destinationLibPath
+    }
+    $destinationSitePackagesPath = Join-Path $destinationLib.FullName "site-packages"
+    $destinationSitePackages = if (Test-Path -LiteralPath $destinationSitePackagesPath) {
+        Get-CanonicalItem -Path $destinationSitePackagesPath `
+            -Description "Trainer artifact copy site-packages"
+    } else {
+        New-Item -ItemType Directory -Path $destinationSitePackagesPath
+    }
+    $destinationScriptsPath = Join-Path $canonicalDestinationRoot.FullName "Scripts"
+    $destinationScripts = if (Test-Path -LiteralPath $destinationScriptsPath) {
+        Get-CanonicalItem -Path $destinationScriptsPath `
+            -Description "Trainer artifact copy Scripts"
+    } else {
+        New-Item -ItemType Directory -Path $destinationScriptsPath
+    }
+    foreach ($destination in @($destinationLib, $destinationSitePackages, $destinationScripts)) {
+        $canonicalDestination = Get-CanonicalItem -Path $destination.FullName `
+            -Description "Trainer artifact copy destination"
+        Assert-CanonicalDescendant -Item $canonicalDestination -Root $canonicalDestinationRoot `
+            -Description "Trainer artifact copy destination"
+    }
+
+    foreach ($artifact in @($Artifacts)) {
+        $source = Get-CanonicalItem -Path $artifact.Path -Description "Trainer artifact copy source"
+        Assert-CanonicalDescendant -Item $source -Root $canonicalSourceRoot `
+            -Description "Trainer artifact copy source"
+        Assert-NoReparseTree -Item $source -Description "Trainer artifact copy source"
+        if ($artifact.RelativePath -like "Lib\site-packages\*") {
+            $destinationParent = $destinationSitePackages
+        } elseif ($artifact.RelativePath -like "Scripts\*") {
+            $destinationParent = $destinationScripts
+        } else {
+            throw "Unsupported trainer artifact path: $($artifact.RelativePath)"
+        }
+        $destinationPath = Join-Path $destinationParent.FullName (
+            [System.IO.Path]::GetFileName($artifact.Path))
+        if (Test-Path -LiteralPath $destinationPath) {
+            throw "Trainer artifact copy destination already exists: $destinationPath"
+        }
+        Copy-Item -LiteralPath $source.FullName -Destination $destinationPath -Recurse
+        $copied = Get-CanonicalItem -Path $destinationPath `
+            -Description "Copied trainer artifact"
+        Assert-CanonicalDescendant -Item $copied -Root $canonicalDestinationRoot `
+            -Description "Copied trainer artifact"
+        Assert-NoReparseTree -Item $copied -Description "Copied trainer artifact"
     }
 }
 
 function Remove-ScopedItem {
-    param([string]$Path, [string]$AllowedRoot)
+    param([string]$Path, [object]$AllowedRoot)
     if (-not (Test-Path -LiteralPath $Path)) {
         return
     }
-    $resolvedPath = [System.IO.Path]::GetFullPath($Path)
-    $resolvedRoot = [System.IO.Path]::GetFullPath($AllowedRoot).TrimEnd("\") + "\"
-    if (-not $resolvedPath.StartsWith($resolvedRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to remove path outside the exact training environment: $resolvedPath"
-    }
-    Remove-Item -LiteralPath $resolvedPath -Recurse -Force
+    $canonicalRoot = Get-CanonicalItem -Path $AllowedRoot.FullName `
+        -Description "Trainer removal root"
+    $item = Get-CanonicalItem -Path $Path -Description "Trainer removal target"
+    Assert-CanonicalDescendant -Item $item -Root $canonicalRoot `
+        -Description "Trainer removal target"
+    Assert-NoReparseTree -Item $item -Description "Trainer removal target"
+    Remove-Item -LiteralPath $item.FullName -Recurse -Force
 }
 
-function Restore-Layout {
-    param([object]$Original, [object]$Snapshot, [string]$EnvironmentRoot)
-    Remove-ScopedItem -Path $Original.PackagePath -AllowedRoot $EnvironmentRoot
-    Remove-ScopedItem -Path $Original.DistInfoPath -AllowedRoot $EnvironmentRoot
-    foreach ($script in @($Original.EntryScripts)) {
-        Remove-ScopedItem -Path $script -AllowedRoot $EnvironmentRoot
+function Restore-ArtifactSet {
+    param(
+        [object[]]$SnapshotArtifacts,
+        [object]$SnapshotRoot,
+        [object]$EnvironmentRoots
+    )
+    $currentArtifacts = @(Get-TrainerCandidateArtifacts -Roots $EnvironmentRoots)
+    foreach ($artifact in $currentArtifacts) {
+        Remove-ScopedItem -Path $artifact.Path -AllowedRoot $EnvironmentRoots.Environment
     }
-    Copy-Item -LiteralPath $Snapshot.PackagePath -Destination $Original.PackagePath -Recurse
-    Copy-Item -LiteralPath $Snapshot.DistInfoPath -Destination $Original.DistInfoPath -Recurse
-    foreach ($script in @($Snapshot.EntryScripts)) {
-        Copy-Item -LiteralPath $script -Destination (
-            Join-Path $Original.Scripts ([System.IO.Path]::GetFileName($script)))
+    if (@(Get-TrainerCandidateArtifacts -Roots $EnvironmentRoots).Count -ne 0) {
+        throw "Trainer replacement artifacts remain after bounded rollback removal."
     }
+    Copy-ArtifactSet -Artifacts $SnapshotArtifacts -SourceRoot $SnapshotRoot `
+        -DestinationRoot $EnvironmentRoots.Environment
 }
 
 function Assert-Inventory {
@@ -302,23 +496,56 @@ if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
     throw "The exact OpenDSS training Python is missing: $python"
 }
 
+$installRootItem = Get-CanonicalItem -Path $installRoot -Description "OpenDSS install root"
+$environmentRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
+Assert-CanonicalDescendant -Item $environmentRoots.Environment -Root $installRootItem `
+    -Description "Training environment"
+$pythonItem = Get-CanonicalItem -Path $python -Description "OpenDSS training Python"
+Assert-CanonicalDescendant -Item $pythonItem -Root $environmentRoots.Scripts `
+    -Description "OpenDSS training Python"
+if ($pythonItem.PSIsContainer) {
+    throw "The exact OpenDSS training Python is not a file: $($pythonItem.FullName)"
+}
+$python = $pythonItem.FullName
+
 $inventory = Assert-Authority -LockPath $lockPath -InventoryPath $inventoryPath
 Assert-Wheel -Path $wheel
+$originalArtifacts = @(Get-TrainerCandidateArtifacts -Roots $environmentRoots)
 $original = Get-InstalledTrainerLayout -EnvironmentRoot $environmentRoot
-$originalManifest = @(Get-LayoutManifest -Layout $original)
+$candidatePaths = @{}
+foreach ($artifact in $originalArtifacts) {
+    $candidatePaths[([string]$artifact.Path).ToLowerInvariant()] = $true
+}
+foreach ($requiredPath in @(
+    $original.PackagePath,
+    $original.DistInfoPath
+) + @($original.EntryScripts)) {
+    $requiredItem = Get-CanonicalItem -Path $requiredPath `
+        -Description "Installed trainer artifact"
+    if (-not $candidatePaths.ContainsKey($requiredItem.FullName.ToLowerInvariant())) {
+        throw "Installed trainer artifact was not included in the bounded candidate set: $requiredPath"
+    }
+}
+$originalManifest = @(Get-ArtifactManifest -Artifacts $originalArtifacts)
 $snapshotRoot = Join-Path $installRoot (
     ".training-trainer-wheel-snapshot-$([Guid]::NewGuid().ToString('N'))")
-$snapshot = $null
+$snapshotRootItem = $null
+$snapshotArtifacts = @()
 $installStarted = $false
-$keepSnapshot = $false
+$updateValidated = $false
 
 $oldPythonPath = $env:PYTHONPATH
 $oldPythonHome = $env:PYTHONHOME
 $oldPythonNoUserSite = $env:PYTHONNOUSERSITE
 $oldPipNoIndex = $env:PIP_NO_INDEX
 try {
-    $snapshot = Copy-Layout -Source $original -DestinationRoot $snapshotRoot
-    Assert-Manifest -Expected $originalManifest -Layout $snapshot -Description "Snapshot"
+    $snapshotRootItem = New-SafeSnapshotRoot -Path $snapshotRoot -InstallRoot $installRootItem
+    Copy-ArtifactSet -Artifacts $originalArtifacts `
+        -SourceRoot $environmentRoots.Environment -DestinationRoot $snapshotRootItem
+    $snapshotRoots = Get-EnvironmentRoots -EnvironmentRoot $snapshotRootItem.FullName
+    $snapshotArtifacts = @(Get-TrainerCandidateArtifacts -Roots $snapshotRoots)
+    Assert-ArtifactManifest -Expected $originalManifest -Artifacts $snapshotArtifacts `
+        -Description "Snapshot"
 
     $env:PYTHONPATH = $null
     $env:PYTHONHOME = $null
@@ -331,7 +558,9 @@ try {
         throw "Pinned local trainer installation failed with exit code $LASTEXITCODE."
     }
 
-    $null = Get-InstalledTrainerLayout -EnvironmentRoot $environmentRoot
+    $updatedRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
+    $null = @(Get-TrainerCandidateArtifacts -Roots $updatedRoots)
+    $null = Get-InstalledTrainerLayout -EnvironmentRoot $updatedRoots.Environment.FullName
     Assert-Inventory -Python $python -Inventory $inventory
     $checkOutput = Join-Path $snapshotRoot "env-check"
     New-Item -ItemType Directory -Path $checkOutput -Force | Out-Null
@@ -340,31 +569,43 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Isolated droplet-trainer environment check failed with exit code $LASTEXITCODE."
     }
-    Write-Host "OpenDSS droplet-trainer updated atomically to $ExpectedHash."
+    $updateValidated = $true
 } catch {
     $originalFailure = $_.Exception.Message
-    if ($installStarted -and $null -ne $snapshot) {
+    $failureMessage = "Trainer update failed: $originalFailure"
+    if ($installStarted -and $snapshotArtifacts.Count -gt 0) {
         try {
-            Restore-Layout -Original $original -Snapshot $snapshot -EnvironmentRoot $environmentRoot
-            $restored = Get-InstalledTrainerLayout -EnvironmentRoot $environmentRoot
-            Assert-Manifest -Expected $originalManifest -Layout $restored -Description "Post-rollback installation"
+            $rollbackRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
+            Restore-ArtifactSet -SnapshotArtifacts $snapshotArtifacts `
+                -SnapshotRoot $snapshotRootItem -EnvironmentRoots $rollbackRoots
+            $restoredRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
+            $restoredArtifacts = @(Get-TrainerCandidateArtifacts -Roots $restoredRoots)
+            Assert-ArtifactManifest -Expected $originalManifest -Artifacts $restoredArtifacts `
+                -Description "Post-rollback installation"
+            $null = Get-InstalledTrainerLayout -EnvironmentRoot $restoredRoots.Environment.FullName
+            $failureMessage =
+                "Trainer update failed and the exact original candidate artifact set was restored and verified: $originalFailure"
         } catch {
-            $keepSnapshot = $true
-            throw "Trainer update failed: $originalFailure Rollback also failed: $($_.Exception.Message) Snapshot retained at $snapshotRoot"
+            throw "$failureMessage Rollback also failed: $($_.Exception.Message) Snapshot retained at $snapshotRoot"
         }
-        throw "Trainer update failed and the exact original installation was restored and verified: $originalFailure"
     }
-    throw
+    if ($null -ne $snapshotRootItem -and (Test-Path -LiteralPath $snapshotRoot)) {
+        try {
+            Remove-ScopedItem -Path $snapshotRoot -AllowedRoot $installRootItem
+        } catch {
+            throw "$failureMessage Snapshot cleanup also failed: $($_.Exception.Message) Snapshot retained at $snapshotRoot"
+        }
+    }
+    throw $failureMessage
 } finally {
     $env:PYTHONPATH = $oldPythonPath
     $env:PYTHONHOME = $oldPythonHome
     $env:PYTHONNOUSERSITE = $oldPythonNoUserSite
     $env:PIP_NO_INDEX = $oldPipNoIndex
-    if (-not $keepSnapshot -and (Test-Path -LiteralPath $snapshotRoot)) {
-        try {
-            Remove-ScopedItem -Path $snapshotRoot -AllowedRoot $installRoot
-        } catch {
-            Write-Warning "Could not remove trainer update snapshot: $snapshotRoot"
-        }
-    }
 }
+
+if (-not $updateValidated) {
+    throw "Trainer update did not reach validated success."
+}
+Remove-ScopedItem -Path $snapshotRoot -AllowedRoot $installRootItem
+Write-Host "OpenDSS droplet-trainer updated atomically to $ExpectedHash."

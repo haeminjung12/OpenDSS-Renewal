@@ -310,7 +310,7 @@ Rectangle {
                 Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Runs panel") : qsTr("Expand Runs panel")
             }
 
-            ScrollView {
+            Item {
                 visible: root.rightPanelExpanded
                 anchors.top: panelTopStrip.bottom
                 anchors.topMargin: Constants.spacing
@@ -319,41 +319,51 @@ Rectangle {
                 anchors.leftMargin: Constants.spacing
                 anchors.right: parent.right
                 anchors.rightMargin: Constants.spacing
-                clip: true
-                contentWidth: availableWidth
-
                 AppAccordion {
                     id: runsSection
-                    width: parent.width
+                    anchors.fill: parent
                     sectionTitle: qsTr("Runs")
                     expanded: root.runsPanelExpanded
-                    useIntrinsicBodyHeight: true
+                    bodyHeight: Math.max(0, height - Constants.appAccordionHeaderHeight)
 
                     Item {
                         width: parent.width
-                        height: runsPanelContent.implicitHeight + Constants.spacing * 2
+                        height: runsSection.bodyHeight
                         Column {
                             id: runsPanelContent
-                            anchors.top: parent.top
-                            anchors.left: parent.left
-                            anchors.right: parent.right
+                            anchors.fill: parent
                             anchors.margins: Constants.spacing
                             spacing: 6
 
-                            Rectangle { visible: !root.hasRuns && !root.runsError; width: parent.width; height: 70; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("No Runs found"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent } }
-                            Column {
-                                id: runsRowsHost
+                            ScrollView {
+                                id: runsListScroll
                                 width: parent.width
-                                spacing: 6
+                                height: Math.max(0, parent.height - runsActions.height - parent.spacing)
+                                clip: true
+                                contentWidth: availableWidth
 
-                                Text {
-                                    id: run042RowStatusText
-                                    visible: false
+                                Column {
+                                    width: runsListScroll.availableWidth
+                                    height: implicitHeight
+                                    spacing: 6
+
+                                    Rectangle { visible: !root.hasRuns && !root.runsError; width: parent.width; height: 70; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("No Runs found"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent } }
+                                    Column {
+                                        id: runsRowsHost
+                                        width: parent.width
+                                        spacing: 6
+
+                                        Text {
+                                            id: run042RowStatusText
+                                            visible: false
+                                        }
+                                    }
+                                    Rectangle { visible: root.runsError; width: parent.width; height: 46; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent } }
                                 }
                             }
-                            Rectangle { visible: root.runsError; width: parent.width; height: 46; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent } }
 
                             Row {
+                                id: runsActions
                                 width: parent.width
                                 spacing: Constants.spacing
 

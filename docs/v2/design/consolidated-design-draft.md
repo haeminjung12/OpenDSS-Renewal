@@ -2136,7 +2136,9 @@ Decision Boundary remains editable during an active Live or Sequence Test Run. A
 
 The selected Top-is-Hit/Bottom-is-Hit mapping may follow the applicable profile and Run configuration contracts, but the boundary coordinate is explicitly excluded from all persistence and provenance.
 
-During active sorting, Trigger Every Droplet, Hit Class, Physical DAQ Output, voltage, frequency, duration, delay, Decision Boundary Set/Reset, and Top-is-Hit/Bottom-is-Hit remain editable. A successfully committed change applies only to subsequent droplets and never rewrites a prior event. Active Model remains read-only, and Send Test Pulse is disabled throughout active sorting. Trigger/DAQ setting changes are recorded in the Run configuration history. Decision Boundary coordinates remain workspace-local presentation state and are never written to that history or any Run, profile, log, result, or export.
+During active sorting, Trigger Every Droplet, Hit Class, Physical DAQ Output, voltage, frequency, duration, delay, Decision Boundary Set/Reset, and Top-is-Hit/Bottom-is-Hit remain editable. A successfully committed change applies only to subsequent droplets and never rewrites a prior event. Active Model remains read-only, and Send Test Pulse is disabled throughout active sorting.
+
+The existing Run format remains unchanged. There is no configuration history, schema-version increase, new configuration-history field, or new event-to-configuration ID. Existing event configuration linkage remains in its current `initial` form. When the Run ends, its existing single configuration snapshot is finalized with only the last successfully active Trigger/DAQ values and Top-is-Hit/Bottom-is-Hit mapping. Intermediate values and change timing are not persisted. Decision Boundary X/Y coordinates remain workspace-local presentation state and are never written to the final snapshot or any Run, profile, event, log, result, or export.
 
 ## 15.8 Active Model presentation
 

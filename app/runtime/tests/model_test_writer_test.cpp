@@ -29,6 +29,9 @@ struct ModelTestWriterTestAccess {
     static void failNextAppend(ModelTestWriter& writer) {
         writer.failNextAppendForTest_ = true;
     }
+    static void failNextCheckpoint(ModelTestWriter& writer) {
+        writer.failNextCheckpointForTest_ = true;
+    }
     static void failNextFinalSummary(ModelTestWriter& writer) {
         writer.failNextFinalSummaryForTest_ = true;
     }
@@ -144,24 +147,6 @@ void testCompletedEscapingRecoveryAndSourceUntouched() {
                 recovered->derivedResults().processedImages == 2 &&
                 recovered->derivedResults().correctPredictions == 1,
             qPrintable(error));
-    QJsonObject malformed =
-        QJsonDocument::fromJson(staleSummary).object();
-    QJsonObject malformedCounts = malformed.value("counts").toObject();
-    malformedCounts.insert("processed", QStringLiteral("zero"));
-    malformed.insert("counts", malformedCounts);
-    writeFile(partialSummary, QJsonDocument(malformed).toJson());
-    require(!ModelTestSummaryV2::load(partialSummary, &error),
-            "partial count type remains strict");
-    malformed = QJsonDocument::fromJson(staleSummary).object();
-    QJsonArray malformedPerClass = malformed.value("per_class").toArray();
-    QJsonObject malformedMetric = malformedPerClass.at(0).toObject();
-    malformedMetric.insert("accuracy", QStringLiteral("not-a-number"));
-    malformedPerClass[0] = malformedMetric;
-    malformed.insert("per_class", malformedPerClass);
-    writeFile(partialSummary, QJsonDocument(malformed).toJson());
-    require(!ModelTestSummaryV2::load(partialSummary, &error),
-            "partial accuracy type remains strict");
-    writeFile(partialSummary, staleSummary);
     require(writer->finalize(ModelTestStatus::Completed,
                              "2026-07-24T12:01:00Z",
                              "all_eligible_images_processed", &error),
@@ -210,6 +195,17 @@ void testRollbackAndFailedRecovery() {
                 {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}},
                 &error),
             qPrintable(error));
+    ModelTestWriterTestAccess::failNextCheckpoint(*writer);
+    require(!writer->appendPrediction(
+                {"crops/b,comma.png", "dataset-1", "model-1", {0.4, 0.6}},
+                &error),
+            "injected generation marker failure");
+    auto recovered = ModelTestSummaryV2::load(
+        QDir(root).filePath("model_test_summary.partial.json"), &error);
+    require(recovered &&
+                recovered->derivedResults().processedImages == 1 &&
+                writer->predictions().size() == 1,
+            "uncommitted generation recovers the prior coherent batch");
     require(writer->finalize(ModelTestStatus::Failed,
                              "2026-07-24T12:00:10Z",
                              "inference_error", &error),
@@ -224,71 +220,34 @@ void testRollbackAndFailedRecovery() {
 }
 
 void testPartialSummaryCommitRetryAndRollback() {
-    stage = "partial-summary-commit";
-#ifdef Q_OS_WIN
+    stage = "checkpoint-generation";
     QTemporaryDir temporary;
     QString error;
-    const QString root = QDir(temporary.path()).filePath("retry-output");
-    auto writer = ModelTestWriter::start(root, data(temporary, 2, 1), &error);
+    const QString root = QDir(temporary.path()).filePath("output");
+    auto writer = ModelTestWriter::start(root, data(temporary, 2, 2), &error);
     require(writer.has_value(), qPrintable(error));
     const QString partialSummary =
         QDir(root).filePath("model_test_summary.partial.json");
-    std::atomic_bool acquired = false;
-    std::atomic_bool lockFailed = false;
-    std::thread unlocker([&] {
-        const HANDLE handle = exclusiveReadLock(partialSummary);
-        if (handle == INVALID_HANDLE_VALUE) {
-            lockFailed = true;
-            acquired = true;
-            return;
-        }
-        acquired = true;
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
-        CloseHandle(handle);
-    });
-    const bool lockReady = waitForLock(acquired);
-    if (!lockReady || lockFailed) {
-        unlocker.join();
-        require(false, "acquire an exclusive partial summary lock");
-    }
-    QElapsedTimer elapsed;
-    elapsed.start();
-    const bool appended = writer->appendPrediction(
-        {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}}, &error);
-    const qint64 elapsedMs = elapsed.elapsed();
-    unlocker.join();
-    require(appended, qPrintable(error));
-    require(elapsedMs >= 25,
-            "partial summary sharing conflict was retried before publication");
+    require(writer->appendPrediction(
+                {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}},
+                &error),
+            qPrintable(error));
     auto recovered = ModelTestSummaryV2::load(partialSummary, &error);
     require(recovered.has_value() &&
-                recovered->derivedResults().processedImages == 1 &&
-                readFile(QDir(root).filePath("predictions.partial.csv")).count('\n') == 2,
+                recovered->derivedResults().processedImages == 1,
             qPrintable(error));
-
-    const QString failedRoot = QDir(temporary.path()).filePath("failed-output");
-    auto failedWriter =
-        ModelTestWriter::start(failedRoot, data(temporary, 2, 1), &error);
-    require(failedWriter.has_value(), qPrintable(error));
-    const QString failedSummary =
-        QDir(failedRoot).filePath("model_test_summary.partial.json");
-    const QByteArray initialCsv =
-        readFile(QDir(failedRoot).filePath("predictions.partial.csv"));
-    const HANDLE handle = exclusiveReadLock(failedSummary);
-    require(handle != INVALID_HANDLE_VALUE,
-            "acquire a persistent exclusive partial summary lock");
-    const bool failedAppend = failedWriter->appendPrediction(
-        {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}}, &error);
-    CloseHandle(handle);
-    require(!failedAppend &&
-                failedWriter->predictions().isEmpty() &&
-                readFile(QDir(failedRoot).filePath("predictions.partial.csv")) == initialCsv,
-            "permanent partial summary failure rolls back the prediction CSV");
-    recovered = ModelTestSummaryV2::load(failedSummary, &error);
-    require(recovered.has_value() &&
-                recovered->derivedResults().processedImages == 0,
-            qPrintable(error));
-#endif
+    const QByteArray committedMarker =
+        readFile(QDir(root).filePath("model_test_checkpoint.json"));
+    ModelTestWriterTestAccess::failNextCheckpoint(*writer);
+    require(!writer->appendPrediction(
+                {"crops/b,comma.png", "dataset-1", "model-1", {0.4, 0.6}},
+                &error) &&
+                readFile(QDir(root).filePath("model_test_checkpoint.json")) ==
+                    committedMarker,
+            "uncommitted generation cannot replace checkpoint marker");
+    recovered = ModelTestSummaryV2::load(partialSummary, &error);
+    require(recovered && recovered->derivedResults().processedImages == 1,
+            "marker recovers the coherent prior generation");
 }
 
 void testFinalSummaryLastAndRetry() {

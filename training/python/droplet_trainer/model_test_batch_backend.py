@@ -16,6 +16,19 @@ class BatchAllocationError(RuntimeError):
 AUTOMATIC_BATCH_CEILING = 256
 
 
+def _is_allocation_runtime_error(exc: RuntimeError) -> bool:
+    message = str(exc).lower()
+    return any(
+        marker in message
+        for marker in (
+            "out of memory",
+            "not enough memory",
+            "cannot allocate memory",
+            "can't allocate memory",
+        )
+    )
+
+
 @dataclass(frozen=True)
 class EvaluationItem:
     sequence: int
@@ -97,8 +110,25 @@ class TorchBatchBackend:
             raise BatchAllocationError(str(exc)) from exc
 
     def infer(self, prepared_batch: Any) -> Sequence[Sequence[float]]:
-        with self._torch.inference_mode():
-            output = self._model(prepared_batch)
+        try:
+            with self._torch.inference_mode():
+                output = self._model(prepared_batch)
+        except (self._torch.cuda.OutOfMemoryError, MemoryError) as exc:
+            if self._device == "cuda":
+                self._torch.cuda.empty_cache()
+            raise BatchAllocationError(str(exc)) from exc
+        except RuntimeError as exc:
+            if not _is_allocation_runtime_error(exc):
+                raise
+            if self._device == "cuda":
+                self._torch.cuda.empty_cache()
+            raise BatchAllocationError(str(exc)) from exc
+        except RuntimeError as exc:
+            if not _is_allocation_runtime_error(exc):
+                raise
+            if self._device == "cuda":
+                self._torch.cuda.empty_cache()
+            raise BatchAllocationError(str(exc)) from exc
         if getattr(output, "ndim", 0) != 2:
             raise ValueError("Model Test checkpoint must return a batch of class scores.")
         return output.detach().cpu().tolist()
@@ -192,6 +222,7 @@ def evaluate_ordered_batches(
             batch_items = items[processed : processed + current_size]
             try:
                 prepared = backend.prepare(batch_items)
+                raw_scores = backend.infer(prepared)
                 break
             except BatchAllocationError:
                 if current_size == 1:
@@ -199,7 +230,6 @@ def evaluate_ordered_batches(
                 current_size = max(1, current_size // 2)
                 batch_size = current_size
 
-        raw_scores = backend.infer(prepared)
         if len(raw_scores) != len(batch_items):
             raise ValueError("Inference result count does not match the prepared batch.")
 

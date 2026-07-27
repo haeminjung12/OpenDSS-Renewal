@@ -6,6 +6,7 @@
 #include "../operation/operation_coordinator.h"
 
 #include <QDateTime>
+#include <QDeadlineTimer>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
@@ -74,8 +75,18 @@ bool writeProcessMessage(QProcess& process, const QJsonObject& message,
 
 std::optional<QJsonObject> readProcessMessage(QProcess& process,
                                               QByteArray& buffer,
+                                              const std::atomic_bool& stopRequested,
+                                              bool* cancelled,
                                               QString* error) {
+    QDeadlineTimer inactivityDeadline(300000);
+    if (cancelled)
+        *cancelled = false;
     while (true) {
+        if (stopRequested.load(std::memory_order_acquire)) {
+            if (cancelled)
+                *cancelled = true;
+            return std::nullopt;
+        }
         const qsizetype newline = buffer.indexOf('\n');
         if (newline >= 0) {
             const QByteArray line = buffer.left(newline).trimmed();
@@ -104,7 +115,24 @@ std::optional<QJsonObject> readProcessMessage(QProcess& process,
                          .arg(QString::fromUtf8(process.readAllStandardError()).trimmed()));
             return std::nullopt;
         }
+        if (inactivityDeadline.hasExpired()) {
+            setError(error,
+                     QStringLiteral("Model Test process protocol timed out."));
+            return std::nullopt;
+        }
         process.waitForReadyRead(100);
+    }
+}
+
+void stopProcessBounded(QProcess& process) {
+    if (process.state() == QProcess::NotRunning) {
+        process.waitForFinished(0);
+        return;
+    }
+    process.terminate();
+    if (!process.waitForFinished(1000)) {
+        process.kill();
+        process.waitForFinished(2000);
     }
 }
 
@@ -388,16 +416,17 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                                 {"class_ids", classIds},
                                 {"items", processItems}},
                     &localError)) {
-                process.kill();
-                process.waitForFinished();
+                stopProcessBounded(process);
                 lease.transition(OperationLifecycle::Failed);
                 setError(error, localError);
                 return false;
             }
 
             QByteArray outputBuffer;
+            bool processReadCancelled = false;
             const auto ready =
-                readProcessMessage(process, outputBuffer, &localError);
+                readProcessMessage(process, outputBuffer, stopRequested_,
+                                   &processReadCancelled, &localError);
             const QString device =
                 ready ? ready->value("device").toString() : QString{};
             if (!ready || ready->value("event").toString() != "ready" ||
@@ -405,11 +434,14 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                     checkpoint->checkpointSha256 ||
                 ready->value("total").toInteger(-1) != samples.size() ||
                 (device != "cuda" && device != "cpu")) {
-                process.kill();
-                process.waitForFinished();
-                lease.transition(OperationLifecycle::Failed);
+                stopProcessBounded(process);
+                lease.transition(processReadCancelled
+                                     ? OperationLifecycle::Interrupted
+                                     : OperationLifecycle::Failed);
                 setError(error,
-                         localError.isEmpty()
+                         processReadCancelled
+                             ? QStringLiteral("Model Test stopped before evaluation began.")
+                         : localError.isEmpty()
                              ? QStringLiteral("Model Test Python readiness is invalid.")
                              : localError);
                 return false;
@@ -423,8 +455,7 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
             writer = ModelTestWriter::start(request.outputFolder, summary,
                                             &localError);
             if (!writer) {
-                process.kill();
-                process.waitForFinished();
+                stopProcessBounded(process);
                 lease.transition(OperationLifecycle::Failed);
                 setError(error, localError);
                 return false;
@@ -433,25 +464,29 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                 progress_(0, samples.size());
             if (!writeProcessMessage(process, QJsonObject{{"command", "start"}},
                                      &localError)) {
-                process.kill();
-                process.waitForFinished();
+                stopProcessBounded(process);
                 return failAfterStart(
                     localError, QStringLiteral("process_protocol_failed"));
             }
             const auto failProcessAfterStart =
                 [&](const QString& message, const QString& reason) {
-                    if (process.state() != QProcess::NotRunning)
-                        process.kill();
-                    process.waitForFinished();
+                    stopProcessBounded(process);
                     return failAfterStart(message, reason);
                 };
 
             qint64 expectedBatch = 0;
             bool processFinished = false;
             while (!processFinished) {
+                processReadCancelled = false;
                 const auto message =
-                    readProcessMessage(process, outputBuffer, &localError);
+                    readProcessMessage(process, outputBuffer, stopRequested_,
+                                       &processReadCancelled, &localError);
                 if (!message) {
+                    if (processReadCancelled) {
+                        stopped = true;
+                        stopProcessBounded(process);
+                        break;
+                    }
                     return failProcessAfterStart(
                         localError, QStringLiteral("process_protocol_failed"));
                 }
@@ -529,7 +564,12 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                 }
                 ++expectedBatch;
             }
-            process.waitForFinished();
+            if (process.state() != QProcess::NotRunning &&
+                !process.waitForFinished(5000)) {
+                return failProcessAfterStart(
+                    QStringLiteral("Model Test Python process did not exit."),
+                    QStringLiteral("process_protocol_failed"));
+            }
             if (process.exitStatus() != QProcess::NormalExit ||
                 process.exitCode() != 0) {
                 return failProcessAfterStart(

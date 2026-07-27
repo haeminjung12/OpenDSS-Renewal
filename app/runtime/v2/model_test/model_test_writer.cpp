@@ -1,8 +1,11 @@
 #include "model_test_writer.h"
 
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSaveFile>
 #include <QSet>
 
@@ -91,6 +94,16 @@ QByteArray partialCsvBytes(const ModelTestSummaryData& data,
     return bytes;
 }
 
+QString sha256File(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!file.atEnd())
+        hash.addData(file.read(1024 * 1024));
+    return QString::fromLatin1(hash.result().toHex());
+}
+
 } // namespace
 
 namespace desktop_app::v2::model_test {
@@ -154,11 +167,57 @@ ModelTestWriter::start(const QString& outputFolder,
 ModelTestWriter::ModelTestWriter(QString outputFolder, ModelTestSummaryData data,
                                  std::unique_ptr<QFile> partialCsv)
     : outputFolder_(std::move(outputFolder)), data_(std::move(data)),
-      partialCsv_(std::move(partialCsv)) {}
+      partialCsv_(std::move(partialCsv)),
+      committedCsvPath_(partialCsv_->fileName()) {}
 
 ModelTestWriter::ModelTestWriter(ModelTestWriter&&) noexcept = default;
 ModelTestWriter& ModelTestWriter::operator=(ModelTestWriter&&) noexcept = default;
 ModelTestWriter::~ModelTestWriter() = default;
+
+bool ModelTestWriter::commitRecoveryGeneration(
+    const QVector<ModelTestPrediction>& predictions, QString* error) {
+    const qint64 nextGeneration = generation_ + 1;
+    const QString csvName =
+        QStringLiteral("predictions.partial.g%1.csv").arg(nextGeneration);
+    const QString summaryName =
+        QStringLiteral("model_test_summary.partial.g%1.json").arg(nextGeneration);
+    const QString csvPath = QDir(outputFolder_).filePath(csvName);
+    const QString summaryPath = QDir(outputFolder_).filePath(summaryName);
+    if (!atomicReplace(csvPath, partialCsvBytes(data_, predictions), error) ||
+        !ModelTestSummaryV2::savePartialWithValidatedSources(
+            summaryPath, data_, predictions, error)) {
+        return false;
+    }
+    if (failNextCheckpointForTest_) {
+        failNextCheckpointForTest_ = false;
+        return fail(error, "Injected Model Test checkpoint marker failure.");
+    }
+    const QJsonObject checkpoint{
+        {"schema", "opendss.model_test.checkpoint.v1"},
+        {"generation", nextGeneration},
+        {"summary_file", summaryName},
+        {"predictions_file", csvName},
+        {"summary_sha256", sha256File(summaryPath)},
+        {"predictions_sha256", sha256File(csvPath)}};
+    if (!atomicReplace(
+            QDir(outputFolder_)
+                .filePath(QStringLiteral("model_test_checkpoint.json")),
+            QJsonDocument(checkpoint).toJson(), error)) {
+        return false;
+    }
+    generation_ = nextGeneration;
+    committedCsvPath_ = csvPath;
+
+    QString ignored;
+    static_cast<void>(atomicReplace(
+        QDir(outputFolder_).filePath(QStringLiteral("predictions.partial.csv")),
+        partialCsvBytes(data_, predictions), &ignored));
+    static_cast<void>(ModelTestSummaryV2::savePartialWithValidatedSources(
+        QDir(outputFolder_)
+            .filePath(QStringLiteral("model_test_summary.partial.json")),
+        data_, predictions, &ignored));
+    return true;
+}
 
 bool ModelTestWriter::appendPrediction(const ModelTestPrediction& prediction,
                                        QString* error) {
@@ -186,10 +245,8 @@ bool ModelTestWriter::appendBatch(
         paths.insert(prediction.imagePath);
     }
 
-    const QByteArray priorBytes = partialCsvBytes(data_, predictions_);
     QVector<ModelTestPrediction> combined = predictions_;
     combined += predictions;
-    const QByteArray combinedBytes = partialCsvBytes(data_, combined);
     partialCsv_->close();
     if (failNextAppendForTest_) {
         failNextAppendForTest_ = false;
@@ -197,28 +254,13 @@ bool ModelTestWriter::appendBatch(
             partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append));
         return fail(error, "Could not append prediction.");
     }
-    if (!atomicReplace(partialCsv_->fileName(), combinedBytes, error)) {
+    if (!commitRecoveryGeneration(combined, error)) {
         static_cast<void>(
             partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append));
         return false;
     }
 
     predictions_ = combined;
-    if (!ModelTestSummaryV2::savePartialWithValidatedSources(
-            QDir(outputFolder_)
-                .filePath(QStringLiteral("model_test_summary.partial.json")),
-            data_, predictions_, error)) {
-        predictions_.resize(predictions_.size() - predictions.size());
-        QString rollbackError;
-        const bool rolledBack =
-            atomicReplace(partialCsv_->fileName(), priorBytes, &rollbackError);
-        static_cast<void>(
-            partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append));
-        return fail(error, rolledBack
-                               ? "Could not update recoverable Model Test Summary."
-                               : "Partial summary update and batch rollback both failed: " +
-                                     rollbackError);
-    }
     if (!partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append))
         return fail(error, "Could not reopen recoverable predictions CSV.");
     if (!partialCsv_->seek(partialCsv_->size()))
@@ -233,10 +275,11 @@ bool ModelTestWriter::flush(QString* error) {
         return true;
     if (!partialCsv_ || !partialCsv_->isOpen() || !partialCsv_->flush())
         return fail(error, "Could not flush predictions.partial.csv.");
-    return ModelTestSummaryV2::savePartialWithValidatedSources(
-        QDir(outputFolder_)
-            .filePath(QStringLiteral("model_test_summary.partial.json")),
-        data_, predictions_, error);
+    partialCsv_->close();
+    const bool committed = commitRecoveryGeneration(predictions_, error);
+    if (!partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append) && committed)
+        return fail(error, "Could not reopen predictions.partial.csv.");
+    return committed;
 }
 
 bool ModelTestWriter::finalize(ModelTestStatus status, const QString& endedAt,
@@ -260,6 +303,9 @@ bool ModelTestWriter::finalize(ModelTestStatus status, const QString& endedAt,
         !partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append)) {
         return fail(error, "Could not reopen predictions.partial.csv for finalization retry.");
     }
+    data_.status = status;
+    data_.endedAt = endedAt;
+    data_.stopReason = stopReason;
     if (!flush(error))
         return false;
     partialCsv_->close();
@@ -268,9 +314,9 @@ bool ModelTestWriter::finalize(ModelTestStatus status, const QString& endedAt,
         QDir(outputFolder_).filePath(QStringLiteral("predictions.partial.csv"));
     const QString finalPath =
         QDir(outputFolder_).filePath(QStringLiteral("predictions.csv"));
-    QFile partial(partialPath);
+    QFile partial(committedCsvPath_);
     if (!partial.open(QIODevice::ReadOnly))
-        return fail(error, "Could not reopen predictions.partial.csv.");
+        return fail(error, "Could not reopen committed predictions generation.");
     const QByteArray bytes = partial.readAll();
     partial.close();
     if (QFileInfo::exists(finalPath)) {
@@ -281,9 +327,6 @@ bool ModelTestWriter::finalize(ModelTestStatus status, const QString& endedAt,
         return false;
     }
 
-    data_.status = status;
-    data_.endedAt = endedAt;
-    data_.stopReason = stopReason;
     const QString partialSummary =
         QDir(outputFolder_)
             .filePath(QStringLiteral("model_test_summary.partial.json"));
@@ -307,6 +350,15 @@ bool ModelTestWriter::finalize(ModelTestStatus status, const QString& endedAt,
             QFile::remove(partialPath);
         }
         QFile::remove(partialSummary);
+        QFile::remove(
+            QDir(outputFolder_)
+                .filePath(QStringLiteral("model_test_checkpoint.json")));
+        const QDir output(outputFolder_);
+        for (const QString& name :
+             output.entryList({QStringLiteral("*.partial.g*")},
+                              QDir::Files)) {
+            QFile::remove(output.filePath(name));
+        }
     }
     return true;
 }

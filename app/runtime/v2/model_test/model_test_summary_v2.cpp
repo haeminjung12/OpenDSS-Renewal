@@ -1,6 +1,7 @@
 #include "model_test_summary_v2.h"
 
 #include <QDateTime>
+#include <QCryptographicHash>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -39,6 +40,16 @@ bool exactKeys(const QJsonObject& object, const QSet<QString>& required,
             return false;
     }
     return (keys - required - optional).isEmpty();
+}
+
+QString fileSha256(const QString& path) {
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    while (!file.atEnd())
+        hash.addData(file.read(1024 * 1024));
+    return QString::fromLatin1(hash.result().toHex());
 }
 
 QString statusText(ModelTestStatus status) {
@@ -592,7 +603,52 @@ std::optional<ModelTestSummaryV2>
 ModelTestSummaryV2::load(const QString& path, QString* error) {
     if (error)
         error->clear();
-    QFile file(path);
+    const QFileInfo requestedInfo(path);
+    const bool partial =
+        requestedInfo.fileName().endsWith(QStringLiteral(".partial.json"));
+    QString resolvedSummaryPath = path;
+    QString resolvedCsvPath;
+    const QString checkpointPath =
+        QDir(requestedInfo.absolutePath())
+            .filePath(QStringLiteral("model_test_checkpoint.json"));
+    if (partial && QFileInfo::exists(checkpointPath)) {
+        QFile checkpointFile(checkpointPath);
+        if (!checkpointFile.open(QIODevice::ReadOnly))
+            return failed<ModelTestSummaryV2>(
+                error, QStringLiteral("Model Test checkpoint marker is unreadable."));
+        const QJsonDocument checkpointDocument =
+            QJsonDocument::fromJson(checkpointFile.readAll());
+        const QJsonObject checkpoint = checkpointDocument.object();
+        const QString summaryFile = checkpoint.value("summary_file").toString();
+        const QString csvFile = checkpoint.value("predictions_file").toString();
+        if (!checkpointDocument.isObject() ||
+            !exactKeys(checkpoint,
+                       {"schema", "generation", "summary_file",
+                        "predictions_file", "summary_sha256",
+                        "predictions_sha256"}) ||
+            checkpoint.value("schema").toString() !=
+                QStringLiteral("opendss.model_test.checkpoint.v1") ||
+            !checkpoint.value("generation").isDouble() ||
+            checkpoint.value("generation").toInteger(-1) < 0 ||
+            QFileInfo(summaryFile).fileName() != summaryFile ||
+            QFileInfo(csvFile).fileName() != csvFile) {
+            return failed<ModelTestSummaryV2>(
+                error, QStringLiteral("Model Test checkpoint marker is invalid."));
+        }
+        resolvedSummaryPath =
+            QDir(requestedInfo.absolutePath()).filePath(summaryFile);
+        resolvedCsvPath =
+            QDir(requestedInfo.absolutePath()).filePath(csvFile);
+        if (fileSha256(resolvedSummaryPath) !=
+                checkpoint.value("summary_sha256").toString() ||
+            fileSha256(resolvedCsvPath) !=
+                checkpoint.value("predictions_sha256").toString()) {
+            return failed<ModelTestSummaryV2>(
+                error,
+                QStringLiteral("Model Test checkpoint generation is incomplete."));
+        }
+    }
+    QFile file(resolvedSummaryPath);
     if (!file.open(QIODevice::ReadOnly))
         return failed<ModelTestSummaryV2>(
             error, QString("Could not read '%1': %2").arg(path, file.errorString()));
@@ -713,10 +769,12 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
     if (!validateData(result.data_, false, error))
         return std::nullopt;
 
-    const bool partial = QFileInfo(path).fileName().endsWith(".partial.json");
-    const QString csvPath = QDir(QFileInfo(path).absolutePath())
-                                .filePath(partial ? "predictions.partial.csv"
-                                                  : "predictions.csv");
+    const QString csvPath =
+        resolvedCsvPath.isEmpty()
+            ? QDir(QFileInfo(resolvedSummaryPath).absolutePath())
+                  .filePath(partial ? "predictions.partial.csv"
+                                    : "predictions.csv")
+            : resolvedCsvPath;
     auto predictions = loadPredictions(csvPath, result.data_, error);
     if (!predictions)
         return std::nullopt;

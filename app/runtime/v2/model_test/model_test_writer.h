@@ -41,14 +41,19 @@ class ModelTestWriter {
     friend struct ModelTestWriterTestAccess;
 
     ModelTestWriter(QString outputFolder, ModelTestSummaryData data,
-                    std::unique_ptr<QFile> partialCsv);
+                     std::unique_ptr<QFile> partialCsv);
+    bool commitRecoveryGeneration(
+        const QVector<ModelTestPrediction>& predictions, QString* error);
 
     QString outputFolder_;
     ModelTestSummaryData data_;
     QVector<ModelTestPrediction> predictions_;
     std::unique_ptr<QFile> partialCsv_;
+    qint64 generation_ = 0;
+    QString committedCsvPath_;
     bool finalized_ = false;
     bool failNextAppendForTest_ = false;
+    bool failNextCheckpointForTest_ = false;
     bool failNextFinalSummaryForTest_ = false;
     bool failPartialCsvCleanupForTest_ = false;
 };

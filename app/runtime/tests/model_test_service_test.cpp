@@ -16,6 +16,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTextStream>
+#include <QThread>
 
 #include <atomic>
 #include <condition_variable>
@@ -192,6 +193,10 @@ int runFakeModelTestProcess(const QStringList& arguments) {
             .value("command")
             .toString() != "start") {
         return 3;
+    }
+    if (qEnvironmentVariableIntValue("OPENDSS_MODEL_TEST_FAKE_HANG") == 1) {
+        while (true)
+            QThread::msleep(100);
     }
 
     qint64 processed = 0;
@@ -409,6 +414,48 @@ void testProductionProcessCommitsBatchBeforeStop() {
             qPrintable(error));
 }
 
+void testStopTerminatesUnresponsiveProcess() {
+    stage = "production-process-forced-stop";
+    QTemporaryDir temporary;
+    const auto fixture = makeDataset(temporary.path(), true, false, 3);
+    const QString packagePath = copyBundledModelPackage(temporary.path());
+    const QString registryPath =
+        QDir(temporary.path()).filePath("registry/model_registry.json");
+    writeJson(
+        registryPath,
+        QJsonObject{
+            {"schema_version", "model-registry-v3-simple"},
+            {"entries",
+             QJsonArray{QJsonObject{{"registry_entry_id", "real-active"},
+                                    {"display_name", "Registry Display Name"},
+                                    {"package_path", QDir::cleanPath(packagePath)},
+                                    {"active", true}}}}});
+    require(qputenv("OPENDSS_MODEL_TEST_FAKE_HANG", "1"),
+            "set fake process hang");
+    OperationCoordinator operations;
+    ModelLoadService loader(registryPath);
+    ModelTestService* servicePointer = nullptr;
+    ModelTestService service(
+        operations, &loader, {},
+        [&](qint64 processed, qint64) {
+            if (processed == 0)
+                servicePointer->requestStop();
+        },
+        QCoreApplication::applicationFilePath(), temporary.path());
+    servicePointer = &service;
+    const QString output = QDir(temporary.path()).filePath("forced-stop-result");
+    QString error;
+    const bool ran =
+        service.run({fixture.datasetJson, output, "2.0"}, &error);
+    qunsetenv("OPENDSS_MODEL_TEST_FAKE_HANG");
+    require(ran, qPrintable(error));
+    const auto summary = ModelTestSummaryV2::load(
+        QDir(output).filePath("model_test_summary.json"), &error);
+    require(summary && summary->data().status == ModelTestStatus::Stopped &&
+                summary->predictions().isEmpty(),
+            qPrintable(error));
+}
+
 void testConflictsAndSetupFailures() {
     stage = "setup";
     QTemporaryDir temporary;
@@ -616,6 +663,7 @@ int main(int argc, char** argv) {
     testCompletedAndClassCountOnly();
     testCheckpointProvenanceMigration();
     testProductionProcessCommitsBatchBeforeStop();
+    testStopTerminatesUnresponsiveProcess();
     testConflictsAndSetupFailures();
     testRuntimeFailuresAndStop();
     testConcurrentRunRejected();

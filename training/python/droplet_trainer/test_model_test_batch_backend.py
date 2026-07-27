@@ -16,6 +16,7 @@ from droplet_trainer.model_test_batch_backend import (
     EvaluationItem,
     LoadedCheckpoint,
     TorchBatchBackend,
+    _is_allocation_runtime_error,
     automatic_torch_device,
     evaluate_ordered_batches,
     load_active_checkpoint,
@@ -36,8 +37,9 @@ def items(count: int) -> list[EvaluationItem]:
 
 
 class FakeBackend:
-    def __init__(self, allocation_limit: int) -> None:
+    def __init__(self, allocation_limit: int, inference_limit: int | None = None) -> None:
         self.allocation_limit = allocation_limit
+        self.inference_limit = inference_limit
         self.prepare_sizes: list[int] = []
         self.infer_sizes: list[int] = []
 
@@ -49,6 +51,8 @@ class FakeBackend:
 
     def infer(self, prepared):
         self.infer_sizes.append(len(prepared))
+        if self.inference_limit is not None and len(prepared) > self.inference_limit:
+            raise BatchAllocationError("test forward allocation limit")
         return [
             [0.8, 0.2] if item.sequence % 2 == 0 else [0.1, 0.9]
             for item in prepared
@@ -112,6 +116,19 @@ class ModelTestBatchBackendTest(unittest.TestCase):
             [2, 4, 5],
         )
 
+    def test_host_and_cuda_runtime_oom_messages_are_allocation_failures(self) -> None:
+        self.assertTrue(
+            _is_allocation_runtime_error(
+                RuntimeError("DefaultCPUAllocator: not enough memory")
+            )
+        )
+        self.assertTrue(
+            _is_allocation_runtime_error(RuntimeError("CUDA out of memory"))
+        )
+        self.assertFalse(
+            _is_allocation_runtime_error(RuntimeError("invalid tensor shape"))
+        )
+
     def test_stop_begins_no_later_batch_and_retains_completed_batch(self) -> None:
         backend = FakeBackend(allocation_limit=10)
         commits = []
@@ -139,6 +156,25 @@ class ModelTestBatchBackendTest(unittest.TestCase):
         self.assertEqual(
             [event["sequence"] for event in events if event["event"] == "image_evaluated"],
             [0, 1],
+        )
+
+    def test_forward_allocation_backoff_retries_uncommitted_batch_in_order(self) -> None:
+        backend = FakeBackend(allocation_limit=8, inference_limit=2)
+        commits = []
+        processed = evaluate_ordered_batches(
+            items(5),
+            ["0", "1"],
+            backend,
+            lambda index, facts: commits.append((index, list(facts))),
+            lambda _event: None,
+            lambda: False,
+            qualified_batch_ceiling=8,
+        )
+        self.assertEqual(processed, 5)
+        self.assertEqual(backend.infer_sizes, [5, 2, 2, 1])
+        self.assertEqual(
+            [fact.sequence for _, batch in commits for fact in batch],
+            [0, 1, 2, 3, 4],
         )
 
     def test_failed_commit_publishes_no_image_or_progress_facts(self) -> None:

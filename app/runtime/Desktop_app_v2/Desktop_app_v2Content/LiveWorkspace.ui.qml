@@ -15,6 +15,7 @@ Item {
     property real hitBoundaryYRatio: 0.5
     property string hitBoundarySide: "top"
     property bool hitBoundaryEditable: true
+    property bool hitBoundaryPlacementArmed: false
     property string serviceDiagnosticText: qsTr("Resolve the current error before continuing.")
     property string runArtifactPath: qsTr("C:/OpenDSS/Runs/Run-042")
     property string elapsedTimeText: qsTr("00:02:18")
@@ -48,6 +49,8 @@ Item {
     property alias recordFullImageSequenceControl: recordFullImageSequenceControl
     property alias cameraPreviewImage: cameraPreviewImage
     property alias hitBoundaryInputArea: hitBoundaryInputArea
+    property alias setDecisionBoundaryButton: setDecisionBoundaryButton
+    property alias resetDecisionBoundaryButton: resetDecisionBoundaryButton
     property alias topIsHitControl: topIsHitControl
     property alias bottomIsHitControl: bottomIsHitControl
     property bool setupProfileExpanded: !setupLocked
@@ -118,14 +121,14 @@ Item {
                     MouseArea {
                         id: hitBoundaryInputArea
                         anchors.fill: parent
-                        enabled: root.hitBoundaryEditable && cameraPreviewImage.visible
+                        enabled: root.hitBoundaryEditable && root.hitBoundaryPlacementArmed && cameraPreviewImage.visible
                     }
 
                     Rectangle {
                         visible: root.hitBoundaryDefined
-                        x: 0
+                        x: hitBoundaryOverlay.boundaryX
                         y: hitBoundaryOverlay.boundaryY - height / 2
-                        width: hitBoundaryOverlay.boundaryX
+                        width: hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX
                         height: 4
                         color: Constants.textColor
                         Accessible.ignored: true
@@ -335,7 +338,22 @@ Item {
                                     checked: true
                                     enabled: !root.setupLocked
                                 }
-                                Text { text: qsTr("Hit boundary calibration"); color: Constants.textColor; font: Constants.font }
+                                Text { text: qsTr("Decision Boundary"); color: Constants.textColor; font: Constants.font }
+                                Row {
+                                    spacing: Constants.spacing
+                                    AppButton {
+                                        id: setDecisionBoundaryButton
+                                        text: qsTr("Set Decision Boundary")
+                                        enabled: root.hitBoundaryEditable
+                                        height: Constants.appStandardControlHeight
+                                    }
+                                    AppButton {
+                                        id: resetDecisionBoundaryButton
+                                        text: qsTr("Reset")
+                                        enabled: root.hitBoundaryEditable
+                                        height: Constants.appStandardControlHeight
+                                    }
+                                }
                                 Row {
                                     spacing: Constants.spacing
                                     AppRadioButton {

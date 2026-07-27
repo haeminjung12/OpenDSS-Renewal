@@ -14,6 +14,7 @@ Item {
     property real hitBoundaryYRatio: 0.5
     property string hitBoundarySide: "top"
     property bool hitBoundaryEditable: true
+    property bool hitBoundaryPlacementArmed: false
     property alias loadSequenceButton: loadSequenceButton
     property alias loadToMemoryButton: loadToMemoryButton
     property alias startStopButton: startStopButton
@@ -22,6 +23,8 @@ Item {
     property alias sequencePreviewImage: sequencePreviewImage
     property alias sequencePreviewPlaceholder: sequencePreviewPlaceholder
     property alias hitBoundaryInputArea: hitBoundaryInputArea
+    property alias setDecisionBoundaryButton: setDecisionBoundaryButton
+    property alias resetDecisionBoundaryButton: resetDecisionBoundaryButton
     property alias topIsHitControl: topIsHitControl
     property alias bottomIsHitControl: bottomIsHitControl
     property alias sequenceNameField: sequenceNameField
@@ -113,14 +116,14 @@ Item {
                         MouseArea {
                             id: hitBoundaryInputArea
                             anchors.fill: parent
-                            enabled: root.hitBoundaryEditable && sequencePreviewImage.visible
+                            enabled: root.hitBoundaryEditable && root.hitBoundaryPlacementArmed && sequencePreviewImage.visible
                         }
 
                         Rectangle {
                             visible: root.hitBoundaryDefined
-                            x: 0
+                            x: hitBoundaryOverlay.boundaryX
                             y: hitBoundaryOverlay.boundaryY - height / 2
-                            width: hitBoundaryOverlay.boundaryX
+                            width: hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX
                             height: 4
                             color: Constants.textColor
                             Accessible.ignored: true
@@ -327,7 +330,22 @@ Item {
                                     enabled: !root.running && !triggerEveryDropletControl.checked
                                     Accessible.name: qsTr("Hit Class")
                                 }
-                                Text { text: qsTr("Hit boundary calibration"); color: Constants.textColor; font: Constants.font }
+                                Text { text: qsTr("Decision Boundary"); color: Constants.textColor; font: Constants.font }
+                                Row {
+                                    spacing: Constants.spacing
+                                    AppButton {
+                                        id: setDecisionBoundaryButton
+                                        text: qsTr("Set Decision Boundary")
+                                        enabled: root.hitBoundaryEditable
+                                        height: Constants.appStandardControlHeight
+                                    }
+                                    AppButton {
+                                        id: resetDecisionBoundaryButton
+                                        text: qsTr("Reset")
+                                        enabled: root.hitBoundaryEditable
+                                        height: Constants.appStandardControlHeight
+                                    }
+                                }
                                 Row {
                                     spacing: Constants.spacing
                                     AppRadioButton {

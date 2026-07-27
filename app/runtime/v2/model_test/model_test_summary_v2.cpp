@@ -560,6 +560,16 @@ bool ModelTestSummaryV2::savePartial(
         if (!validatePrediction(data, prediction, true, error))
             return false;
     }
+    return savePartialWithValidatedSources(path, data, predictions, error);
+}
+
+bool ModelTestSummaryV2::savePartialWithValidatedSources(
+    const QString& path, const ModelTestSummaryData& data,
+    const QVector<ModelTestPrediction>& predictions, QString* error) {
+    if (error)
+        error->clear();
+    if (!validateData(data, true, error))
+        return false;
     auto derived = derive(data, predictions, error);
     if (!derived)
         return false;

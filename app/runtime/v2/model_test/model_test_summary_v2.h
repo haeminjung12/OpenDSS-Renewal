@@ -7,6 +7,8 @@
 
 namespace desktop_app::v2::model_test {
 
+class ModelTestWriter;
+
 enum class ModelTestStatus { Completed, Stopped, Failed };
 enum class EffectiveDevice { Cpu, Cuda };
 
@@ -104,6 +106,13 @@ class ModelTestSummaryV2 {
     }
 
   private:
+    friend class ModelTestWriter;
+
+    static bool savePartialWithValidatedSources(
+        const QString& path, const ModelTestSummaryData& data,
+        const QVector<ModelTestPrediction>& predictions,
+        QString* error = nullptr);
+
     ModelTestSummaryData data_;
     QVector<ModelTestPrediction> predictions_;
     ModelTestDerivedResults derived_;

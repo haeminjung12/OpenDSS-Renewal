@@ -172,7 +172,7 @@ bool ModelTestWriter::appendPrediction(const ModelTestPrediction& prediction,
     }
 
     predictions_.push_back(prediction);
-    if (!ModelTestSummaryV2::savePartial(
+    if (!ModelTestSummaryV2::savePartialWithValidatedSources(
             QDir(outputFolder_)
                 .filePath(QStringLiteral("model_test_summary.partial.json")),
             data_, predictions_, error)) {
@@ -194,7 +194,7 @@ bool ModelTestWriter::flush(QString* error) {
         return true;
     if (!partialCsv_ || !partialCsv_->isOpen() || !partialCsv_->flush())
         return fail(error, "Could not flush predictions.partial.csv.");
-    return ModelTestSummaryV2::savePartial(
+    return ModelTestSummaryV2::savePartialWithValidatedSources(
         QDir(outputFolder_)
             .filePath(QStringLiteral("model_test_summary.partial.json")),
         data_, predictions_, error);
@@ -248,7 +248,8 @@ bool ModelTestWriter::finalize(ModelTestStatus status, const QString& endedAt,
     const QString partialSummary =
         QDir(outputFolder_)
             .filePath(QStringLiteral("model_test_summary.partial.json"));
-    if (!ModelTestSummaryV2::savePartial(partialSummary, data_, predictions_, error))
+    if (!ModelTestSummaryV2::savePartialWithValidatedSources(
+            partialSummary, data_, predictions_, error))
         return false;
     if (failNextFinalSummaryForTest_) {
         failNextFinalSummaryForTest_ = false;

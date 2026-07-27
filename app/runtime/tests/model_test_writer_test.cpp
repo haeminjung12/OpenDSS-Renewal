@@ -132,6 +132,8 @@ void testCompletedEscapingRecoveryAndSourceUntouched() {
                 {"crops/b,comma.png", "dataset-1", "model-2",
                  {0.1, 0.2, 0.7}}, &error),
             qPrintable(error));
+    const QByteArray recoverableCsv =
+        readFile(QDir(root).filePath("predictions.partial.csv"));
     writeFile(partialSummary, staleSummary);
     auto recovered = ModelTestSummaryV2::load(partialSummary, &error);
     require(recovered.has_value() &&
@@ -166,11 +168,12 @@ void testCompletedEscapingRecoveryAndSourceUntouched() {
                 !QFileInfo::exists(partialSummary),
             "completed publication and recovery cleanup");
     const QByteArray csv = readFile(QDir(root).filePath("predictions.csv"));
-    require(csv.startsWith(
+    require(csv == recoverableCsv &&
+                csv.startsWith(
                 "image_path,true_class_id,predicted_class_id,score_class_0,"
                 "score_class_1,score_class_2,correct\n") &&
                 csv.contains("\"crops/b,comma.png\""),
-            "three-class header and CSV escaping");
+            "partial/final CSV equivalence and three-class escaping");
     auto finalSummary = ModelTestSummaryV2::load(
         QDir(root).filePath("model_test_summary.json"), &error);
     require(finalSummary.has_value() &&
@@ -371,6 +374,107 @@ void testCanonicalSuccessSurvivesCleanupFailure() {
             "retry cannot rewrite canonical or truncate stale partial");
 }
 
+void testRepresentativeAppendTiming() {
+    stage = "representative-timing";
+    constexpr int PredictionCount = 200;
+    QTemporaryDir temporary;
+    QString error;
+    auto summary = data(temporary, 2, PredictionCount);
+    for (int index = 0; index < PredictionCount; ++index) {
+        writeFile(QDir(summary.dataset.sourcePath)
+                      .filePath(QString("crops/timing-%1.png").arg(index)),
+                  "source");
+    }
+    const QString root = QDir(temporary.path()).filePath("timing-output");
+    auto writer = ModelTestWriter::start(root, summary, &error);
+    require(writer.has_value(), qPrintable(error));
+    QElapsedTimer elapsed;
+    elapsed.start();
+    for (int index = 0; index < PredictionCount; ++index) {
+        const QVector<double> scores =
+            index % 2 == 0 ? QVector<double>{0.9, 0.1}
+                           : QVector<double>{0.1, 0.9};
+        require(writer->appendPrediction(
+                    {QString("crops/timing-%1.png").arg(index),
+                     QString("dataset-%1").arg(index % 2),
+                     QString("model-%1").arg(index % 2), scores},
+                    &error),
+                qPrintable(error));
+    }
+    std::cout << "representative_append_ms=" << elapsed.elapsed()
+              << " source_validations=" << PredictionCount
+              << " former_source_validations="
+              << PredictionCount * (PredictionCount + 1) / 2 << '\n';
+}
+
+void testEachReachedSourceIsValidatedOnce() {
+    stage = "source-validation-count";
+    constexpr int PredictionCount = 12;
+    QTemporaryDir temporary;
+    QString error;
+    auto summary = data(temporary, 2, PredictionCount);
+    const QString root = QDir(temporary.path()).filePath("count-output");
+    for (int index = 0; index < PredictionCount; ++index) {
+        writeFile(QDir(summary.dataset.sourcePath)
+                      .filePath(QString("crops/count-%1.png").arg(index)),
+                  "source");
+    }
+    auto writer = ModelTestWriter::start(root, summary, &error);
+    require(writer.has_value(), qPrintable(error));
+    for (int index = 0; index < PredictionCount; ++index) {
+        const QVector<double> scores =
+            index % 2 == 0 ? QVector<double>{0.9, 0.1}
+                           : QVector<double>{0.1, 0.9};
+        const QString relativePath =
+            QString("crops/count-%1.png").arg(index);
+        require(writer->appendPrediction(
+                    {relativePath, QString("dataset-%1").arg(index % 2),
+                     QString("model-%1").arg(index % 2), scores},
+                    &error),
+                qPrintable(error));
+        require(QFile::remove(
+                    QDir(summary.dataset.sourcePath).filePath(relativePath)),
+                "remove already validated source");
+    }
+    require(writer->flush(&error),
+            "historical structural validation does not reread sources");
+    require(!writer->finalize(ModelTestStatus::Completed,
+                              "2026-07-24T12:01:00Z",
+                              "all_eligible_images_processed", &error) &&
+                error.contains("missing"),
+            "final publication still revalidates every source");
+    require(QFileInfo::exists(
+                QDir(root).filePath("predictions.partial.csv")) &&
+                QFileInfo::exists(
+                    QDir(root).filePath("model_test_summary.partial.json")),
+            "failed final validation retains recoverable artifacts");
+
+    QTemporaryDir futureTemporary;
+    auto futureSummary = data(futureTemporary, 2, 2);
+    const QString futureRoot =
+        QDir(futureTemporary.path()).filePath("future-output");
+    auto futureWriter =
+        ModelTestWriter::start(futureRoot, futureSummary, &error);
+    require(futureWriter.has_value(), qPrintable(error));
+    require(futureWriter->appendPrediction(
+                {"crops/a.png", "dataset-0", "model-0", {0.9, 0.1}},
+                &error),
+            qPrintable(error));
+    require(QFile::remove(
+                QDir(futureSummary.dataset.sourcePath)
+                    .filePath("crops/b,comma.png")),
+            "remove future source");
+    require(!futureWriter->appendPrediction(
+                {"crops/b,comma.png", "dataset-1", "model-1", {0.1, 0.9}},
+                &error) &&
+                error.contains("missing") &&
+                futureWriter->predictions().size() == 1 &&
+                readFile(QDir(futureRoot)
+                             .filePath("predictions.partial.csv"))
+                        .count('\n') == 2,
+            "missing future source fails when reached without persistence drift");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -381,5 +485,7 @@ int main(int argc, char** argv) {
     testFinalSummaryLastAndRetry();
     testUniqueFolderAndStoppedTwoClass();
     testCanonicalSuccessSurvivesCleanupFailure();
+    testRepresentativeAppendTiming();
+    testEachReachedSourceIsValidatedOnce();
     return 0;
 }

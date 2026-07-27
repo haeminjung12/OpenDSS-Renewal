@@ -3,15 +3,15 @@
 
 **File:** `consolidated-design-draft.md`
 **Document ID:** ODSS-DES-002  
-**Version:** 0.2  
-**Status:** Consolidated Draft for Review  
-**Date:** July 23, 2026  
+**Version:** 1.0  
+**Status:** User-Designated Master Specification  
+**Date:** July 26, 2026  
 **Primary platform:** Windows 11  
 **Product:** Open Droplet Sorting Suite (OpenDSS)
 
-> **Review status:** This document is a consolidated design draft. It is not approved. After design review and approval, it is intended to become the visual, component, accessibility, and design-handoff baseline for OpenDSS v2.
+> **Master authority:** On July 26, 2026, the user designated this file as the single master product and design specification for OpenDSS v2. Its requirements control implementation, design, review, and validation. Earlier source-status and authority-hierarchy commentary retained inside this document is provenance only and cannot override the consolidated requirements here.
 
-> **Amendment integration:** Version 0.2 incorporates the approved July 23, 2026 UI/UX amendment. The amendment controls every explicitly changed UI, layout, naming, interaction, and workflow matter. Earlier detail in this draft applies only where it agrees with the integrated rules below.
+> **Deviation rule:** If code, forms, plans, ledgers, derived documents, reviews, or proposed behavior deviate from this document, follow this document. If the applicable text is ambiguous, internally inconsistent, missing, or cannot be followed safely, stop the affected work and clarify with the user. Do not invent or retain a fallback.
 
 ---
 
@@ -164,9 +164,9 @@ It is written for:
 
 This document does not reopen approved product decisions D-001 through D-019. It translates those decisions into a design system, component system, workspace design, responsive behavior, accessibility contract, mock-data contract, and review evidence.
 
-## 1.2 Authority order
+## 1.2 Consolidation provenance and internal interpretation
 
-The following authority order MUST be used when interpreting this specification:
+The following historical authority order was used to consolidate the source material into this specification:
 
 1. *OpenDSS Approved v2 Product Model* controls all approved product decisions D-001 through D-019.
 2. *OpenDSS v2 Information Architecture and Screen Inventory* and *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* control the current shell, navigation, workspace inventory, interaction behavior, application states, disabled-action behavior, contextual handoffs, resource ownership, and locking model unless they directly conflict with PM.
@@ -174,7 +174,7 @@ The following authority order MUST be used when interpreting this specification:
 4. *OpenDSS Product Design Specification*, Draft v0.1, is a design-review input only. It may inform compatible visual identity, color, typography, spacing, components, accessibility, responsive behavior, Qt Design Studio authoring, mock-data, and visual-regression guidance. It does not define product behavior.
 5. The existing repository is optional implementation evidence and a potential source of reusable implementation assets. It does not control navigation, workspace names, editable settings, terminology, product scope, or application state.
 
-Where a lower-authority source conflicts with a higher-authority source, the higher-authority source governs without reopening the decision.
+These source relationships explain provenance; they do not allow a downstream agent to override a requirement in this master specification by reopening an incorporated source. If two requirements in this document appear to conflict, or a requirement is ambiguous, missing, or unsafe to follow, stop the affected work and clarify with the user.
 
 ## 1.3 What this specification controls after approval
 
@@ -1233,6 +1233,8 @@ OPTIONAL CONTEXTUAL FAULT BANNER
 
 In the maximized layout, Image Counts and Classes may occupy a lower summary strip or the lower part of the inspector. The crop collection remains the dominant region.
 
+The Label header MUST size itself to its current visible content. When header content contracts, the header MUST collapse to the resulting content height and leave no residual blank or reserved whitespace below it.
+
 ## 10.3 Design contract
 
 | Contract field | Specification |
@@ -1279,7 +1281,7 @@ No recommendation, preselection, or quality language should imply which class co
 - Thumbnail aspect treatment must preserve the complete 64 × 64 crop without unintended clipping.
 - Loading placeholders use neutral skeletons or reserved boxes, not false image content.
 - A missing crop uses a factual missing-file tile with crop ID/path context and must not be visually confused with Removed.
-- Grid cell size MAY be adjustable through a small/medium/large presentation choice if it changes only visual density. The default must still support clear state badges.
+- The default grid cell MUST be exactly 185 × 185 logical px and square. A visual-density control MAY offer other sizes, but initial/default presentation remains 185 × 185 logical px and crop order/state must not change.
 - Selection count remains visible in the inspector.
 - Standard click selects one; Ctrl-click toggles; Shift-click extends a contiguous range according to the current filtered order.
 - Filtering changes the visible collection but does not silently clear Labels or crop states. Selection outside the filter should be cleared or summarized explicitly rather than becoming invisible while actions remain enabled.
@@ -1288,12 +1290,14 @@ No recommendation, preselection, or quality language should imply which class co
 
 Each Dataset thumbnail MUST reserve separate layers:
 
-1. crop image;
+1. crop image with an exactly 6 logical-px crop border;
 2. class badge containing Class ID and compact Class Name when Labeled;
 3. state badge for Unlabeled, Skipped, Removed, or missing file;
 4. selection fill/indicator;
 5. keyboard-focus ring;
 6. optional multi-selection check indicator.
+
+The 6 logical-px crop border is its own visual layer. Selection and keyboard focus are separate orthogonal layers and MUST NOT replace, resize, merge into, or be represented solely by the crop border.
 
 Recommended treatment:
 
@@ -1371,6 +1375,7 @@ Shortcut hints SHOULD appear in tooltips, an in-workspace shortcut help panel, a
 - At minimum width, Image Counts and Classes may move into tabs or collapsible sections inside the inspector, but the crop collection and primary class actions remain available.
 - The grid must recompute columns without changing crop order.
 - Collapse/expand must not clear selection or move keyboard focus to an invalid target.
+- The Label header must recompute to its visible content height and must not retain whitespace when its content contracts.
 
 ## 10.12 Minimum mock-data states
 
@@ -3920,7 +3925,7 @@ Principal coverage used in this specification:
 - §19 — approved decisions D-001 through D-019;
 - §§20–21 — required amendments and next design phase.
 
-This source controls every conflict.
+This source supplied controlling product-decision provenance during consolidation. `ODSS-DES-002` is now the master authority; this incorporated source cannot independently override it.
 
 ## B. Current downstream baseline: Information Architecture
 
@@ -4015,12 +4020,10 @@ The repository may supply reusable implementation assets after technical review.
 
 ## G. Consolidated authority statement
 
-When this consolidated draft is reviewed:
+This consolidated document is the controlling master specification. PM, IA, LF, WF, PDS v0.1, amendments, reviews, and repository evidence listed in this appendix are provenance inputs already consolidated here; they are not separate authorities over this document.
 
-1. product behavior is checked first against PM;
-2. shell, navigation, workspace inventory, interaction, state, and locks are checked against IA and LF;
-3. detailed scientific, artifact, persistence, recovery, and acceptance requirements are checked against nonconflicting WF;
-4. visual/component/accessibility choices may use compatible PDS v0.1 evidence;
-5. repository evidence is used only for feasibility or reuse.
-
-No visual preference in this document may override a higher-authority product or interaction requirement.
+1. Implement and validate the requirements in this document.
+2. Use cited source documents only to understand provenance or a reference explicitly incorporated by this document.
+3. Do not allow a derived plan, ledger, review, existing implementation, or provisional fallback to override this document.
+4. If a conflict or ambiguity remains within this document, stop the affected work and ask the user to clarify.
+5. Change this authority only through an explicit user-approved amendment to this document and its lock record.

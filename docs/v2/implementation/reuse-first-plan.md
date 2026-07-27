@@ -944,7 +944,7 @@ QML binds only to presentation models that expose immutable service snapshots an
 - Presentation-model tests for startup, connect, stream, stop, fault, lock conflict, recovery, and stale queued updates.
 - QML import/dependency test rejecting vendor SDK and trainer dependencies.
 - Preview lifetime/cadence tests proving QML cannot retain invalid frame memory or block acquisition.
-- Side-by-side acceptance review against the consolidated design specification, retaining its status as `Consolidated Draft for Review`.
+- Side-by-side acceptance review against the user-designated `ODSS-DES-002` master specification, with exact section citations and lock verification.
 
 ### Implementation changes
 

@@ -201,18 +201,15 @@ tokscale tui --client codex
 
 ## OpenDSS v2 source authority
 
-Apply the following authority order repository-wide:
+`docs/v2/design/consolidated-design-draft.md` (`ODSS-DES-002`) is the single master product and design specification. Verify it with `docs/v2/design/verify-consolidated-design-lock.ps1` before product, design, implementation, review, or validation work.
 
-1. `docs/v2/canonical/product-model.md` controls approved product decisions D-001 through D-019, product structure, scope, terminology, configuration boundaries, and product-state ownership constraints.
-2. `docs/v2/OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md` is the user-approved authority for its listed UI layout, naming, disclosure, and composition topics; it supersedes conflicting lower sources but cannot change Product Model policy or scope.
-3. `docs/v2/OpenDSS_v2_UIUX_Design_Amendment.md` controls its nonconflicting approved UI/UX decisions.
-4. `docs/v2/canonical/information-architecture.md` and `docs/v2/canonical/interaction-and-state.md` control the current shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery unless superseded by the scoped visual-review amendment.
-5. `docs/v2/canonical/detailed-workflows.md` supplies detailed scientific, artifact, persistence, recovery, and acceptance requirements that do not conflict with higher-authority documents.
-6. `docs/v2/design/consolidated-design-draft.md` is the current consolidated visual/component design baseline under review and does not override higher authority.
-7. `docs/v2/archive/product-design-draft-v0.1.md` is historical, non-normative design evidence only.
-8. Existing repository code is implementation evidence and a source of reusable technical components; it is not authority for v2 UX, product structure, terminology, product policy, or exposed configuration.
-
-D-001 through D-019 belong only to the Approved Product Model. Repository code must not be used to reintroduce superseded navigation, terminology, product states, scientific policy, or editable settings. Existing v1 behavior is not automatically a v2 requirement. The consolidated design specification remains **Consolidated Draft for Review** and must not be silently marked Approved.
+- If code, forms, plans, `current-slice.md`, `CONTEXT.md`, derived documents, reviews, existing behavior, or proposed behavior deviate, follow the master specification.
+- If the applicable master text is ambiguous, internally inconsistent, missing, or cannot be followed safely, stop the affected work and clarify with the user. Do not invent, average, infer, preserve a provisional fallback, or let another document decide.
+- Other canonical documents, amendments, reviews, archives, and repository code are provenance or implementation evidence only. They may help locate context but cannot override the master.
+- `current-slice.md` limits what work is authorized; it does not change the required behavior. A work order must cite the exact `ODSS-DES-002` section and heading it implements.
+- Because the master is long, do not read it wholesale. Use grepai for conceptual narrowing, then `rtk rg` for exact headings/terms and read only the cited local section. Carry only a short decisive excerpt into a work order.
+- Every implementation, design handoff, test, review finding, and validation result must cite the controlling `ODSS-DES-002` section. Absence of a citation is a stop condition.
+- Only an explicit user-approved amendment may change the master. Update the master and `consolidated-design-lock.json` together; never silently edit or re-hash it.
 
 ## Protected reusable technical assets
 

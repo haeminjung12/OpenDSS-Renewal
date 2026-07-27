@@ -5,6 +5,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QMutexLocker>
 #include <QSet>
 
 namespace desktop_app::v2::dataset {
@@ -55,6 +56,14 @@ DatasetLabelController::DatasetLabelController(OperationCoordinator &operations,
     , service_(operations)
     , stateStore_(stateStore)
 {
+}
+
+DatasetLabelController::~DatasetLabelController()
+{
+    if (openThread_) {
+        openThread_->wait();
+        delete openThread_;
+    }
 }
 
 int DatasetLabelController::rowCount(const QModelIndex &parent) const
@@ -131,6 +140,7 @@ int DatasetLabelController::labeledCount() const
 QString DatasetLabelController::selectedRecordId() const { return selectedRecordId_; }
 QString DatasetLabelController::filter() const { return filter_; }
 QString DatasetLabelController::errorMessage() const { return errorMessage_; }
+bool DatasetLabelController::loading() const { return loading_; }
 QUrl DatasetLabelController::selectedCropUrl() const { return selectedCropUrl_; }
 int DatasetLabelController::selectedIndex() const { return selectedIndex_; }
 
@@ -151,6 +161,40 @@ void DatasetLabelController::publishDatasetState()
 void DatasetLabelController::refreshSnapshot(bool resetModel)
 {
     applySnapshot(service_.snapshot(), resetModel);
+}
+
+bool DatasetLabelController::rejectWhileLoading()
+{
+    if (!loading_)
+        return false;
+    finish(false, QStringLiteral("Dataset is still loading."));
+    return true;
+}
+
+void DatasetLabelController::finishOpen()
+{
+    QThread *completedThread = openThread_;
+    openThread_ = nullptr;
+    if (completedThread)
+        completedThread->deleteLater();
+
+    bool succeeded = false;
+    QString error;
+    {
+        const QMutexLocker lock(&openResultMutex_);
+        succeeded = openSucceeded_;
+        error = openError_;
+    }
+
+    loading_ = false;
+    errorMessage_ = succeeded ? QString{} : error;
+    if (succeeded) {
+        filter_ = QStringLiteral("all");
+        selectedRecordId_.clear();
+        refreshSnapshot(true);
+        publishDatasetState();
+    }
+    emit changed();
 }
 
 void DatasetLabelController::applySnapshot(DatasetLabelSnapshot nextSnapshot, bool resetModel)
@@ -301,22 +345,32 @@ QUrl DatasetLabelController::cropUrl(const DatasetLabelRecordState &record) cons
 
 bool DatasetLabelController::open(const QUrl &manifestUrl)
 {
+    if (rejectWhileLoading())
+        return false;
     QString error;
     const QString manifestPath = localPath(manifestUrl, QStringLiteral("Dataset"), &error);
     if (manifestPath.isEmpty())
         return finish(false, error);
-    const bool success = service_.open(manifestPath, &error);
-    if (success) {
-        filter_ = QStringLiteral("all");
-        selectedRecordId_.clear();
-        refreshSnapshot(true);
-        publishDatasetState();
-    }
-    return finish(success, error);
+    loading_ = true;
+    errorMessage_ = QStringLiteral("Loading Dataset...");
+    emit changed();
+
+    openThread_ = QThread::create([this, manifestPath] {
+        QString error;
+        const bool success = service_.open(manifestPath, &error);
+        const QMutexLocker lock(&openResultMutex_);
+        openSucceeded_ = success;
+        openError_ = std::move(error);
+    });
+    connect(openThread_, &QThread::finished, this, &DatasetLabelController::finishOpen);
+    openThread_->start();
+    return true;
 }
 
 bool DatasetLabelController::configureClassCount(int classCount)
 {
+    if (rejectWhileLoading())
+        return false;
     QString error;
     const bool success = service_.configureClassCount(classCount, &error);
     return finish(success, error, true);
@@ -324,6 +378,8 @@ bool DatasetLabelController::configureClassCount(int classCount)
 
 bool DatasetLabelController::renameClass(int index, const QString &name)
 {
+    if (rejectWhileLoading())
+        return false;
     if (index < 0 || index >= snapshot_.classes.size())
         return finish(false, QStringLiteral("Unknown Class index."));
     QString error;
@@ -333,6 +389,8 @@ bool DatasetLabelController::renameClass(int index, const QString &name)
 
 bool DatasetLabelController::assignClass(const QString &classId)
 {
+    if (rejectWhileLoading())
+        return false;
     if (selectedRecordId_.isEmpty())
         return finish(false, QStringLiteral("No Droplet Crop is selected."));
     QString error;
@@ -342,6 +400,8 @@ bool DatasetLabelController::assignClass(const QString &classId)
 
 bool DatasetLabelController::exclude()
 {
+    if (rejectWhileLoading())
+        return false;
     if (selectedRecordId_.isEmpty())
         return finish(false, QStringLiteral("No Droplet Crop is selected."));
     QString error;
@@ -351,6 +411,8 @@ bool DatasetLabelController::exclude()
 
 bool DatasetLabelController::undo()
 {
+    if (rejectWhileLoading())
+        return false;
     QString error;
     const bool success = service_.undo(&error);
     return finish(success, error, true);
@@ -358,6 +420,8 @@ bool DatasetLabelController::undo()
 
 bool DatasetLabelController::previous()
 {
+    if (rejectWhileLoading())
+        return false;
     const int index = selectedIndex();
     if (index <= 0)
         return finish(false, QStringLiteral("No previous Droplet Crop is available."));
@@ -367,6 +431,8 @@ bool DatasetLabelController::previous()
 
 bool DatasetLabelController::next()
 {
+    if (rejectWhileLoading())
+        return false;
     const int index = selectedIndex();
     if (index < 0 || index + 1 >= filteredRows_.size())
         return finish(false, QStringLiteral("No next Droplet Crop is available."));
@@ -376,6 +442,8 @@ bool DatasetLabelController::next()
 
 bool DatasetLabelController::select(const QString &recordId)
 {
+    if (rejectWhileLoading())
+        return false;
     if (!isMatchingRecord(recordId))
         return finish(false, QStringLiteral("Selected Droplet Crop is unavailable in the current filter."));
     setSelectedRecordId(recordId);
@@ -384,6 +452,8 @@ bool DatasetLabelController::select(const QString &recordId)
 
 bool DatasetLabelController::setFilter(const QString &filter)
 {
+    if (rejectWhileLoading())
+        return false;
     if (!isSupportedFilter(filter))
         return finish(false, QStringLiteral("Unknown Label filter."));
     if (filter == QStringLiteral("class2") && !class2Enabled())
@@ -402,6 +472,8 @@ bool DatasetLabelController::setFilter(const QString &filter)
 
 bool DatasetLabelController::saveAs(const QUrl &destinationFolderUrl)
 {
+    if (rejectWhileLoading())
+        return false;
     QString error;
     const QString destinationFolder =
         localPath(destinationFolderUrl, QStringLiteral("Save As destination"), &error);

@@ -6,6 +6,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImageReader>
+#include <QHash>
 #include <QSet>
 #include <QUuid>
 
@@ -435,11 +436,14 @@ DatasetLabelSnapshot DatasetLabelService::snapshot() const {
     value.counts.classCounts.fill(0, data_.classes.size());
     value.canUndo = undo_.has_value();
 
+    QHash<QString, const UserLabelRecord*> labelsByRecordId;
+    labelsByRecordId.reserve(data_.labels.size());
+    for (const UserLabelRecord& label : data_.labels)
+        labelsByRecordId.insert(label.recordId, &label);
+
     for (const DatasetRecord& record : data_.records) {
-        const auto label = std::find_if(data_.labels.cbegin(), data_.labels.cend(), [&](const UserLabelRecord& candidate) {
-            return candidate.recordId == record.recordId;
-        });
-        const UserLabelRecord* labelPointer = label == data_.labels.cend() ? nullptr : &*label;
+        const UserLabelRecord* labelPointer =
+            labelsByRecordId.value(record.recordId, nullptr);
         const DatasetLabelState state = stateForLabel(labelPointer);
         value.records.push_back(DatasetLabelRecordState{record.recordId, record.cropPath, state});
         if (state == DatasetLabelState::Unlabeled) {

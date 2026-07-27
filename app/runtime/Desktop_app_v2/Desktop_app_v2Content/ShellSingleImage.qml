@@ -460,6 +460,7 @@ Item {
     Binding { target: screen.daqDecisionDelaySpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
 
     Binding { target: screen.labelWorkspace; property: "presentation"; value: root.datasetLabelController ? root.datasetLabelController.presentation : state.labelPresentation }
+    Binding { target: screen.labelWorkspace; property: "enabled"; value: root.datasetLabelController ? !root.datasetLabelController.loading : true }
     Binding { target: screen.labelWorkspace; property: "currentFilter"; value: root.datasetLabelController ? root.datasetLabelController.filter : state.selectedLabelFilter }
     Binding { target: screen.labelWorkspace; property: "classCount"; value: root.datasetLabelController ? root.datasetLabelController.classCount : state.labelClassCount }
     Binding { target: screen.labelWorkspace; property: "datasetName"; value: root.datasetLabelController ? root.datasetLabelController.datasetId : state.labelDatasetName }

@@ -7,13 +7,17 @@
 #include <QCryptographicHash>
 #include <QDir>
 #include <QElapsedTimer>
+#include <QEventLoop>
 #include <QFile>
 #include <QImage>
 #include <QMetaProperty>
 #include <QTemporaryDir>
+#include <QTimer>
 #include <QUrl>
 
 #include <iostream>
+#include <algorithm>
+#include <utility>
 
 using namespace desktop_app::v2;
 using namespace desktop_app::v2::dataset;
@@ -90,6 +94,18 @@ DatasetManifestData fixture(const QString &root)
     return data;
 }
 
+bool waitForOpen(DatasetLabelController &controller, int timeoutMilliseconds = 15000)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (controller.loading() && timer.elapsed() < timeoutMilliseconds) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 10);
+        QThread::msleep(1);
+    }
+    QCoreApplication::processEvents();
+    return !controller.loading();
+}
+
 DatasetLabelSnapshot largeFixture(const QString &root, int recordCount)
 {
     DatasetLabelSnapshot snapshot;
@@ -154,6 +170,7 @@ int main(int argc, char **argv)
         "unreviewedCount", "excludedCount", "classCount", "class0Count", "class1Count",
         "class2Count", "classNames", "class2Enabled", "canUndo", "selectedRecordId",
         "selectedCropUrl", "selectedIndex", "filter", "errorMessage",
+        "loading",
     };
     bool propertiesUseChangedSignal = changedSignal >= 0;
     for (const char *propertyName : propertyNames) {
@@ -183,13 +200,23 @@ int main(int argc, char **argv)
                QStringLiteral("non-local Dataset URL was accepted")) ||
         !check(controller.presentation() == QStringLiteral("empty") && changedCount == 1,
                QStringLiteral("failed open changed the presentation or missed changed signal")) ||
-        !check(!controller.open(QUrl::fromLocalFile(
+        !check(controller.open(QUrl::fromLocalFile(
                    QDir(temporary.path()).filePath(QStringLiteral("missing.json")))),
-               QStringLiteral("missing Dataset URL was accepted")) ||
+               QStringLiteral("missing Dataset load was not started")) ||
+        !check(waitForOpen(controller), QStringLiteral("missing Dataset load did not finish")) ||
         !check(!controller.errorMessage().isEmpty(), QStringLiteral("invalid path error missing")) ||
-        !check(controller.presentation() == QStringLiteral("empty") && changedCount == 2,
+        !check(controller.presentation() == QStringLiteral("empty") && changedCount == 3,
                QStringLiteral("missing Dataset changed the presentation or signal count")) ||
         !check(controller.open(QUrl::fromLocalFile(manifestPath)), controller.errorMessage()) ||
+        !check(controller.loading() &&
+                   controller.presentation() == QStringLiteral("empty") &&
+                   controller.errorMessage() == QStringLiteral("Loading Dataset..."),
+               QStringLiteral("accepted Dataset open did not publish loading")) ||
+        !check(!controller.setFilter(QStringLiteral("all")) &&
+                   controller.errorMessage() == QStringLiteral("Dataset is still loading."),
+               QStringLiteral("action was not rejected while Dataset loaded")) ||
+        !check(waitForOpen(controller), QStringLiteral("Dataset load did not finish")) ||
+        !check(controller.errorMessage().isEmpty(), controller.errorMessage()) ||
         !check(controller.rowCount() == 2,
                QStringLiteral("controller model does not expose both records")) ||
         !check(controller.roleNames().value(DatasetLabelController::RecordIdRole) ==
@@ -216,7 +243,7 @@ int main(int argc, char **argv)
         !check(stateStore.snapshot().dataset.ready &&
                    stateStore.snapshot().dataset.path == manifestPath,
                QStringLiteral("dataset state was not published")) ||
-        !check(changedCount == 3, QStringLiteral("successful open missed changed signal")))
+        !check(changedCount == 6, QStringLiteral("successful open missed changed signal")))
         return 2;
 
     if (!check(controller.configureClassCount(3), controller.errorMessage()) ||
@@ -255,6 +282,8 @@ int main(int argc, char **argv)
         return 3;
 
     if (!check(controller.open(QUrl::fromLocalFile(manifestPath)), controller.errorMessage()) ||
+        !check(waitForOpen(controller), QStringLiteral("Dataset reopen did not finish")) ||
+        !check(controller.errorMessage().isEmpty(), controller.errorMessage()) ||
         !check(!controller.canUndo(), QStringLiteral("reopen retained undo state")) ||
         !check(controller.classNames() == QVariantList{QStringLiteral("Class 0"),
                                                        QStringLiteral("Class 1"),
@@ -432,6 +461,156 @@ int main(int argc, char **argv)
                        QStringLiteral("unreviewed"),
                QStringLiteral("label undo was not one row-level state update")))
         return 13;
+
+    const QString realManifestPath =
+        qEnvironmentVariable("OPENDSS_REAL_LABEL_DATASET");
+    if (!realManifestPath.isEmpty()) {
+        OperationCoordinator realOperations;
+        ApplicationStateStore realStateStore;
+        DatasetLabelController realController(realOperations, realStateStore);
+        ModelSignalEvidence realSignals;
+        QObject::connect(&realController, &QAbstractItemModel::modelReset,
+                         [&realSignals] { ++realSignals.modelResetCount; });
+        QObject::connect(
+            &realController, &QAbstractItemModel::rowsInserted,
+            [&realSignals](const QModelIndex &, int, int) {
+                ++realSignals.rowsInsertedCount;
+            });
+        QObject::connect(
+            &realController, &QAbstractItemModel::rowsRemoved,
+            [&realSignals](const QModelIndex &, int, int) {
+                ++realSignals.rowsRemovedCount;
+            });
+        QObject::connect(
+            &realController, &QAbstractItemModel::dataChanged,
+            [&realSignals](const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                           const QList<int> &roles) {
+                realSignals.dataChangedRows.append({topLeft.row(), bottomRight.row()});
+                realSignals.dataChangedRoles.append(roles);
+            });
+
+        QElapsedTimer eventTick;
+        eventTick.start();
+        qint64 maximumEventStallMilliseconds = 0;
+        QTimer responsivenessTimer;
+        responsivenessTimer.setTimerType(Qt::PreciseTimer);
+        responsivenessTimer.setInterval(10);
+        QObject::connect(&responsivenessTimer, &QTimer::timeout, [&] {
+            maximumEventStallMilliseconds =
+                std::max(maximumEventStallMilliseconds, eventTick.restart());
+        });
+        responsivenessTimer.start();
+
+        timer.restart();
+        if (!check(realController.open(QUrl::fromLocalFile(realManifestPath)),
+                   realController.errorMessage()))
+            return 14;
+        const qint64 openCallMilliseconds = timer.elapsed();
+        timer.restart();
+        if (!check(waitForOpen(realController, 30000),
+                   QStringLiteral("real Dataset load did not finish")) ||
+            !check(realController.errorMessage().isEmpty(),
+                   realController.errorMessage()))
+            return 15;
+        const qint64 readyMilliseconds = timer.elapsed();
+        responsivenessTimer.stop();
+        if (!check(openCallMilliseconds < 100,
+                   QStringLiteral("real Dataset open blocked the GUI call")) ||
+            !check(maximumEventStallMilliseconds < 100,
+                   QStringLiteral("GUI event loop stalled during real Dataset validation")) ||
+            !check(realController.rowCount() == 3625,
+                   QStringLiteral("real Dataset row count is not 3625")))
+            return 16;
+
+        const QString firstId =
+            realController.data(realController.index(0),
+                                DatasetLabelController::RecordIdRole).toString();
+        const QString lastId =
+            realController.data(realController.index(realController.rowCount() - 1),
+                                DatasetLabelController::RecordIdRole).toString();
+        QVector<double> selectMilliseconds;
+        selectMilliseconds.reserve(1000);
+        realSignals.clear();
+        for (int iteration = 0; iteration < 1000; ++iteration) {
+            QElapsedTimer selectTimer;
+            selectTimer.start();
+            if (!realController.select(iteration % 2 == 0 ? lastId : firstId))
+                return 17;
+            selectMilliseconds.append(selectTimer.nsecsElapsed() / 1000000.0);
+        }
+        std::sort(selectMilliseconds.begin(), selectMilliseconds.end());
+        const double selectP95 = selectMilliseconds.at(949);
+        const double selectMaximum = selectMilliseconds.last();
+        if (!check(selectP95 <= 5.0 && selectMaximum <= 20.0,
+                   QStringLiteral("real Dataset selection latency exceeded the bound")) ||
+            !check(realSignals.modelResetCount == 0 &&
+                       realSignals.rowsInsertedCount == 0 &&
+                       realSignals.rowsRemovedCount == 0 &&
+                       realSignals.dataChangedRows.size() == 2000,
+                   QStringLiteral("real Dataset selection reset or updated other rows"))) {
+            return 18;
+        }
+        for (const QList<int> &roles : std::as_const(realSignals.dataChangedRoles)) {
+            if (!check(roles == QList<int>{DatasetLabelController::SelectedRole},
+                       QStringLiteral("real Dataset selection changed a non-selected role")))
+                return 19;
+        }
+
+        timer.restart();
+        if (!check(realController.setFilter(QStringLiteral("unreviewed")),
+                   realController.errorMessage()))
+            return 20;
+        const qint64 filterMilliseconds = timer.elapsed();
+        if (!check(filterMilliseconds < 100,
+                   QStringLiteral("real Dataset filter exceeded 100 ms")) ||
+            !check(realController.setFilter(QStringLiteral("all")),
+                   realController.errorMessage()))
+            return 21;
+
+        QTemporaryDir mutationTemporary;
+        const QString copyFolder =
+            QDir(mutationTemporary.path()).filePath(QStringLiteral("dataset-copy"));
+        if (!check(realController.saveAs(QUrl::fromLocalFile(copyFolder)),
+                   realController.errorMessage()))
+            return 22;
+        const QString mutationRecordId =
+            realController.data(realController.index(0),
+                                DatasetLabelController::RecordIdRole).toString();
+        if (!check(realController.select(mutationRecordId),
+                   realController.errorMessage()))
+            return 23;
+        const QString currentState =
+            realController.data(realController.index(realController.selectedIndex()),
+                                DatasetLabelController::StateRole).toString();
+        const QString replacementClass =
+            currentState == QStringLiteral("class0") ? QStringLiteral("1")
+                                                     : QStringLiteral("0");
+        realSignals.clear();
+        timer.restart();
+        if (!check(realController.assignClass(replacementClass),
+                   realController.errorMessage()))
+            return 24;
+        const qint64 assignMilliseconds = timer.elapsed();
+        if (!check(assignMilliseconds <= 500,
+                   QStringLiteral("real Dataset assign/persist/refresh exceeded 500 ms")) ||
+            !check(realSignals.modelResetCount == 0 &&
+                       realSignals.rowsInsertedCount == 0 &&
+                       realSignals.rowsRemovedCount == 0 &&
+                       realSignals.dataChangedRows.size() == 1 &&
+                       realSignals.dataChangedRoles ==
+                           QVector<QList<int>>{{DatasetLabelController::StateRole}},
+                   QStringLiteral("real Dataset assignment was not one StateRole update")))
+            return 25;
+
+        std::cout << " real_records=" << realController.rowCount()
+                  << " open_call_ms=" << openCallMilliseconds
+                  << " ready_ms=" << readyMilliseconds
+                  << " gui_max_stall_ms=" << maximumEventStallMilliseconds
+                  << " select_p95_ms=" << selectP95
+                  << " select_max_ms=" << selectMaximum
+                  << " filter_ms=" << filterMilliseconds
+                  << " assign_persist_refresh_ms=" << assignMilliseconds;
+    }
 
     std::cout << "large_records=" << largeRecordCount
               << " snapshot_open_ms=" << largeOpenMilliseconds

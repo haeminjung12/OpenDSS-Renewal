@@ -3,6 +3,8 @@
 #include "dataset_label_service.h"
 
 #include <QAbstractListModel>
+#include <QMutex>
+#include <QThread>
 #include <QUrl>
 #include <QVariantList>
 
@@ -37,6 +39,7 @@ class DatasetLabelController final : public QAbstractListModel
     Q_PROPERTY(int selectedIndex READ selectedIndex NOTIFY changed)
     Q_PROPERTY(QString filter READ filter NOTIFY changed)
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
+    Q_PROPERTY(bool loading READ loading NOTIFY changed)
 
 public:
     enum Role {
@@ -48,6 +51,7 @@ public:
 
     DatasetLabelController(OperationCoordinator &operations, ApplicationStateStore &stateStore,
                            QObject *parent = nullptr);
+    ~DatasetLabelController() override;
 
     int rowCount(const QModelIndex &parent = {}) const override;
     QVariant data(const QModelIndex &index, int role) const override;
@@ -72,6 +76,7 @@ public:
     int selectedIndex() const;
     QString filter() const;
     QString errorMessage() const;
+    bool loading() const;
 
     Q_INVOKABLE bool open(const QUrl &manifestUrl);
     Q_INVOKABLE bool configureClassCount(int classCount);
@@ -92,6 +97,8 @@ private:
     friend struct DatasetLabelControllerTestAccess;
 
     bool finish(bool success, const QString &error, bool serviceChanged = false);
+    void finishOpen();
+    bool rejectWhileLoading();
     void publishDatasetState();
     void refreshSnapshot(bool resetModel = false);
     void applySnapshot(DatasetLabelSnapshot nextSnapshot, bool resetModel);
@@ -114,6 +121,11 @@ private:
     int selectedIndex_ = -1;
     QString filter_ = QStringLiteral("all");
     QString errorMessage_;
+    QThread *openThread_ = nullptr;
+    QMutex openResultMutex_;
+    QString openError_;
+    bool openSucceeded_ = false;
+    bool loading_ = false;
 };
 
 } // namespace dataset

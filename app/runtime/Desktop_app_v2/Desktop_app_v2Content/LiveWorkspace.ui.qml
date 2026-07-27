@@ -486,7 +486,7 @@ Item {
                     anchors.bottom: parent.bottom
 
                     Text {
-                        text: root.unavailable ? qsTr("Camera unavailable — restore Hardware to continue.") : (root.error ? root.serviceDiagnosticText : (root.active ? (root.presentation === "paused" ? qsTr("Run paused.") : qsTr("Run in progress.")) : (root.completed ? qsTr("Run complete.") : (root.cameraStreaming ? (root.startSortingEnabled ? qsTr("Ready to start sorting.") : qsTr("Camera streaming — sorting is not ready.")) : qsTr("Start Camera to check sorting readiness.")))))
+                        text: root.unavailable ? qsTr("Camera unavailable — restore Configuration to continue.") : (root.error ? root.serviceDiagnosticText : (root.active ? (root.presentation === "paused" ? qsTr("Run paused.") : qsTr("Run in progress.")) : (root.completed ? qsTr("Run complete.") : (root.cameraStreaming ? (root.startSortingEnabled ? qsTr("Ready to start sorting.") : qsTr("Camera streaming — sorting is not ready.")) : qsTr("Start Camera to check sorting readiness.")))))
                         color: root.unavailable || root.error ? Constants.warningColor : Constants.textColor
                         font: Constants.smallFont
                         elide: Text.ElideRight

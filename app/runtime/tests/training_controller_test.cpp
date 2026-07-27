@@ -310,12 +310,77 @@ int main(int argc, char **argv)
         "OVDS_MODELS_ROOT_PATH",
         QDir(QStringLiteral(OPENDSS_TEST_RUNTIME_DIR))
             .filePath(QStringLiteral("models")).toUtf8());
+    if (!check(modelLibraryController.refresh(),
+               modelLibraryController.errorMessage())) {
+        return 29;
+    }
+    {
+        TrainingController emptyController(
+            operations, stateStore, modelLoadService, pipeline,
+            modelLibraryController, QCoreApplication::applicationFilePath(),
+            QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT))
+                .absoluteFilePath());
+        if (!check(emptyController.libraryModelOptions().isEmpty()
+                       && emptyController.selectedLibraryModelIndex() == -1
+                       && emptyController.errorMessage()
+                           == QStringLiteral("No Library models are available"),
+                   QStringLiteral("Empty Library did not use the exact Train message."))) {
+            return 36;
+        }
+    }
     if (!check(
-            modelLibraryController.refresh()
-                && modelLibraryController.addModel(
-                    QStringLiteral("Controller model"), 0, 0, QUrl{}),
+            modelLibraryController.addModel(
+                QStringLiteral("Controller model"), 0, 0, QUrl{}),
             modelLibraryController.errorMessage())) {
         return 29;
+    }
+    const QString controllerIdentityPackage =
+        modelLibraryController.selectedDetail()
+            .value(QStringLiteral("packageLocation")).toString();
+    const QString controllerIdentityMetadataPath =
+        QDir(controllerIdentityPackage).filePath(QStringLiteral("metadata.json"));
+    QJsonObject controllerIdentityMetadata =
+        readJson(controllerIdentityMetadataPath);
+    controllerIdentityMetadata.insert(QStringLiteral("status"),
+                                      QStringLiteral("completed"));
+    if (!check(writeJson(controllerIdentityMetadataPath,
+                         controllerIdentityMetadata)
+                   && modelLibraryController.refresh(),
+               QStringLiteral("Could not create incompatible Library fixture."))) {
+        return 37;
+    }
+    {
+        TrainingController incompatibleController(
+            operations, stateStore, modelLoadService, pipeline,
+            modelLibraryController, QCoreApplication::applicationFilePath(),
+            QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT))
+                .absoluteFilePath());
+        if (!check(
+                incompatibleController.libraryModelOptions()
+                        == QStringList{QStringLiteral("Controller model")}
+                    && incompatibleController.selectedLibraryModelIndex() == -1
+                    && incompatibleController.errorMessage()
+                        == QStringLiteral(
+                            "No compatible Library models are available"),
+                QStringLiteral(
+                    "Incompatible Library model was hidden or enabled in Train."))
+            || !check(
+                !incompatibleController.selectLibraryModel(0)
+                    && incompatibleController.errorMessage()
+                        == QStringLiteral(
+                            "No compatible Library models are available"),
+                QStringLiteral(
+                    "Incompatible Library selection did not remain disabled."))) {
+            return 38;
+        }
+    }
+    controllerIdentityMetadata.insert(QStringLiteral("status"),
+                                      QStringLiteral("library_identity"));
+    if (!check(writeJson(controllerIdentityMetadataPath,
+                         controllerIdentityMetadata)
+                   && modelLibraryController.refresh(),
+               QStringLiteral("Could not restore compatible Library fixture."))) {
+        return 39;
     }
     const QString modelsRoot =
         QDir(temporary.path()).filePath(QStringLiteral("models"));
@@ -539,7 +604,9 @@ int main(int argc, char **argv)
                    && writeBytes(initialIdentityWeightPath,
                                  initialIdentityWeights + QByteArrayLiteral("tamper"))
                    && !controller.start()
-                   && controller.errorMessage().contains(QStringLiteral("Weights")),
+                   && controller.errorMessage()
+                       == QStringLiteral(
+                           "No compatible Library models are available"),
                QStringLiteral("Training did not block a Starting Weights hash mismatch."))
         || !check(writeBytes(initialIdentityWeightPath, initialIdentityWeights)
                       && modelLibraryController.refresh()

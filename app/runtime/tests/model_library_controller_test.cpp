@@ -747,14 +747,47 @@ void testLibraryOwnedIdentityCreation()
                                         "templates/blank/mobilenet_v3_small")),
                                 Qt::CaseInsensitive) != 0,
             "Library identity owns a distinct local package");
+    const QString identityMetadata =
+        QDir(identityPackage).filePath(QStringLiteral("metadata.json"));
+    const auto setIdentityStatus = [&identityMetadata](const QString &status) {
+        QFile file(identityMetadata);
+        if (!file.open(QIODevice::ReadOnly))
+            return false;
+        QJsonObject metadata = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        metadata.insert(QStringLiteral("status"), status);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            return false;
+        return file.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented)) > 0;
+    };
+    require(setIdentityStatus(QStringLiteral("completed")),
+            "create incompatible Training identity fixture");
+    const QVariantList completedRows = controller.trainingModelRows();
+    require(completedRows.size() == 1
+                && !completedRows.front().toMap()
+                        .value(QStringLiteral("compatible")).toBool()
+                && completedRows.front().toMap()
+                       .value(QStringLiteral("compatibilityReason")).toString()
+                       == QStringLiteral(
+                           "Use Add Model to create a new Library identity for Training."),
+            "Training keeps a completed package visible but disabled");
+    require(setIdentityStatus(QStringLiteral("library_identity")),
+            "restore compatible Training identity fixture");
     const QString identityWeight =
         trainingRows.front().toMap().value(QStringLiteral("weightPath")).toString();
     QFile tamperedWeight(identityWeight);
     require(tamperedWeight.open(QIODevice::Append), "open identity weight for tamper");
     require(tamperedWeight.write("tamper") == 6, "tamper identity weight");
     tamperedWeight.close();
-    require(controller.trainingModelRows().isEmpty(),
-            "Starting Weights hash mismatch removes the identity from Training");
+    const QVariantList tamperedRows = controller.trainingModelRows();
+    require(tamperedRows.size() == 1
+                && !tamperedRows.front().toMap()
+                        .value(QStringLiteral("compatible")).toBool()
+                && tamperedRows.front().toMap()
+                       .value(QStringLiteral("compatibilityReason")).toString()
+                       == QStringLiteral(
+                           "Approved local Starting Weights are unavailable."),
+            "Starting Weights hash mismatch disables the visible identity");
     const QByteArray registryAfterCreate = bytes(registryPath);
     require(!controller.addModel(QStringLiteral(" new mobilenet identity "), 0, 0,
                                  QUrl::fromLocalFile(selectedRoot))

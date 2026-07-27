@@ -344,18 +344,34 @@ QVariantList ModelLibraryController::trainingModelRows() const
         const QString mode =
             initialization.value(QStringLiteral("mode")).toString();
         QString weightPath;
-        if (!inspection.canTrain
-            || (inspection.architectureId != QStringLiteral("mobilenet_v3_small")
-                && inspection.architectureId != QStringLiteral("efficientnet_b0"))
-            || (mode != QStringLiteral("imagenet")
-                && mode != QStringLiteral("checkpoint"))
-            || !recordedWeightIsValid(inspection.packagePath, metadata, &weightPath)) {
-            continue;
+        QString compatibilityReason;
+        if (inspection.architectureId != QStringLiteral("mobilenet_v3_small")
+            && inspection.architectureId != QStringLiteral("efficientnet_b0")) {
+            compatibilityReason =
+                QStringLiteral("Architecture is not supported for Training.");
+        } else if (metadata.value(QStringLiteral("status")).toString()
+                   != QStringLiteral("library_identity")) {
+            compatibilityReason = QStringLiteral(
+                "Use Add Model to create a new Library identity for Training.");
+        } else if (!inspection.canTrain) {
+            compatibilityReason =
+                QStringLiteral("Model Package is not trainable.");
+        } else if (mode != QStringLiteral("imagenet")
+                   && mode != QStringLiteral("checkpoint")) {
+            compatibilityReason =
+                QStringLiteral("Starting Weights are not approved for Training.");
+        } else if (!recordedWeightIsValid(inspection.packagePath, metadata,
+                                          &weightPath)) {
+            compatibilityReason = QStringLiteral(
+                "Approved local Starting Weights are unavailable.");
         }
+        const bool compatible = compatibilityReason.isEmpty();
         rows.append(QVariantMap{
             {QStringLiteral("id"), entryId(entry)},
             {QStringLiteral("name"), entryName(entry)},
             {QStringLiteral("architecture"), inspection.architectureId},
+            {QStringLiteral("compatible"), compatible},
+            {QStringLiteral("compatibilityReason"), compatibilityReason},
             {QStringLiteral("startingWeights"),
              mode == QStringLiteral("imagenet")
                  ? QStringLiteral("ImageNet")

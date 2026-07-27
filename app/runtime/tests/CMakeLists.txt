@@ -17,6 +17,24 @@ if(NOT EXISTS "${OPENDSS_TEST_QT_PLUGIN_PATH}/platforms/qoffscreen.dll")
   )
 endif()
 
+if(NOT EXISTS "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll")
+  message(FATAL_ERROR
+    "Qualified ONNX Runtime test DLL is missing: "
+    "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll"
+  )
+endif()
+file(SHA256
+  "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll"
+  _opendss_test_onnxruntime_sha256
+)
+if(NOT _opendss_test_onnxruntime_sha256 STREQUAL
+    "a64bdd69d14f3685142c34ff46546a98cdd9ccae6130619bbee7414b5dd83b1b")
+  message(FATAL_ERROR
+    "Qualified ONNX Runtime test DLL hash mismatch: "
+    "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll"
+  )
+endif()
+
 function(opendss_configure_offscreen_test test_name target_name)
   set_tests_properties(${test_name} PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:${target_name}>"
@@ -264,6 +282,12 @@ target_link_libraries(model_library_controller_test PRIVATE
   Qt6::Widgets
   ${ONNXRUNTIME_LIB}
   ${OpenCV_LIBS}
+)
+add_custom_command(TARGET model_library_controller_test POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll"
+    "$<TARGET_FILE_DIR:model_library_controller_test>"
+  VERBATIM
 )
 add_test(
   NAME model_library_controller_test
@@ -599,6 +623,12 @@ target_link_libraries(training_controller_test PRIVATE
   Qt6::Widgets
   ${ONNXRUNTIME_LIB}
   ${OpenCV_LIBS}
+)
+add_custom_command(TARGET training_controller_test POST_BUILD
+  COMMAND ${CMAKE_COMMAND} -E copy_if_different
+    "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll"
+    "$<TARGET_FILE_DIR:training_controller_test>"
+  VERBATIM
 )
 add_test(
   NAME training_controller_test

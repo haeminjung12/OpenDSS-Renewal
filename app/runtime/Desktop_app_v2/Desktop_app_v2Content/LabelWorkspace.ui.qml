@@ -118,7 +118,7 @@ Rectangle {
                     anchors.right: parent.right
                     anchors.margins: Constants.spacing
                     clip: true
-                    cellWidth: 239
+                    cellWidth: 185
                     cellHeight: 185
                     reuseItems: true
                 }

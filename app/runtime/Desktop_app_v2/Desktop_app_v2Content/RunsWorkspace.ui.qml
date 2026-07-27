@@ -21,6 +21,7 @@ Rectangle {
     property alias runsPanelToggleButton: runsSection.headingButton
     property alias rightPanelToggleButton: rightPanelToggleButton
     property alias loadSelectedRunButton: loadSelectedRunButton
+    property alias removeSelectedRunButton: removeSelectedRunButton
     property alias notesEditor: notesEditor
     property alias editNotesButton: editNotesButton
     property alias saveNotesButton: saveNotesButton
@@ -309,50 +310,70 @@ Rectangle {
                 Accessible.name: root.rightPanelExpanded ? qsTr("Collapse Runs panel") : qsTr("Expand Runs panel")
             }
 
-            AppAccordion {
-                id: runsSection
+            ScrollView {
                 visible: root.rightPanelExpanded
                 anchors.top: panelTopStrip.bottom
                 anchors.topMargin: Constants.spacing
+                anchors.bottom: parent.bottom
                 anchors.left: parent.left
                 anchors.leftMargin: Constants.spacing
                 anchors.right: parent.right
                 anchors.rightMargin: Constants.spacing
-                sectionTitle: qsTr("Runs")
-                expanded: root.runsPanelExpanded
-                useIntrinsicBodyHeight: true
+                clip: true
+                contentWidth: availableWidth
 
-                Item {
+                AppAccordion {
+                    id: runsSection
                     width: parent.width
-                    height: runsPanelContent.implicitHeight + Constants.spacing * 2
-                    Column {
-                        id: runsPanelContent
-                        anchors.top: parent.top
-                        anchors.left: parent.left
-                        anchors.right: parent.right
-                        anchors.margins: Constants.spacing
-                        spacing: 6
+                    sectionTitle: qsTr("Runs")
+                    expanded: root.runsPanelExpanded
+                    useIntrinsicBodyHeight: true
 
-                    Rectangle { visible: !root.hasRuns && !root.runsError; width: parent.width; height: 70; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("No Runs found"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent } }
-                    Column {
-                        id: runsRowsHost
+                    Item {
                         width: parent.width
-                        spacing: 6
+                        height: runsPanelContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: runsPanelContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: 6
 
-                        Text {
-                            id: run042RowStatusText
-                            visible: false
-                        }
-                    }
-                    Rectangle { visible: root.runsError; width: parent.width; height: 46; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent } }
+                            Rectangle { visible: !root.hasRuns && !root.runsError; width: parent.width; height: 70; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: qsTr("No Runs found"); color: Constants.mutedTextColor; font: Constants.smallFont; anchors.centerIn: parent } }
+                            Column {
+                                id: runsRowsHost
+                                width: parent.width
+                                spacing: 6
 
-                        AppButton {
-                            id: loadSelectedRunButton
-                            width: parent.width
-                            height: Constants.appPrimaryButtonHeight
-                            text: qsTr("Load selected Run")
-                            visualRole: "primary"
-                            enabled: root.selectedRunId !== "" && !root.runsError
+                                Text {
+                                    id: run042RowStatusText
+                                    visible: false
+                                }
+                            }
+                            Rectangle { visible: root.runsError; width: parent.width; height: 46; color: Constants.errorSurfaceColor; border.color: Constants.faultColor; Text { text: qsTr("Error"); color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent } }
+
+                            Row {
+                                width: parent.width
+                                spacing: Constants.spacing
+
+                                AppButton {
+                                    id: loadSelectedRunButton
+                                    width: (parent.width - parent.spacing) / 2
+                                    height: Constants.appPrimaryButtonHeight
+                                    text: qsTr("Load selected Run")
+                                    visualRole: "primary"
+                                    enabled: root.selectedRunId !== "" && !root.runsError
+                                }
+                                AppButton {
+                                    id: removeSelectedRunButton
+                                    width: (parent.width - parent.spacing) / 2
+                                    height: Constants.appPrimaryButtonHeight
+                                    text: qsTr("Remove Run")
+                                    visualRole: "destructive"
+                                    enabled: root.selectedRunId !== "" && !root.runsError
+                                }
+                            }
                         }
                     }
                 }

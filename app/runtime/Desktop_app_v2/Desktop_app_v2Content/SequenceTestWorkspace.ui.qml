@@ -201,7 +201,7 @@ Item {
                         anchors.margins: Constants.spacing * 2
                         spacing: Constants.spacing
                         Text { text: qsTr("Results"); color: Constants.textColor; font: Constants.headingFont }
-                        Text { visible: !root.error; text: root.unavailable ? qsTr("Unavailable") : (root.running ? qsTr("Processing") : (root.presentation === "completed" ? qsTr("Completed") : qsTr("No results"))); color: Constants.mutedTextColor; font: Constants.smallFont }
+                        Text { visible: !root.error; text: root.unavailable ? qsTr("Unavailable") : (root.running ? qsTr("Processing") : (root.presentation === "completed" ? qsTr("Completed") : (root.presentation === "interrupted" ? qsTr("Interrupted") : qsTr("No results")))); color: Constants.mutedTextColor; font: Constants.smallFont }
                         Rectangle {
                             visible: root.error
                             width: parent.width

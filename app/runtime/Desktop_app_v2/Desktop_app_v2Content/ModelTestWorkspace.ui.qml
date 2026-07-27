@@ -18,6 +18,9 @@ Rectangle {
     property bool showRunning: false
     property bool showCompleted: false
     property bool showError: false
+    property bool partialSummaryAvailable: false
+    property bool partialPredictionsAvailable: false
+    property bool recoveryStartEnabled: false
     property bool threeClassResult: false
     property bool serviceFactsOnly: false
     property int processedCount: 360
@@ -31,7 +34,7 @@ Rectangle {
     property string summaryPathText: ""
     property string predictionsPathText: ""
     property string actionErrorText: ""
-    readonly property bool resultFactsVisible: !serviceFactsOnly || showCompleted
+    readonly property bool resultFactsVisible: showCompleted
     readonly property bool setupVisible: !showRunning && !showCompleted && !showError
     property bool operationPanelExpanded: true
     property bool modelTestSetupExpanded: true
@@ -44,6 +47,9 @@ Rectangle {
     property alias openPredictionsButton: openPredictionsButton
     property alias openSummaryButton: openSummaryButton
     property alias startAnotherButton: startAnotherButton
+    property alias openPartialSummaryButton: openPartialSummaryButton
+    property alias openPartialPredictionsButton: openPartialPredictionsButton
+    property alias recoveryStartButton: recoveryStartButton
     property alias operationPanelToggleButton: operationPanelToggleButton
     property alias modelTestSetupHeadingButton: modelTestSetupSection.headingButton
     property alias modelTestStatusHeadingButton: modelTestStatusSection.headingButton
@@ -234,10 +240,50 @@ Rectangle {
                 Rectangle {
                     visible: root.showError
                     width: parent.width
-                    height: 130
+                    height: recoveryContent.implicitHeight + Constants.spacing * 4
                     color: Constants.errorSurfaceColor
                     border.color: Constants.faultColor
-                    Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor } Text { text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText } AppButton { text: qsTr("Start Model Test"); visible: !root.serviceFactsOnly; enabled: root.presentation === "interrupted"; height: Constants.appStandardControlHeight } }
+                    Column {
+                        id: recoveryContent
+                        anchors.fill: parent
+                        anchors.margins: Constants.spacing * 2
+                        spacing: Constants.spacing
+
+                        Text {
+                            text: root.presentation === "interrupted" ? qsTr("Interrupted") : qsTr("Failed")
+                            font: Constants.headingFont
+                            color: Constants.faultColor
+                        }
+                        Text {
+                            text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText
+                            wrapMode: Text.Wrap
+                            width: parent.width
+                        }
+                        Text { text: root.partialSummaryAvailable ? qsTr("Partial summary: Available") : qsTr("Partial summary: Not available") }
+                        Text { text: root.partialPredictionsAvailable ? qsTr("Partial predictions CSV: Available") : qsTr("Partial predictions CSV: Not available") }
+                        Row {
+                            spacing: Constants.spacing
+
+                            AppButton {
+                                id: openPartialSummaryButton
+                                text: qsTr("Open Partial Summary")
+                                visible: root.partialSummaryAvailable
+                                height: Constants.appStandardControlHeight
+                            }
+                            AppButton {
+                                id: openPartialPredictionsButton
+                                text: qsTr("Open Partial Predictions")
+                                visible: root.partialPredictionsAvailable
+                                height: Constants.appStandardControlHeight
+                            }
+                            AppButton {
+                                id: recoveryStartButton
+                                text: qsTr("Start Another")
+                                enabled: root.recoveryStartEnabled
+                                height: Constants.appStandardControlHeight
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -255,6 +301,7 @@ Rectangle {
         State { name: "completedTwoClass"; PropertyChanges { root.presentation: "completedTwoClass"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.threeClassResult: false } },
         State { name: "completedThreeClass"; PropertyChanges { root.presentation: "completedThreeClass"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.threeClassResult: true } },
         State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showCompleted: false; root.showError: true } },
-        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.blockerText: qsTr("Output folder is not writable") } }
+        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.blockerText: qsTr("Output folder is not writable") } },
+        State { name: "failed"; PropertyChanges { root.presentation: "failed"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.blockerText: qsTr("Output folder is not writable") } }
     ]
 }

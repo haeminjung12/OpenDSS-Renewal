@@ -1745,7 +1745,9 @@ The source Dataset used for Training may be selected without warning or confirma
 
 ## 13.5 Device presentation
 
-Model Test uses automatic GPU acceleration when compatible and CPU fallback otherwise. The UI shows:
+Training and Model Test/Dataset Validation execute through the local application-owned Python/PyTorch backend provisioned at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`. Model Test/Dataset Validation MUST NOT use the C++ ONNX Runtime inference path.
+
+The Python/PyTorch Model Test backend uses automatic GPU acceleration when compatible and CPU fallback otherwise. The UI shows:
 
 - planned device before Start;
 - actual device while Running and in the summary;
@@ -1755,7 +1757,7 @@ There is no device selector.
 
 ### 13.5.1 Automatic batching and throughput
 
-Dataset Validation MUST process eligible images through automatic multi-image batching whenever the qualified model/runtime/provider supports a batch larger than one.
+Dataset Validation MUST process eligible images through automatic multi-image Python/PyTorch batching whenever the qualified model/runtime/provider supports a batch larger than one.
 
 - Batch size is not a user setting. The implementation automatically selects the largest qualified batch that fits the selected device's currently available memory, capped by the remaining eligible images.
 - The implementation MAY use a bounded decode/preprocess/inference/persistence pipeline to keep the selected device supplied. It MUST NOT use unbounded queues, retain the whole Dataset in memory merely for throughput, or change source-image order.
@@ -2177,7 +2179,7 @@ When no model is used, Predicted Class and Inference Time groups are absent or d
 
 ## 15.13 Running interaction behavior
 
-- Live inference uses the qualified CPU path. GPU status is not presented as a Live prerequisite.
+- Live real-time sorting inference uses the qualified C++ ONNX Runtime CPU path. GPU status is not presented as a Live prerequisite.
 - Decision Boundary placement and mapping remain editable after Start. `Set Decision Boundary` arms exactly one replacement click; ordinary frame clicks remain inert.
 - The replacement segment begins at the new clicked source-image X/Y point and extends horizontally to the right edge only. It applies immediately to subsequent routing decisions and never rewrites a prior event.
 - No timestamped boundary history or boundary-version association is created, and no clicked X or Y value is written to a Run, event, Result, log, profile, or exported artifact.
@@ -2357,7 +2359,7 @@ A new Sequence Test setup initializes Physical DAQ Output as unchecked. This def
 - Model selection is local to Sequence Test and MUST NOT change Active Model.
 - The read-only Active Model context displays Class IDs/Class Names and compatibility facts as needed.
 - No Class Score threshold or manual compute-device control is shown.
-- Sequence Test inference defaults to the qualified CPU path.
+- Sequence Test real-time sorting inference uses the qualified C++ ONNX Runtime path and defaults to CPU.
 
 Sequence Test owns and edits its own workspace-local operational Decision Boundary. It MUST NOT read, reuse, overwrite, display, or synchronize Live state. `Set Decision Boundary` arms exactly one placement click; ordinary frame clicks are inert. The click maps through the current presentation transform to an exact source-image X/Y point. The horizontal operational segment begins at that point and extends to the right edge of the source frame only; it never extends leftward or across the full frame. `Top is Hit` or `Bottom is Hit` selects the operational side, and Reset clears the boundary. Start is unavailable until the boundary is set. The clicked point MUST NOT leave the Sequence Test workspace or be persisted, logged, exported, or associated with an event or history.
 

@@ -3120,6 +3120,13 @@ Item {
         verify(shell.form.sequenceTestWorkspace.openRunSummaryButton.visible)
         verify(shell.form.sequenceTestWorkspace.openRunFolderButton.visible)
         verify(shell.form.sequenceTestWorkspace.startAnotherTestButton.visible)
+        sequenceTestController.presentation = "interrupted"
+        compare(shell.form.sequenceTestWorkspace.presentation, "interrupted")
+        verify(!shell.form.sequenceTestWorkspace.error)
+        verify(shell.form.sequenceTestWorkspace.postOperation)
+        verify(shell.form.sequenceTestWorkspace.openRunSummaryButton.visible)
+        verify(shell.form.sequenceTestWorkspace.openRunFolderButton.visible)
+        verify(shell.form.sequenceTestWorkspace.startAnotherTestButton.visible)
         shell.form.sequenceTestWorkspace.openRunSummaryButton.clicked()
         compare(runsControllerMock.openSummaryCallCount, 1)
         compare(shell.mockState.selectedWorkspace, "runs")

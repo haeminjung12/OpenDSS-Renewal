@@ -300,8 +300,6 @@ Item {
         if (presentation === "starting" || presentation === "running"
                 || presentation === "stopping")
             return "running"
-        if (presentation === "interrupted")
-            return "error"
         return presentation
     }
 

@@ -7,6 +7,7 @@
 
 #include <QCryptographicHash>
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QEventLoop>
@@ -33,6 +34,16 @@ void PipelineRunner::installInference(
     std::unique_ptr<OnnxInferenceAdapter>) noexcept {}
 
 namespace {
+
+class UrlOpenProbe final : public QObject {
+    Q_OBJECT
+
+  public slots:
+    void capture(const QUrl& url) { openedUrl = url; }
+
+  public:
+    QUrl openedUrl;
+};
 
 void require(bool condition, const char* message) {
     if (!condition) {
@@ -176,6 +187,10 @@ void testValidationAndCompletedResult() {
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
     ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    require(!controller.openOutputFolder() &&
+                controller.actionError().contains("unavailable") &&
+                controller.presentation() == "empty",
+            "missing output folder rejected");
     require(!controller.openSummary() &&
                 controller.actionError().contains("unavailable") &&
                 controller.presentation() == "empty",
@@ -259,6 +274,14 @@ void testValidationAndCompletedResult() {
     require(QFileInfo(controller.artifactOutputFolderUrl().toLocalFile())
                     .absolutePath() == QFileInfo(outputParent).absoluteFilePath(),
             "unique Model Test run directory remains contained by output parent");
+    UrlOpenProbe openProbe;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &openProbe,
+                                    "capture");
+    require(controller.openOutputFolder() &&
+                openProbe.openedUrl == controller.artifactOutputFolderUrl() &&
+                controller.actionError().isEmpty(),
+            "existing local output folder open accepted");
+    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
     require(QFile::remove(controller.summaryUrl().toLocalFile()),
             "remove summary for artifact action failure");
     require(!controller.openSummary() &&
@@ -266,6 +289,15 @@ void testValidationAndCompletedResult() {
                 controller.presentation() == "completed" &&
                 !controller.resultSummary().isEmpty(),
             "artifact action failure preserves completed results");
+    require(controller.canStart() && controller.start() && controller.stop(),
+            "completed recovery Start accepted");
+    require(waitUntil([&] {
+                return controller.presentation() == "interrupted" ||
+                       controller.presentation() == "failed";
+            }) &&
+                QFileInfo::exists(
+                    QDir(outputParent).filePath("model-test-3")),
+            "completed recovery starts a unique output");
     require(bytes(registryPath) == registryBefore,
             "Model Test did not mutate Active Model registry");
 }
@@ -445,3 +477,5 @@ int main(int argc, char** argv) {
     testRegistryMutationRefresh();
     return 0;
 }
+
+#include "model_test_controller_test.moc"

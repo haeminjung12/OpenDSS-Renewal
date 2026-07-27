@@ -77,6 +77,7 @@ class ModelTestController final : public QObject {
     Q_INVOKABLE bool stop();
     Q_INVOKABLE bool openSummary();
     Q_INVOKABLE bool openPredictions();
+    Q_INVOKABLE bool openOutputFolder();
     Q_INVOKABLE bool openPartialSummary();
     Q_INVOKABLE bool openPartialPredictions();
 

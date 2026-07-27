@@ -282,6 +282,26 @@ bool ModelTestController::openPredictions() {
                              QStringLiteral("Model Test predictions"));
 }
 
+bool ModelTestController::openOutputFolder() {
+    const QUrl& url = artifactOutputFolderUrl_;
+    if (!url.isValid() || !url.isLocalFile() || url.hasQuery() ||
+        url.hasFragment() || !QFileInfo(url.toLocalFile()).isDir()) {
+        actionError_ =
+            QStringLiteral("Model Test output folder is unavailable.");
+        emit changed();
+        return false;
+    }
+    if (!QDesktopServices::openUrl(url)) {
+        actionError_ =
+            QStringLiteral("Could not request opening Model Test output folder.");
+        emit changed();
+        return false;
+    }
+    actionError_.clear();
+    emit changed();
+    return true;
+}
+
 bool ModelTestController::openPartialSummary() {
     return openLocalArtifact(partialSummaryUrl_,
                              QStringLiteral("Partial Model Test summary"));

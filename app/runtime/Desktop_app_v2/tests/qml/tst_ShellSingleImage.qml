@@ -433,6 +433,7 @@ Item {
         property int stopCallCount: 0
         property int openSummaryCallCount: 0
         property int openPredictionsCallCount: 0
+        property int openOutputFolderCallCount: 0
         property int openPartialSummaryCallCount: 0
         property int openPartialPredictionsCallCount: 0
 
@@ -460,6 +461,7 @@ Item {
             stopCallCount = 0
             openSummaryCallCount = 0
             openPredictionsCallCount = 0
+            openOutputFolderCallCount = 0
             openPartialSummaryCallCount = 0
             openPartialPredictionsCallCount = 0
         }
@@ -481,6 +483,11 @@ Item {
 
         function openPredictions() {
             ++openPredictionsCallCount
+            return true
+        }
+
+        function openOutputFolder() {
+            ++openOutputFolderCallCount
             return true
         }
 
@@ -2584,19 +2591,35 @@ Item {
                 "Processed 2 of 2; correct 1")
         verify(shell.form.modelTestWorkspace.openSummaryButton.enabled)
         verify(shell.form.modelTestWorkspace.openPredictionsButton.enabled)
+        verify(shell.form.modelTestWorkspace.openOutputFolderButton.enabled)
+        verify(shell.form.modelTestWorkspace.startAnotherButton.visible)
         shell.form.modelTestWorkspace.openSummaryButton.clicked()
         shell.form.modelTestWorkspace.openPredictionsButton.clicked()
+        shell.form.modelTestWorkspace.openOutputFolderButton.clicked()
+        shell.form.modelTestWorkspace.startAnotherButton.clicked()
         compare(modelTestController.openSummaryCallCount, 1)
         compare(modelTestController.openPredictionsCallCount, 1)
+        compare(modelTestController.openOutputFolderCallCount, 1)
+        compare(modelTestController.startCallCount, 2)
         modelTestController.actionError = "Model Test summary is unavailable."
         compare(shell.form.modelTestWorkspace.actionErrorText,
                 "Model Test summary is unavailable.")
         verify(shell.form.modelTestWorkspace.showCompleted)
         verify(shell.form.modelTestWorkspace.resultFactsVisible)
 
+        modelTestController.partialSummaryUrl =
+                "file:///C:/OpenDSS/Model%20Tests/result-001/model_test_summary.partial.json"
+        modelTestController.partialPredictionsCsvUrl =
+                "file:///C:/OpenDSS/Model%20Tests/result-001/predictions.partial.csv"
         modelTestController.errorMessage = "No Active Model is available."
         modelTestController.presentation = "error"
         verify(shell.form.modelTestWorkspace.showError)
+        verify(!shell.form.modelTestWorkspace.showCompleted)
+        verify(!shell.form.modelTestWorkspace.setupVisible)
+        verify(!shell.form.modelTestWorkspace.resultFactsVisible)
+        verify(!shell.form.modelTestWorkspace.openPartialSummaryButton.visible)
+        verify(!shell.form.modelTestWorkspace.openPartialPredictionsButton.visible)
+        verify(!shell.form.modelTestWorkspace.recoveryStartButton.enabled)
         compare(shell.form.modelTestWorkspace.blockerText,
                 "No Active Model is available.")
     }

@@ -268,7 +268,7 @@ target_link_libraries(model_library_controller_test PRIVATE
 add_test(
   NAME model_library_controller_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    "PATH=${ONNXRUNTIME_DIR}/lib\\;$<TARGET_FILE_DIR:model_library_controller_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:model_library_controller_test>
 )
 set_tests_properties(model_library_controller_test PROPERTIES TIMEOUT 15)
@@ -603,7 +603,7 @@ target_link_libraries(training_controller_test PRIVATE
 add_test(
   NAME training_controller_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:training_controller_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
+    "PATH=${ONNXRUNTIME_DIR}/lib\\;$<TARGET_FILE_DIR:training_controller_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:training_controller_test>
 )
 set_tests_properties(training_controller_test PROPERTIES TIMEOUT 30)

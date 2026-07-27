@@ -426,7 +426,8 @@ QStringList ModelLibraryController::startingWeightOptions(int architectureIndex)
 }
 
 bool ModelLibraryController::addModel(const QString &name, int architectureIndex,
-                                      int startingWeightsIndex)
+                                      int startingWeightsIndex,
+                                      const QUrl &destinationRootUrl)
 {
     if (operationInProgress_)
         return fail(QStringLiteral("A Model Library operation is already in progress."));
@@ -484,7 +485,8 @@ bool ModelLibraryController::addModel(const QString &name, int architectureIndex
     QString error;
     const bool created = createLibraryModelIdentity(
         registryFilePath_, sourcePackagePath, name, architecture,
-        initializationMode, &createdId, &createdPath, &recoveryPath, &error);
+        initializationMode, localPath(destinationRootUrl), &createdId,
+        &createdPath, &recoveryPath, &error);
     setOperationInProgress(false);
     if (!created)
         return fail(QStringLiteral("Add Model failed: ") + error);

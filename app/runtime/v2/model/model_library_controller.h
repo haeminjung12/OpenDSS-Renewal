@@ -56,7 +56,8 @@ public:
     Q_INVOKABLE bool select(int index);
     Q_INVOKABLE QStringList startingWeightOptions(int architectureIndex) const;
     Q_INVOKABLE bool addModel(const QString &name, int architectureIndex,
-                              int startingWeightsIndex);
+                              int startingWeightsIndex,
+                              const QUrl &destinationRootUrl);
     Q_INVOKABLE bool setActive();
     Q_INVOKABLE bool renameSelected(const QString &displayName);
     Q_INVOKABLE bool importModel(const QUrl &packageUrl);

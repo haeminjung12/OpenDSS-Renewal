@@ -23,6 +23,15 @@ class SettingsController final : public QObject
     Q_OBJECT
     Q_PROPERTY(int textSizePercent READ textSizePercent NOTIFY textSizePercentChanged)
     Q_PROPERTY(QUrl storageRoot READ storageRoot NOTIFY storageRootChanged)
+    Q_PROPERTY(QUrl captureSingleOutputRoot READ captureSingleOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl captureSequenceOutputRoot READ captureSequenceOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl captureDatasetOutputRoot READ captureDatasetOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl trainOutputRoot READ trainOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl modelTestOutputRoot READ modelTestOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl liveOutputRoot READ liveOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl sequenceTestOutputRoot READ sequenceTestOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl libraryCreateOutputRoot READ libraryCreateOutputRoot NOTIFY outputRootsChanged)
+    Q_PROPERTY(QUrl libraryExportOutputRoot READ libraryExportOutputRoot NOTIFY outputRootsChanged)
     Q_PROPERTY(QString applicationVersion READ applicationVersion NOTIFY applicationInformationChanged)
     Q_PROPERTY(QString schemaVersions READ schemaVersions CONSTANT)
     Q_PROPERTY(QString runtimeAvailability READ runtimeAvailability NOTIFY applicationInformationChanged)
@@ -44,6 +53,24 @@ public:
     QUrl storageRoot() const;
     Q_INVOKABLE QString setStorageRoot(const QUrl &storageRoot);
     Q_INVOKABLE QString openStorageRoot() const;
+    QUrl captureSingleOutputRoot() const;
+    Q_INVOKABLE QString setCaptureSingleOutputRoot(const QUrl &outputRoot);
+    QUrl captureSequenceOutputRoot() const;
+    Q_INVOKABLE QString setCaptureSequenceOutputRoot(const QUrl &outputRoot);
+    QUrl captureDatasetOutputRoot() const;
+    Q_INVOKABLE QString setCaptureDatasetOutputRoot(const QUrl &outputRoot);
+    QUrl trainOutputRoot() const;
+    Q_INVOKABLE QString setTrainOutputRoot(const QUrl &outputRoot);
+    QUrl modelTestOutputRoot() const;
+    Q_INVOKABLE QString setModelTestOutputRoot(const QUrl &outputRoot);
+    QUrl liveOutputRoot() const;
+    Q_INVOKABLE QString setLiveOutputRoot(const QUrl &outputRoot);
+    QUrl sequenceTestOutputRoot() const;
+    Q_INVOKABLE QString setSequenceTestOutputRoot(const QUrl &outputRoot);
+    QUrl libraryCreateOutputRoot() const;
+    Q_INVOKABLE QString setLibraryCreateOutputRoot(const QUrl &outputRoot);
+    QUrl libraryExportOutputRoot() const;
+    Q_INVOKABLE QString setLibraryExportOutputRoot(const QUrl &outputRoot);
     QUrl outputRoot(OutputRootSelector selector) const;
     bool outputRootFellBack(OutputRootSelector selector) const;
     QString outputRootFallbackReason(OutputRootSelector selector) const;

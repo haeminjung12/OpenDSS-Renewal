@@ -104,7 +104,8 @@ bool duplicateCompleteModelPackage(const QString& registryFilePath, const QStrin
                                    QString* recoveryPath = nullptr, QString* error = nullptr);
 bool createLibraryModelIdentity(const QString& registryFilePath, const QString& sourcePackagePath,
                                 const QString& displayName, const QString& architectureId,
-                                const QString& initializationMode, QString* createdEntryId = nullptr,
+                                const QString& initializationMode, const QString& destinationRoot,
+                                QString* createdEntryId = nullptr,
                                 QString* createdPackagePath = nullptr,
                                 QString* recoveryPath = nullptr, QString* error = nullptr);
 bool deleteRegisteredModelPackage(const QString& registryFilePath, const QString& registryEntryId,

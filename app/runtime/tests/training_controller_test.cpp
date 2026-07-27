@@ -313,7 +313,7 @@ int main(int argc, char **argv)
     if (!check(
             modelLibraryController.refresh()
                 && modelLibraryController.addModel(
-                    QStringLiteral("Controller model"), 0, 0),
+                    QStringLiteral("Controller model"), 0, 0, QUrl{}),
             modelLibraryController.errorMessage())) {
         return 29;
     }
@@ -631,7 +631,7 @@ int main(int argc, char **argv)
         return 13;
     }
     if (!check(modelLibraryController.addModel(
-                   QStringLiteral("Retry model"), 0, 1),
+                   QStringLiteral("Retry model"), 0, 1, QUrl{}),
                modelLibraryController.errorMessage())) {
         return 30;
     }
@@ -692,7 +692,7 @@ int main(int argc, char **argv)
     const QString cancelOutput =
         QDir(temporary.path()).filePath(QStringLiteral("cancel"));
     if (!check(modelLibraryController.addModel(
-                   QStringLiteral("Cancelled model"), 0, 1),
+                   QStringLiteral("Cancelled model"), 0, 1, QUrl{}),
                modelLibraryController.errorMessage())) {
         return 31;
     }

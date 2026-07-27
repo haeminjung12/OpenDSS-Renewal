@@ -191,13 +191,102 @@ Item {
     }
 
     function exportSelectedModel(destinationUrl) {
-        return root.modelLibraryController
-                ? root.modelLibraryController.exportSelected(destinationUrl) : false
+        if (!root.modelLibraryController
+                || !root.modelLibraryController.exportSelected(destinationUrl))
+            return false
+        if (root.settingsController)
+            root.settingsActionError =
+                    root.settingsController.setLibraryExportOutputRoot(destinationUrl)
+        return true
     }
 
     function duplicateSelectedModel(name, destinationUrl) {
         return root.modelLibraryController
                 ? root.modelLibraryController.duplicateSelected(name, destinationUrl) : false
+    }
+
+    function acceptCaptureSingleOutputRoot(folderUrl) {
+        if (!root.settingsController || !root.singleImageCaptureController)
+            return false
+        root.settingsActionError =
+                root.settingsController.setCaptureSingleOutputRoot(folderUrl)
+        if (root.settingsActionError !== "")
+            return false
+        root.singleImageCaptureController.setOutputFolderPath(root.localFilePath(
+                    root.settingsController.captureSingleOutputRoot))
+        return true
+    }
+
+    function acceptCaptureSequenceOutputRoot(folderUrl) {
+        if (!root.settingsController || !root.captureWorkflowController)
+            return false
+        root.settingsActionError =
+                root.settingsController.setCaptureSequenceOutputRoot(folderUrl)
+        if (root.settingsActionError !== "")
+            return false
+        root.captureWorkflowController.sequenceLocation = root.localFilePath(
+                    root.settingsController.captureSequenceOutputRoot)
+        return true
+    }
+
+    function acceptCaptureDatasetOutputRoot(folderUrl) {
+        if (!root.settingsController || !root.captureWorkflowController)
+            return false
+        root.settingsActionError =
+                root.settingsController.setCaptureDatasetOutputRoot(folderUrl)
+        if (root.settingsActionError !== "")
+            return false
+        root.captureWorkflowController.datasetLocation = root.localFilePath(
+                    root.settingsController.captureDatasetOutputRoot)
+        return true
+    }
+
+    function acceptTrainOutputRoot(folderUrl) {
+        if (!root.settingsController || !root.trainingController)
+            return false
+        root.settingsActionError =
+                root.settingsController.setTrainOutputRoot(folderUrl)
+        if (root.settingsActionError !== "")
+            return false
+        root.trainingController.outputDirectoryUrl =
+                root.settingsController.trainOutputRoot
+        return true
+    }
+
+    function acceptModelTestOutputRoot(folderUrl) {
+        if (!root.settingsController || !root.modelTestController)
+            return false
+        root.settingsActionError =
+                root.settingsController.setModelTestOutputRoot(folderUrl)
+        if (root.settingsActionError !== "")
+            return false
+        root.modelTestController.outputFolderUrl =
+                root.settingsController.modelTestOutputRoot
+        return true
+    }
+
+    function acceptLiveOutputRoot(folderUrl) {
+        if (!root.settingsController || !root.liveSortingController)
+            return false
+        root.settingsActionError =
+                root.settingsController.setLiveOutputRoot(folderUrl)
+        if (root.settingsActionError !== "")
+            return false
+        root.liveSortingController.saveLocation = root.localFilePath(
+                    root.settingsController.liveOutputRoot)
+        return true
+    }
+
+    function acceptSequenceTestOutputRoot(folderUrl) {
+        if (!root.settingsController || !root.sequenceTestController)
+            return false
+        root.settingsActionError =
+                root.settingsController.setSequenceTestOutputRoot(folderUrl)
+        if (root.settingsActionError !== "")
+            return false
+        root.sequenceTestController.outputFolderUrl =
+                root.settingsController.sequenceTestOutputRoot
+        return true
     }
 
     function modelTestPresentation() {
@@ -941,7 +1030,8 @@ Item {
     FolderDialog {
         id: modelExportFolderDialog
         title: qsTr("Choose Model Export Destination")
-        currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
+        currentFolder: root.settingsController
+                       ? root.settingsController.libraryExportOutputRoot : ""
         onAccepted: {
             if (selectedFolder.toString() !== "")
                 root.exportSelectedModel(selectedFolder)
@@ -1251,8 +1341,30 @@ Item {
     Connections { target: screen.datasetStopButton; function onClicked() { if (root.captureWorkflowController) root.captureWorkflowController.stopDataset(); else state.stopCapture() } }
     Connections { target: screen.sequenceBrowseButton; function onClicked() { if (root.captureWorkflowController) sequenceCaptureFolderDialog.open(); else state.browseSequence() } }
     Connections { target: screen.datasetBrowseButton; function onClicked() { if (root.captureWorkflowController) datasetCaptureFolderDialog.open(); else state.browseDataset() } }
-    Connections { target: screen.sequenceLocationField; function onTextEdited() { if (root.captureWorkflowController) root.captureWorkflowController.sequenceLocation = screen.sequenceLocationField.text; else state.sequenceLocationDraft = screen.sequenceLocationField.text } }
-    Connections { target: screen.datasetLocationField; function onTextEdited() { if (root.captureWorkflowController) root.captureWorkflowController.datasetLocation = screen.datasetLocationField.text; else state.datasetLocationDraft = screen.datasetLocationField.text } }
+    Connections {
+        target: screen.sequenceLocationField
+        function onTextEdited() {
+            if (!root.captureWorkflowController)
+                state.sequenceLocationDraft = screen.sequenceLocationField.text
+        }
+        function onEditingFinished() {
+            if (root.captureWorkflowController)
+                root.acceptCaptureSequenceOutputRoot(
+                            root.localFileUrl(screen.sequenceLocationField.text))
+        }
+    }
+    Connections {
+        target: screen.datasetLocationField
+        function onTextEdited() {
+            if (!root.captureWorkflowController)
+                state.datasetLocationDraft = screen.datasetLocationField.text
+        }
+        function onEditingFinished() {
+            if (root.captureWorkflowController)
+                root.acceptCaptureDatasetOutputRoot(
+                            root.localFileUrl(screen.datasetLocationField.text))
+        }
+    }
     Connections {
         target: screen.startCameraButton
         function onClicked() {
@@ -1509,26 +1621,22 @@ Item {
     FolderDialog {
         id: sequenceCaptureFolderDialog
         title: qsTr("Choose Image Sequence Save Location")
-        currentFolder: root.captureWorkflowController
-                       ? root.localFileUrl(root.captureWorkflowController.sequenceLocation)
-                       : ""
+        currentFolder: root.settingsController
+                       ? root.settingsController.captureSequenceOutputRoot : ""
         onAccepted: {
-            if (root.captureWorkflowController)
-                root.captureWorkflowController.sequenceLocation =
-                        root.localFilePath(selectedFolder)
+            if (selectedFolder.toString() !== "")
+                root.acceptCaptureSequenceOutputRoot(selectedFolder)
         }
     }
 
     FolderDialog {
         id: datasetCaptureFolderDialog
         title: qsTr("Choose Dataset Save Location")
-        currentFolder: root.captureWorkflowController
-                       ? root.localFileUrl(root.captureWorkflowController.datasetLocation)
-                       : ""
+        currentFolder: root.settingsController
+                       ? root.settingsController.captureDatasetOutputRoot : ""
         onAccepted: {
-            if (root.captureWorkflowController)
-                root.captureWorkflowController.datasetLocation =
-                        root.localFilePath(selectedFolder)
+            if (selectedFolder.toString() !== "")
+                root.acceptCaptureDatasetOutputRoot(selectedFolder)
         }
     }
 
@@ -1633,13 +1741,11 @@ Item {
     FolderDialog {
         id: trainingOutputDirectoryDialog
         title: qsTr("Choose Training Output Folder")
-        currentFolder: root.trainingController
-                       && root.trainingController.outputDirectoryUrl.toString() !== ""
-                       ? root.trainingController.outputDirectoryUrl
-                       : (root.settingsController ? root.settingsController.storageRoot : "")
+        currentFolder: root.settingsController
+                       ? root.settingsController.trainOutputRoot : ""
         onAccepted: {
-            if (root.trainingController && selectedFolder.toString() !== "")
-                root.trainingController.outputDirectoryUrl = selectedFolder
+            if (selectedFolder.toString() !== "")
+                root.acceptTrainOutputRoot(selectedFolder)
         }
     }
 
@@ -1714,7 +1820,9 @@ Item {
                     && root.modelLibraryController.addModel(
                         screen.modelLibraryWorkspace.addModelNameField.text,
                         screen.modelLibraryWorkspace.addModelArchitectureSelector.currentIndex,
-                        screen.modelLibraryWorkspace.addModelStartingWeightsSelector.currentIndex)) {
+                        screen.modelLibraryWorkspace.addModelStartingWeightsSelector.currentIndex,
+                        root.settingsController
+                        ? root.settingsController.libraryCreateOutputRoot : "")) {
                 screen.modelLibraryWorkspace.addModelPopup.close()
             }
         }
@@ -1742,13 +1850,11 @@ Item {
     FolderDialog {
         id: modelTestOutputFolderDialog
         title: qsTr("Choose Model Test Output Parent Folder")
-        currentFolder: root.modelTestController
-                       && root.modelTestController.outputFolderUrl.toString() !== ""
-                       ? root.modelTestController.outputFolderUrl
-                       : (root.settingsController ? root.settingsController.storageRoot : "")
+        currentFolder: root.settingsController
+                       ? root.settingsController.modelTestOutputRoot : ""
         onAccepted: {
-            if (root.modelTestController && selectedFolder.toString() !== "")
-                root.modelTestController.outputFolderUrl = selectedFolder
+            if (selectedFolder.toString() !== "")
+                root.acceptModelTestOutputRoot(selectedFolder)
         }
     }
 
@@ -1919,7 +2025,14 @@ Item {
     Connections { target: screen.liveWorkspace.experimentTypeField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.experimentType = screen.liveWorkspace.experimentTypeField.text } }
     Connections { target: screen.liveWorkspace.notesField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.notes = screen.liveWorkspace.notesField.text } }
     Connections { target: screen.liveWorkspace.durationField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.duration = screen.liveWorkspace.durationField.text } }
-    Connections { target: screen.liveWorkspace.saveLocationField; function onTextEdited() { if (root.liveSortingController) root.liveSortingController.saveLocation = screen.liveWorkspace.saveLocationField.text } }
+    Connections {
+        target: screen.liveWorkspace.saveLocationField
+        function onEditingFinished() {
+            if (root.liveSortingController)
+                root.acceptLiveOutputRoot(
+                            root.localFileUrl(screen.liveWorkspace.saveLocationField.text))
+        }
+    }
     Connections {
         target: screen.liveWorkspace.hitClassControl
         function onActivated(index) {
@@ -1976,13 +2089,11 @@ Item {
     FolderDialog {
         id: sequenceTestOutputFolderDialog
         title: qsTr("Choose Sequence Test Output Parent Folder")
-        currentFolder: root.sequenceTestController
-                       && root.sequenceTestController.outputFolderUrl.toString() !== ""
-                       ? root.sequenceTestController.outputFolderUrl
-                       : (root.settingsController ? root.settingsController.storageRoot : "")
+        currentFolder: root.settingsController
+                       ? root.settingsController.sequenceTestOutputRoot : ""
         onAccepted: {
-            if (root.sequenceTestController && selectedFolder.toString() !== "")
-                root.sequenceTestController.outputFolderUrl = selectedFolder
+            if (selectedFolder.toString() !== "")
+                root.acceptSequenceTestOutputRoot(selectedFolder)
         }
     }
 
@@ -2253,24 +2364,24 @@ Item {
         function onTextEdited() {
             if (root.singleImageCapturing)
                 return
-            if (root.singleImageCaptureController)
-                root.singleImageCaptureController.setOutputFolderPath(
-                            screen.saveLocationField.text)
-            else
+            if (!root.singleImageCaptureController)
                 state.saveLocationDraft = screen.saveLocationField.text
+        }
+        function onEditingFinished() {
+            if (!root.singleImageCapturing && root.singleImageCaptureController)
+                root.acceptCaptureSingleOutputRoot(
+                            root.localFileUrl(screen.saveLocationField.text))
         }
     }
 
     FolderDialog {
         id: singleImageFolderDialog
         title: qsTr("Choose Image Save Location")
-        currentFolder: root.singleImageCaptureController
-                       && root.singleImageCaptureController.outputFolder.toString() !== ""
-                       ? root.singleImageCaptureController.outputFolder
-                       : (root.settingsController ? root.settingsController.storageRoot : "")
+        currentFolder: root.settingsController
+                       ? root.settingsController.captureSingleOutputRoot : ""
         onAccepted: {
-            if (root.singleImageCaptureController && !root.singleImageCapturing)
-                root.singleImageCaptureController.outputFolder = selectedFolder
+            if (!root.singleImageCapturing && selectedFolder.toString() !== "")
+                root.acceptCaptureSingleOutputRoot(selectedFolder)
         }
     }
 

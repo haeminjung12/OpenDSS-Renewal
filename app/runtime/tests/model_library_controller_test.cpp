@@ -399,7 +399,8 @@ void testPackagePathSafetyAndRegistryIntegrity()
             "create identity root junction");
     OperationCoordinator identityOperations;
     ModelLibraryController identityController(identityRegistry, identityOperations);
-    require(!identityController.addModel(QStringLiteral("Blocked Identity"), 0, 0)
+    require(!identityController.addModel(QStringLiteral("Blocked Identity"), 0, 0,
+                                         QUrl{})
                 && identityController.errorMessage().contains(QStringLiteral("junction"))
                 && QDir(identityTarget).isEmpty(),
             "identity reparse root rejected before mutation");
@@ -708,14 +709,19 @@ void testLibraryOwnedIdentityCreation()
 
     const QString registryPath = createSimpleRegistry(
         QDir(temporary.path()).filePath(QStringLiteral("models")));
+    const QString selectedRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("selected-root"));
+    require(QDir().mkpath(selectedRoot), "create selected identity root");
     OperationCoordinator operations;
     ModelLibraryController controller(registryPath, operations);
     require(controller.refresh(), qPrintable(controller.errorMessage()));
     require(controller.startingWeightOptions(0)
                 == QStringList{QStringLiteral("ImageNet")}
-                && !controller.addModel(QString(), 0, 0),
+                && !controller.addModel(QString(), 0, 0,
+                                        QUrl::fromLocalFile(selectedRoot)),
             "Add Model requires a nonblank Name");
-    require(controller.addModel(QStringLiteral("New MobileNet Identity"), 0, 0),
+    require(controller.addModel(QStringLiteral("New MobileNet Identity"), 0, 0,
+                                QUrl::fromLocalFile(selectedRoot)),
             qPrintable(controller.errorMessage()));
     const QVariantList trainingRows = controller.trainingModelRows();
     require(trainingRows.size() == 1
@@ -733,6 +739,8 @@ void testLibraryOwnedIdentityCreation()
         controller.selectedDetail().value(
             QStringLiteral("packageLocation")).toString();
     require(QFileInfo(identityPackage).isDir()
+                && QFileInfo(identityPackage).absolutePath()
+                       == QFileInfo(selectedRoot).absoluteFilePath()
                 && QFileInfo(identityPackage).absoluteFilePath()
                        .compare(QDir(runtimeModels).filePath(
                                     QStringLiteral(
@@ -748,11 +756,28 @@ void testLibraryOwnedIdentityCreation()
     require(controller.trainingModelRows().isEmpty(),
             "Starting Weights hash mismatch removes the identity from Training");
     const QByteArray registryAfterCreate = bytes(registryPath);
-    require(!controller.addModel(QStringLiteral(" new mobilenet identity "), 0, 0)
+    require(!controller.addModel(QStringLiteral(" new mobilenet identity "), 0, 0,
+                                 QUrl::fromLocalFile(selectedRoot))
                 && controller.errorMessage().contains(
                     QStringLiteral("already uses"))
                 && bytes(registryPath) == registryAfterCreate,
             "Add Model rejects duplicate Names without mutation");
+
+    const QString fallbackRegistry = createSimpleRegistry(
+        QDir(temporary.path()).filePath(QStringLiteral("fallback-models")));
+    OperationCoordinator fallbackOperations;
+    ModelLibraryController fallbackController(fallbackRegistry, fallbackOperations);
+    require(fallbackController.refresh()
+                && fallbackController.addModel(
+                    QStringLiteral("Fallback Identity"), 1, 0, QUrl{}),
+            qPrintable(fallbackController.errorMessage()));
+    const QString fallbackPackage =
+        fallbackController.selectedDetail()
+            .value(QStringLiteral("packageLocation")).toString();
+    require(QFileInfo(fallbackPackage).absolutePath()
+                == QDir(QFileInfo(fallbackRegistry).absolutePath())
+                       .filePath(QStringLiteral(".opendss-model-identities")),
+            "Blank Add Model destination retains the registry-adjacent default");
 }
 
 void testCommittedDeleteCleanupWarning()

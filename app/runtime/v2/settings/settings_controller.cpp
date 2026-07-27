@@ -143,6 +143,96 @@ QString SettingsController::openStorageRoot() const
     return openExistingFolder(storageRoot(), {});
 }
 
+QUrl SettingsController::captureSingleOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::CaptureSingle);
+}
+
+QString SettingsController::setCaptureSingleOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::CaptureSingle, outputRoot);
+}
+
+QUrl SettingsController::captureSequenceOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::CaptureSequence);
+}
+
+QString SettingsController::setCaptureSequenceOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::CaptureSequence, outputRoot);
+}
+
+QUrl SettingsController::captureDatasetOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::CaptureDataset);
+}
+
+QString SettingsController::setCaptureDatasetOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::CaptureDataset, outputRoot);
+}
+
+QUrl SettingsController::trainOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::Train);
+}
+
+QString SettingsController::setTrainOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::Train, outputRoot);
+}
+
+QUrl SettingsController::modelTestOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::ModelTest);
+}
+
+QString SettingsController::setModelTestOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::ModelTest, outputRoot);
+}
+
+QUrl SettingsController::liveOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::Live);
+}
+
+QString SettingsController::setLiveOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::Live, outputRoot);
+}
+
+QUrl SettingsController::sequenceTestOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::SequenceTest);
+}
+
+QString SettingsController::setSequenceTestOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::SequenceTest, outputRoot);
+}
+
+QUrl SettingsController::libraryCreateOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::LibraryCreate);
+}
+
+QString SettingsController::setLibraryCreateOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::LibraryCreate, outputRoot);
+}
+
+QUrl SettingsController::libraryExportOutputRoot() const
+{
+    return outputRoot(OutputRootSelector::LibraryExport);
+}
+
+QString SettingsController::setLibraryExportOutputRoot(const QUrl &outputRoot)
+{
+    return setOutputRoot(OutputRootSelector::LibraryExport, outputRoot);
+}
+
 QUrl SettingsController::outputRoot(OutputRootSelector selector) const
 {
     return QUrl::fromLocalFile(repository_.outputRoot(selector));

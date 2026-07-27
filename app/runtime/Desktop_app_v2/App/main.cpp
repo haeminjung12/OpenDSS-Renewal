@@ -226,8 +226,6 @@ int main(int argc, char *argv[])
     desktop_app::v2::SingleImageCaptureService singleImageCaptureService;
     desktop_app::v2::SingleImageCaptureController singleImageCaptureController(
         singleImageCaptureService, cameraController, operationCoordinator);
-    singleImageCaptureController.initializeDefaultOutputFolder(
-        QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation));
     cameraService->moveToThread(&cameraThread);
     QObject::connect(&cameraThread, &QThread::finished,
                      cameraService, &QObject::deleteLater);
@@ -241,6 +239,8 @@ int main(int argc, char *argv[])
     desktop_app::v2::SettingsController settingsController(
         settingsRepository, applicationStateStore,
         [](const QUrl &url) { return QDesktopServices::openUrl(url); });
+    singleImageCaptureController.initializeDefaultOutputFolder(
+        settingsController.captureSingleOutputRoot().toLocalFile());
     desktop_app::v2::results::RunRepository runRepository(applicationStateStore);
     desktop_app::v2::results::RunsResultsController runsResultsController(
         runRepository, applicationStateStore,
@@ -249,8 +249,7 @@ int main(int argc, char *argv[])
     desktop_app::v2::dataset::DatasetLabelController datasetLabelController(operationCoordinator,
                                                                             applicationStateStore);
     const QJsonObject registry = loadModelRegistry();
-    const DefaultWorkspacePaths workspacePaths = ensureDefaultWorkspaceAssets(
-        registry.value(QStringLiteral("entries")).toArray());
+    ensureDefaultWorkspaceAssets(registry.value(QStringLiteral("entries")).toArray());
     const QString registryFilePath = modelRegistryPath();
     desktop_app::v2::ModelLibraryController modelLibraryController(
         registryFilePath, operationCoordinator);
@@ -268,6 +267,8 @@ int main(int argc, char *argv[])
     desktop_app::v2::model_test::ModelTestController modelTestController(
         operationCoordinator, modelLoadService, QCoreApplication::applicationVersion(),
         trainingPythonExecutable(), trainingWorkingDirectory());
+    trainingController.setOutputDirectoryUrl(settingsController.trainOutputRoot());
+    modelTestController.setOutputFolderUrl(settingsController.modelTestOutputRoot());
     QObject::connect(&modelLibraryController,
                      &desktop_app::v2::ModelLibraryController::changed,
                      &modelTestController,
@@ -324,8 +325,10 @@ int main(int argc, char *argv[])
             };
         },
         QCoreApplication::applicationVersion());
-    captureWorkflowController.setSequenceLocation(workspacePaths.collections);
-    captureWorkflowController.setDatasetLocation(workspacePaths.datasets);
+    captureWorkflowController.setSequenceLocation(
+        settingsController.captureSequenceOutputRoot().toLocalFile());
+    captureWorkflowController.setDatasetLocation(
+        settingsController.captureDatasetOutputRoot().toLocalFile());
 
     desktop_app::v2::live::LiveSortingService liveSortingService(
         operationCoordinator, fastDetector, &modelLoadService, hitPulse, {}, {},
@@ -449,6 +452,8 @@ int main(int argc, char *argv[])
         [&runsResultsController](const QString &) {
             runsResultsController.refresh();
         });
+    liveSortingController.setSaveLocation(
+        settingsController.liveOutputRoot().toLocalFile());
     QObject::connect(
         &cameraController, &desktop_app::v2::CameraController::frameReady,
         &liveSortingController,
@@ -476,6 +481,8 @@ int main(int argc, char *argv[])
             [] { return availablePhysicalMemory(); }, daqReadiness,
             detectorSettings, cropSettings, timingSettings,
             QCoreApplication::applicationVersion());
+    sequenceTestController.setOutputFolderUrl(
+        settingsController.sequenceTestOutputRoot());
     QObject::connect(
         &sequenceTestController,
         &desktop_app::v2::sequence_test::SequenceTestController::

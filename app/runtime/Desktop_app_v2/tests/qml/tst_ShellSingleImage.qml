@@ -15,6 +15,16 @@ Item {
         property int textSizePercent: 100
         property int lastRequestedTextSizePercent: -1
         property url storageRoot: "file:///C:/OpenDSS/Settings%20Root"
+        property url captureSingleOutputRoot: "file:///C:/OpenDSS/Datasets/Single"
+        property url captureSequenceOutputRoot: "file:///C:/OpenDSS/Datasets/Sequence"
+        property url captureDatasetOutputRoot: "file:///C:/OpenDSS/Datasets/Capture"
+        property url trainOutputRoot: "file:///C:/OpenDSS/Models/Train"
+        property url modelTestOutputRoot: "file:///C:/OpenDSS/Reports/ModelTest"
+        property url liveOutputRoot: "file:///C:/OpenDSS/Runs/Live"
+        property url sequenceTestOutputRoot: "file:///C:/OpenDSS/Runs/SequenceTest"
+        property url libraryCreateOutputRoot: "file:///C:/OpenDSS/Models/Create"
+        property url libraryExportOutputRoot: "file:///C:/OpenDSS/Models/Export"
+        property string outputRootError: ""
         property int openStorageRootCallCount: 0
         property string openStorageRootError: ""
 
@@ -31,6 +41,52 @@ Item {
         function openStorageRoot() {
             ++openStorageRootCallCount
             return openStorageRootError
+        }
+
+        function setCaptureSingleOutputRoot(value) {
+            if (outputRootError === "")
+                captureSingleOutputRoot = value
+            return outputRootError
+        }
+        function setCaptureSequenceOutputRoot(value) {
+            if (outputRootError === "")
+                captureSequenceOutputRoot = value
+            return outputRootError
+        }
+        function setCaptureDatasetOutputRoot(value) {
+            if (outputRootError === "")
+                captureDatasetOutputRoot = value
+            return outputRootError
+        }
+        function setTrainOutputRoot(value) {
+            if (outputRootError === "")
+                trainOutputRoot = value
+            return outputRootError
+        }
+        function setModelTestOutputRoot(value) {
+            if (outputRootError === "")
+                modelTestOutputRoot = value
+            return outputRootError
+        }
+        function setLiveOutputRoot(value) {
+            if (outputRootError === "")
+                liveOutputRoot = value
+            return outputRootError
+        }
+        function setSequenceTestOutputRoot(value) {
+            if (outputRootError === "")
+                sequenceTestOutputRoot = value
+            return outputRootError
+        }
+        function setLibraryCreateOutputRoot(value) {
+            if (outputRootError === "")
+                libraryCreateOutputRoot = value
+            return outputRootError
+        }
+        function setLibraryExportOutputRoot(value) {
+            if (outputRootError === "")
+                libraryExportOutputRoot = value
+            return outputRootError
         }
     }
 
@@ -169,6 +225,7 @@ Item {
         property string addedModelName: ""
         property int addedArchitectureIndex: -1
         property int addedStartingWeightsIndex: -1
+        property url addedDestinationRoot
 
         function reset() {
             modelRows = [
@@ -205,6 +262,7 @@ Item {
             addedModelName = ""
             addedArchitectureIndex = -1
             addedStartingWeightsIndex = -1
+            addedDestinationRoot = ""
         }
 
         function refresh() {
@@ -264,11 +322,13 @@ Item {
                     : ["ImageNet", "Active Model"]
         }
 
-        function addModel(name, architectureIndex, startingWeightsIndex) {
+        function addModel(name, architectureIndex, startingWeightsIndex,
+                          destinationRoot) {
             ++addModelCallCount
             addedModelName = name
             addedArchitectureIndex = architectureIndex
             addedStartingWeightsIndex = startingWeightsIndex
+            addedDestinationRoot = destinationRoot
             ++revision
             return true
         }
@@ -561,6 +621,7 @@ Item {
         function setOutputFolderPath(path) {
             ++outputPathEditCount
             requestedOutputPath = path
+            outputFolder = "file:///" + path
         }
 
         function capture() {
@@ -1041,6 +1102,16 @@ Item {
         textSizeController.textSizePercent = 100
         textSizeController.lastRequestedTextSizePercent = -1
         textSizeController.storageRoot = "file:///C:/OpenDSS/Settings%20Root"
+        textSizeController.captureSingleOutputRoot = "file:///C:/OpenDSS/Datasets/Single"
+        textSizeController.captureSequenceOutputRoot = "file:///C:/OpenDSS/Datasets/Sequence"
+        textSizeController.captureDatasetOutputRoot = "file:///C:/OpenDSS/Datasets/Capture"
+        textSizeController.trainOutputRoot = "file:///C:/OpenDSS/Models/Train"
+        textSizeController.modelTestOutputRoot = "file:///C:/OpenDSS/Reports/ModelTest"
+        textSizeController.liveOutputRoot = "file:///C:/OpenDSS/Runs/Live"
+        textSizeController.sequenceTestOutputRoot = "file:///C:/OpenDSS/Runs/SequenceTest"
+        textSizeController.libraryCreateOutputRoot = "file:///C:/OpenDSS/Models/Create"
+        textSizeController.libraryExportOutputRoot = "file:///C:/OpenDSS/Models/Export"
+        textSizeController.outputRootError = ""
         textSizeController.openStorageRootCallCount = 0
         textSizeController.openStorageRootError = ""
         labelController.resetRecords()
@@ -1445,15 +1516,70 @@ Item {
     function test_chooserDefaultsUseStorageRootAndSpecificFolder() {
         const storageRoot = textSizeController.storageRoot.toString()
         compare(shell.modelImportFolderDialog.currentFolder.toString(), storageRoot)
-        compare(shell.modelExportFolderDialog.currentFolder.toString(), storageRoot)
+        compare(shell.modelExportFolderDialog.currentFolder.toString(),
+                textSizeController.libraryExportOutputRoot.toString())
         compare(shell.modelDuplicateFolderDialog.currentFolder.toString(), storageRoot)
 
         shell.sequenceTestController = sequenceTestController
         compare(shell.sequenceTestOutputFolderDialog.currentFolder.toString(),
-                sequenceTestController.outputFolderUrl.toString())
+                textSizeController.sequenceTestOutputRoot.toString())
         sequenceTestController.outputFolderUrl = ""
         compare(shell.sequenceTestOutputFolderDialog.currentFolder.toString(),
-                storageRoot)
+                textSizeController.sequenceTestOutputRoot.toString())
+    }
+
+    function test_outputRootSelectionsPersistBeforeUpdatingConsumers() {
+        shell.singleImageCaptureController = singleImageCaptureController
+        shell.captureWorkflowController = captureWorkflowController
+        shell.trainingController = trainingController
+        shell.modelTestController = modelTestController
+        shell.liveSortingController = liveSortingController
+        shell.sequenceTestController = sequenceTestController
+
+        verify(shell.acceptCaptureSingleOutputRoot("file:///C:/Selected/Single"))
+        compare(textSizeController.captureSingleOutputRoot.toString(),
+                "file:///C:/Selected/Single")
+        compare(singleImageCaptureController.outputFolder.toString(),
+                "file:///C:/Selected/Single")
+
+        verify(shell.acceptCaptureSequenceOutputRoot("file:///C:/Selected/Sequence"))
+        compare(textSizeController.captureSequenceOutputRoot.toString(),
+                "file:///C:/Selected/Sequence")
+        compare(captureWorkflowController.sequenceLocation, "C:/Selected/Sequence")
+
+        verify(shell.acceptCaptureDatasetOutputRoot("file:///C:/Selected/Dataset"))
+        compare(textSizeController.captureDatasetOutputRoot.toString(),
+                "file:///C:/Selected/Dataset")
+        compare(captureWorkflowController.datasetLocation, "C:/Selected/Dataset")
+
+        verify(shell.acceptTrainOutputRoot("file:///C:/Selected/Train"))
+        compare(textSizeController.trainOutputRoot.toString(),
+                "file:///C:/Selected/Train")
+        compare(trainingController.outputDirectoryUrl.toString(),
+                "file:///C:/Selected/Train")
+
+        verify(shell.acceptModelTestOutputRoot("file:///C:/Selected/ModelTest"))
+        compare(textSizeController.modelTestOutputRoot.toString(),
+                "file:///C:/Selected/ModelTest")
+        compare(modelTestController.outputFolderUrl.toString(),
+                "file:///C:/Selected/ModelTest")
+
+        verify(shell.acceptLiveOutputRoot("file:///C:/Selected/Live"))
+        compare(textSizeController.liveOutputRoot.toString(),
+                "file:///C:/Selected/Live")
+        compare(liveSortingController.saveLocation, "C:/Selected/Live")
+
+        verify(shell.acceptSequenceTestOutputRoot("file:///C:/Selected/SequenceTest"))
+        compare(textSizeController.sequenceTestOutputRoot.toString(),
+                "file:///C:/Selected/SequenceTest")
+        compare(sequenceTestController.outputFolderUrl.toString(),
+                "file:///C:/Selected/SequenceTest")
+
+        const priorLiveLocation = liveSortingController.saveLocation
+        textSizeController.outputRootError = "The selected folder is invalid."
+        verify(!shell.acceptLiveOutputRoot("file:///C:/Invalid"))
+        compare(liveSortingController.saveLocation, priorLiveLocation)
+        compare(shell.settingsActionError, textSizeController.outputRootError)
     }
 
     function test_modelLibraryControllerWiring() {
@@ -1495,6 +1621,8 @@ Item {
         compare(modelLibraryController.addedModelName, "Training Destination")
         compare(modelLibraryController.addedArchitectureIndex, 0)
         compare(modelLibraryController.addedStartingWeightsIndex, 1)
+        compare(modelLibraryController.addedDestinationRoot.toString(),
+                textSizeController.libraryCreateOutputRoot.toString())
         compare(shell.form.modelLibraryWorkspace.addModelStartingWeightsSelector.model.length,
                 3)
         verify(!shell.form.modelLibraryWorkspace.addModelPopup.opened)
@@ -1540,6 +1668,8 @@ Item {
         shell.exportSelectedModel("file:///C:/Exports")
         compare(modelLibraryController.exportCallCount, 1)
         compare(modelLibraryController.exportArgument.toString(),
+                "file:///C:/Exports")
+        compare(textSizeController.libraryExportOutputRoot.toString(),
                 "file:///C:/Exports")
 
         shell.form.modelLibraryWorkspace.duplicateButton.clicked()
@@ -1731,6 +1861,7 @@ Item {
         shell.form.fileNameField.textEdited()
         shell.form.saveLocationField.text = "C:/OpenDSS/Edited"
         shell.form.saveLocationField.textEdited()
+        shell.form.saveLocationField.editingFinished()
         compare(singleImageCaptureController.fileName, "edited-after-completion")
         compare(singleImageCaptureController.outputPathEditCount, 1)
         compare(singleImageCaptureController.requestedOutputPath, "C:/OpenDSS/Edited")

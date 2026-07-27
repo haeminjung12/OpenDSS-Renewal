@@ -2613,6 +2613,7 @@ bool createLibraryModelIdentity(const QString& registryFilePath,
                                 const QString& displayName,
                                 const QString& architectureId,
                                 const QString& initializationMode,
+                                const QString& destinationRoot,
                                 QString* createdEntryId,
                                 QString* createdPackagePath,
                                 QString* recoveryPath,
@@ -2713,8 +2714,10 @@ bool createLibraryModelIdentity(const QString& registryFilePath,
     const QString modelId =
         "model_" + QUuid::createUuid().toString(QUuid::WithoutBraces).remove('-');
     const QString entryId = "trained_" + registryIdToken(modelId);
-    const QString identitiesRoot =
-        QDir(QFileInfo(registryFilePath).absolutePath()).filePath(".opendss-model-identities");
+    const QString identitiesRoot = destinationRoot.trimmed().isEmpty()
+        ? QDir(QFileInfo(registryFilePath).absolutePath())
+              .filePath(".opendss-model-identities")
+        : absoluteCleanPath(destinationRoot);
     QString stagingPath;
     QString finalPath;
     if (!createPackageStagingCopy(sourcePath, identitiesRoot, entryId,

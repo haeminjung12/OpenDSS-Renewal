@@ -20,17 +20,34 @@ if (NOT EXISTS "${_opendss_qt_plugin_path}/platforms/qoffscreen.dll")
         "${_opendss_qt_plugin_path}/platforms/qoffscreen.dll"
     )
 endif()
+get_filename_component(_opendss_qt_bin "${_opendss_qmake}" DIRECTORY)
+foreach(_opendss_qt_dll
+        Qt6Core.dll
+        Qt6Gui.dll
+        Qt6Qml.dll
+        Qt6Quick.dll
+        Qt6QuickTest.dll)
+    if (NOT EXISTS "${_opendss_qt_bin}/${_opendss_qt_dll}")
+        message(FATAL_ERROR
+            "ShellSingleImage requires ${_opendss_qt_dll} from the selected "
+            "Qt installation at ${_opendss_qt_bin}"
+        )
+    endif()
+endforeach()
 
 add_test(NAME ShellSingleImage
-    COMMAND tst_ShellSingleImage
+    COMMAND "${CMAKE_COMMAND}" -E env
+        "PATH=$<TARGET_FILE_DIR:tst_ShellSingleImage>;${_opendss_qt_bin};$ENV{SystemRoot}/System32;$ENV{SystemRoot}"
+        "QT_QPA_PLATFORM=offscreen"
+        "QT_PLUGIN_PATH=${_opendss_qt_plugin_path}"
+        "QML_IMPORT_PATH=${QT_QML_OUTPUT_DIRECTORY}"
+        "$<TARGET_FILE:tst_ShellSingleImage>"
         -v1
         -input ${CMAKE_CURRENT_SOURCE_DIR}/qml
         -o ShellSingleImage-results.txt,txt
 )
 set_tests_properties(ShellSingleImage PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:tst_ShellSingleImage>"
-    ENVIRONMENT
-        "QT_QPA_PLATFORM=offscreen;QT_PLUGIN_PATH=${_opendss_qt_plugin_path};QML_IMPORT_PATH=${QT_QML_OUTPUT_DIRECTORY}"
 )
 
 add_test(NAME ShellSingleImageNativeWindowClamp

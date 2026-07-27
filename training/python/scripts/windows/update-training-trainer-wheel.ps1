@@ -7,8 +7,8 @@ param(
 $ErrorActionPreference = "Stop"
 $ExpectedWheelName = "droplet_trainer-0.2.0-py3-none-any.whl"
 $ExpectedVersion = "0.2.0"
-$ExpectedHash = "20e070bf0e5a114bf9daadaec22ff81a704c754d8077a7cea7af93d9dddab796"
-$ExpectedSize = 63123
+$ExpectedHash = "76fba77831bf616b832b5dbc491bc29b97bf1ed0311ad0fe4c341a4d83002af3"
+$ExpectedSize = 63212
 
 function Get-LockEntries {
     param([string]$Path)

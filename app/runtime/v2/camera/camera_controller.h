@@ -118,10 +118,13 @@ private:
     CameraAppliedSettings appliedSettings_;
     int previewLutMinimum_ = 0;
     int previewLutMaximum_ = 255;
+    int appliedPreviewLutMinimum_ = 0;
+    int appliedPreviewLutMaximum_ = 255;
     QMutex pendingPreviewFrameMutex_;
     std::optional<CameraFrame> pendingPreviewFrame_;
     bool previewDeliveryScheduled_ = false;
     bool previewRevisionInFlight_ = false;
+    bool previewLutUpdatePending_ = false;
 };
 
 } // namespace desktop_app::v2

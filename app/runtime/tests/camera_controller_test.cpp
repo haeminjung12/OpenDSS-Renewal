@@ -392,16 +392,88 @@ int main(int argc, char **argv)
                 "Completion-driven preview delivery must retain ordered acquisition, "
                 "one in-flight revision, newest-frame freshness, and final catch-up.");
 
-    const QString previewBeforeLut = controller.previewSource();
+    fake->manualFramesOnly = true;
+    const QString gatedPreviewSource = controller.previewSource();
+    previewSpy.clear();
+    const quint64 olderPendingId = fake->delivery.fetch_add(1);
+    const quint64 newestPendingId = fake->delivery.fetch_add(1);
+    QMetaObject::invokeMethod(service, [=] {
+        CameraFrame frame;
+        frame.pixelFormat = CameraPixelFormat::Mono8;
+        frame.width = 2;
+        frame.height = 1;
+        frame.rowBytes = 2;
+        frame.bitDepth = 8;
+        frame.deliveryId = olderPendingId;
+        frame.monotonicTimestampNs =
+            static_cast<qint64>(olderPendingId * 100);
+        frame.bytes = QByteArray::fromHex("0010");
+        emit service->frameReady(std::move(frame));
+
+        frame.deliveryId = newestPendingId;
+        frame.monotonicTimestampNs =
+            static_cast<qint64>(newestPendingId * 100);
+        frame.bytes = QByteArray::fromHex("141e");
+        emit service->frameReady(std::move(frame));
+    }, Qt::BlockingQueuedConnection);
+    QCoreApplication::processEvents();
+    const QImage providerBeforeDeferredLut =
+        provider.requestImage(QStringLiteral("frame"), nullptr, {});
+    controller.setPreviewLutRange(10, 40);
     controller.setPreviewLutRange(20, 30);
+    QCoreApplication::processEvents();
+    const QImage providerWhileLutDeferred =
+        provider.requestImage(QStringLiteral("frame"), nullptr, {});
+    const bool lutDeferredWhileInFlight =
+        previewSpy.isEmpty()
+        && controller.previewSource() == gatedPreviewSource
+        && providerWhileLutDeferred == providerBeforeDeferredLut;
+    controller.acknowledgePreviewReady(gatedPreviewSource);
+    const bool lutPublishedAfterAck = previewSpy.wait(1000);
+    QCoreApplication::processEvents();
     const QImage lutPreview =
         provider.requestImage(QStringLiteral("frame"), nullptr, {});
-    ok &= check(controller.previewLutMinimum() == 20
+    ok &= check(lutDeferredWhileInFlight
+                    && lutPublishedAfterAck
+                    && previewSpy.count() == 1
+                    && controller.previewLutMinimum() == 20
                     && controller.previewLutMaximum() == 30
-                    && controller.previewSource() != previewBeforeLut
+                    && controller.previewSource() != gatedPreviewSource
+                    && controller.latestDeliveryId() == newestPendingId
                     && lutPreview.constScanLine(0)[0] == 0
                     && lutPreview.constScanLine(0)[1] == 255,
-                "Preview LUT changes must republish only the rendered camera image.");
+                "LUT and newest-frame updates must wait for the exact in-flight "
+                "source acknowledgement, then publish exactly one revision.");
+    controller.acknowledgePreviewReady(controller.previewSource());
+
+    previewSpy.clear();
+    const QString previewBeforeIdleLut = controller.previewSource();
+    controller.setPreviewLutRange(30, 60);
+    const QString idleLutSource = controller.previewSource();
+    const QImage providerAfterIdleLut =
+        provider.requestImage(QStringLiteral("frame"), nullptr, {});
+    ok &= check(previewSpy.count() == 1
+                    && idleLutSource != previewBeforeIdleLut
+                    && providerAfterIdleLut.constScanLine(0)[0] == 0
+                    && providerAfterIdleLut.constScanLine(0)[1] == 0,
+                "An idle LUT edit must update the provider and publish immediately.");
+
+    previewSpy.clear();
+    controller.setPreviewLutRange(40, 80);
+    controller.setPreviewLutRange(30, 60);
+    const QImage providerWhileRevertedLutDeferred =
+        provider.requestImage(QStringLiteral("frame"), nullptr, {});
+    controller.acknowledgePreviewReady(idleLutSource);
+    QCoreApplication::processEvents();
+    const QImage providerAfterRevertedLutAck =
+        provider.requestImage(QStringLiteral("frame"), nullptr, {});
+    ok &= check(previewSpy.isEmpty()
+                    && controller.previewSource() == idleLutSource
+                    && providerWhileRevertedLutDeferred == providerAfterIdleLut
+                    && providerAfterRevertedLutAck == providerAfterIdleLut,
+                "A gated LUT edit reverted to the applied range must not mutate "
+                "the provider or publish another revision after acknowledgement.");
+    fake->manualFramesOnly = false;
 
     ok &= check(controller.applyExposureMs(6.0)
                     && !controller.applyBitDepth(8)

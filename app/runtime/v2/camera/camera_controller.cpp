@@ -337,18 +337,22 @@ void CameraController::setPreviewLutRange(int blackLevel, int whiteLevel)
 
     previewLutMinimum_ = blackLevel;
     previewLutMaximum_ = whiteLevel;
-    const quint64 revision =
-        previewProvider_.setPreviewLutRange(blackLevel, whiteLevel);
     emit previewLutChanged();
-    if (hasFrame_) {
-        {
-            QMutexLocker locker(&pendingPreviewFrameMutex_);
-            previewRevisionInFlight_ = true;
+
+    bool publishImmediately = false;
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        previewLutUpdatePending_ =
+            previewLutMinimum_ != appliedPreviewLutMinimum_
+            || previewLutMaximum_ != appliedPreviewLutMaximum_;
+        if (previewLutUpdatePending_ && hasFrame_ && !previewRevisionInFlight_
+            && !previewDeliveryScheduled_) {
+            previewDeliveryScheduled_ = true;
+            publishImmediately = true;
         }
-        previewSource_ =
-            QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
-        emit previewSourceChanged();
     }
+    if (publishImmediately)
+        updateFrame();
 }
 
 void CameraController::acknowledgePreviewReady(const QString &previewSource)
@@ -362,7 +366,8 @@ void CameraController::acknowledgePreviewReady(const QString &previewSource)
         if (!previewRevisionInFlight_)
             return;
         previewRevisionInFlight_ = false;
-        if (pendingPreviewFrame_ && !previewDeliveryScheduled_) {
+        if ((pendingPreviewFrame_ || (previewLutUpdatePending_ && hasFrame_))
+            && !previewDeliveryScheduled_) {
             previewDeliveryScheduled_ = true;
             scheduleDelivery = true;
         }
@@ -512,23 +517,35 @@ void CameraController::acceptFrame(CameraFrame frame)
 void CameraController::updateFrame()
 {
     std::optional<CameraFrame> frame;
+    bool updateLut = false;
     {
         QMutexLocker locker(&pendingPreviewFrameMutex_);
         previewDeliveryScheduled_ = false;
         if (previewRevisionInFlight_)
             return;
-        if (!pendingPreviewFrame_) {
+        if (!pendingPreviewFrame_ && !(previewLutUpdatePending_ && hasFrame_)) {
             return;
         }
         frame = std::move(pendingPreviewFrame_);
         pendingPreviewFrame_.reset();
+        updateLut = previewLutUpdatePending_;
+        previewLutUpdatePending_ = false;
         previewRevisionInFlight_ = true;
     }
 
     setError({});
-    latestDeliveryId_ = frame->deliveryId;
-    hasFrame_ = true;
-    const quint64 revision = previewProvider_.updateFrame(std::move(*frame));
+    quint64 revision = 0;
+    if (updateLut) {
+        revision = previewProvider_.setPreviewLutRange(
+            previewLutMinimum_, previewLutMaximum_);
+        appliedPreviewLutMinimum_ = previewLutMinimum_;
+        appliedPreviewLutMaximum_ = previewLutMaximum_;
+    }
+    if (frame) {
+        latestDeliveryId_ = frame->deliveryId;
+        hasFrame_ = true;
+        revision = previewProvider_.updateFrame(std::move(*frame));
+    }
     previewSource_ =
         QStringLiteral("image://camera-preview/frame?r=%1").arg(revision);
     emit previewSourceChanged();

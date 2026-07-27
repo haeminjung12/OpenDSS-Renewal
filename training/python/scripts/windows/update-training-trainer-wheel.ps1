@@ -196,12 +196,14 @@ function Get-TrainerCandidateArtifacts {
     foreach ($item in @(Get-ChildItem -LiteralPath $Roots.SitePackages.FullName -Force)) {
         $name = $item.Name.ToLowerInvariant()
         $normalized = $name -replace "[-.]+", "_"
-        $isPackage = $name -eq "droplet_trainer"
-        $isDistInfo = $normalized -match "^droplet_trainer_.+_dist_info(?:_.*)?$"
-        $isPipRename = $normalized -match "^(?:~roplet_trainer|~droplet_trainer)(?:$|_.*)"
-        $isTrainerTemp = $name -match
-            "^droplet_trainer[-_.~](?:tmp|old|bak|deleteme)(?:$|[-_.~].*)"
-        if (-not ($isPackage -or $isDistInfo -or $isPipRename -or $isTrainerTemp)) {
+        $hasExactOrReplacedStem = $name -match "^.roplet[_-]trainer(?<tail>.*)$"
+        $tail = if ($hasExactOrReplacedStem) { [string]$Matches.tail } else { "" }
+        $isPackageOrStash = $hasExactOrReplacedStem -and $tail.Length -eq 0
+        $isDistInfoOrStash =
+            $normalized -match "^.roplet_trainer_.+_dist_info(?:_.*)?$"
+        $isBoundedTemp = $hasExactOrReplacedStem -and
+            $tail -match "^[-_.~](?:tmp|old|bak|deleteme)(?:$|[-_.~].*)"
+        if (-not ($isPackageOrStash -or $isDistInfoOrStash -or $isBoundedTemp)) {
             continue
         }
         $canonical = Get-CanonicalItem -Path $item.FullName `
@@ -217,7 +219,7 @@ function Get-TrainerCandidateArtifacts {
     }
     foreach ($item in @(Get-ChildItem -LiteralPath $Roots.Scripts.FullName -Force)) {
         if ($item.Name.ToLowerInvariant() -notmatch
-            "^(?:droplet-trainer|~roplet-trainer|~droplet-trainer)") {
+            "^.roplet-trainer(?:$|[-_.~].*)") {
             continue
         }
         $canonical = Get-CanonicalItem -Path $item.FullName `

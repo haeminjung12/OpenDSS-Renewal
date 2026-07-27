@@ -1665,6 +1665,8 @@ During and after Training, the actual execution device is shown and recorded. Th
 
 Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval.
 
+`UAT-MODEL-005` treats this dataset-wide operation as Dataset Validation for backend throughput. It does not change Model Test's visible workflow name, scientific meaning, artifacts, metrics, or observational status.
+
 ## 13.2 Layout
 
 Ready:
@@ -1751,6 +1753,19 @@ Model Test uses automatic GPU acceleration when compatible and CPU fallback othe
 
 There is no device selector.
 
+### 13.5.1 Automatic batching and throughput
+
+Dataset Validation MUST process eligible images through automatic multi-image batching whenever the qualified model/runtime/provider supports a batch larger than one.
+
+- Batch size is not a user setting. The implementation automatically selects the largest qualified batch that fits the selected device's currently available memory, capped by the remaining eligible images.
+- The implementation MAY use a bounded decode/preprocess/inference/persistence pipeline to keep the selected device supplied. It MUST NOT use unbounded queues, retain the whole Dataset in memory merely for throughput, or change source-image order.
+- Every image retains its own factual Class Scores, Predicted Class, source identity, and output row. Batching MUST NOT average, merge, omit, or reorder per-image results.
+- `Processed` counts only images whose predictions have been durably finalized. Progress advances by the number of images in each completed batch and remains determinate against the original eligible-image total.
+- Each completed batch is an atomic persistence checkpoint. Predictions from a partially completed or failed batch are not published; every earlier completed batch remains recoverable under the existing hash, atomic-write, partial-summary, and partial-CSV contracts.
+- Stop prevents another batch from starting. The current in-flight batch may finish and checkpoint atomically before Stopping completes; no later batch begins.
+- If the selected batch cannot be allocated before inference, the implementation lowers the batch size and retries without publishing output for that attempt. A batch-size-one allocation/inference failure uses the existing truthful Failed/Interrupted behavior; it MUST NOT introduce a network fallback.
+- The exact numeric batch size is an implementation/runtime fact, not a product constant. Planned and actual device presentation remains as specified in §13.5; no batch-size control or performance-tuning panel is added.
+
 ## 13.6 Results treatment
 
 - Overall Accuracy and Per-Class Accuracy use neutral metric tiles or label/value groups.
@@ -1762,7 +1777,7 @@ There is no device selector.
 
 ## 13.7 Stop and failure behavior
 
-- Stop halts further inference and finalizes only technically representable output.
+- Stop starts no further batch. An already in-flight batch may finish and checkpoint under §13.5.1; finalization includes only technically representable completed-batch output.
 - Interrupted and Failed banners state whether a partial summary or CSV exists.
 - If output is incomplete, the workspace must not present full-completion metrics as canonical.
 - A model or Dataset parse failure leaves the previous valid selection unchanged when possible.

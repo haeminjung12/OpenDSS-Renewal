@@ -272,17 +272,20 @@ Specific qualified hardware models and driver versions are maintained separately
 
 ### 5.4 Installer boundary
 
-The full offline installer SHALL include:
+The signed OpenDSS installer is a bootstrap installer. Installation MAY require an internet connection.
 
-- OpenDSS;
-- Qt and application runtime dependencies;
-- the application-owned Python runtime;
-- the CPU training environment;
-- GPU training packages;
-- CUDA runtime components required by the bundled training packages;
-- training scripts;
-- bundled base model weights;
-- required application resources.
+The installer SHALL include OpenDSS, its Qt/application bootstrap dependencies, training scripts, bundled base model weights, required application resources, and the installer logic needed to provision the training environment. It SHALL NOT embed an offline Python runtime, wheelhouse, or complete CPU/GPU training payload.
+
+During setup, the bootstrap SHALL:
+
+1. download exactly CPython `3.12.10`;
+2. download the authoritative training dependency set of exactly 37 pinned wheels;
+3. verify the authoritative hash for the CPython artifact and every wheel before installing any downloaded artifact;
+4. provision `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
+5. run the authoritative environment check against that provisioned environment; and
+6. publish the environment as usable only after every download, hash, provisioning, and environment-check step succeeds.
+
+Any download, hash, provisioning, or environment-check failure SHALL fail installation atomically and visibly. A partial environment MUST NOT be reported or retained as usable.
 
 The installer SHALL NOT bundle:
 
@@ -2945,14 +2948,14 @@ A failed save SHALL never be reported as successful.
 
 ### 35.1 Primary flow
 
-1. User launches the signed offline installer with administrator rights.
+1. On a fresh internet-connected Windows 11 computer with no preinstalled Python requirement, the user launches the signed bootstrap installer with administrator rights.
 2. Installer installs OpenDSS and runtime dependencies.
-3. Installer installs the application-owned Python environment.
-4. Installer installs CPU and GPU-capable training packages included in the installer.
+3. Installer downloads exact pinned CPython `3.12.10` and the authoritative 37-wheel hash-locked training dependency set.
+4. Installer verifies every authoritative artifact hash and provisions `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`.
 5. Installer creates the default Documents data root.
-6. Installer verifies that the bundled Python environment can start.
+6. Installer runs the authoritative environment check and makes the training environment usable only when it passes.
 7. Installer creates Start Menu entries.
-8. Installer completes without requiring an internet connection.
+8. Installer completes only after all bootstrap steps succeed; otherwise it fails atomically with a visible reason and no partial environment is treated as usable.
 
 ### 35.2 GPU behavior
 
@@ -2963,6 +2966,8 @@ When the user requests GPU and the qualified environment is usable, Training SHA
 When the user requests GPU and the qualified environment is unavailable, Training SHALL fall back to effective CPU and show a direct explanation. When the user requests CPU, Training SHALL use CPU without automatic promotion.
 
 The installer SHALL not require the user to construct or register a virtual environment manually.
+
+After successful installation, Training runs locally. It SHALL NOT download Python, wheels, packages, model weights, or other dependencies at training runtime, and it SHALL have no network fallback. The existing trained-model local/no-network runtime requirements remain unchanged.
 
 ### 35.3 External prerequisite reporting
 
@@ -3150,13 +3155,16 @@ No placeholder buttons SHALL be added for excluded features.
 
 # PART XVI — END-TO-END ACCEPTANCE SCENARIOS
 
-## 44. AC-01 — Offline installation
+## 44. AC-01 — Internet bootstrap installation
 
-**Given** a Windows 11 computer with no internet connection  
-**When** the user runs the full installer  
-**Then** OpenDSS, application dependencies, Python, CPU training, GPU training packages, CUDA runtime components, scripts, and base weights are installed  
-**And** no online download is required  
-**And** the default Documents data root is created.
+**Given** a fresh internet-connected Windows 11 computer with no Python installation
+**When** the user runs the signed bootstrap installer
+**Then** OpenDSS and its application dependencies are installed
+**And** exact pinned CPython `3.12.10` and the authoritative 37-wheel hash-locked training dependency set are downloaded and every authoritative hash is verified
+**And** `%LOCALAPPDATA%\OpenDSS\training-venv-gpu` is provisioned and passes the authoritative environment check
+**And** the default Documents data root is created
+**And** any download, hash, provisioning, or environment-check failure is visible and atomic, with no partial training environment treated as usable
+**And** after successful installation, Training and trained-model runtime operation require no network access and use no runtime network fallback.
 
 ## 45. AC-02 — Launch without hardware
 

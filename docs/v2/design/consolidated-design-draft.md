@@ -198,7 +198,7 @@ This specification does not define or alter:
 
 - scientific algorithms, detector logic, Droplet Crop generation logic, routing logic, trajectory logic, model architectures, or training configurations;
 - canonical JSON or CSV schemas except where their existing contracts determine visible content;
-- production service architecture, threading, queue implementations, hardware adapters, memory management, persistence internals, packaging, installer technology, security architecture, or CI/CD;
+- production service architecture, threading, queue implementations, hardware adapters, memory management, persistence internals, packaging or installer technology beyond the explicit installation contract in §2.1.1, security architecture, or CI/CD;
 - qualified hardware models, driver versions, or laboratory safety procedures;
 - a final public wordmark or trademark decision;
 - new product features, alternate navigation, additional workflows, or future-release placeholders.
@@ -213,7 +213,7 @@ The old PDS v0.1 was a design-review input. It is explicitly not the basis of pr
 
 ## 2.1 User model
 
-OpenDSS v2 is a local, offline, single-user scientific application. The primary user is one laboratory scientist operating one local application instance on Windows 11. The design MUST NOT imply accounts, authentication, permissions, collaborative roles, cloud workspaces, project ownership, review queues, or project-management hierarchy.
+After successful installation, OpenDSS v2 is a local, offline, single-user scientific application. The primary user is one laboratory scientist operating one local application instance on Windows 11. The design MUST NOT imply accounts, authentication, permissions, collaborative roles, cloud workspaces, project ownership, review queues, or project-management hierarchy.
 
 The following descriptions are task contexts, not permission-bearing roles:
 
@@ -223,6 +223,21 @@ The following descriptions are task contexts, not permission-bearing roles:
 | Dataset reviewer | Define two or three classes, label or relabel Droplet Crops, Skip, Remove from Dataset, restore, and inspect Image Counts | Repeated work must be keyboard-efficient; large collections must be virtualized; selection, label, Skip, and Removed states must remain visually distinct. |
 | Model developer | Train Faster or More Accurate models, inspect factual metrics, run Model Test, and manage local Model Packages | Fixed configuration and automatic compute selection must be clear without exposing tuning controls or scientific approval states. |
 | Troubleshooter | Inspect runtime, driver, file, and diagnostic facts and recover from technical faults | Plain-language operational messages must provide direct recovery while technical detail remains available through Diagnostics and ordinary files. |
+
+### 2.1.1 Installation and network contract
+
+Installation MAY require internet access. The signed installer is a small bootstrap installer, not an embedded/offline Python and wheel payload.
+
+On a fresh internet-connected Python-free Windows 11 computer, setup MUST:
+
+1. download exact pinned CPython `3.12.10`;
+2. download the authoritative training environment of exactly 37 pinned, hash-locked wheels;
+3. verify the authoritative hash of CPython and every wheel;
+4. provision `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
+5. run the authoritative environment check; and
+6. fail atomically and visibly if any download, verification, provisioning, or environment-check step fails.
+
+A partial environment is never usable or reported as successfully installed. After successful installation, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
 
 ## 2.2 Experience principles
 

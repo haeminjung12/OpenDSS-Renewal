@@ -1324,6 +1324,8 @@ The package SHALL preserve:
 - ONNX input/output contract;
 - model and artifact checksums.
 
+For a Model Package usable by Python/PyTorch Model Test, `metadata.json` SHALL declare the exact SHA-256 of `checkpoint.pth` as `checkpoint_sha256`. A trusted legacy local package containing `checkpoint.pth` without that field SHALL be migrated automatically by computing the checkpoint hash and atomically adding the declaration before Model Test execution. A declared mismatch, missing or unreadable checkpoint, or failed atomic migration SHALL block Model Test. This internal migration adds no visible UI or user action.
+
 ### 15.14 Active Model behavior
 
 After successful save:
@@ -1451,6 +1453,19 @@ ModelTests\
 ```
 
 The exact folder may be user-selected.
+
+New `model_test_summary.json` files SHALL use schema `opendss.model_test.v3`. Their `active_model` execution provenance SHALL contain:
+
+```json
+{
+  "active_model": {
+    "checkpoint_sha256": "<exact executed checkpoint.pth SHA-256>",
+    "metadata_sha256": "<exact metadata.json SHA-256>"
+  }
+}
+```
+
+Python/PyTorch Model Test SHALL NOT identify the ONNX hash as the executed artifact. Existing `opendss.model_test.v2` summaries remain readable, but all new Model Test summaries SHALL be v3. Live and Sequence Test continue to record ONNX SHA-256 plus metadata SHA-256 because they execute `model.onnx`.
 
 ### 16.12 Acceptance criteria
 

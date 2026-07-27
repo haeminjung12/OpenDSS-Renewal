@@ -1768,6 +1768,14 @@ Dataset Validation MUST process eligible images through automatic multi-image Py
 - If the selected batch cannot be allocated before inference, the implementation lowers the batch size and retries without publishing output for that attempt. A batch-size-one allocation/inference failure uses the existing truthful Failed/Interrupted behavior; it MUST NOT introduce a network fallback.
 - The exact numeric batch size is an implementation/runtime fact, not a product constant. Planned and actual device presentation remains as specified in §13.5; no batch-size control or performance-tuning panel is added.
 
+### 13.5.2 Executed-artifact provenance
+
+Python/PyTorch Model Test executes `checkpoint.pth`, so its trusted Model Package metadata MUST declare the exact `checkpoint_sha256`. New Model Test summaries use schema `opendss.model_test.v3`; `active_model` records the executed `checkpoint_sha256` and the exact `metadata_sha256`. It MUST NOT attribute Python/PyTorch results to `model.onnx` bytes.
+
+Legacy trusted local packages that contain `checkpoint.pth` but lack `checkpoint_sha256` are migrated automatically: OpenDSS computes the checkpoint SHA-256 and atomically adds the declaration before Model Test can execute. A declared mismatch, missing checkpoint, unreadable checkpoint, or failed atomic migration blocks Model Test with truthful technical failure. Existing `opendss.model_test.v2` summaries remain readable; all new Python/PyTorch Model Test output is v3. This migration and provenance are automatic internal behavior with no new visible UI, setting, or user action.
+
+Live and Sequence Test execute `model.onnx`; their provenance remains the exact ONNX SHA-256 plus metadata SHA-256. The Model Test schema change does not alter their runtime, package selection, or provenance contract.
+
 ## 13.6 Results treatment
 
 - Overall Accuracy and Per-Class Accuracy use neutral metric tiles or label/value groups.

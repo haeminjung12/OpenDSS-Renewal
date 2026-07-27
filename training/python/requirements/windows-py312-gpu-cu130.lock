@@ -2,7 +2,7 @@
 # Python 3.12.10 x64; exactly one ONNX Runtime variant (GPU).
 # Install only with --no-index --find-links <wheelhouse> --require-hashes.
 colorama==0.4.6 --hash=sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6
-droplet-trainer==0.2.0 --hash=sha256:fd00e2a356837f7d845f3e686ead03054e495399e72e5e54bdc0ed683066a747
+droplet-trainer==0.2.0 --hash=sha256:20e070bf0e5a114bf9daadaec22ff81a704c754d8077a7cea7af93d9dddab796
 filelock==3.29.6 --hash=sha256:14d5f5597d2e0c4dbd774cfb6d8132da1db44da83732aab679d54f7dcf97ab65
 flatbuffers==25.12.19 --hash=sha256:7634f50c427838bb021c2d66a3d1168e9d199b0607e6329399f04846d42e20b4
 fsspec==2026.6.0 --hash=sha256:02e0b71817df9b2169dc30a16832045764def1191b43dcff5bb85bdee212d2a1

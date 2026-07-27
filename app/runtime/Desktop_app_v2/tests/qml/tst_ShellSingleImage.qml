@@ -878,6 +878,14 @@ Item {
         shell.singleImageCaptureController = null
         shell.daqController = null
         shell.settingsActionError = ""
+        shell.liveHitBoundaryDefined = false
+        shell.liveHitBoundaryXRatio = 0.0
+        shell.liveHitBoundaryYRatio = 0.5
+        shell.liveHitBoundarySide = "top"
+        shell.sequenceHitBoundaryDefined = false
+        shell.sequenceHitBoundaryXRatio = 0.0
+        shell.sequenceHitBoundaryYRatio = 0.5
+        shell.sequenceHitBoundarySide = "top"
         modelLibraryController.reset()
         modelTestController.reset()
         singleImageCaptureController.reset()
@@ -1758,6 +1766,42 @@ Item {
         verify(!shell.form.liveWorkspace.runningExpanded)
     }
 
+    function test_workspaceLocalHitBoundaryCalibration() {
+        shell.liveSortingController = liveSortingController
+        shell.sequenceTestController = sequenceTestController
+
+        shell.setLiveHitBoundary(75, 25, 100, 100)
+        compare(shell.liveHitBoundaryXRatio, 0.75)
+        compare(shell.liveHitBoundaryYRatio, 0.25)
+        verify(shell.form.liveWorkspace.hitBoundaryDefined)
+        compare(shell.form.liveWorkspace.hitBoundaryXRatio, 0.75)
+        compare(shell.form.liveWorkspace.hitBoundaryYRatio, 0.25)
+        shell.form.liveWorkspace.bottomIsHitControl.clicked()
+        compare(shell.liveHitBoundarySide, "bottom")
+
+        liveSortingController.presentation = "running"
+        verify(shell.form.liveWorkspace.hitBoundaryEditable)
+        shell.setLiveHitBoundary(20, 80, 100, 100)
+        compare(shell.liveHitBoundaryXRatio, 0.2)
+        compare(shell.liveHitBoundaryYRatio, 0.8)
+        compare(liveSortingController.primaryActionCallCount, 0)
+        compare(liveSortingController.secondaryActionCallCount, 0)
+        compare(liveSortingController.saveProfileCallCount, 0)
+
+        shell.setSequenceHitBoundary(60, 40, 100, 100)
+        compare(shell.sequenceHitBoundaryXRatio, 0.6)
+        compare(shell.sequenceHitBoundaryYRatio, 0.4)
+        verify(shell.form.sequenceTestWorkspace.hitBoundaryDefined)
+        compare(shell.form.sequenceTestWorkspace.hitBoundaryXRatio, 0.6)
+        compare(shell.form.sequenceTestWorkspace.hitBoundaryYRatio, 0.4)
+        compare(shell.liveHitBoundaryXRatio, 0.2)
+        compare(shell.liveHitBoundaryYRatio, 0.8)
+        shell.form.sequenceTestWorkspace.bottomIsHitControl.clicked()
+        compare(shell.sequenceHitBoundarySide, "bottom")
+        compare(sequenceTestController.startCallCount, 0)
+        compare(sequenceTestController.stopCallCount, 0)
+    }
+
     function test_trainAndModelTestDisclosures() {
         shell.form.navTrainButton.clicked()
         verify(shell.form.trainWorkspace.trainingSetupExpanded)
@@ -2541,7 +2585,7 @@ Item {
         compare(shell.form.liveWorkspace.runNameField.text, "Production Run")
         compare(shell.form.liveWorkspace.activeModelText, "Production Model")
         compare(shell.form.liveWorkspace.hitBoundaryText,
-                "Provisional midpoint route boundary; no user calibration is exposed yet.")
+                "Click the Live preview to set its Hit boundary calibration.")
         compare(shell.form.liveWorkspace.hitClassControl.currentIndex, 1)
         compare(shell.form.liveWorkspace.hitClassControl.currentText, "Single")
         shell.form.liveWorkspace.hitClassControl.activated(2)
@@ -2598,7 +2642,7 @@ Item {
         compare(sequenceTestController.selectedHitClassId, "2")
         compare(shell.form.sequenceTestWorkspace.hitClassControl.model[1], "Empty")
         verify(shell.form.sequenceTestWorkspace.sequenceValidationText.text.indexOf(
-                   "Provisional midpoint route boundary") >= 0)
+                   "Click the Sequence Test preview") >= 0)
         shell.form.sequenceTestWorkspace.loadToMemoryButton.clicked()
         compare(sequenceTestController.loadToMemoryCallCount, 1)
 

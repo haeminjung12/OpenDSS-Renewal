@@ -26,8 +26,15 @@
 using namespace desktop_app::v2;
 
 namespace desktop_app::v2 {
+QString sequenceTestRequestedDevice;
+
+ModelLoadService::ModelLoadService(QString registryFilePath)
+    : registryFilePath_(std::move(registryFilePath)) {}
+
 std::unique_ptr<OnnxInferenceAdapter>
-ModelLoadService::preparePersistedActive(const QString&, QString*, QString* error) const {
+ModelLoadService::preparePersistedActive(const QString& requestedDevice,
+                                         QString*, QString* error) const {
+    sequenceTestRequestedDevice = requestedDevice;
     if (error)
         *error = QStringLiteral("No production model in this deterministic test.");
     return {};
@@ -262,6 +269,28 @@ void classBasedModel() {
                 data.events.at(0).inferenceTimeMs &&
                 *data.events.at(0).inferenceTimeMs >= 0.0,
             "Class-Based prediction, decision, route, or timing is incorrect.");
+}
+
+void productionModelPreparationRequestsCpu() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create CPU-policy output.");
+    const QString manifest = makeSequence(sequenceRoot, 1, {1});
+    FakeDetector detector;
+    OperationCoordinator operations;
+    ModelLoadService loader{QString()};
+    sequence_test::SequenceTestService service(operations, detector, &loader);
+    auto value = request(manifest, output);
+    value.triggerMode = run::TriggerMode::ClassBased;
+    value.useActiveModel = true;
+    value.hitClassId = QStringLiteral("c0");
+    sequenceTestRequestedDevice.clear();
+    QString error;
+
+    require(!service.run(value, &error) &&
+                sequenceTestRequestedDevice == QStringLiteral("cpu"),
+            "Production Sequence Test did not explicitly request CPU inference.");
 }
 
 void daqOffRequiresNoReadinessOrOwnership() {
@@ -1073,6 +1102,7 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     noModelEveryDroplet();
     classBasedModel();
+    productionModelPreparationRequestsCpu();
     daqOffRequiresNoReadinessOrOwnership();
     daqOnPreflightAndLockConflict();
     daqHitMissAndSuppressionStatuses();

@@ -138,7 +138,7 @@ bool writeExactBytes(const QString& path,
 
 std::optional<PreparedModel> prepareProductionModel(ModelLoadService& loader, QString* error) {
     QString warning;
-    auto adapter = loader.preparePersistedActive(QStringLiteral("auto"), &warning, error);
+    auto adapter = loader.preparePersistedActive(QStringLiteral("cpu"), &warning, error);
     if (!adapter)
         return std::nullopt;
     const auto modelName = metadataModelName(

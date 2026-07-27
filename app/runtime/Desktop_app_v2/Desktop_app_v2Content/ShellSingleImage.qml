@@ -43,6 +43,14 @@ Item {
         root.liveSortingController ? root.realLiveOwnsOperation : state.liveActive
     readonly property bool effectiveLiveCompleted:
         root.effectiveLivePresentation === "completed"
+    property bool liveHitBoundaryDefined: false
+    property real liveHitBoundaryXRatio: 0.0
+    property real liveHitBoundaryYRatio: 0.5
+    property string liveHitBoundarySide: "top"
+    property bool sequenceHitBoundaryDefined: false
+    property real sequenceHitBoundaryXRatio: 0.0
+    property real sequenceHitBoundaryYRatio: 0.5
+    property string sequenceHitBoundarySide: "top"
     property string lastAcknowledgedPreviewSource: ""
     function acknowledgeActiveCameraPreview() {
         if (!root.cameraController
@@ -275,6 +283,22 @@ Item {
         if (presentation === "interrupted")
             return "error"
         return presentation
+    }
+
+    function setLiveHitBoundary(x, y, width, height) {
+        if (width <= 0 || height <= 0)
+            return
+        root.liveHitBoundaryXRatio = Math.max(0, Math.min(1, x / width))
+        root.liveHitBoundaryYRatio = Math.max(0, Math.min(1, y / height))
+        root.liveHitBoundaryDefined = true
+    }
+
+    function setSequenceHitBoundary(x, y, width, height) {
+        if (width <= 0 || height <= 0)
+            return
+        root.sequenceHitBoundaryXRatio = Math.max(0, Math.min(1, x / width))
+        root.sequenceHitBoundaryYRatio = Math.max(0, Math.min(1, y / height))
+        root.sequenceHitBoundaryDefined = true
     }
 
     Component.onCompleted: {
@@ -781,7 +805,12 @@ Item {
     Binding { target: screen.liveWorkspace; property: "cameraStreaming"; value: root.liveSortingController ? root.liveSortingController.cameraStreaming : state.cameraStreaming }
     Binding { target: screen.liveWorkspace; property: "startSortingEnabled"; value: root.liveSortingController ? root.liveSortingController.startSortingEnabled : state.liveStartSortingEnabled }
     Binding { target: screen.liveWorkspace; property: "activeModelText"; value: root.liveSortingController ? root.liveSortingController.activeModelText : state.activeModelText }
-    Binding { target: screen.liveWorkspace; property: "hitBoundaryText"; value: qsTr("Provisional midpoint route boundary; no user calibration is exposed yet."); when: !!root.liveSortingController }
+    Binding { target: screen.liveWorkspace; property: "hitBoundaryDefined"; value: root.liveHitBoundaryDefined }
+    Binding { target: screen.liveWorkspace; property: "hitBoundaryXRatio"; value: root.liveHitBoundaryXRatio }
+    Binding { target: screen.liveWorkspace; property: "hitBoundaryYRatio"; value: root.liveHitBoundaryYRatio }
+    Binding { target: screen.liveWorkspace; property: "hitBoundarySide"; value: root.liveHitBoundarySide }
+    Binding { target: screen.liveWorkspace; property: "hitBoundaryEditable"; value: true }
+    Binding { target: screen.liveWorkspace; property: "hitBoundaryText"; value: root.liveHitBoundaryDefined ? qsTr("Hit boundary calibration set on this Live preview.") : qsTr("Click the Live preview to set its Hit boundary calibration.") }
     Binding { target: screen.liveWorkspace; property: "serviceDiagnosticText"; value: root.liveSortingController ? (root.liveSortingController.error || root.liveSortingController.diagnostic) : "" }
     Binding { target: screen.liveWorkspace; property: "runArtifactPath"; value: root.liveSortingController ? root.liveSortingController.runFolder : "" }
     Binding { target: screen.liveWorkspace; property: "elapsedTimeText"; value: root.liveSortingController ? root.elapsedTimeText(root.liveSortingController.elapsedSeconds) : "" }
@@ -816,12 +845,17 @@ Item {
     Binding { target: screen.sequenceTestWorkspace; property: "activeModelText"; value: root.sequenceTestController ? (root.sequenceTestController.activeModelName || qsTr("No Active Model")) : state.activeModelText }
     Binding { target: screen.sequenceTestWorkspace; property: "sequenceTestExpanded"; value: state.sequenceTestExpanded }
     Binding { target: screen.sequenceTestWorkspace; property: "rightPanelExpanded"; value: state.sequenceTestRightPanelExpanded }
+    Binding { target: screen.sequenceTestWorkspace; property: "hitBoundaryDefined"; value: root.sequenceHitBoundaryDefined }
+    Binding { target: screen.sequenceTestWorkspace; property: "hitBoundaryXRatio"; value: root.sequenceHitBoundaryXRatio }
+    Binding { target: screen.sequenceTestWorkspace; property: "hitBoundaryYRatio"; value: root.sequenceHitBoundaryYRatio }
+    Binding { target: screen.sequenceTestWorkspace; property: "hitBoundarySide"; value: root.sequenceHitBoundarySide }
+    Binding { target: screen.sequenceTestWorkspace; property: "hitBoundaryEditable"; value: true }
     Binding { target: screen.sequenceTestWorkspace.sequencePreviewImage; property: "source"; value: root.sequenceTestController ? root.sequenceTestController.previewUrl : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.sequenceNameField; property: "text"; value: root.sequenceTestController ? (root.sequenceTestController.sequenceName || qsTr("No sequence selected")) : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.sequencePathField; property: "text"; value: root.sequenceTestController ? root.sequenceTestController.sequencePath : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.frameCountText; property: "text"; value: root.sequenceTestController ? qsTr("Frames: %1").arg(root.sequenceTestController.frameCount || "—") : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.recordedFpsText; property: "text"; value: root.sequenceTestController ? qsTr("Recorded FPS: %1").arg(root.sequenceTestController.recordedFps > 0 ? root.sequenceTestController.recordedFps.toFixed(2) : "—") : ""; when: !!root.sequenceTestController }
-    Binding { target: screen.sequenceTestWorkspace.sequenceValidationText; property: "text"; value: root.sequenceTestController ? qsTr("Status: %1\nProvisional midpoint route boundary; no user calibration is exposed yet.").arg(root.sequenceTestController.errorMessage || root.sequenceTestController.sequenceValidation || qsTr("Not selected")) : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.sequenceValidationText; property: "text"; value: root.sequenceTestController ? qsTr("Status: %1\n%2").arg(root.sequenceTestController.errorMessage || root.sequenceTestController.sequenceValidation || qsTr("Not selected")).arg(root.sequenceHitBoundaryDefined ? qsTr("Hit boundary calibration set on this Sequence Test preview.") : qsTr("Click the Sequence Test preview to set its Hit boundary calibration.")) : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.processingFpsField; property: "text"; value: root.sequenceTestController && root.sequenceTestController.requestedProcessingFps > 0 ? String(root.sequenceTestController.requestedProcessingFps) : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.achievedFpsText; property: "text"; value: root.sequenceTestController ? qsTr("Achieved FPS: %1").arg(root.sequenceTestController.achievedProcessingFps > 0 ? root.sequenceTestController.achievedProcessingFps.toFixed(2) : "—") : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.outputStatusText; property: "text"; value: root.sequenceTestController ? qsTr("Output status: %1 (%2 of %3 frames)").arg(root.sequenceTestController.outputStatus || qsTr("Idle")).arg(root.sequenceTestController.processedFrames).arg(root.sequenceTestController.totalFrames) : ""; when: !!root.sequenceTestController }
@@ -1484,6 +1518,16 @@ Item {
     Connections { target: screen.liveWorkspace.outputRecordingHeadingButton; function onClicked() { state.toggleLiveOutputRecording() } }
     Connections { target: screen.liveWorkspace.runningHeadingButton; function onClicked() { state.toggleLiveRunning() } }
     Connections { target: screen.liveWorkspace.rightPanelToggleButton; function onClicked() { state.toggleLiveRightPanel() } }
+    Connections {
+        target: screen.liveWorkspace.hitBoundaryInputArea
+        function onClicked(mouse) {
+            root.setLiveHitBoundary(mouse.x, mouse.y,
+                                    screen.liveWorkspace.hitBoundaryInputArea.width,
+                                    screen.liveWorkspace.hitBoundaryInputArea.height)
+        }
+    }
+    Connections { target: screen.liveWorkspace.topIsHitControl; function onClicked() { root.liveHitBoundarySide = "top" } }
+    Connections { target: screen.liveWorkspace.bottomIsHitControl; function onClicked() { root.liveHitBoundarySide = "bottom" } }
 
     FileDialog {
         id: sequenceTestFileDialog
@@ -1540,6 +1584,17 @@ Item {
     Connections { target: screen.sequenceTestWorkspace.browseSaveLocationButton; function onClicked() { if (root.sequenceTestController) sequenceTestOutputFolderDialog.open() } }
     Connections { target: screen.sequenceTestWorkspace.sequenceTestHeadingButton; function onClicked() { state.toggleSequenceTest() } }
     Connections { target: screen.sequenceTestWorkspace.rightPanelToggleButton; function onClicked() { state.toggleSequenceTestRightPanel() } }
+    Connections {
+        target: screen.sequenceTestWorkspace.hitBoundaryInputArea
+        function onClicked(mouse) {
+            root.setSequenceHitBoundary(
+                        mouse.x, mouse.y,
+                        screen.sequenceTestWorkspace.hitBoundaryInputArea.width,
+                        screen.sequenceTestWorkspace.hitBoundaryInputArea.height)
+        }
+    }
+    Connections { target: screen.sequenceTestWorkspace.topIsHitControl; function onClicked() { root.sequenceHitBoundarySide = "top" } }
+    Connections { target: screen.sequenceTestWorkspace.bottomIsHitControl; function onClicked() { root.sequenceHitBoundarySide = "bottom" } }
     Connections {
         target: screen.sequenceTestWorkspace.openRunSummaryButton
         function onClicked() {

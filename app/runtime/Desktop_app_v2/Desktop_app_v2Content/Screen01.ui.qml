@@ -25,7 +25,6 @@ Rectangle {
     property bool showBanner: false
     property bool drawerOpen: false
     property bool capturePanelExpanded: true
-    property real zoomScale: 1.0
     property string selectedWorkspace: "capture"
     property string singleImagePresentation: "unavailable"
     property bool singleImageOpen: false
@@ -116,7 +115,6 @@ Rectangle {
     property alias cameraCustomWidthField: cameraCustomWidthField
     property alias cameraCustomHeightField: cameraCustomHeightField
     property alias cameraPreviewImage: cameraPreviewImage
-    property alias cameraPreviewViewport: cameraPreviewViewport
     property alias cameraPreviewPlaceholder: cameraPreviewPlaceholder
     property alias cameraExposureField: cameraExposureField
     property alias cameraBitDepthSelector: cameraBitDepthSelector
@@ -417,28 +415,16 @@ Rectangle {
                 SplitView.fillWidth: true
                 color: Constants.viewerColor
                 border.color: Constants.borderColor
-                clip: true
-                Flickable {
-                    id: cameraPreviewViewport
+                Image {
+                    id: cameraPreviewImage
                     anchors.fill: parent
-                    clip: true
-                    contentWidth: Math.max(width, cameraPreviewImage.width)
-                    contentHeight: Math.max(height, cameraPreviewImage.height)
-                    boundsBehavior: Flickable.StopAtBounds
-                    Image {
-                        id: cameraPreviewImage
-                        x: Math.max(0, (cameraPreviewViewport.width - width) / 2)
-                        y: Math.max(0, (cameraPreviewViewport.height - height) / 2)
-                        width: cameraPreviewViewport.width * root.zoomScale
-                        height: cameraPreviewViewport.height * root.zoomScale
-                        source: root.cameraPreviewSource
-                        sourceSize.width: Math.round(width)
-                        sourceSize.height: Math.round(height)
-                        fillMode: Image.PreserveAspectFit
-                        asynchronous: true
-                        cache: false
-                        visible: root.cameraPreviewSource !== ""
-                    }
+                    source: root.cameraPreviewSource
+                    sourceSize.width: width
+                    sourceSize.height: height
+                    fillMode: Image.PreserveAspectFit
+                    asynchronous: true
+                    cache: false
+                    visible: root.cameraPreviewSource !== ""
                 }
                 Text {
                     id: cameraPreviewPlaceholder

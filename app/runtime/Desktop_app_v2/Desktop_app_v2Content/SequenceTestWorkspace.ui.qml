@@ -15,14 +15,12 @@ Item {
     property string hitBoundarySide: "top"
     property bool hitBoundaryEditable: true
     property bool hitBoundaryPlacementArmed: false
-    property real zoomScale: 1.0
     property alias loadSequenceButton: loadSequenceButton
     property alias loadToMemoryButton: loadToMemoryButton
     property alias startStopButton: startStopButton
     property alias physicalDaqOutputControl: physicalDaqOutputControl
     property alias sequencePreviewHost: sequencePreviewHost
     property alias sequencePreviewImage: sequencePreviewImage
-    property alias sequencePreviewViewport: sequencePreviewViewport
     property alias sequencePreviewPlaceholder: sequencePreviewPlaceholder
     property alias hitBoundaryInputArea: hitBoundaryInputArea
     property alias setDecisionBoundaryButton: setDecisionBoundaryButton
@@ -95,75 +93,61 @@ Item {
                     SplitView.minimumHeight: Math.round(180 * Constants.textScale)
                     color: Constants.viewerColor
                     border.color: Constants.borderColor
-                    clip: true
-                    Flickable {
-                        id: sequencePreviewViewport
+                    Image {
+                        id: sequencePreviewImage
                         anchors.fill: parent
+                        sourceSize.width: width
+                        sourceSize.height: height
+                        fillMode: Image.PreserveAspectFit
+                        asynchronous: true
+                        visible: source !== ""
+                    }
+                    Item {
+                        id: hitBoundaryOverlay
+                        x: sequencePreviewImage.x + (sequencePreviewImage.width - sequencePreviewImage.paintedWidth) / 2
+                        y: sequencePreviewImage.y + (sequencePreviewImage.height - sequencePreviewImage.paintedHeight) / 2
+                        width: sequencePreviewImage.paintedWidth
+                        height: sequencePreviewImage.paintedHeight
+                        visible: sequencePreviewImage.visible
                         clip: true
-                        contentWidth: Math.max(width, sequencePreviewImage.width)
-                        contentHeight: Math.max(height, sequencePreviewImage.height)
-                        boundsBehavior: Flickable.StopAtBounds
+                        readonly property real boundaryX: Math.max(0, Math.min(1, root.hitBoundaryXRatio)) * width
+                        readonly property real boundaryY: Math.max(0, Math.min(1, root.hitBoundaryYRatio)) * height
 
-                        Image {
-                            id: sequencePreviewImage
-                            x: Math.max(0, (sequencePreviewViewport.width - width) / 2)
-                            y: Math.max(0, (sequencePreviewViewport.height - height) / 2)
-                            width: sequencePreviewViewport.width * root.zoomScale
-                            height: sequencePreviewViewport.height * root.zoomScale
-                            sourceSize.width: Math.round(width)
-                            sourceSize.height: Math.round(height)
-                            fillMode: Image.PreserveAspectFit
-                            asynchronous: true
-                            visible: source !== ""
+                        MouseArea {
+                            id: hitBoundaryInputArea
+                            anchors.fill: parent
+                            enabled: root.hitBoundaryEditable && root.hitBoundaryPlacementArmed && sequencePreviewImage.visible
                         }
 
-                        Item {
-                            id: hitBoundaryOverlay
-                            x: sequencePreviewImage.x + (sequencePreviewImage.width - sequencePreviewImage.paintedWidth) / 2
-                            y: sequencePreviewImage.y + (sequencePreviewImage.height - sequencePreviewImage.paintedHeight) / 2
-                            width: sequencePreviewImage.paintedWidth
-                            height: sequencePreviewImage.paintedHeight
-                            visible: sequencePreviewImage.visible
-                            clip: true
-                            readonly property real boundaryX: Math.max(0, Math.min(1, root.hitBoundaryXRatio)) * width
-                            readonly property real boundaryY: Math.max(0, Math.min(1, root.hitBoundaryYRatio)) * height
-
-                            MouseArea {
-                                id: hitBoundaryInputArea
-                                anchors.fill: parent
-                                enabled: root.hitBoundaryEditable && root.hitBoundaryPlacementArmed && sequencePreviewImage.visible
-                            }
+                        Rectangle {
+                            visible: root.hitBoundaryDefined
+                            x: hitBoundaryOverlay.boundaryX
+                            y: hitBoundaryOverlay.boundaryY - height / 2
+                            width: hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX
+                            height: 4
+                            color: Constants.textColor
+                            Accessible.ignored: true
 
                             Rectangle {
-                                visible: root.hitBoundaryDefined
-                                x: hitBoundaryOverlay.boundaryX
-                                y: hitBoundaryOverlay.boundaryY - height / 2
-                                width: hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX
-                                height: 4
-                                color: Constants.textColor
-                                Accessible.ignored: true
-
-                                Rectangle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    width: parent.width
-                                    height: 2
-                                    color: Constants.surfaceColor
-                                    Accessible.ignored: true
-                                }
-                            }
-
-                            Rectangle {
-                                visible: root.hitBoundaryDefined
-                                x: hitBoundaryOverlay.boundaryX - width / 2
-                                y: hitBoundaryOverlay.boundaryY - height / 2
-                                width: 12
-                                height: 12
-                                radius: width / 2
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: 2
                                 color: Constants.surfaceColor
-                                border.color: Constants.textColor
-                                border.width: 2
                                 Accessible.ignored: true
                             }
+                        }
+
+                        Rectangle {
+                            visible: root.hitBoundaryDefined
+                            x: hitBoundaryOverlay.boundaryX - width / 2
+                            y: hitBoundaryOverlay.boundaryY - height / 2
+                            width: 12
+                            height: 12
+                            radius: width / 2
+                            color: Constants.surfaceColor
+                            border.color: Constants.textColor
+                            border.width: 2
+                            Accessible.ignored: true
                         }
                     }
                     Text {

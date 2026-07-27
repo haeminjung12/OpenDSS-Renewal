@@ -19,7 +19,7 @@
 
 ### Shell and shared presentation
 
-- Start maximized. No fixed logical minimum or restored-window validation resolution applies. Visual and Computer Use validation use the maximized window's full available work area only.
+- Start maximized. Restore Down is supported. A restored window enforces an exact minimum of 1600 × 900 logical px, may grow larger, and never resizes below that minimum. Visual, Qt Design Studio, and Computer Use validation may use maximized state and restored state at exactly 1600 × 900 or larger, never below.
 - Keep the status header to one horizontal line. Each of Camera, DAQ, Active Model, and Current Activity uses icon, label, value, readiness color, and a non-color cue.
 - Use a bottom-left Configuration overlay (the internal component type may remain `BottomHardwarePanel`) opened and closed by an arrow. Its visible panel heading and shell action are exactly `Configuration`; `Hardware` and `Hardware Configuration` are not user-visible names. It neither pushes the workspace nor spans the window.
 - Present ordinary failures through `ErrorMessage` with primary text `Error`. Technical detail belongs only in the log under Settings > Diagnostics.
@@ -3185,7 +3185,8 @@ OpenDSS v2 targets desktop use on Windows 11.
 
 | Reference | Window state | Design use |
 |---|---|---|
-| **Maximized** | Current display's full available work area | Sole design, GUI, Qt Design Studio, and Computer Use validation state. Balanced navigation, viewer, and operation-panel proportions; no restored or fixed-resolution check. |
+| **Maximized** | Current display's full available work area | Startup and primary validation state. Balanced navigation, viewer, and operation-panel proportions. |
+| **Restored minimum** | Exactly 1600 × 900 logical px | Supported design, GUI, Qt Design Studio, and Computer Use validation state. The window may grow larger but never resizes below this minimum. |
 
 Supported Windows scaling factors:
 
@@ -3608,7 +3609,7 @@ A screen shown only in Ready/ideal state is incomplete.
 
 | Evidence area | Required evidence | Pass condition |
 |---|---|---|
-| **Window state** | Reference screenshots or deterministic renders in the maximized window using the current display's full available work area for every major workspace family. Do not restore or resize to a fixed resolution. | No clipping, hidden primary action, or unusable content. |
+| **Window state** | Reference screenshots or deterministic renders in the maximized window and, where responsive/restored behavior is relevant, at exactly 1600 × 900 logical px or larger. Never validate below 1600 × 900. | No clipping, hidden primary action, or unusable content. |
 | **Scaling** | 100%, 125%, 150%, and 200% evidence for shell, components, and representative dense screens. | Text/controls remain legible and operable; no essential clipping; icons/focus remain crisp. |
 | **Workspace states** | Every applicable state in §8 and §25. | State, action, disabled reason, lock, banner, and next action match the authoritative interaction baseline. |
 | **Keyboard operation** | Recorded keyboard walkthrough or test checklist for every core workflow. | All required actions reachable; shortcuts scoped; typing suppresses workspace keys. |

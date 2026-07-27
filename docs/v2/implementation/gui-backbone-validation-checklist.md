@@ -26,7 +26,7 @@ No `*.ui.qml` visual forms were changed by the final integration.
 - [ ] Existing colors, typography, spacing, borders, icons, and tokens are unchanged.
 - [ ] Navigation still opens every existing workspace.
 - [ ] The application is maximized and fills the current display's full available work area.
-- [ ] Keep the window maximized throughout validation; do not restore or resize it to a fixed test resolution.
+- [ ] Confirm startup is maximized. Restore Down is supported; verify the restored window cannot resize below exactly 1600 × 900 logical px. Restored validation may use exactly 1600 × 900 or larger, never below.
 - [ ] Collapsed and expanded side panels retain their previous appearance.
 - [ ] No panel overlaps, clipped headings, or unexpected horizontal scrollbars appear.
 

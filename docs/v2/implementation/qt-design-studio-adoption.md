@@ -150,7 +150,7 @@ Round 1 uses one visual writer. It may cover:
 - minimal `ErrorMessage`;
 - skeletal Qt Design Studio-editable hosts for every approved workspace, limited to approved regions and headings with no speculative controls or behavior.
 
-The Round 1 work order must preview only the maximized layout using the current display's full available work area, plus Hardware panel open/closed states, Camera available/unavailable states, Capture disclosure combinations, and each workspace host. It must not restore or resize the window to a fixed test resolution. It must not authorize real Camera, TIFF, DAQ, Training, Live, Sequence Test, Results, persistence, or operational behavior.
+The Round 1 work order must preview the maximized layout using the current display's full available work area and, where restored/responsive behavior is relevant, exactly 1600 × 900 logical px or larger, plus Hardware panel open/closed states, Camera available/unavailable states, Capture disclosure combinations, and each workspace host. It must never validate below 1600 × 900. It must not authorize real Camera, TIFF, DAQ, Training, Live, Sequence Test, Results, persistence, or operational behavior.
 
 After user acceptance, the Round 1 form diff becomes the visual contract and the orchestrator freezes exact exported aliases, signals, and state names. Round 2 then uses separate worktrees:
 

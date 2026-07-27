@@ -197,7 +197,7 @@ tokscale tui --client codex
 - Prefer, in order: focused Qt unit/integration tests and `QTest`; direct Qt object, property, signal, state, or in-process verifier probes; application CLI/verifier interfaces and structured logs; then Computer Use for the remaining visual or interactive question.
 - Do not use Computer Use merely to launch an app, read text or state available through Qt/CLI, repeat unchanged successful evidence, or diagnose behavior that a deterministic probe can isolate.
 - Appropriate Computer Use scope includes layout, rendering, focus, pointer interaction, flicker, timing perception, and other user-visible behavior for which Qt/CLI evidence is insufficient. State the exact unresolved GUI question and intended action before use, follow existing approval and hardware rules, and perform only the minimum interaction needed.
-- Preserve the maximized full-available-work-area GUI validation authority. Stop Computer Use as soon as decisive evidence is captured and return further diagnosis to Qt tooling, tests, probes, CLI interfaces, or logs.
+- OpenDSS starts maximized. Restore Down is supported; a restored window enforces an exact minimum of 1600 × 900 logical px, may grow larger, and never resizes below that minimum. GUI validation may use maximized full-available-work-area state and restored state at exactly 1600 × 900 or larger, never below. Stop Computer Use as soon as decisive evidence is captured and return further diagnosis to Qt tooling, tests, probes, CLI interfaces, or logs.
 
 ## OpenDSS v2 source authority
 
@@ -331,7 +331,7 @@ Every frontend work order must identify:
 The bounded work order selects only proportional, applicable checks. For the current visual-scaffold rounds:
 
 1. User-led Qt Design Studio 2D view, Live Preview, and manual visual review are primary.
-2. Check keyboard focus in a maximized window using the current display's full available work area. Do not restore or resize the window to a fixed test resolution.
+2. Check keyboard focus in the maximized window and, when responsive/restored behavior is relevant, in a restored window at exactly 1600 × 900 logical px or larger. Never validate below 1600 × 900.
 3. Run `qmllint` only for changed QML when useful.
 4. Run one configure/build or directly relevant targeted test only when the changed files require it.
 5. Do not run the full legacy or hardware test suites.

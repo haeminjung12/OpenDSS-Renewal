@@ -22,7 +22,7 @@
 | Results | Loaded Run center; selectable Runs panel with explicit Load. |
 | Settings | Centered Storage, Application Information, and Diagnostics only. |
 
-Design QA must review only the maximized window using the current display's full available work area, plus supported scaling, keyboard focus, non-color readiness meaning, all disclosure combinations, startup Camera prompt, minimal Error state, Active Model locks, Live setup/running transition, hit-boundary overlay, Sequence Test memory failure, and Results selected-versus-loaded distinction. Do not restore or resize the window to a fixed test resolution.
+Design QA must review the maximized window using the current display's full available work area and restored state at exactly 1600 × 900 logical px or larger when responsive behavior is relevant, plus supported scaling, keyboard focus, non-color readiness meaning, all disclosure combinations, startup Camera prompt, minimal Error state, Active Model locks, Live setup/running transition, Decision Boundary overlay, Sequence Test memory failure, and Results selected-versus-loaded distinction. Never validate below 1600 × 900.
 
 ## 1. How to read this document
 
@@ -735,7 +735,8 @@ Focus moves to the destination title or artifact summary, never directly to Star
 
 | Reference | Window state | Required interpretation |
 |---|---|---|
-| Maximized | Current display's full available work area | Sole visual and Computer Use review state; all workflows operable, with Capture headings, active operation panel, primary actions, counters, and reasons visible. Do not restore or resize to a fixed resolution. |
+| Maximized | Current display's full available work area | Startup and primary visual/Computer Use review state; all workflows operable, with Capture headings, active operation panel, primary actions, counters, and reasons visible. |
+| Restored minimum | Exactly 1600 × 900 logical px | Supported visual/Computer Use review state; the window may grow larger but never resizes below this minimum. |
 
 Supported Windows scaling is 100%, 125%, 150%, and 200% in the maximized window. The shell and task order remain the same; there is no mobile layout. The active operation panel, viewer/crop collection, fault banner, and primary action do not auto-hide. [CDS §23](../design/consolidated-design-draft.md).
 

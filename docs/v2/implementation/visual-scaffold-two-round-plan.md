@@ -86,7 +86,7 @@ Round 2 uses two isolated worktrees/branches from the same accepted Round 1 base
 - refine spacing, hierarchy, sizing, focus presentation, disclosure visuals, and deterministic mock states;
 - preserve the frozen exported interface;
 - keep all approved workspace scaffolds visually consistent;
-- prepare user review states only in the maximized window using the current display's full available work area; do not restore or resize to a fixed test resolution.
+- prepare user review states in the maximized window and, when restored/responsive behavior is relevant, at exactly 1600 × 900 logical px or larger; never validate below 1600 × 900.
 
 **Does not:** edit wrappers, C++, runtime state, durable CMake integration, production services, or generated files.
 

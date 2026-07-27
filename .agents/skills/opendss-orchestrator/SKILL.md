@@ -28,7 +28,7 @@ Use Qt-native and application-owned interfaces before Windows Computer Use:
 2. an in-process verifier, application CLI/verifier interface, or structured log;
 3. Windows Computer Use only for the unresolved user-observable visual or interactive behavior.
 
-Do not use Computer Use for deterministic state already available through Qt/CLI, routine launch-only checks, repeated unchanged evidence, or diagnosis that a focused probe can isolate. Reserve it for layout, rendering, focus, pointer interaction, flicker, perceived timing, or another GUI question that cannot be established otherwise. Before use, state the exact unresolved question and minimum intended action, preserve the maximized full-available-work-area authority, and follow all existing approval and hardware rules. Stop once decisive GUI evidence is captured; continue technical diagnosis through Qt tooling, tests, probes, CLI interfaces, or logs.
+Do not use Computer Use for deterministic state already available through Qt/CLI, routine launch-only checks, repeated unchanged evidence, or diagnosis that a focused probe can isolate. Reserve it for layout, rendering, focus, pointer interaction, flicker, perceived timing, or another GUI question that cannot be established otherwise. Before use, state the exact unresolved question and minimum intended action and follow all existing approval and hardware rules. OpenDSS starts maximized; Restore Down is supported with a 1600 × 900 logical-px minimum. GUI validation may use maximized state and restored state at exactly 1600 × 900 or larger, never below. Stop once decisive GUI evidence is captured; continue technical diagnosis through Qt tooling, tests, probes, CLI interfaces, or logs.
 
 ## Load only authorized context
 

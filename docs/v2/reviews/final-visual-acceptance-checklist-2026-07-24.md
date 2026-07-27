@@ -5,7 +5,7 @@
 **Project:** `app/runtime/Desktop_app_v2/Desktop_app_v2.qmlproject`  
 **Primary form:** `app/runtime/Desktop_app_v2/Desktop_app_v2Content/Screen01.ui.qml`
 
-Use Qt Design Studio 2D View or Live Preview in a maximized window using the current display's full available work area, with **Text Size: Medium**. Do not restore or resize the window to a fixed test resolution. Check only what is listed below; build, lint, interface preservation, and the five-second runtime smoke have already passed.
+Use Qt Design Studio 2D View or Live Preview in a maximized window using the current display's full available work area and, when restored behavior is relevant, at exactly 1600 × 900 logical px or larger, with **Text Size: Medium**. Never validate below 1600 × 900. Check only what is listed below; build, lint, interface preservation, and the five-second runtime smoke have already passed.
 
 ## 1. Text Size and typography
 

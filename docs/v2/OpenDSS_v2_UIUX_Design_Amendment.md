@@ -41,7 +41,7 @@ OpenDSS shall:
 - allow free manual resizing to any aspect ratio;
 - retain Minimize, Maximize/Restore, and Close behavior.
 
-Normal operation starts maximized. GUI, Qt Design Studio, and Computer Use validation use the maximized window's full available work area only and do not restore or resize the window to a fixed test resolution. Workspace content fills all available window space through the bottom.
+Normal operation starts maximized. Restore Down is supported; the restored window enforces an exact minimum of 1600 × 900 logical px, may grow larger, and never resizes below that minimum. GUI, Qt Design Studio, and Computer Use validation may use maximized state and restored state at exactly 1600 × 900 or larger, never below. Workspace content fills all available window space through the bottom.
 
 ## 2.2 Global status header
 
@@ -992,7 +992,7 @@ The current implementation slice remains focused on:
 
 - the OpenDSS shell;
 - maximized startup;
-- maximized full-available-work-area validation with no fixed minimum or restored-window resolution target;
+- maximized full-available-work-area validation plus restored-window validation at exactly 1600 × 900 logical px or larger, never below the enforced minimum;
 - bottom-left Hardware panel frame;
 - startup Camera availability mock;
 - Capture section headers;

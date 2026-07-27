@@ -142,16 +142,8 @@ Rectangle {
                         Rectangle {
                             anchors.fill: parent
                             anchors.margins: 6
-                            color: Constants.backgroundColor
-                            opacity: 0.55
-                            Accessible.ignored: true
-                        }
-
-                        Rectangle {
-                            anchors.fill: parent
-                            color: "transparent"
-                            border.color: Constants.borderColor
-                            border.width: 6
+                            color: Constants.appPrimaryTextColor
+                            opacity: 0.45
                             Accessible.ignored: true
                         }
 

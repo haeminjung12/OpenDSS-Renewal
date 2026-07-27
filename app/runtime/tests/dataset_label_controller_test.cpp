@@ -6,6 +6,7 @@
 #include <QCoreApplication>
 #include <QCryptographicHash>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QImage>
 #include <QMetaProperty>
@@ -16,6 +17,23 @@
 
 using namespace desktop_app::v2;
 using namespace desktop_app::v2::dataset;
+
+namespace desktop_app::v2::dataset {
+
+struct DatasetLabelControllerTestAccess {
+    static void applySnapshot(DatasetLabelController &controller,
+                              DatasetLabelSnapshot snapshot, bool resetModel)
+    {
+        controller.applySnapshot(std::move(snapshot), resetModel);
+    }
+
+    static DatasetLabelSnapshot snapshot(const DatasetLabelController &controller)
+    {
+        return controller.snapshot_;
+    }
+};
+
+} // namespace desktop_app::v2::dataset
 
 namespace {
 
@@ -72,6 +90,43 @@ DatasetManifestData fixture(const QString &root)
     return data;
 }
 
+DatasetLabelSnapshot largeFixture(const QString &root, int recordCount)
+{
+    DatasetLabelSnapshot snapshot;
+    snapshot.manifestPath = QDir(root).filePath(QStringLiteral("dataset.json"));
+    snapshot.datasetId = QStringLiteral("large-fixture-dataset");
+    snapshot.classes = {{QStringLiteral("0"), QStringLiteral("Class 0")},
+                        {QStringLiteral("1"), QStringLiteral("Class 1")},
+                        {QStringLiteral("2"), QStringLiteral("Class 2")}};
+    snapshot.counts.classCounts.fill(0, 3);
+    snapshot.counts.unreviewed = recordCount;
+    snapshot.records.reserve(recordCount);
+    for (int index = 0; index < recordCount; ++index) {
+        const QString suffix = QStringLiteral("%1").arg(index, 5, 10, QLatin1Char('0'));
+        snapshot.records.append({QStringLiteral("large-") + suffix,
+                                 QStringLiteral("crops/") + suffix + QStringLiteral(".png"),
+                                 DatasetLabelState::Unlabeled});
+    }
+    return snapshot;
+}
+
+struct ModelSignalEvidence {
+    int modelResetCount = 0;
+    int rowsInsertedCount = 0;
+    int rowsRemovedCount = 0;
+    QVector<QPair<int, int>> dataChangedRows;
+    QVector<QList<int>> dataChangedRoles;
+
+    void clear()
+    {
+        modelResetCount = 0;
+        rowsInsertedCount = 0;
+        rowsRemovedCount = 0;
+        dataChangedRows.clear();
+        dataChangedRoles.clear();
+    }
+};
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -97,8 +152,8 @@ int main(int argc, char **argv)
     const char *propertyNames[] = {
         "presentation", "manifestUrl", "datasetId", "totalCount", "labeledCount",
         "unreviewedCount", "excludedCount", "classCount", "class0Count", "class1Count",
-        "class2Count", "classNames", "class2Enabled", "canUndo", "records", "filteredRecords",
-        "selectedRecordId", "selectedCropUrl", "selectedIndex", "filter", "errorMessage",
+        "class2Count", "classNames", "class2Enabled", "canUndo", "selectedRecordId",
+        "selectedCropUrl", "selectedIndex", "filter", "errorMessage",
     };
     bool propertiesUseChangedSignal = changedSignal >= 0;
     for (const char *propertyName : propertyNames) {
@@ -135,6 +190,17 @@ int main(int argc, char **argv)
         !check(controller.presentation() == QStringLiteral("empty") && changedCount == 2,
                QStringLiteral("missing Dataset changed the presentation or signal count")) ||
         !check(controller.open(QUrl::fromLocalFile(manifestPath)), controller.errorMessage()) ||
+        !check(controller.rowCount() == 2,
+               QStringLiteral("controller model does not expose both records")) ||
+        !check(controller.roleNames().value(DatasetLabelController::RecordIdRole) ==
+                   QByteArrayLiteral("recordId") &&
+                   controller.roleNames().value(DatasetLabelController::CropUrlRole) ==
+                       QByteArrayLiteral("cropUrl") &&
+                   controller.roleNames().value(DatasetLabelController::StateRole) ==
+                       QByteArrayLiteral("state") &&
+                   controller.roleNames().value(DatasetLabelController::SelectedRole) ==
+                       QByteArrayLiteral("selected"),
+               QStringLiteral("controller model roles are incorrect")) ||
         !check(controller.presentation() == QStringLiteral("classDefinition"),
                QStringLiteral("unconfigured Dataset is not in classDefinition")) ||
         !check(controller.totalCount() == 2 && controller.unreviewedCount() == 2,
@@ -164,7 +230,9 @@ int main(int argc, char **argv)
         !check(controller.select(QStringLiteral("r2")), controller.errorMessage()) ||
         !check(controller.assignClass(QStringLiteral("2")), controller.errorMessage()) ||
         !check(controller.setFilter(QStringLiteral("class2")), controller.errorMessage()) ||
-        !check(controller.filteredRecords().size() == 1 &&
+        !check(controller.rowCount() == 1 &&
+                   controller.data(controller.index(0), DatasetLabelController::RecordIdRole)
+                           .toString() == QStringLiteral("r2") &&
                    controller.selectedRecordId() == QStringLiteral("r2") &&
                    controller.class2Count() == 1,
                QStringLiteral("filter projection is incorrect")) ||
@@ -174,7 +242,7 @@ int main(int argc, char **argv)
                    controller.presentation() == QStringLiteral("ready"),
                QStringLiteral("rejected schema change corrupted projection")) ||
         !check(controller.exclude(), controller.errorMessage()) ||
-        !check(controller.filteredRecords().isEmpty() && controller.selectedRecordId().isEmpty(),
+        !check(controller.rowCount() == 0 && controller.selectedRecordId().isEmpty(),
                QStringLiteral("filter selection did not normalize after exclusion")) ||
         !check(controller.configureClassCount(2), controller.errorMessage()) ||
         !check(controller.classCount() == 2 && !controller.class2Enabled() &&
@@ -242,5 +310,133 @@ int main(int argc, char **argv)
         !check(!controller.canUndo(), QStringLiteral("Save As retained undo state")) ||
         !check(changedCount > 3, QStringLiteral("controller actions emitted no changed signals")))
         return 5;
+
+    constexpr int largeRecordCount = 18072;
+    QTemporaryDir largeTemporary;
+    const QString largeSource =
+        QDir(largeTemporary.path()).filePath(QStringLiteral("large source"));
+
+    OperationCoordinator largeOperations;
+    ApplicationStateStore largeStateStore;
+    DatasetLabelController largeController(largeOperations, largeStateStore);
+    ModelSignalEvidence modelSignals;
+    QObject::connect(&largeController, &QAbstractItemModel::modelReset,
+                     [&modelSignals] { ++modelSignals.modelResetCount; });
+    QObject::connect(
+        &largeController, &QAbstractItemModel::rowsInserted,
+        [&modelSignals](const QModelIndex &, int, int) { ++modelSignals.rowsInsertedCount; });
+    QObject::connect(
+        &largeController, &QAbstractItemModel::rowsRemoved,
+        [&modelSignals](const QModelIndex &, int, int) { ++modelSignals.rowsRemovedCount; });
+    QObject::connect(
+        &largeController, &QAbstractItemModel::dataChanged,
+        [&modelSignals](const QModelIndex &topLeft, const QModelIndex &bottomRight,
+                        const QList<int> &roles) {
+            modelSignals.dataChangedRows.append({topLeft.row(), bottomRight.row()});
+            modelSignals.dataChangedRoles.append(roles);
+        });
+
+    QElapsedTimer timer;
+    timer.start();
+    DatasetLabelControllerTestAccess::applySnapshot(
+        largeController, largeFixture(largeSource, largeRecordCount), true);
+    const qint64 largeOpenMilliseconds = timer.elapsed();
+    if (!check(largeController.rowCount() == largeRecordCount,
+               QStringLiteral("large model row count is incorrect")) ||
+        !check(modelSignals.modelResetCount == 1 && modelSignals.rowsInsertedCount == 0 &&
+                   modelSignals.rowsRemovedCount == 0 &&
+                   modelSignals.dataChangedRows.isEmpty(),
+               QStringLiteral("large open did not publish one model reset")) ||
+        !check(largeOpenMilliseconds < 2000,
+               QStringLiteral("large snapshot open exceeded the 2-second CI bound")))
+        return 7;
+
+    modelSignals.clear();
+    timer.restart();
+    const bool filterSucceeded = largeController.setFilter(QStringLiteral("unreviewed"));
+    const qint64 largeFilterMilliseconds = timer.elapsed();
+    if (!check(filterSucceeded, largeController.errorMessage()) ||
+        !check(largeController.rowCount() == largeRecordCount,
+               QStringLiteral("large filter row count is incorrect")) ||
+        !check(modelSignals.modelResetCount == 1 && modelSignals.dataChangedRows.isEmpty(),
+               QStringLiteral("filter change did not use one model reset")) ||
+        !check(largeFilterMilliseconds < 2000,
+               QStringLiteral("large filter exceeded the 2-second CI bound")) ||
+        !check(largeController.setFilter(QStringLiteral("all")),
+               largeController.errorMessage()))
+        return 8;
+
+    const int selectedRole = DatasetLabelController::SelectedRole;
+    const int stateRole = DatasetLabelController::StateRole;
+    const QString firstRecordId = QStringLiteral("large-00000");
+    const QString secondRecordId = QStringLiteral("large-00001");
+    const QString lastRecordId = QStringLiteral("large-18071");
+
+    modelSignals.clear();
+    if (!check(largeController.select(lastRecordId), largeController.errorMessage()) ||
+        !check(modelSignals.modelResetCount == 0 && modelSignals.rowsInsertedCount == 0 &&
+                   modelSignals.rowsRemovedCount == 0 &&
+                   modelSignals.dataChangedRows ==
+                       QVector<QPair<int, int>>{{0, 0},
+                                                {largeRecordCount - 1, largeRecordCount - 1}} &&
+                   modelSignals.dataChangedRoles ==
+                       QVector<QList<int>>{{selectedRole}, {selectedRole}},
+               QStringLiteral("selection updated rows other than old and new")))
+        return 9;
+
+    if (!check(largeController.select(firstRecordId), largeController.errorMessage()))
+        return 10;
+    modelSignals.clear();
+    if (!check(largeController.next(), largeController.errorMessage()) ||
+        !check(largeController.selectedRecordId() == secondRecordId &&
+                   modelSignals.modelResetCount == 0 &&
+                   modelSignals.dataChangedRows ==
+                       QVector<QPair<int, int>>{{0, 0}, {1, 1}} &&
+                   modelSignals.dataChangedRoles ==
+                       QVector<QList<int>>{{selectedRole}, {selectedRole}},
+               QStringLiteral("next updated rows other than old and new")))
+        return 11;
+
+    modelSignals.clear();
+    DatasetLabelSnapshot labeledSnapshot =
+        DatasetLabelControllerTestAccess::snapshot(largeController);
+    labeledSnapshot.records[1].state = DatasetLabelState::Class0;
+    --labeledSnapshot.counts.unreviewed;
+    ++labeledSnapshot.counts.classCounts[0];
+    labeledSnapshot.canUndo = true;
+    DatasetLabelControllerTestAccess::applySnapshot(
+        largeController, std::move(labeledSnapshot), false);
+    if (!check(modelSignals.modelResetCount == 0 && modelSignals.rowsInsertedCount == 0 &&
+                   modelSignals.rowsRemovedCount == 0 &&
+                   modelSignals.dataChangedRows == QVector<QPair<int, int>>{{1, 1}} &&
+                   modelSignals.dataChangedRoles == QVector<QList<int>>{{stateRole}} &&
+                   largeController.data(largeController.index(1), stateRole).toString() ==
+                       QStringLiteral("class0"),
+               QStringLiteral("label assignment was not one row-level state update")))
+        return 12;
+
+    modelSignals.clear();
+    DatasetLabelSnapshot undoneSnapshot =
+        DatasetLabelControllerTestAccess::snapshot(largeController);
+    undoneSnapshot.records[1].state = DatasetLabelState::Unlabeled;
+    ++undoneSnapshot.counts.unreviewed;
+    --undoneSnapshot.counts.classCounts[0];
+    undoneSnapshot.canUndo = false;
+    DatasetLabelControllerTestAccess::applySnapshot(
+        largeController, std::move(undoneSnapshot), false);
+    if (!check(modelSignals.modelResetCount == 0 && modelSignals.rowsInsertedCount == 0 &&
+                   modelSignals.rowsRemovedCount == 0 &&
+                   modelSignals.dataChangedRows == QVector<QPair<int, int>>{{1, 1}} &&
+                   modelSignals.dataChangedRoles == QVector<QList<int>>{{stateRole}} &&
+                   largeController.data(largeController.index(1), stateRole).toString() ==
+                       QStringLiteral("unreviewed"),
+               QStringLiteral("label undo was not one row-level state update")))
+        return 13;
+
+    std::cout << "large_records=" << largeRecordCount
+              << " snapshot_open_ms=" << largeOpenMilliseconds
+              << " filter_ms=" << largeFilterMilliseconds
+              << " select_data_changed=2 next_data_changed=2 label_data_changed=1"
+                 " undo_data_changed=1\n";
     return 0;
 }

@@ -33,7 +33,7 @@ Item {
         }
     }
 
-    QtObject {
+    ListModel {
         id: labelController
         property string presentation: "ready"
         property url manifestUrl: "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
@@ -49,10 +49,6 @@ Item {
         property var classNames: ["Empty", "Single cell", "Multiple cells"]
         property bool class2Enabled: true
         property bool canUndo: true
-        property var filteredRecords: [
-            { recordId: "r1", cropUrl: "", state: "class0" },
-            { recordId: "r2", cropUrl: "", state: "unreviewed" }
-        ]
         property string selectedRecordId: "r1"
         property url selectedCropUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
         property int selectedIndex: 0
@@ -71,6 +67,25 @@ Item {
         property string renamedClassName: ""
         property url openArgument
         property url saveAsArgument
+
+        ListElement {
+            recordId: "r1"
+            cropUrl: ""
+            state: "class0"
+            selected: true
+        }
+        ListElement {
+            recordId: "r2"
+            cropUrl: ""
+            state: "unreviewed"
+            selected: false
+        }
+
+        function resetRecords() {
+            clear()
+            append({ recordId: "r1", cropUrl: "", state: "class0", selected: true })
+            append({ recordId: "r2", cropUrl: "", state: "unreviewed", selected: false })
+        }
 
         function open(url) { openArgument = url; return true }
         function configureClassCount(count) { configuredClassCount = count; classCount = count; return true }
@@ -873,6 +888,7 @@ Item {
         textSizeController.storageRoot = "file:///C:/OpenDSS/Settings%20Root"
         textSizeController.openStorageRootCallCount = 0
         textSizeController.openStorageRootError = ""
+        labelController.resetRecords()
         labelController.classCount = 3
         labelController.configuredClassCount = -1
         labelController.assignedClassId = ""
@@ -1204,11 +1220,12 @@ Item {
     }
 
     function labelCropDelegate(recordId) {
-        const children = shell.form.labelWorkspace.cropGridHost.children
-        for (let index = 0; index < children.length; ++index) {
-            const child = children[index]
-            if (child.modelData !== undefined && child.modelData.recordId === recordId)
-                return child
+        const grid = shell.form.labelWorkspace.cropGridHost
+        grid.forceLayout()
+        for (let index = 0; index < grid.count; ++index) {
+            const item = grid.itemAtIndex(index)
+            if (item !== null && item["recordId"] === recordId)
+                return item
         }
         return null
     }
@@ -1863,7 +1880,10 @@ Item {
         compare(shell.form.labelWorkspace.class0FilterButton.text, "Empty (1)")
         compare(shell.form.labelWorkspace.class1FilterButton.text, "Single cell (0)")
         compare(shell.form.labelWorkspace.class2FilterButton.text, "Multiple cells (0)")
-        compare(shell.form.labelWorkspace.filteredCropRecords.length, 2)
+        const cropGrid = shell.form.labelWorkspace.cropGridHost
+        compare(cropGrid.model, labelController)
+        compare(cropGrid.count, 2)
+        verify(cropGrid.delegate !== null)
         compare(shell.form.labelWorkspace.selectedCropId, "r1")
         compare(shell.form.labelWorkspace.selectedCropIndex, 0)
         compare(shell.form.labelWorkspace.selectedCropSource.toString(),
@@ -1873,14 +1893,14 @@ Item {
         verify(firstCrop !== null)
         compare(firstCrop.width, shell.form.labelWorkspace.cropGridHost.cellWidth)
         compare(firstCrop.height, shell.form.labelWorkspace.cropGridHost.cellHeight)
-        compare(shell.form.labelWorkspace.cropGridHost.width,
-                shell.form.labelWorkspace.cropGridHost.columns
-                        * shell.form.labelWorkspace.cropGridHost.cellWidth
-                        + Math.max(0,
-                                   shell.form.labelWorkspace.cropGridHost.columns - 1)
-                        * shell.form.labelWorkspace.cropGridHost.spacing)
-        verify(shell.form.labelWorkspace.cropGridHost.childrenRect.height
-               >= shell.form.labelWorkspace.cropGridHost.cellHeight)
+        compare(firstCrop.width, 239)
+        compare(firstCrop.height, 185)
+        compare(firstCrop.border.width, 6)
+        const secondCrop = labelCropDelegate("r2")
+        verify(secondCrop !== null)
+        compare(secondCrop.border.width, 3)
+        secondCrop.forceActiveFocus()
+        tryCompare(secondCrop.border, "width", 6)
 
         labelController.classNames = ["", "Target"]
         wait(0)
@@ -1937,14 +1957,28 @@ Item {
 
         tryVerify(function() { return labelCropDelegate("r1") !== null })
         const crop = labelCropDelegate("r1")
-        const pointerArea = crop.childAt(crop.width / 2, crop.height / 2)
-        verify(pointerArea)
-        pointerArea.clicked(null)
-        compare(labelController.selectedRecordArgument, "r1")
-        compare(labelController.selectCallCount, 1)
+        mouseClick(crop)
+        tryCompare(labelController, "selectedRecordArgument", "r1")
+        tryCompare(labelController, "selectCallCount", 1)
         crop.forceActiveFocus()
         keyClick(Qt.Key_Return)
         compare(labelController.selectCallCount, 2)
+
+        for (let index = 2; index < 1000; ++index) {
+            labelController.append({
+                recordId: "r" + (index + 1),
+                cropUrl: "",
+                state: "unreviewed",
+                selected: false
+            })
+        }
+        tryCompare(cropGrid, "count", 1000)
+        let instantiatedDelegates = 0
+        for (let index = 0; index < cropGrid.count; ++index) {
+            if (cropGrid.itemAtIndex(index) !== null)
+                ++instantiatedDelegates
+        }
+        verify(instantiatedDelegates < cropGrid.count)
     }
 
     function test_outerPanelToggleKeepsWorkspace() {

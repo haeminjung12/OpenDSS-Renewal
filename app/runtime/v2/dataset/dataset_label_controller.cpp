@@ -5,6 +5,7 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QSet>
 
 namespace desktop_app::v2::dataset {
 namespace {
@@ -50,10 +51,45 @@ QString localPath(const QUrl &url, const QString &kind, QString *error)
 DatasetLabelController::DatasetLabelController(OperationCoordinator &operations,
                                                ApplicationStateStore &stateStore,
                                                QObject *parent)
-    : QObject(parent)
+    : QAbstractListModel(parent)
     , service_(operations)
     , stateStore_(stateStore)
 {
+}
+
+int DatasetLabelController::rowCount(const QModelIndex &parent) const
+{
+    return parent.isValid() ? 0 : filteredRows_.size();
+}
+
+QVariant DatasetLabelController::data(const QModelIndex &index, int role) const
+{
+    if (!index.isValid() || index.row() < 0 || index.row() >= filteredRows_.size())
+        return {};
+
+    const DatasetLabelRecordState &record = snapshot_.records.at(filteredRows_.at(index.row()));
+    switch (role) {
+    case RecordIdRole:
+        return record.recordId;
+    case CropUrlRole:
+        return cropUrl(record);
+    case StateRole:
+        return stateText(record.state);
+    case SelectedRole:
+        return record.recordId == selectedRecordId_;
+    default:
+        return {};
+    }
+}
+
+QHash<int, QByteArray> DatasetLabelController::roleNames() const
+{
+    return {
+        {RecordIdRole, QByteArrayLiteral("recordId")},
+        {CropUrlRole, QByteArrayLiteral("cropUrl")},
+        {StateRole, QByteArrayLiteral("state")},
+        {SelectedRole, QByteArrayLiteral("selected")},
+    };
 }
 
 QString DatasetLabelController::presentation() const
@@ -92,12 +128,6 @@ int DatasetLabelController::labeledCount() const
     return totalCount() - unreviewedCount() - excludedCount();
 }
 
-QVariantList DatasetLabelController::records() const
-{
-    return records_;
-}
-
-QVariantList DatasetLabelController::filteredRecords() const { return filteredRecords_; }
 QString DatasetLabelController::selectedRecordId() const { return selectedRecordId_; }
 QString DatasetLabelController::filter() const { return filter_; }
 QString DatasetLabelController::errorMessage() const { return errorMessage_; }
@@ -118,62 +148,155 @@ void DatasetLabelController::publishDatasetState()
     stateStore_.publishDataset({datasetId(), snapshot_.manifestPath, true, {}});
 }
 
-void DatasetLabelController::refreshSnapshot()
+void DatasetLabelController::refreshSnapshot(bool resetModel)
 {
-    snapshot_ = service_.snapshot();
-    if (filter_ == QStringLiteral("class2") && !class2Enabled())
-        filter_ = QStringLiteral("all");
-
-    records_.clear();
-    records_.reserve(snapshot_.records.size());
-    const QString datasetRoot = QFileInfo(snapshot_.manifestPath).absolutePath();
-    for (const DatasetLabelRecordState &record : snapshot_.records) {
-        records_.append(
-            QVariantMap{{QStringLiteral("recordId"), record.recordId},
-                        {QStringLiteral("cropUrl"),
-                         QUrl::fromLocalFile(QDir(datasetRoot).absoluteFilePath(record.cropPath))},
-                        {QStringLiteral("state"), stateText(record.state)}});
-    }
-    refreshFilteredProjection();
+    applySnapshot(service_.snapshot(), resetModel);
 }
 
-void DatasetLabelController::refreshFilteredProjection()
+void DatasetLabelController::applySnapshot(DatasetLabelSnapshot nextSnapshot, bool resetModel)
 {
-    filteredRecords_.clear();
-    filteredRecords_.reserve(records_.size());
-    for (const QVariant &value : records_) {
-        const QVariantMap record = value.toMap();
-        if (filter_ == QStringLiteral("all") ||
-            record.value(QStringLiteral("state")).toString() == filter_) {
-            filteredRecords_.append(record);
+    bool sameRecords = snapshot_.records.size() == nextSnapshot.records.size();
+    for (qsizetype index = 0; sameRecords && index < snapshot_.records.size(); ++index) {
+        sameRecords =
+            snapshot_.records.at(index).recordId == nextSnapshot.records.at(index).recordId;
+    }
+
+    const bool normalizeClass2Filter =
+        filter_ == QStringLiteral("class2") && nextSnapshot.classes.size() != 3;
+    if (resetModel || !sameRecords || normalizeClass2Filter) {
+        beginResetModel();
+        snapshot_ = std::move(nextSnapshot);
+        datasetRoot_ = QFileInfo(snapshot_.manifestPath).absolutePath();
+        if (normalizeClass2Filter)
+            filter_ = QStringLiteral("all");
+        rebuildFilteredRows();
+        updateSelectedProjection();
+        endResetModel();
+        return;
+    }
+
+    const QString previousSelectedRecordId = selectedRecordId_;
+    const bool cropRootChanged = snapshot_.manifestPath != nextSnapshot.manifestPath;
+    QVector<int> changedSourceRows;
+    for (qsizetype index = 0; index < snapshot_.records.size(); ++index) {
+        if (snapshot_.records.at(index).state != nextSnapshot.records.at(index).state)
+            changedSourceRows.append(static_cast<int>(index));
+    }
+
+    QVector<int> nextFilteredRows;
+    nextFilteredRows.reserve(nextSnapshot.records.size());
+    for (qsizetype index = 0; index < nextSnapshot.records.size(); ++index) {
+        if (matchesFilter(nextSnapshot.records.at(index).state))
+            nextFilteredRows.append(static_cast<int>(index));
+    }
+
+    QSet<int> nextRows;
+    nextRows.reserve(nextFilteredRows.size());
+    for (int sourceRow : nextFilteredRows)
+        nextRows.insert(sourceRow);
+
+    for (int row = filteredRows_.size() - 1; row >= 0; --row) {
+        if (!nextRows.contains(filteredRows_.at(row))) {
+            beginRemoveRows({}, row, row);
+            filteredRows_.removeAt(row);
+            endRemoveRows();
         }
     }
 
+    snapshot_ = std::move(nextSnapshot);
+    datasetRoot_ = QFileInfo(snapshot_.manifestPath).absolutePath();
+
+    for (int row = 0; row < nextFilteredRows.size(); ++row) {
+        if (row >= filteredRows_.size() || filteredRows_.at(row) != nextFilteredRows.at(row)) {
+            beginInsertRows({}, row, row);
+            filteredRows_.insert(row, nextFilteredRows.at(row));
+            endInsertRows();
+        }
+    }
+
+    updateSelectedProjection();
+
+    for (int sourceRow : changedSourceRows) {
+        const int row = filteredRows_.indexOf(sourceRow);
+        if (row >= 0)
+            emit dataChanged(index(row), index(row), {StateRole});
+    }
+    if (cropRootChanged && !filteredRows_.isEmpty()) {
+        emit dataChanged(index(0), index(filteredRows_.size() - 1), {CropUrlRole});
+    }
+    if (previousSelectedRecordId != selectedRecordId_)
+        emitSelectedRowsChanged(previousSelectedRecordId);
+}
+
+void DatasetLabelController::rebuildFilteredRows()
+{
+    filteredRows_.clear();
+    filteredRows_.reserve(snapshot_.records.size());
+    for (qsizetype index = 0; index < snapshot_.records.size(); ++index) {
+        if (matchesFilter(snapshot_.records.at(index).state))
+            filteredRows_.append(static_cast<int>(index));
+    }
+}
+
+void DatasetLabelController::updateSelectedProjection()
+{
     if (!isMatchingRecord(selectedRecordId_)) {
-        selectedRecordId_ = filteredRecords_.isEmpty()
-            ? QString{}
-            : filteredRecords_.first().toMap().value(QStringLiteral("recordId")).toString();
+        selectedRecordId_ =
+            filteredRows_.isEmpty() ? QString{} : snapshot_.records.at(filteredRows_.first()).recordId;
     }
 
     selectedIndex_ = -1;
     selectedCropUrl_.clear();
-    for (qsizetype index = 0; index < filteredRecords_.size(); ++index) {
-        const QVariantMap record = filteredRecords_.at(index).toMap();
-        if (record.value(QStringLiteral("recordId")).toString() == selectedRecordId_) {
-            selectedIndex_ = static_cast<int>(index);
-            selectedCropUrl_ = record.value(QStringLiteral("cropUrl")).toUrl();
-            break;
-        }
+    const int row = modelRowForRecordId(selectedRecordId_);
+    if (row >= 0) {
+        selectedIndex_ = row;
+        selectedCropUrl_ = cropUrl(snapshot_.records.at(filteredRows_.at(row)));
     }
+}
+
+void DatasetLabelController::setSelectedRecordId(const QString &recordId)
+{
+    const QString previousRecordId = selectedRecordId_;
+    selectedRecordId_ = recordId;
+    updateSelectedProjection();
+    if (previousRecordId != selectedRecordId_)
+        emitSelectedRowsChanged(previousRecordId);
+}
+
+void DatasetLabelController::emitSelectedRowsChanged(const QString &previousRecordId)
+{
+    const int previousRow = modelRowForRecordId(previousRecordId);
+    const int currentRow = modelRowForRecordId(selectedRecordId_);
+    if (previousRow >= 0)
+        emit dataChanged(index(previousRow), index(previousRow), {SelectedRole});
+    if (currentRow >= 0 && currentRow != previousRow)
+        emit dataChanged(index(currentRow), index(currentRow), {SelectedRole});
+}
+
+int DatasetLabelController::modelRowForRecordId(const QString &recordId) const
+{
+    if (recordId.isEmpty())
+        return -1;
+    for (qsizetype row = 0; row < filteredRows_.size(); ++row) {
+        if (snapshot_.records.at(filteredRows_.at(row)).recordId == recordId)
+            return static_cast<int>(row);
+    }
+    return -1;
+}
+
+bool DatasetLabelController::matchesFilter(DatasetLabelState state) const
+{
+    return filter_ == QStringLiteral("all") || stateText(state) == filter_;
 }
 
 bool DatasetLabelController::isMatchingRecord(const QString &recordId) const
 {
-    for (const QVariant &value : filteredRecords_) {
-        if (value.toMap().value(QStringLiteral("recordId")).toString() == recordId)
-            return true;
-    }
-    return false;
+    return modelRowForRecordId(recordId) >= 0;
+}
+
+QUrl DatasetLabelController::cropUrl(const DatasetLabelRecordState &record) const
+{
+    return QUrl::fromLocalFile(QDir(datasetRoot_).absoluteFilePath(record.cropPath));
 }
 
 bool DatasetLabelController::open(const QUrl &manifestUrl)
@@ -186,7 +309,7 @@ bool DatasetLabelController::open(const QUrl &manifestUrl)
     if (success) {
         filter_ = QStringLiteral("all");
         selectedRecordId_.clear();
-        refreshSnapshot();
+        refreshSnapshot(true);
         publishDatasetState();
     }
     return finish(success, error);
@@ -238,20 +361,16 @@ bool DatasetLabelController::previous()
     const int index = selectedIndex();
     if (index <= 0)
         return finish(false, QStringLiteral("No previous Droplet Crop is available."));
-    selectedRecordId_ =
-        filteredRecords_.at(index - 1).toMap().value(QStringLiteral("recordId")).toString();
-    refreshFilteredProjection();
+    setSelectedRecordId(snapshot_.records.at(filteredRows_.at(index - 1)).recordId);
     return finish(true, {});
 }
 
 bool DatasetLabelController::next()
 {
     const int index = selectedIndex();
-    if (index < 0 || index + 1 >= filteredRecords_.size())
+    if (index < 0 || index + 1 >= filteredRows_.size())
         return finish(false, QStringLiteral("No next Droplet Crop is available."));
-    selectedRecordId_ =
-        filteredRecords_.at(index + 1).toMap().value(QStringLiteral("recordId")).toString();
-    refreshFilteredProjection();
+    setSelectedRecordId(snapshot_.records.at(filteredRows_.at(index + 1)).recordId);
     return finish(true, {});
 }
 
@@ -259,8 +378,7 @@ bool DatasetLabelController::select(const QString &recordId)
 {
     if (!isMatchingRecord(recordId))
         return finish(false, QStringLiteral("Selected Droplet Crop is unavailable in the current filter."));
-    selectedRecordId_ = recordId;
-    refreshFilteredProjection();
+    setSelectedRecordId(recordId);
     return finish(true, {});
 }
 
@@ -270,9 +388,15 @@ bool DatasetLabelController::setFilter(const QString &filter)
         return finish(false, QStringLiteral("Unknown Label filter."));
     if (filter == QStringLiteral("class2") && !class2Enabled())
         return finish(false, QStringLiteral("Class 2 is unavailable for a two-class Dataset."));
+    if (filter_ == filter)
+        return finish(true, {});
+
+    beginResetModel();
     filter_ = filter;
     selectedRecordId_.clear();
-    refreshFilteredProjection();
+    rebuildFilteredRows();
+    updateSelectedProjection();
+    endResetModel();
     return finish(true, {});
 }
 

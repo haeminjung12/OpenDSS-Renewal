@@ -2,7 +2,7 @@
 
 #include "dataset_label_service.h"
 
-#include <QObject>
+#include <QAbstractListModel>
 #include <QUrl>
 #include <QVariantList>
 
@@ -13,7 +13,9 @@ class OperationCoordinator;
 
 namespace dataset {
 
-class DatasetLabelController final : public QObject
+struct DatasetLabelControllerTestAccess;
+
+class DatasetLabelController final : public QAbstractListModel
 {
     Q_OBJECT
     Q_PROPERTY(QString presentation READ presentation NOTIFY changed)
@@ -30,8 +32,6 @@ class DatasetLabelController final : public QObject
     Q_PROPERTY(QVariantList classNames READ classNames NOTIFY changed)
     Q_PROPERTY(bool class2Enabled READ class2Enabled NOTIFY changed)
     Q_PROPERTY(bool canUndo READ canUndo NOTIFY changed)
-    Q_PROPERTY(QVariantList records READ records NOTIFY changed)
-    Q_PROPERTY(QVariantList filteredRecords READ filteredRecords NOTIFY changed)
     Q_PROPERTY(QString selectedRecordId READ selectedRecordId NOTIFY changed)
     Q_PROPERTY(QUrl selectedCropUrl READ selectedCropUrl NOTIFY changed)
     Q_PROPERTY(int selectedIndex READ selectedIndex NOTIFY changed)
@@ -39,8 +39,19 @@ class DatasetLabelController final : public QObject
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
 
 public:
+    enum Role {
+        RecordIdRole = Qt::UserRole + 1,
+        CropUrlRole,
+        StateRole,
+        SelectedRole,
+    };
+
     DatasetLabelController(OperationCoordinator &operations, ApplicationStateStore &stateStore,
                            QObject *parent = nullptr);
+
+    int rowCount(const QModelIndex &parent = {}) const override;
+    QVariant data(const QModelIndex &index, int role) const override;
+    QHash<int, QByteArray> roleNames() const override;
 
     QString presentation() const;
     QUrl manifestUrl() const;
@@ -56,8 +67,6 @@ public:
     QVariantList classNames() const;
     bool class2Enabled() const;
     bool canUndo() const;
-    QVariantList records() const;
-    QVariantList filteredRecords() const;
     QString selectedRecordId() const;
     QUrl selectedCropUrl() const;
     int selectedIndex() const;
@@ -80,17 +89,26 @@ signals:
     void changed();
 
 private:
+    friend struct DatasetLabelControllerTestAccess;
+
     bool finish(bool success, const QString &error, bool serviceChanged = false);
     void publishDatasetState();
-    void refreshSnapshot();
-    void refreshFilteredProjection();
+    void refreshSnapshot(bool resetModel = false);
+    void applySnapshot(DatasetLabelSnapshot nextSnapshot, bool resetModel);
+    void rebuildFilteredRows();
+    void updateSelectedProjection();
+    void setSelectedRecordId(const QString &recordId);
+    void emitSelectedRowsChanged(const QString &previousRecordId);
+    int modelRowForRecordId(const QString &recordId) const;
+    bool matchesFilter(DatasetLabelState state) const;
     bool isMatchingRecord(const QString &recordId) const;
+    QUrl cropUrl(const DatasetLabelRecordState &record) const;
 
     DatasetLabelService service_;
     ApplicationStateStore &stateStore_;
     DatasetLabelSnapshot snapshot_;
-    QVariantList records_;
-    QVariantList filteredRecords_;
+    QVector<int> filteredRows_;
+    QString datasetRoot_;
     QString selectedRecordId_;
     QUrl selectedCropUrl_;
     int selectedIndex_ = -1;

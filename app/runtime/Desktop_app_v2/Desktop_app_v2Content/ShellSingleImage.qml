@@ -450,7 +450,6 @@ Item {
     Binding { target: screen.labelWorkspace; property: "excludedCount"; value: root.datasetLabelController ? root.datasetLabelController.excludedCount : 0; when: !!root.datasetLabelController }
     Binding { target: screen.labelWorkspace; property: "unreviewedCount"; value: root.datasetLabelController ? root.datasetLabelController.unreviewedCount : 0; when: !!root.datasetLabelController }
     Binding { target: screen.labelWorkspace; property: "classNames"; value: root.datasetLabelController ? root.datasetLabelController.classNames : []; when: !!root.datasetLabelController }
-    Binding { target: screen.labelWorkspace; property: "filteredCropRecords"; value: root.datasetLabelController ? root.datasetLabelController.filteredRecords : []; when: !!root.datasetLabelController }
     Binding { target: screen.labelWorkspace; property: "selectedCropId"; value: root.datasetLabelController ? root.datasetLabelController.selectedRecordId : ""; when: !!root.datasetLabelController }
     Binding { target: screen.labelWorkspace; property: "selectedCropIndex"; value: root.datasetLabelController ? root.datasetLabelController.selectedIndex : -1; when: !!root.datasetLabelController }
     Binding { target: screen.labelWorkspace; property: "selectedCropSource"; value: root.datasetLabelController ? root.datasetLabelController.selectedCropUrl : ""; when: !!root.datasetLabelController }
@@ -466,25 +465,26 @@ Item {
 
         Rectangle {
             id: cropDelegate
-            required property var modelData
-            readonly property bool selected: modelData.recordId === screen.labelWorkspace.selectedCropId
-            width: 318
-            height: 246
-            color: modelData.state === "excluded" ? "#d1d5db" : Constants.backgroundColor
-            border.width: activeFocus || selected ? 4 : 2
-            border.color: activeFocus || selected ? Constants.accentColor
-                                                  : modelData.state === "class0" ? Constants.appClass0Color
-                                                  : modelData.state === "class1" ? Constants.appClass1Color
-                                                  : modelData.state === "class2" ? Constants.appClass2Color
+            required property var model
+            readonly property string recordId: model.recordId
+            width: 239
+            height: 185
+            color: model.state === "excluded" ? "#d1d5db" : Constants.backgroundColor
+            border.width: activeFocus || model.selected ? 6 : 3
+            border.color: activeFocus || model.selected ? Constants.accentColor
+                                                  : model.state === "class0" ? Constants.appClass0Color
+                                                  : model.state === "class1" ? Constants.appClass1Color
+                                                  : model.state === "class2" ? Constants.appClass2Color
                                                   : Constants.borderColor
             activeFocusOnTab: !!root.datasetLabelController
-            Accessible.name: qsTr("Droplet Crop %1").arg(modelData.recordId)
+            Accessible.name: qsTr("Droplet Crop %1").arg(recordId)
             Accessible.role: Accessible.Button
+            GridView.onPooled: cropDelegate.focus = false
 
             Image {
                 anchors.fill: parent
                 anchors.margins: 5
-                source: cropDelegate.modelData.cropUrl
+                source: cropDelegate.model.cropUrl
                 fillMode: Image.PreserveAspectFit
                 sourceSize: Qt.size(Math.round(width), Math.round(height))
                 asynchronous: true
@@ -492,7 +492,7 @@ Item {
             }
 
             Text {
-                visible: cropDelegate.modelData.state === "excluded"
+                visible: cropDelegate.model.state === "excluded"
                 anchors.centerIn: parent
                 text: "×"
                 color: Constants.textColor
@@ -504,20 +504,17 @@ Item {
                 enabled: !!root.datasetLabelController
                 onClicked: {
                     cropDelegate.forceActiveFocus()
-                    root.datasetLabelController.select(cropDelegate.modelData.recordId)
+                    root.datasetLabelController.select(cropDelegate.recordId)
                 }
             }
-            Keys.onReturnPressed: root.datasetLabelController.select(modelData.recordId)
-            Keys.onSpacePressed: root.datasetLabelController.select(modelData.recordId)
+            Keys.onReturnPressed: root.datasetLabelController.select(recordId)
+            Keys.onSpacePressed: root.datasetLabelController.select(recordId)
             Keys.enabled: !!root.datasetLabelController
         }
     }
 
-    Repeater {
-        parent: screen.labelWorkspace.cropGridHost
-        model: root.datasetLabelController ? root.datasetLabelController.filteredRecords : []
-        delegate: labelCropDelegate
-    }
+    Binding { target: screen.labelWorkspace.cropGridHost; property: "model"; value: root.datasetLabelController }
+    Binding { target: screen.labelWorkspace.cropGridHost; property: "delegate"; value: labelCropDelegate }
 
     Binding { target: screen.sequenceViewerWorkspace; property: "presentation"; value: root.sequenceViewerController ? root.sequenceViewerController.presentation : state.sequenceViewerPresentation === "empty" || state.sequenceViewerPresentation === "error" ? state.sequenceViewerPresentation : "ready" }
     Binding { target: screen.sequenceViewerWorkspace; property: "currentFrame"; value: root.sequenceViewerController ? root.sequenceViewerController.currentFrame : state.sequenceViewerPresentation === "firstFrame" ? 1 : state.sequenceViewerPresentation === "middleFrame" ? 60 : state.sequenceViewerPresentation === "finalFrame" ? 120 : 0 }

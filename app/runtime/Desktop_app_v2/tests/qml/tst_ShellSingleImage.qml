@@ -2499,10 +2499,12 @@ Item {
         appWindow.showNormal()
         tryCompare(appWindow, "visibility", Window.Windowed)
 
-        appWindow.width = 1800
-        appWindow.height = 1000
-        tryCompare(appWindow, "width", 1800)
-        tryCompare(appWindow, "height", 1000)
+        appWindow.width = 1200
+        appWindow.height = 700
+        tryVerify(function() {
+            return appWindow.width >= 1600
+                    && appWindow.height >= 900
+        })
 
         appWindow.destroy()
         component.destroy()

@@ -1,12 +1,21 @@
 from __future__ import annotations
 
+import io
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 from droplet_trainer.schema import default_binary_schema
-from droplet_trainer.train import MIN_ONNX_OPSET, _make_cuda_amp_scaler, _onnx_state_key_candidates, load_training_config
+from droplet_trainer.train import (
+    MIN_ONNX_OPSET,
+    JsonlEmitter,
+    _export_with_protocol_stdout_protected,
+    _make_cuda_amp_scaler,
+    _onnx_state_key_candidates,
+    load_training_config,
+)
 
 
 class TrainingConfigTests(unittest.TestCase):
@@ -76,6 +85,28 @@ class TrainingConfigTests(unittest.TestCase):
             _onnx_state_key_candidates("p_features_3_expand1x1_weight"),
             ["p_features_3_expand1x1_weight", "features.3.expand1x1.weight"],
         )
+
+    def test_onnx_exporter_chatter_cannot_contaminate_jsonl_stdout(self) -> None:
+        protocol_stdout = io.StringIO()
+        diagnostics_stderr = io.StringIO()
+        original_stdout = sys.stdout
+        original_stderr = sys.stderr
+        try:
+            sys.stdout = protocol_stdout
+            sys.stderr = diagnostics_stderr
+            _export_with_protocol_stdout_protected(
+                lambda: print("exporter diagnostic")
+            )
+            JsonlEmitter("train", "run_export").emit("export_finished")
+        finally:
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+
+        lines = protocol_stdout.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertEqual(json.loads(lines[0])["event"], "export_finished")
+        self.assertEqual(diagnostics_stderr.getvalue().splitlines(),
+                         ["exporter diagnostic"])
 
 
 if __name__ == "__main__":

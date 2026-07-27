@@ -10,7 +10,7 @@ import random
 import sys
 import time
 from collections import Counter
-from contextlib import nullcontext
+from contextlib import nullcontext, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -829,12 +829,18 @@ def _primary_onnx_opset(doc: Any) -> int | None:
     return max(versions) if versions else None
 
 
+def _export_with_protocol_stdout_protected(exporter: Any, *args: Any, **kwargs: Any) -> Any:
+    with redirect_stdout(sys.stderr):
+        return exporter(*args, **kwargs)
+
+
 def _export_onnx(model: Any, run_dir: Path, config: dict[str, Any]) -> tuple[Path, int | None]:
     import torch
 
     onnx_path = run_dir / "model.onnx"
     dummy = torch.zeros(1, 3, _input_size(config), _input_size(config))
-    torch.onnx.export(
+    _export_with_protocol_stdout_protected(
+        torch.onnx.export,
         copy.deepcopy(model).cpu().eval(),
         dummy,
         onnx_path,

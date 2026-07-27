@@ -168,6 +168,12 @@ QString TrainingController::inputError() const
         return QStringLiteral("No dataset selected.");
     if (!datasetManifestUrl_.isValid() || !datasetManifestUrl_.isLocalFile())
         return QStringLiteral("Dataset must be a local file URL.");
+    QString datasetError;
+    const auto dataset =
+        dataset::DatasetManifestV2::load(datasetManifestUrl_.toLocalFile(),
+                                         &datasetError);
+    if (dataset && dataset->counts().labeled == 0)
+        return QStringLiteral("No Labeled Droplet Crops");
     if (selectedWeightIndex_ < 0
         || selectedWeightIndex_ >= weightOptions_.size()
         || !QFileInfo(selectedWeightPath()).isFile()) {

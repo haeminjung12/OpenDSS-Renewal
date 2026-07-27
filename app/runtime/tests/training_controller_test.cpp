@@ -265,6 +265,21 @@ int main(int argc, char **argv)
             saveError)) {
         return 4;
     }
+    const QString emptyDatasetRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("empty-dataset"));
+    const QString emptyDatasetPath =
+        QDir(emptyDatasetRoot).filePath(QStringLiteral("dataset.json"));
+    DatasetManifestData emptyDataset = datasetFixture({}, {});
+    emptyDataset.provenance.sequence.frameCount = 0;
+    emptyDataset.classes.clear();
+    emptyDataset.records.clear();
+    emptyDataset.labels.clear();
+    if (!check(QDir().mkpath(emptyDatasetRoot)
+                   && DatasetManifestV2::save(
+                       emptyDatasetPath, emptyDataset, &saveError),
+               saveError)) {
+        return 26;
+    }
 
     OperationCoordinator operations;
     ApplicationStateStore stateStore;
@@ -462,6 +477,15 @@ int main(int argc, char **argv)
                    && controller.errorMessage().contains(QStringLiteral("local file URL")),
                QStringLiteral("Non-local Dataset URL was accepted."))) {
         return 6;
+    }
+
+    controller.setDatasetManifestUrl(QUrl::fromLocalFile(emptyDatasetPath));
+    if (!check(controller.presentation() == QStringLiteral("unavailable")
+                   && controller.errorMessage()
+                       == QStringLiteral("No Labeled Droplet Crops")
+                   && !controller.start(),
+               QStringLiteral("Empty Dataset was available for Training."))) {
+        return 27;
     }
 
     controller.setDatasetManifestUrl(QUrl::fromLocalFile(datasetPath));

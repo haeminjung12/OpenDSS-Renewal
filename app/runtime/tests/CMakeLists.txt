@@ -539,6 +539,31 @@ opendss_configure_offscreen_test(
   training_service_protocol_test
 )
 
+qt_add_executable(training_real_backend_probe
+  training_real_backend_probe.cpp
+  ../desktop_app/json_persistence.cpp
+  ../v2/training/training_service.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/operation/operation_coordinator.cpp
+)
+target_include_directories(training_real_backend_probe PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+)
+target_link_libraries(training_real_backend_probe PRIVATE
+  Qt6::Core
+)
+add_test(
+  NAME training_real_backend_probe
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:training_real_backend_probe>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
+    $<TARGET_FILE:training_real_backend_probe>
+)
+set_tests_properties(training_real_backend_probe PROPERTIES TIMEOUT 240)
+opendss_configure_offscreen_test(
+  training_real_backend_probe
+  training_real_backend_probe
+)
+
 qt_add_executable(training_controller_test
   training_controller_test.cpp
   ../desktop_app/app_utils.cpp

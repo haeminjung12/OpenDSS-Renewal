@@ -259,11 +259,19 @@ void derivedBoundarySupportsArbitraryDimensions() {
         &error);
     QFile summary(
         QDir(onlyRunFolder(output)).filePath(QStringLiteral("run_summary.json")));
-    require(run.has_value() && summary.open(QIODevice::ReadOnly) &&
-                !QJsonDocument::fromJson(summary.readAll())
-                     .object()
-                     .contains(QStringLiteral("hit_boundary")),
-            "Run persisted workspace-local Decision Boundary coordinates");
+    require(run.has_value() && summary.open(QIODevice::ReadOnly),
+            "load completed Run summary");
+    const QJsonObject hitBoundary =
+        QJsonDocument::fromJson(summary.readAll())
+            .object()
+            .value(QStringLiteral("hit_boundary"))
+            .toObject();
+    require(hitBoundary.size() == 1 &&
+                hitBoundary.value(QStringLiteral("top_is_hit")).isBool() &&
+                !hitBoundary.contains(QStringLiteral("boundary_x")) &&
+                !hitBoundary.contains(QStringLiteral("boundary_y")),
+            "Run must persist only Top/Bottom mapping, never workspace-local "
+            "Decision Boundary coordinates");
 }
 
 QString onlyRunFolder(const QString& output) {

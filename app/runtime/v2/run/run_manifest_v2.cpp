@@ -277,32 +277,16 @@ bool validateEvent(const RunManifestData& data, const RunEvent& event, QString* 
     if (event.observedRoute != Route::Hit && event.observedRoute != Route::Waste &&
         event.observedRoute != Route::Unresolved)
         return fail(error, "Observed Route is invalid.");
-    if (data.routing.triggerMode == TriggerMode::EveryDroplet &&
-        event.decision != Route::Hit) {
-        return fail(error, "Trigger Every Droplet events must have a Hit decision.");
-    }
-    if (data.routing.triggerMode == TriggerMode::ClassBased) {
-        const Route expected = event.predictedClassId == data.routing.hitClassId
-                                   ? Route::Hit
-                                   : Route::Waste;
-        if (event.decision != expected)
-            return fail(error, "Class-Based decision does not match the Hit Class.");
-    }
     if (event.daqPulseStatus == DaqPulseStatus::Requested)
         return fail(error, "Finalized events cannot retain requested DAQ status.");
     if (event.decision == Route::Waste &&
         event.daqPulseStatus != DaqPulseStatus::NotRequested)
         return fail(error, "Waste decisions must use not_requested DAQ status.");
     if (event.decision == Route::Hit &&
-        !data.routing.physicalDaqOutputEnabled &&
-        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
-        return fail(error, "DAQ-disabled Hit decisions must use suppressed_not_issued.");
-    if (event.decision == Route::Hit &&
-        data.routing.physicalDaqOutputEnabled &&
         event.daqPulseStatus != DaqPulseStatus::Issued &&
         event.daqPulseStatus != DaqPulseStatus::Failed &&
         event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
-        return fail(error, "DAQ-enabled Hit decisions require a final factual pulse status.");
+        return fail(error, "Hit decisions require a final factual pulse status.");
     return true;
 }
 
@@ -807,6 +791,24 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
     data.daqSettings = settings.value("daq").toObject();
     data.timingSettings = settings.value("timing").toObject();
 
+    if (root.contains("hit_boundary")) {
+        if (!root.value("hit_boundary").isObject()) {
+            fail(error, "hit_boundary must be an object.");
+            return std::nullopt;
+        }
+        const auto hitBoundary = root.value("hit_boundary").toObject();
+        if (!only(hitBoundary, {"top_is_hit"}, "hit_boundary", error) ||
+            !hitBoundary.value("top_is_hit").isBool()) {
+            if (error && error->isEmpty())
+                *error = "hit_boundary contains invalid values.";
+            return std::nullopt;
+        }
+        data.hitBoundary.hitSide =
+            hitBoundary.value("top_is_hit").toBool()
+                ? HitSide::NegativeY
+                : HitSide::PositiveY;
+    }
+
     if (data.operation == RunOperation::SequenceTest) {
         if (!root.value("processing").isObject()) {
             fail(error, "Sequence Test processing must be an object.");
@@ -991,6 +993,9 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
                      {"crop", data.cropSettings},
                      {"daq", data.daqSettings},
                      {"timing", data.timingSettings}}},
+        {"hit_boundary",
+         QJsonObject{{"top_is_hit",
+                      data.hitBoundary.hitSide == HitSide::NegativeY}}},
         {"integrity", integrityJson(data.integrity)},
         {"counts", derivedJson(data, counts)},
         {"decision_vs_observed", matrixJson(counts)},

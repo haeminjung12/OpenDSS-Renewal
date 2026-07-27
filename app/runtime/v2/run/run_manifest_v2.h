@@ -46,6 +46,12 @@ struct HitBoundarySnapshot {
     int imageHeight = 0;
 };
 
+struct FinalConfigurationSnapshot {
+    RoutingSnapshot routing;
+    QJsonObject daqSettings;
+    HitSide hitSide = HitSide::PositiveY;
+};
+
 struct RunEvent {
     QString eventId;
     QString detectionTimestamp;

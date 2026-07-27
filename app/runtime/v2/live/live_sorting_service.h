@@ -36,6 +36,7 @@ struct PreparedLiveModel {
 using LiveModelProvider = std::function<std::optional<PreparedLiveModel>(QString*)>;
 using HitPulseCallback = std::function<run::DaqPulseStatus(bool, QString*)>;
 using DaqReadinessGate = std::function<bool(QString*)>;
+using DaqSettingsProvider = std::function<QJsonObject()>;
 using PersistenceGate = std::function<bool(QString*)>;
 using DispatcherStartGate = std::function<bool()>;
 
@@ -79,7 +80,8 @@ public:
                        LiveModelProvider modelProvider = {},
                        PersistenceGate persistenceGate = {},
                        DispatcherStartGate dispatcherStartGate = {},
-                       DaqReadinessGate daqReadinessGate = {});
+                       DaqReadinessGate daqReadinessGate = {},
+                       DaqSettingsProvider daqSettingsProvider = {});
     ~LiveSortingService();
 
     LiveSortingService(const LiveSortingService&) = delete;
@@ -91,7 +93,10 @@ public:
     bool resume(QString* error = nullptr);
     bool stop(QString* error = nullptr);
     bool pollDuration(QString* error = nullptr);
+    bool updateActiveConfiguration(const run::RoutingSnapshot& routing,
+                                   QString* error = nullptr);
     bool updateDecisionBoundary(const run::HitBoundarySnapshot& boundary);
+    bool resetDecisionBoundary();
     LiveSortingSnapshot snapshot() const;
 
 private:

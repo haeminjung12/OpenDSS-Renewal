@@ -229,6 +229,17 @@ QString LiveSortingController::hitClassId() const { return hitClassId_; }
 void LiveSortingController::setHitClassId(const QString& value) {
     if (hitClassId_ == value)
         return;
+    if (snapshot_.lifecycle == OperationLifecycle::Running &&
+        !triggerEveryDroplet_) {
+        QString error;
+        if (!service_.updateActiveConfiguration(
+                {run::TriggerMode::ClassBased, value, daqOutputEnabled_},
+                &error)) {
+            setActionError(error);
+            emit changed();
+            return;
+        }
+    }
     hitClassId_ = value;
     setActionError({});
     emit changed();
@@ -241,6 +252,20 @@ bool LiveSortingController::triggerEveryDroplet() const {
 void LiveSortingController::setTriggerEveryDroplet(bool value) {
     if (triggerEveryDroplet_ == value)
         return;
+    if (snapshot_.lifecycle == OperationLifecycle::Running) {
+        QString error;
+        const run::RoutingSnapshot routing{
+            value ? run::TriggerMode::EveryDroplet
+                  : run::TriggerMode::ClassBased,
+            value ? std::optional<QString>{}
+                  : std::optional<QString>{hitClassId_},
+            daqOutputEnabled_};
+        if (!service_.updateActiveConfiguration(routing, &error)) {
+            setActionError(error);
+            emit changed();
+            return;
+        }
+    }
     triggerEveryDroplet_ = value;
     setActionError({});
     emit changed();
@@ -253,6 +278,20 @@ bool LiveSortingController::daqOutputEnabled() const {
 void LiveSortingController::setDaqOutputEnabled(bool value) {
     if (daqOutputEnabled_ == value)
         return;
+    if (snapshot_.lifecycle == OperationLifecycle::Running) {
+        QString error;
+        const run::RoutingSnapshot routing{
+            triggerEveryDroplet_ ? run::TriggerMode::EveryDroplet
+                                 : run::TriggerMode::ClassBased,
+            triggerEveryDroplet_ ? std::optional<QString>{}
+                                 : std::optional<QString>{hitClassId_},
+            value};
+        if (!service_.updateActiveConfiguration(routing, &error)) {
+            setActionError(error);
+            emit changed();
+            return;
+        }
+    }
     daqOutputEnabled_ = value;
     setActionError({});
     emit changed();
@@ -433,6 +472,10 @@ bool LiveSortingController::setDecisionBoundary(double xRatio, double yRatio) {
 void LiveSortingController::resetDecisionBoundary() {
     if (!decisionBoundaryDefined_)
         return;
+    if (snapshot_.lifecycle == OperationLifecycle::Running &&
+        !service_.resetDecisionBoundary()) {
+        return;
+    }
     decisionBoundaryDefined_ = false;
     facts_.hitBoundary.boundaryY = -1.0;
     setActionError({});

@@ -194,6 +194,7 @@ struct PendingEvent {
     run::RunEvent event;
     QByteArray cropBytes;
     std::optional<double> lastY;
+    run::RoutingSnapshot routing;
     bool decisionResolved = false;
     bool pulseFailed = false;
 };
@@ -306,7 +307,8 @@ public:
          ModelLoadService* modelLoader, HitPulseCallback pulse,
          LiveModelProvider modelProvider, PersistenceGate persistenceGate,
          DispatcherStartGate dispatcherStartGate,
-         DaqReadinessGate daqReadinessGate)
+         DaqReadinessGate daqReadinessGate,
+         DaqSettingsProvider daqSettingsProvider)
         : operations(operations),
           detector(detector),
           modelLoader(modelLoader),
@@ -314,7 +316,8 @@ public:
           modelProvider(std::move(modelProvider)),
           persistenceGate(std::move(persistenceGate)),
           dispatcherStartGate(std::move(dispatcherStartGate)),
-          daqReadinessGate(std::move(daqReadinessGate)) {}
+          daqReadinessGate(std::move(daqReadinessGate)),
+          daqSettingsProvider(std::move(daqSettingsProvider)) {}
 
     ~Impl() {
         QString ignored;
@@ -376,10 +379,8 @@ public:
 
         const bool useModel =
             value.triggerMode == run::TriggerMode::ClassBased || value.useActiveModel;
-        ResourceLocks locks =
-            ResourceLock::Camera | ResourceLock::Run | ResourceLock::Storage;
-        if (value.daqOutputEnabled)
-            locks |= ResourceLock::Daq;
+        ResourceLocks locks = ResourceLock::Camera | ResourceLock::Daq |
+                              ResourceLock::Run | ResourceLock::Storage;
         if (useModel)
             locks |= ResourceLock::Model;
         auto acquired = operations.acquire(OperationKind::LiveSorting, locks);
@@ -482,6 +483,8 @@ public:
         }
 
         request = value;
+        currentRouting = {value.triggerMode, value.hitClassId,
+                          value.daqOutputEnabled};
         currentBoundary = value.hitBoundary;
         model = std::move(prepared);
         runFolder = folder;
@@ -709,6 +712,59 @@ public:
         return true;
     }
 
+    bool resetDecisionBoundary() {
+        {
+            std::lock_guard lock(stateMutex);
+            if (lifecycle != OperationLifecycle::Running)
+                return false;
+        }
+        std::lock_guard lock(boundaryMutex);
+        currentBoundary.boundaryY = -1.0;
+        return true;
+    }
+
+    bool updateActiveConfiguration(const run::RoutingSnapshot& routing,
+                                   QString* error) {
+        setError(error, {});
+        {
+            std::lock_guard lock(stateMutex);
+            if (lifecycle != OperationLifecycle::Running) {
+                setError(error, QStringLiteral("Live Sorting is not running."));
+                return false;
+            }
+        }
+        if (routing.triggerMode == run::TriggerMode::ClassBased) {
+            if (!model || !routing.hitClassId ||
+                std::none_of(model->snapshot.classes.cbegin(),
+                             model->snapshot.classes.cend(),
+                             [&](const run::RunClassSnapshot& item) {
+                                 return item.id == *routing.hitClassId;
+                             })) {
+                setError(error, QStringLiteral(
+                                    "Class-Based Sorting requires a Hit Class "
+                                    "from the Active Model."));
+                return false;
+            }
+        } else if (routing.hitClassId) {
+            setError(error, QStringLiteral(
+                                "Trigger Every Droplet does not use a Hit Class."));
+            return false;
+        }
+        if (routing.physicalDaqOutputEnabled) {
+            QString readinessError;
+            if (!pulse || !daqReadinessGate ||
+                !daqReadinessGate(&readinessError)) {
+                setError(error, readinessError.isEmpty()
+                                    ? QStringLiteral("DAQ is not ready.")
+                                    : readinessError);
+                return false;
+            }
+        }
+        std::lock_guard lock(configurationMutex);
+        currentRouting = routing;
+        return true;
+    }
+
 private:
     bool reserveExternalCallback(bool pulseCallback) {
         std::lock_guard lock(stateMutex);
@@ -838,6 +894,10 @@ private:
                 consumerFault(frameIndex(meta), localError);
             }
             pending.emplace();
+            {
+                std::lock_guard lock(configurationMutex);
+                pending->routing = currentRouting;
+            }
             pending->event.eventId = eventId;
             pending->event.detectionTimestamp = detectionTimestamp;
             pending->event.sourceFrameIndex = frameIndex(meta);
@@ -934,8 +994,8 @@ private:
             return;
         QString localError;
         const auto decision = decision::DecisionService::decide(
-            request.triggerMode, pending->event.predictedClassId,
-            request.hitClassId, &localError);
+            pending->routing.triggerMode, pending->event.predictedClassId,
+            pending->routing.hitClassId, &localError);
         if (!decision) {
             const qint64 sourceFrameIndex = pending->event.sourceFrameIndex;
             pending.reset();
@@ -953,7 +1013,7 @@ private:
                 run::DaqPulseStatus::SuppressedNotIssued;
         } else {
             const run::DaqPulseStatus pulseStatus =
-                pulse(request.daqOutputEnabled, &localError);
+                pulse(pending->routing.physicalDaqOutputEnabled, &localError);
             if (pulseStatus != run::DaqPulseStatus::Issued &&
                 pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
                 pulseStatus != run::DaqPulseStatus::Failed) {
@@ -1313,12 +1373,33 @@ private:
                     stagedSequencePath, finalSequencePath, publicationError);
             };
         }
+        run::FinalConfigurationSnapshot finalConfiguration;
+        {
+            std::lock_guard lock(configurationMutex);
+            finalConfiguration.routing = currentRouting;
+        }
+        {
+            std::lock_guard lock(boundaryMutex);
+            finalConfiguration.hitSide = currentBoundary.hitSide;
+        }
+        try {
+            finalConfiguration.daqSettings =
+                daqSettingsProvider ? daqSettingsProvider()
+                                    : request.daqSettings;
+        } catch (...) {
+            localError =
+                QStringLiteral("Could not read the final active DAQ settings.");
+            status = run::RunStatus::Failed;
+            stopReason = QStringLiteral("final_configuration_failed");
+            finalConfiguration.daqSettings = request.daqSettings;
+        }
         const bool finalized =
             writer && writer->finalize(
                           status,
                           endedAt,
                           stopReason, 0.0, &localError,
-                          std::move(publishSequence));
+                          std::move(publishSequence),
+                          std::move(finalConfiguration));
         if (!finalized && sequenceStaged)
             QFile::remove(stagedSequencePath);
         if (!finalized) {
@@ -1364,6 +1445,7 @@ private:
     PersistenceGate persistenceGate;
     DispatcherStartGate dispatcherStartGate;
     DaqReadinessGate daqReadinessGate;
+    DaqSettingsProvider daqSettingsProvider;
 
     mutable std::mutex stateMutex;
     std::condition_variable finishFinished;
@@ -1375,6 +1457,8 @@ private:
     std::thread::id persistenceWorkerId;
     OperationLease lease;
     LiveSortingRequest request;
+    std::mutex configurationMutex;
+    run::RoutingSnapshot currentRouting;
     std::mutex boundaryMutex;
     run::HitBoundarySnapshot currentBoundary;
     std::optional<PreparedLiveModel> model;
@@ -1420,12 +1504,14 @@ LiveSortingService::LiveSortingService(OperationCoordinator& operations,
                                        LiveModelProvider modelProvider,
                                        PersistenceGate persistenceGate,
                                        DispatcherStartGate dispatcherStartGate,
-                                       DaqReadinessGate daqReadinessGate)
+                                       DaqReadinessGate daqReadinessGate,
+                                       DaqSettingsProvider daqSettingsProvider)
     : impl_(std::make_unique<Impl>(operations, detector, modelLoader,
                                   std::move(pulse), std::move(modelProvider),
                                   std::move(persistenceGate),
                                   std::move(dispatcherStartGate),
-                                  std::move(daqReadinessGate))) {}
+                                  std::move(daqReadinessGate),
+                                  std::move(daqSettingsProvider))) {}
 
 LiveSortingService::~LiveSortingService() = default;
 
@@ -1454,9 +1540,18 @@ bool LiveSortingService::pollDuration(QString* error) {
     return impl_->pollDuration(error);
 }
 
+bool LiveSortingService::updateActiveConfiguration(
+    const run::RoutingSnapshot& routing, QString* error) {
+    return impl_->updateActiveConfiguration(routing, error);
+}
+
 bool LiveSortingService::updateDecisionBoundary(
     const run::HitBoundarySnapshot& boundary) {
     return impl_->updateDecisionBoundary(boundary);
+}
+
+bool LiveSortingService::resetDecisionBoundary() {
+    return impl_->resetDecisionBoundary();
 }
 
 LiveSortingSnapshot LiveSortingService::snapshot() const {

@@ -34,7 +34,9 @@ class RunWriterV2 {
     bool flush(QString* error = nullptr);
     bool finalize(RunStatus status, const QString& endedAt, const QString& stopReason,
                   double achievedProcessingFps, QString* error = nullptr,
-                  BeforeFinalSummaryPublish beforeFinalSummaryPublish = {});
+                  BeforeFinalSummaryPublish beforeFinalSummaryPublish = {},
+                  std::optional<FinalConfigurationSnapshot> finalConfiguration =
+                      std::nullopt);
 
     const RunManifestData& data() const noexcept;
 

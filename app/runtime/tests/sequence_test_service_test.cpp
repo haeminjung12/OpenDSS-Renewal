@@ -392,8 +392,13 @@ void daqOffRequiresNoReadinessOrOwnership() {
             if (error)
                 *error = QStringLiteral("Injected unavailable DAQ.");
             return false;
-        });
+    });
     QString error;
+    require(!service.run(request(manifest, output), &error) &&
+                readinessCalls == 0 && pulseCalls == 0,
+            "Sequence Test must reserve DAQ before Running so later enable "
+            "remains safe");
+    heldDaq.lease.release();
     require(service.run(request(manifest, output), &error), qPrintable(error));
     const auto data = loadRun(output);
     require(readinessCalls == 0 && pulseCalls == 0 &&
@@ -401,8 +406,7 @@ void daqOffRequiresNoReadinessOrOwnership() {
                 data.events.size() == 1 &&
                 data.events.at(0).daqPulseStatus ==
                     run::DaqPulseStatus::SuppressedNotIssued,
-            "DAQ OFF checked readiness, owned DAQ, issued output, or persisted false status.");
-    heldDaq.lease.release();
+            "DAQ OFF checked readiness, issued output, or persisted false status.");
 }
 
 void daqOnPreflightAndLockConflict() {

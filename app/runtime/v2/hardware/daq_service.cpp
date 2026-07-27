@@ -20,6 +20,17 @@ constexpr double kMaxDurationMs = 500.0;
 constexpr double kMinDelayMs = 0.0;
 constexpr double kMaxDelayMs = 500.0;
 
+bool activeSortingOwnsDaq(const OperationSnapshot &snapshot)
+{
+    return snapshot.kind &&
+           (*snapshot.kind == OperationKind::LiveSorting ||
+            *snapshot.kind == OperationKind::SequenceTest) &&
+           snapshot.locks.testFlag(ResourceLock::Daq) &&
+           (snapshot.lifecycle == OperationLifecycle::Starting ||
+            snapshot.lifecycle == OperationLifecycle::Running ||
+            snapshot.lifecycle == OperationLifecycle::Paused);
+}
+
 void setError(QString *error, const QString &message)
 {
     if (error)
@@ -100,7 +111,8 @@ QString DaqService::settingsValidationError(const DaqAppliedSettings &settings)
     return {};
 }
 
-bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *error)
+bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *error,
+                               bool allowDuringActiveSorting)
 {
     std::lock_guard operationOrderLock(operationOrderMutex_);
     {
@@ -118,7 +130,9 @@ bool DaqService::applySettings(const DaqAppliedSettings &settings, QString *erro
     }
 
     auto acquired = operations_.acquireMomentary(ResourceLock::Daq);
-    if (!acquired.acquired()) {
+    if (!acquired.acquired() &&
+        !(allowDuringActiveSorting &&
+          activeSortingOwnsDaq(operations_.snapshot()))) {
         const QString message =
             acquired.fault ? acquired.fault->reason
                            : QStringLiteral("DAQ settings are locked by another operation.");

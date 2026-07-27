@@ -28,7 +28,8 @@ public:
 
     static QString settingsValidationError(const DaqAppliedSettings &settings);
 
-    bool applySettings(const DaqAppliedSettings &settings, QString *error = nullptr);
+    bool applySettings(const DaqAppliedSettings &settings, QString *error = nullptr,
+                       bool allowDuringActiveSorting = false);
     void markUnavailable(const QString &reason);
     bool ready() const;
     QJsonObject settingsSnapshot() const;

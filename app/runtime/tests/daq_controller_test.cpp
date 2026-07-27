@@ -10,6 +10,7 @@
 #include <QThread>
 #include <QVariantMap>
 
+#include <cstdio>
 #include <memory>
 #include <limits>
 #include <string>
@@ -126,7 +127,7 @@ public:
 bool check(bool condition, const char *message)
 {
     if (!condition)
-        qCritical().noquote() << message;
+        std::fprintf(stderr, "FAIL: %s\n", message);
     return condition;
 }
 
@@ -444,10 +445,10 @@ int main(int argc, char **argv)
     auto held =
         operations.acquire(OperationKind::LiveSorting, ResourceLock::Daq);
     const int configureCallsBeforeLock = fake->configureCalls;
-    ok &= check(held.acquired() && !controller.canApply()
-                    && !controller.apply()
-                    && fake->configureCalls == configureCallsBeforeLock,
-                "DAQ ownership must disable and recheck controller actions.");
+    ok &= check(held.acquired() && controller.canApply()
+                    && controller.apply() && waitForApply(controller)
+                    && fake->configureCalls == configureCallsBeforeLock + 1,
+                "Active sorting must permit serialized DAQ settings apply.");
     held.lease.release();
     ok &= check(controller.canApply(),
                 "DAQ settings must become available after lock release.");
@@ -470,7 +471,7 @@ int main(int argc, char **argv)
     fake->fireError.clear();
     ok &= check(controller.apply() && waitForApply(controller)
                     && controller.ready()
-                    && fake->configureCalls == configureCallsBeforeCoalescing + 3,
+                    && fake->configureCalls == configureCallsBeforeCoalescing + 4,
                 "A successful apply must recover a faulted DAQ.");
 
     fake->configureError = QStringLiteral("Injected apply fault.");

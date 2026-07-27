@@ -332,8 +332,24 @@ bool SequenceTestController::triggerEveryDroplet() const {
 }
 
 void SequenceTestController::setTriggerEveryDroplet(bool value) {
-    if (operationActive() || triggerEveryDroplet_ == value)
+    if (triggerEveryDroplet_ == value)
         return;
+    if (operationActive()) {
+        if (presentation_ != QStringLiteral("running"))
+            return;
+        QString error;
+        const run::RoutingSnapshot routing{
+            value ? run::TriggerMode::EveryDroplet
+                  : run::TriggerMode::ClassBased,
+            value ? std::optional<QString>{}
+                  : std::optional<QString>{selectedHitClassId_},
+            physicalDaqOutputEnabled_};
+        if (!service_.updateActiveConfiguration(routing, &error)) {
+            errorMessage_ = error;
+            emit changed();
+            return;
+        }
+    }
     triggerEveryDroplet_ = value;
     updatePreflight();
     emit changed();
@@ -349,8 +365,23 @@ QString SequenceTestController::selectedHitClassId() const {
 
 void SequenceTestController::setSelectedHitClassId(const QString& value) {
     const QString id = value.trimmed();
-    if (operationActive() || selectedHitClassId_ == id)
+    if (selectedHitClassId_ == id)
         return;
+    if (operationActive()) {
+        if (presentation_ != QStringLiteral("running"))
+            return;
+        if (!triggerEveryDroplet_) {
+            QString error;
+            if (!service_.updateActiveConfiguration(
+                    {run::TriggerMode::ClassBased, id,
+                     physicalDaqOutputEnabled_},
+                    &error)) {
+                errorMessage_ = error;
+                emit changed();
+                return;
+            }
+        }
+    }
     selectedHitClassId_ = id;
     updatePreflight();
     emit changed();
@@ -361,8 +392,24 @@ bool SequenceTestController::physicalDaqOutputEnabled() const {
 }
 
 void SequenceTestController::setPhysicalDaqOutputEnabled(bool value) {
-    if (operationActive() || physicalDaqOutputEnabled_ == value)
+    if (physicalDaqOutputEnabled_ == value)
         return;
+    if (operationActive()) {
+        if (presentation_ != QStringLiteral("running"))
+            return;
+        QString error;
+        const run::RoutingSnapshot routing{
+            triggerEveryDroplet_ ? run::TriggerMode::EveryDroplet
+                                 : run::TriggerMode::ClassBased,
+            triggerEveryDroplet_ ? std::optional<QString>{}
+                                 : std::optional<QString>{selectedHitClassId_},
+            value};
+        if (!service_.updateActiveConfiguration(routing, &error)) {
+            errorMessage_ = error;
+            emit changed();
+            return;
+        }
+    }
     physicalDaqOutputEnabled_ = value;
     physicalDaqWarning_.clear();
     updatePreflight();
@@ -795,6 +842,10 @@ bool SequenceTestController::setDecisionBoundary(double xRatio, double yRatio) {
 void SequenceTestController::resetDecisionBoundary() {
     if (!decisionBoundaryDefined_)
         return;
+    if (presentation_ == QStringLiteral("running") &&
+        !service_.resetDecisionBoundary()) {
+        return;
+    }
     decisionBoundaryDefined_ = false;
     hitBoundary_.boundaryY = -1.0;
     updatePreflight();

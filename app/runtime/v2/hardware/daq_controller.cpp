@@ -27,6 +27,17 @@ QString statusText(DaqStatus status)
     return QStringLiteral("Unavailable");
 }
 
+bool activeSortingOwnsDaq(const OperationSnapshot &snapshot)
+{
+    return snapshot.kind &&
+           (*snapshot.kind == OperationKind::LiveSorting ||
+            *snapshot.kind == OperationKind::SequenceTest) &&
+           snapshot.locks.testFlag(ResourceLock::Daq) &&
+           (snapshot.lifecycle == OperationLifecycle::Starting ||
+            snapshot.lifecycle == OperationLifecycle::Running ||
+            snapshot.lifecycle == OperationLifecycle::Paused);
+}
+
 std::vector<DaqDeviceInfo> discover(std::string &error)
 {
     return discoverDaqDevices(error);
@@ -200,8 +211,9 @@ bool DaqController::canApply() const
     }
     if (applyThread_)
         return true;
-    return !actionInProgress_ && !service_.continuousActive()
-        && operations_.momentaryAvailable(ResourceLock::Daq);
+    return !actionInProgress_ && !service_.continuousActive() &&
+           (operations_.momentaryAvailable(ResourceLock::Daq) ||
+            activeSortingOwnsDaq(operations_.snapshot()));
 }
 
 bool DaqController::applyInProgress() const { return applyThread_ != nullptr; }
@@ -304,7 +316,8 @@ bool DaqController::apply()
     }
     if (actionInProgress_)
         return false;
-    if (!operations_.momentaryAvailable(ResourceLock::Daq)) {
+    if (!operations_.momentaryAvailable(ResourceLock::Daq) &&
+        !activeSortingOwnsDaq(operations_.snapshot())) {
         restoreAppliedSettings();
         setActionError(
             QStringLiteral("DAQ settings are locked by another operation."));
@@ -323,7 +336,7 @@ void DaqController::startApply(const DaqAppliedSettings &settings)
     setActionError({});
     applyThread_ = QThread::create([this, settings] {
         QString error;
-        const bool succeeded = service_.applySettings(settings, &error);
+        const bool succeeded = service_.applySettings(settings, &error, true);
         const QMutexLocker lock(&applyResultMutex_);
         applySucceeded_ = succeeded;
         applyError_ = std::move(error);

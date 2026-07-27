@@ -136,8 +136,14 @@ void testNoModelRoundTripAndStrictness() {
             "invalid save must not replace valid summary");
     existing.close();
     QJsonObject object = QJsonDocument::fromJson(before).object();
-    require(!object.contains(QStringLiteral("hit_boundary")),
-            "Run summary must not persist Decision Boundary coordinates.");
+    const QJsonObject hitBoundary =
+        object.value(QStringLiteral("hit_boundary")).toObject();
+    require(hitBoundary.size() == 1 &&
+                hitBoundary.value(QStringLiteral("top_is_hit")).isBool() &&
+                !hitBoundary.contains(QStringLiteral("boundary_x")) &&
+                !hitBoundary.contains(QStringLiteral("boundary_y")),
+            "Run summary must persist only Top/Bottom mapping, never "
+            "Decision Boundary coordinates.");
     require(object.value("counts").toObject().value("rejected").toInteger() == 1,
             "Results export omits the separate rejected fact");
     QJsonObject staleCounts = object.value("counts").toObject();

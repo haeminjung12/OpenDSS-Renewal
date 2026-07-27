@@ -37,6 +37,7 @@ struct PreparedModel {
 using ModelProvider = std::function<std::optional<PreparedModel>(QString*)>;
 using HitPulseCallback = std::function<run::DaqPulseStatus(bool, QString*)>;
 using DaqReadinessGate = std::function<bool(QString*)>;
+using DaqSettingsProvider = std::function<QJsonObject()>;
 
 struct LoadedSequenceFrame {
     qint64 sourceFrameIndex = 0;
@@ -88,11 +89,15 @@ public:
                         ModelLoadService* modelLoader,
                         ModelProvider modelProvider = {},
                         HitPulseCallback hitPulse = {},
-                        DaqReadinessGate daqReadinessGate = {});
+                        DaqReadinessGate daqReadinessGate = {},
+                        DaqSettingsProvider daqSettingsProvider = {});
 
     bool run(const SequenceTestRequest& request, QString* error = nullptr,
              QString* runFolder = nullptr);
+    bool updateActiveConfiguration(const run::RoutingSnapshot& routing,
+                                   QString* error = nullptr);
     bool updateDecisionBoundary(const run::HitBoundarySnapshot& boundary);
+    bool resetDecisionBoundary();
     void requestStop() noexcept;
 
 private:
@@ -102,6 +107,7 @@ private:
     ModelProvider modelProvider_;
     HitPulseCallback hitPulse_;
     DaqReadinessGate daqReadinessGate_;
+    DaqSettingsProvider daqSettingsProvider_;
     std::mutex controlMutex_;
     std::condition_variable stopChanged_;
     std::condition_variable pulseFinished_;
@@ -110,6 +116,10 @@ private:
     bool stopRequested_ = false;
     bool pulseInFlight_ = false;
     std::thread::id pulseThread_;
+    std::mutex configurationMutex_;
+    run::RoutingSnapshot currentRouting_;
+    QVector<QString> activeModelClassIds_;
+    bool configurationReady_ = false;
     std::mutex boundaryMutex_;
     run::HitBoundarySnapshot currentBoundary_;
 };

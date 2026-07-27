@@ -408,7 +408,9 @@ bool RunWriterV2::flush(QString* error) {
 bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
                            const QString& stopReason, double achievedProcessingFps,
                            QString* error,
-                           BeforeFinalSummaryPublish beforeFinalSummaryPublish) {
+                           BeforeFinalSummaryPublish beforeFinalSummaryPublish,
+                           std::optional<FinalConfigurationSnapshot>
+                               finalConfiguration) {
     if (error)
         error->clear();
     if (finalized_)
@@ -458,6 +460,11 @@ bool RunWriterV2::finalize(RunStatus status, const QString& endedAt,
     data_.endedAt = endedAt;
     data_.stopReason = stopReason;
     data_.achievedProcessingFps = achievedProcessingFps;
+    if (finalConfiguration) {
+        data_.routing = std::move(finalConfiguration->routing);
+        data_.daqSettings = std::move(finalConfiguration->daqSettings);
+        data_.hitBoundary.hitSide = finalConfiguration->hitSide;
+    }
     if (!RunManifestV2::savePartial(
             QDir(runFolder_).filePath(QStringLiteral("run_summary.partial.json")),
             data_, error)) {

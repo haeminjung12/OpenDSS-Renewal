@@ -198,14 +198,17 @@ void testDaqOutputReadinessAndPersistence() {
             });
         QString error;
         auto value = request(temporary.path());
+        require(!service.start(value, &error) && readinessChecks == 0,
+                "Live must reserve DAQ before Running so later enable remains safe");
+        held.lease.release();
         require(service.start(value, &error), qPrintable(error));
-        require(!operations.snapshot().locks.testFlag(ResourceLock::Daq),
-                "DAQ Output OFF must not acquire the DAQ lock");
+        require(operations.snapshot().locks.testFlag(ResourceLock::Daq),
+                "Live must retain DAQ ownership while active");
         require(service.stop(&error), qPrintable(error));
         value.daqOutputEnabled = true;
-        require(!service.start(value, &error) && readinessChecks == 0,
-                "DAQ Output ON must fail on the held DAQ lock before readiness");
-        held.lease.release();
+        require(service.start(value, &error) && readinessChecks == 1,
+                "DAQ Output ON must perform readiness after acquiring DAQ");
+        require(service.stop(&error), qPrintable(error));
     }
     {
         QTemporaryDir temporary;
@@ -530,6 +533,66 @@ void testClassBasedTwoAndThreeClass() {
                     pulses == 0,
                 "Waste Decision emits no pulse regardless of Observed Route Hit");
     }
+}
+
+void testFinalActiveConfigurationSnapshot() {
+    stage = "final active configuration snapshot";
+    QTemporaryDir temporary;
+    FakeDetector detector;
+    detector.results = {
+        detection(true, true, 6.0f),
+        detection(false, false, 0.0f),
+    };
+    OperationCoordinator operations;
+    QJsonObject finalDaq{
+        {QStringLiteral("frequency_hz"), 12345.0},
+        {QStringLiteral("duration_ms"), 7.0},
+        {QStringLiteral("delay_ms"), 2.0},
+    };
+    auto value = request(temporary.path());
+    value.triggerMode = run::TriggerMode::ClassBased;
+    value.hitClassId = QStringLiteral("c0");
+    value.useActiveModel = true;
+    value.daqOutputEnabled = false;
+    live::LiveSortingService service(
+        operations, detector, nullptr,
+        [](bool enabled, QString*) { return pulseStatus(enabled); },
+        [prepared = model(2, {0.1, 0.9})](QString*) mutable {
+            return std::optional<live::PreparedLiveModel>(std::move(prepared));
+        },
+        {}, {}, {},
+        [&] { return finalDaq; });
+
+    QString error;
+    require(service.start(value, &error), qPrintable(error));
+    offerAndWait(service, detector, 1, 1);
+    offerAndWait(service, detector, 2, 2);
+    require(waitFor([&] { return service.snapshot().persistedEvents == 1; }),
+            "persist first event under initial active configuration");
+    require(service.updateActiveConfiguration(
+                {run::TriggerMode::EveryDroplet, std::nullopt, false},
+                &error),
+            qPrintable(error));
+    require(service.updateDecisionBoundary(
+                {4.0, run::HitSide::NegativeY, 8, 8}),
+            "commit final Top-is-Hit mapping");
+    require(service.stop(&error), qPrintable(error));
+
+    const auto data = loadRun(temporary.path());
+    require(data.routing.triggerMode == run::TriggerMode::EveryDroplet &&
+                !data.routing.hitClassId &&
+                !data.routing.physicalDaqOutputEnabled,
+            "final routing is not the last successfully active routing");
+    require(data.daqSettings == finalDaq,
+            "final DAQ settings are not the last successfully applied values");
+    require(data.hitBoundary.hitSide == run::HitSide::NegativeY,
+            "final Top/Bottom mapping was not persisted");
+    require(data.events.size() == 1 &&
+                data.events.at(0).decision == run::Route::Waste,
+            "prior event was not preserved after final snapshot replacement");
+    require(data.events.at(0).effectiveConfigurationId ==
+                QStringLiteral("initial"),
+            "existing event configuration linkage changed");
 }
 
 void testPauseResumeSourceGapAndDuration() {
@@ -1880,6 +1943,7 @@ int main(int argc, char** argv) {
     testEveryDropletPulseRouteAndStopped();
     testRejectedEveryDropletSkipsCropInferenceRouteAndPulse();
     testClassBasedTwoAndThreeClass();
+    testFinalActiveConfigurationSnapshot();
     testPauseResumeSourceGapAndDuration();
     testBacklogCancellationAtPauseAndStop();
     testExternalCallbackQuiescence();

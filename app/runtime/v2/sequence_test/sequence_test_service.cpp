@@ -247,6 +247,7 @@ struct PendingEvent {
     run::RunEvent event;
     QByteArray cropBytes;
     std::optional<double> lastY;
+    run::RoutingSnapshot routing;
     bool decisionResolved = false;
     bool pulseFailed = false;
     QString pulseError;
@@ -275,13 +276,57 @@ SequenceTestService::SequenceTestService(OperationCoordinator& operations,
                                          ModelLoadService* modelLoader,
                                          ModelProvider modelProvider,
                                          HitPulseCallback hitPulse,
-                                         DaqReadinessGate daqReadinessGate)
+                                         DaqReadinessGate daqReadinessGate,
+                                         DaqSettingsProvider daqSettingsProvider)
     : operations_(operations),
       detector_(detector),
       modelLoader_(modelLoader),
       modelProvider_(std::move(modelProvider)),
       hitPulse_(std::move(hitPulse)),
-      daqReadinessGate_(std::move(daqReadinessGate)) {}
+      daqReadinessGate_(std::move(daqReadinessGate)),
+      daqSettingsProvider_(std::move(daqSettingsProvider)) {}
+
+bool SequenceTestService::updateActiveConfiguration(
+    const run::RoutingSnapshot& routing, QString* error) {
+    setError(error, {});
+    {
+        std::lock_guard lock(controlMutex_);
+        if (!running_) {
+            setError(error, QStringLiteral("Sequence Test is not running."));
+            return false;
+        }
+    }
+    std::lock_guard lock(configurationMutex_);
+    if (!configurationReady_) {
+        setError(error, QStringLiteral("Sequence Test is not running."));
+        return false;
+    }
+    if (routing.triggerMode == run::TriggerMode::ClassBased) {
+        if (!routing.hitClassId ||
+            !activeModelClassIds_.contains(*routing.hitClassId)) {
+            setError(error, QStringLiteral(
+                                "Class-Based Sorting requires a Hit Class "
+                                "from the Active Model."));
+            return false;
+        }
+    } else if (routing.hitClassId) {
+        setError(error, QStringLiteral(
+                            "Trigger Every Droplet does not use a Hit Class."));
+        return false;
+    }
+    if (routing.physicalDaqOutputEnabled) {
+        QString readinessError;
+        if (!hitPulse_ || !daqReadinessGate_ ||
+            !daqReadinessGate_(&readinessError)) {
+            setError(error, readinessError.isEmpty()
+                                ? QStringLiteral("DAQ is not ready.")
+                                : readinessError);
+            return false;
+        }
+    }
+    currentRouting_ = routing;
+    return true;
+}
 
 void SequenceTestService::requestStop() noexcept {
     std::unique_lock lock(controlMutex_);
@@ -313,6 +358,22 @@ bool SequenceTestService::updateDecisionBoundary(
     return true;
 }
 
+bool SequenceTestService::resetDecisionBoundary() {
+    {
+        std::lock_guard lock(controlMutex_);
+        if (!running_)
+            return false;
+    }
+    {
+        std::lock_guard lock(configurationMutex_);
+        if (!configurationReady_)
+            return false;
+    }
+    std::lock_guard lock(boundaryMutex_);
+    currentBoundary_.boundaryY = -1.0;
+    return true;
+}
+
 bool SequenceTestService::run(const SequenceTestRequest& request, QString* error,
                               QString* completedRunFolder) {
     if (completedRunFolder)
@@ -327,6 +388,11 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         running_ = true;
         acceptingStop_ = true;
         stopRequested_ = false;
+    }
+    {
+        std::lock_guard lock(configurationMutex_);
+        configurationReady_ = false;
+        activeModelClassIds_.clear();
     }
     {
         std::lock_guard lock(boundaryMutex_);
@@ -387,10 +453,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         return false;
     }
 
-    ResourceLocks locks =
-        ResourceLock::Sequence | ResourceLock::Run | ResourceLock::Storage;
-    if (request.physicalDaqOutputEnabled)
-        locks |= ResourceLock::Daq;
+    ResourceLocks locks = ResourceLock::Sequence | ResourceLock::Daq |
+                          ResourceLock::Run | ResourceLock::Storage;
     if (useModel)
         locks |= ResourceLock::Model;
     auto acquired = operations_.acquire(OperationKind::SequenceTest, locks);
@@ -479,6 +543,16 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
             return false;
         }
     }
+    {
+        std::lock_guard lock(configurationMutex_);
+        currentRouting_ = {request.triggerMode, request.hitClassId,
+                           request.physicalDaqOutputEnabled};
+        if (model) {
+            for (const auto& item : model->snapshot.classes)
+                activeModelClassIds_.push_back(item.id);
+        }
+        configurationReady_ = true;
+    }
 
     const QString runFolder = uniqueRunFolder(request.outputRoot, request.runName);
     if (completedRunFolder)
@@ -542,8 +616,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         if (!pending || pending->decisionResolved)
             return true;
         const auto decision = decision::DecisionService::decide(
-            request.triggerMode, pending->event.predictedClassId,
-            request.hitClassId, &localError);
+            pending->routing.triggerMode, pending->event.predictedClassId,
+            pending->routing.hitClassId, &localError);
         if (!decision)
             return false;
         pending->event.decision = *decision;
@@ -551,7 +625,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
 
         if (pending->event.decision == run::Route::Waste) {
             pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
-        } else if (!request.physicalDaqOutputEnabled) {
+        } else if (!pending->routing.physicalDaqOutputEnabled) {
             pending->event.daqPulseStatus =
                 run::DaqPulseStatus::SuppressedNotIssued;
         } else {
@@ -711,6 +785,10 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                 break;
             }
             pending.emplace();
+            {
+                std::lock_guard lock(configurationMutex_);
+                pending->routing = currentRouting_;
+            }
             pending->event.eventId = eventId;
             pending->event.detectionTimestamp = detectionTimestamp;
             pending->event.sourceFrameIndex = frameIndex;
@@ -789,12 +867,34 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                          << "processed" << processedFrames
                          << "total" << sequenceData.frameCount;
 
+    run::FinalConfigurationSnapshot finalConfiguration;
+    {
+        std::lock_guard lock(configurationMutex_);
+        finalConfiguration.routing = currentRouting_;
+    }
+    {
+        std::lock_guard lock(boundaryMutex_);
+        finalConfiguration.hitSide = currentBoundary_.hitSide;
+    }
+    try {
+        finalConfiguration.daqSettings =
+            daqSettingsProvider_ ? daqSettingsProvider_()
+                                 : request.daqSettings;
+    } catch (...) {
+        localError =
+            QStringLiteral("Could not read the final active DAQ settings.");
+        processingOk = false;
+        failureReason = QStringLiteral("final_configuration_failed");
+        finalConfiguration.daqSettings = request.daqSettings;
+    }
+
     if (!processingOk || (!stopped && processedFrames == 0)) {
         if (localError.isEmpty())
             localError = QStringLiteral("The Sequence contained no readable frames.");
         writer->finalize(run::RunStatus::Failed,
                           QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
-                          failureReason, lastProgressAchievedFps, nullptr);
+                          failureReason, lastProgressAchievedFps, nullptr, {},
+                          finalConfiguration);
         lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
         return false;
@@ -805,7 +905,8 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         stopped ? QStringLiteral("user") : QStringLiteral("end_of_sequence");
     if (!writer->finalize(finalStatus,
                           QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
-                          stopReason, lastProgressAchievedFps, &localError)) {
+                          stopReason, lastProgressAchievedFps, &localError, {},
+                          finalConfiguration)) {
         lease.transition(OperationLifecycle::Failed);
         setError(error, localError);
         return false;

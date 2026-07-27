@@ -332,10 +332,12 @@ int main(int argc, char *argv[])
 
     desktop_app::v2::live::LiveSortingService liveSortingService(
         operationCoordinator, fastDetector, &modelLoadService, hitPulse, {}, {},
-        {}, daqReadiness);
+        {}, daqReadiness,
+        [&daqService] { return daqService.settingsSnapshot(); });
     desktop_app::v2::sequence_test::SequenceTestService sequenceTestService(
         operationCoordinator, fastDetector, &modelLoadService, {}, hitPulse,
-        daqReadiness);
+        daqReadiness,
+        [&daqService] { return daqService.settingsSnapshot(); });
 
     desktop_app::v2::live::LiveSortingController liveSortingController(
         liveSortingService, cameraController,

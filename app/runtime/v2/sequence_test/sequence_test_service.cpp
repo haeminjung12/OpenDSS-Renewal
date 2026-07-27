@@ -530,7 +530,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
 
         bool pulseFailed = false;
         QString pulseError;
-        if (*decision == run::Route::Waste) {
+        if (pending->event.observedRoute == run::Route::Waste) {
             pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
         } else if (pending->event.observedRoute == run::Route::Unresolved ||
                    !request.physicalDaqOutputEnabled) {

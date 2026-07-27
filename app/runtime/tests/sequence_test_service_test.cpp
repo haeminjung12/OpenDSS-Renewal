@@ -300,7 +300,7 @@ void daqOffRequiresNoReadinessOrOwnership() {
     require(QDir().mkpath(output), "Could not create DAQ-off output.");
     const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
     FakeDetector detector;
-    detector.results = {detection(true, true, 2.0f),
+    detector.results = {detection(true, true, 6.0f),
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
     auto heldDaq = operations.acquireMomentary(ResourceLock::Daq);
@@ -401,7 +401,7 @@ void daqHitMissAndSuppressionStatuses() {
     require(QDir().mkpath(issuedOutput), "Could not create issued output.");
     const QString issuedManifest = makeSequence(issuedSequence, 2, {1, 2});
     FakeDetector issuedDetector;
-    issuedDetector.results = {detection(true, true, 2.0f),
+    issuedDetector.results = {detection(true, true, 6.0f),
                               detection(false, false, 0.0f)};
     OperationCoordinator issuedOperations;
     int issuedCalls = 0;
@@ -436,7 +436,7 @@ void daqHitMissAndSuppressionStatuses() {
     require(QDir().mkpath(missOutput), "Could not create miss output.");
     const QString missManifest = makeSequence(missSequence, 2, {1, 2});
     FakeDetector missDetector;
-    missDetector.results = {detection(true, true, 2.0f),
+    missDetector.results = {detection(true, true, 6.0f),
                             detection(false, false, 0.0f)};
     sequence_test::ModelProvider missModel = [](QString*) {
         sequence_test::PreparedModel model;
@@ -467,11 +467,43 @@ void daqHitMissAndSuppressionStatuses() {
     missRequest.physicalDaqOutputEnabled = true;
     require(missService.run(missRequest, &error), qPrintable(error));
     const auto missData = loadRun(missOutput);
-    require(missPulseCalls == 0 && missData.events.size() == 1 &&
+    require(missPulseCalls == 1 && missData.events.size() == 1 &&
                 missData.events.at(0).decision == run::Route::Waste &&
+                missData.events.at(0).observedRoute == run::Route::Hit &&
                 missData.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::Issued,
+            "A finalized Hit route did not issue output independently of Decision.");
+
+    QTemporaryDir wasteTemporary;
+    const QString wasteSequence =
+        QDir(wasteTemporary.path()).filePath("sequence");
+    const QString wasteOutput =
+        QDir(wasteTemporary.path()).filePath("runs");
+    require(QDir().mkpath(wasteOutput), "Could not create Waste-route output.");
+    const QString wasteManifest =
+        makeSequence(wasteSequence, 2, {1, 2});
+    FakeDetector wasteDetector;
+    wasteDetector.results = {detection(true, true, 2.0f),
+                             detection(false, false, 0.0f)};
+    OperationCoordinator wasteOperations;
+    int wastePulseCalls = 0;
+    sequence_test::SequenceTestService wasteService(
+        wasteOperations, wasteDetector, nullptr, {},
+        [&](bool, QString*) {
+            ++wastePulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [](QString*) { return true; });
+    auto wasteRequest = request(wasteManifest, wasteOutput);
+    wasteRequest.physicalDaqOutputEnabled = true;
+    require(wasteService.run(wasteRequest, &error), qPrintable(error));
+    const auto wasteData = loadRun(wasteOutput);
+    require(wastePulseCalls == 0 && wasteData.events.size() == 1 &&
+                wasteData.events.at(0).decision == run::Route::Hit &&
+                wasteData.events.at(0).observedRoute == run::Route::Waste &&
+                wasteData.events.at(0).daqPulseStatus ==
                     run::DaqPulseStatus::NotRequested,
-            "A Waste decision issued DAQ output or persisted the wrong status.");
+            "A finalized Waste route requested output or lost Decision facts.");
 
     QTemporaryDir equalityTemporary;
     const QString equalitySequence =
@@ -514,7 +546,7 @@ void daqHitMissAndSuppressionStatuses() {
     const QString suppressedManifest =
         makeSequence(suppressedSequence, 2, {1, 2});
     FakeDetector suppressedDetector;
-    suppressedDetector.results = {detection(true, true, 2.0f),
+    suppressedDetector.results = {detection(true, true, 6.0f),
                                   detection(false, false, 0.0f)};
     OperationCoordinator suppressedOperations;
     int suppressedCalls = 0;
@@ -553,7 +585,7 @@ void daqFailureStopsTruthfully() {
     require(QDir().mkpath(output), "Could not create DAQ-failure output.");
     const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
     FakeDetector detector;
-    detector.results = {detection(true, true, 2.0f),
+    detector.results = {detection(true, true, 6.0f),
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
     int pulseCalls = 0;
@@ -591,7 +623,7 @@ void daqStopPreventsOutputAndReleases() {
     require(QDir().mkpath(output), "Could not create DAQ-stop output.");
     const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
     FakeDetector detector;
-    detector.results = {detection(true, true, 2.0f),
+    detector.results = {detection(true, true, 6.0f),
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
     std::mutex mutex;
@@ -708,7 +740,7 @@ void stopBeforePulseDispatchPreventsCallback() {
     require(QDir().mkpath(output), "Could not create pre-dispatch-stop output.");
     const QString manifest = makeSequence(sequenceRoot, 2, {1, 2});
     FakeDetector detector;
-    detector.results = {detection(true, true, 2.0f),
+    detector.results = {detection(true, true, 6.0f),
                         detection(false, false, 0.0f)};
     std::mutex mutex;
     std::condition_variable classifyEnteredCondition;

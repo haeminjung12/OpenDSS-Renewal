@@ -13,7 +13,10 @@ Rectangle {
     property string datasetText: qsTr("No Dataset selected")
     property string deviceText: qsTr("CPU (automatic)")
     property string disabledReason: qsTr("No dataset selected")
-    property string modelNameText: ""
+    property var libraryModelOptions: []
+    property string selectedLibraryModelName: ""
+    property string selectedLibraryModelArchitecture: ""
+    property string selectedLibraryModelStartingWeights: ""
     property string saveLocationText: ""
     property string resultPath: qsTr("C:/OpenDSS/Models/DropletNet-04.opendssmodel")
     property string modelOnnxPath: ""
@@ -44,16 +47,16 @@ Rectangle {
     property bool trainingSetupExpanded: true
     property bool trainingStatusExpanded: true
     property alias selectDatasetButton: selectDatasetButton
-    property alias modelNameField: modelNameField
+    property alias libraryModelSelector: libraryModelSelector
+    property alias libraryModelNameText: libraryModelNameText
+    property alias libraryModelArchitectureText: libraryModelArchitectureText
+    property alias libraryModelStartingWeightsText: libraryModelStartingWeightsText
     property alias saveLocationField: saveLocationField
     property alias browseButton: browseButton
     property alias startButton: startButton
     property alias stopButton: stopButton
     property alias retrySaveButton: retrySaveButton
     property alias openInModelTestButton: openInModelTestButton
-    property alias architectureSelector: architectureSelector
-    property alias weightsSelector: weightsSelector
-    property alias loadWeightsButton: loadWeightsButton
     property alias trainingDeviceSelector: trainingDeviceSelector
     property alias datasetClassesPlaceholder: datasetClassesPlaceholder
     property alias eligibleCropsPlaceholder: eligibleCropsPlaceholder
@@ -244,106 +247,37 @@ Rectangle {
                             anchors.right: parent.right
                             anchors.margins: Constants.spacing
                             spacing: Constants.spacing
+                            Text { text: qsTr("Library Model"); font: Constants.appLabelFont }
+                            AppComboBox {
+                                id: libraryModelSelector
+                                width: parent.width
+                                height: Constants.appStandardControlHeight
+                                model: root.libraryModelOptions
+                            }
+                            Text { text: qsTr("Name"); font: Constants.appLabelFont }
+                            Text {
+                                id: libraryModelNameText
+                                text: root.selectedLibraryModelName
+                                color: Constants.mutedTextColor
+                                wrapMode: Text.WordWrap
+                                width: parent.width
+                            }
                             Text { text: qsTr("Architecture"); font: Constants.appLabelFont }
-                            AppComboBox {
-                                id: architectureSelector
+                            Text {
+                                id: libraryModelArchitectureText
+                                text: root.selectedLibraryModelArchitecture
+                                color: Constants.mutedTextColor
+                                wrapMode: Text.WordWrap
                                 width: parent.width
-                                height: Constants.appStandardControlHeight
-                                enabled: true
-                                model: [qsTr("MobileNet"), qsTr("EfficientNet")]
-                                contentItem: Item {
-                                    Text {
-                                        id: selectedArchitectureName
-                                        text: architectureSelector.currentText
-                                        color: Constants.appPrimaryTextColor
-                                        font: Constants.appBodyFont
-                                        anchors.left: parent.left
-                                        anchors.verticalCenter: parent.verticalCenter
-                                    }
-                                    Text {
-                                        text: architectureSelector.currentIndex === 0 ? qsTr("— Faster") : qsTr("— More Accurate")
-                                        color: Constants.appSecondaryTextColor
-                                        font: Constants.appCaptionFont
-                                        anchors.left: selectedArchitectureName.right
-                                        anchors.leftMargin: Constants.spacing
-                                        anchors.right: parent.right
-                                        anchors.rightMargin: Constants.appControlHorizontalPadding * 2
-                                        anchors.verticalCenter: parent.verticalCenter
-                                        elide: Text.ElideRight
-                                    }
-                                }
-                                delegate: ItemDelegate {
-                                    id: architectureOptionDelegate
-                                    required property int index
-                                    required property string modelData
-                                    width: architectureSelector.width
-                                    height: Constants.appStandardControlHeight
-                                    highlighted: architectureSelector.highlightedIndex === index
-                                    hoverEnabled: true
-                                    contentItem: Item {
-                                        Text {
-                                            id: architectureOptionName
-                                            text: architectureOptionDelegate.modelData
-                                            color: Constants.appPrimaryTextColor
-                                            font: Constants.appBodyFont
-                                            anchors.left: parent.left
-                                            anchors.verticalCenter: parent.verticalCenter
-                                        }
-                                        Text {
-                                            text: architectureOptionDelegate.index === 0 ? qsTr("— Faster") : qsTr("— More Accurate")
-                                            color: Constants.appSecondaryTextColor
-                                            font: Constants.appCaptionFont
-                                            anchors.left: architectureOptionName.right
-                                            anchors.leftMargin: Constants.spacing
-                                            anchors.right: parent.right
-                                            anchors.verticalCenter: parent.verticalCenter
-                                            elide: Text.ElideRight
-                                        }
-                                    }
-                                    background: Rectangle {
-                                        color: architectureOptionDelegate.index === architectureSelector.currentIndex || architectureOptionDelegate.hovered || architectureOptionDelegate.highlighted ? Constants.appHoverColor : Constants.appSurfaceColor
-                                        border.color: Constants.appBorderSubtleColor
-                                    }
-                                }
                             }
-                            Text { text: qsTr("Weights"); font: Constants.appLabelFont }
-                            AppComboBox {
-                                id: weightsSelector
+                            Text { text: qsTr("Starting Weights"); font: Constants.appLabelFont }
+                            Text {
+                                id: libraryModelStartingWeightsText
+                                text: root.selectedLibraryModelStartingWeights
+                                color: Constants.mutedTextColor
+                                wrapMode: Text.WordWrap
                                 width: parent.width
-                                height: Constants.appStandardControlHeight
-                                enabled: true
-                                model: [qsTr("ImageNet-pretrained"), qsTr("OpenDSS droplet checkpoint — bundled"), qsTr("OpenDSS droplet checkpoint — user-added")]
-                                contentItem: Text {
-                                    text: weightsSelector.currentText
-                                    color: Constants.appPrimaryTextColor
-                                    font: Constants.appBodyFont
-                                    verticalAlignment: Text.AlignVCenter
-                                    elide: Text.ElideRight
-                                    leftPadding: Constants.spacing
-                                    rightPadding: Constants.appControlHorizontalPadding * 2
-                                }
-                                delegate: ItemDelegate {
-                                    id: weightsOptionDelegate
-                                    required property int index
-                                    required property string modelData
-                                    width: weightsSelector.width
-                                    height: Constants.appStandardControlHeight
-                                    highlighted: weightsSelector.highlightedIndex === index
-                                    hoverEnabled: true
-                                    contentItem: Text {
-                                        text: weightsOptionDelegate.modelData
-                                        color: Constants.appPrimaryTextColor
-                                        font: Constants.appBodyFont
-                                        verticalAlignment: Text.AlignVCenter
-                                        elide: Text.ElideRight
-                                    }
-                                    background: Rectangle {
-                                        color: weightsOptionDelegate.index === weightsSelector.currentIndex || weightsOptionDelegate.hovered || weightsOptionDelegate.highlighted ? Constants.appHoverColor : Constants.appSurfaceColor
-                                        border.color: Constants.appBorderSubtleColor
-                                    }
-                                }
                             }
-                            AppButton { id: loadWeightsButton; text: qsTr("Load Weights"); width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Compute Device"); font: Constants.appLabelFont }
                             AppComboBox {
                                 id: trainingDeviceSelector
@@ -353,9 +287,13 @@ Rectangle {
                                 model: [qsTr("GPU"), qsTr("CPU")]
                                 currentIndex: 0
                             }
-                            Text { text: qsTr("Model Name"); font: Constants.appLabelFont }
-                            AppTextField { id: modelNameField; text: root.modelNameText; height: Constants.appStandardControlHeight; width: parent.width }
-                            Text { text: qsTr("Save Location"); font: Constants.appLabelFont }
+                            Text {
+                                text: qsTr("Training uses a qualified configuration. Split: 70% Training, 15% Validation, 15% Internal Test. Seed: 1729.")
+                                color: Constants.mutedTextColor
+                                wrapMode: Text.WordWrap
+                                width: parent.width
+                            }
+                            Text { text: qsTr("Output Location"); font: Constants.appLabelFont }
                             Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: saveLocationField; text: root.saveLocationText; height: Constants.appStandardControlHeight; width: parent.width - browseButton.width - Constants.spacing } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }
                             AppButton { id: startButton; text: qsTr("Start Training"); visualRole: "primary"; enabled: root.startEnabled; height: Constants.appPrimaryButtonHeight; width: parent.width }
                         }

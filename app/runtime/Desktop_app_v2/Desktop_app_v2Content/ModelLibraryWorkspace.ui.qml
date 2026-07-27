@@ -27,18 +27,30 @@ Rectangle {
     property string selectedModelCreationDate: ""
     property string selectedModelPackageLocation: ""
     property string selectedModelTrainingMetrics: ""
+    property var addModelStartingWeightsOptions: []
+    property string addModelValidationMessage: ""
+    property bool addModelConfirmEnabled: false
     property alias modelListView: modelListView
     property alias modelRowButtonGroup: modelRowButtonGroup
     property alias productionModelRowButton: productionModelRowButton
     property alias activeModelRowButton: productionModelRowButton
     property alias candidateModelRowButton: candidateModelRowButton
+    property alias addModelButton: addModelButton
     property alias importButton: importButton
+    property alias removeModelButton: deleteButton
     property alias setActiveButton: setActiveButton
     property alias openInModelTestButton: openInModelTestButton
     property alias exportButton: exportButton
     property alias duplicateButton: duplicateButton
     property alias renameButton: renameButton
     property alias deleteButton: deleteButton
+    property alias addModelPopup: addModelPopup
+    property alias addModelNameField: addModelNameField
+    property alias addModelArchitectureSelector: addModelArchitectureSelector
+    property alias addModelStartingWeightsSelector: addModelStartingWeightsSelector
+    property alias addModelValidationText: addModelValidationText
+    property alias addModelConfirmButton: addModelConfirmButton
+    property alias addModelCancelButton: addModelCancelButton
     property alias selectedModelHeadingButton: selectedModelSection.headingButton
     property alias rightPanelToggleButton: rightPanelToggleButton
 
@@ -81,7 +93,15 @@ Rectangle {
                 height: implicitHeight
                 spacing: Constants.spacing
                 Text { text: qsTr("Models"); font: Constants.headingFont }
-                AppButton { id: importButton; text: qsTr("Import Model"); visualRole: "primary"; height: Constants.appPrimaryButtonHeight }
+                Flow {
+                    width: parent.width
+                    height: implicitHeight
+                    spacing: Constants.spacing
+
+                    AppButton { id: addModelButton; text: qsTr("Add Model"); visualRole: "primary"; height: Constants.appPrimaryButtonHeight }
+                    AppButton { id: importButton; text: qsTr("Import Model"); height: Constants.appStandardControlHeight }
+                    AppButton { id: deleteButton; text: qsTr("Remove Model"); visualRole: "destructive"; enabled: root.hasSelection && !root.selectedActive && !root.modelLocked; height: Constants.appStandardControlHeight }
+                }
                 Column {
                     id: modelList
                     visible: root.presentation !== "empty"
@@ -239,10 +259,62 @@ Rectangle {
                             Text { visible: root.modelLocked; text: qsTr("Model is in use by Model Test"); color: Constants.warningColor; wrapMode: Text.WordWrap; width: parent.width }
                             AppButton { id: setActiveButton; visible: root.hasSelection; text: qsTr("Set Active"); visualRole: "primary"; enabled: !root.selectedActive && !root.modelLocked; height: Constants.appPrimaryButtonHeight }
                             AppButton { id: openInModelTestButton; visible: root.hasSelection; text: qsTr("Open in Model Test"); height: Constants.appStandardControlHeight }
-                            Flow { visible: root.hasSelection; width: parent.width; height: implicitHeight; spacing: Constants.spacing; AppButton { id: exportButton; text: qsTr("Export"); height: Constants.appStandardControlHeight } AppButton { id: duplicateButton; text: qsTr("Duplicate"); height: Constants.appStandardControlHeight } AppButton { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.appStandardControlHeight } AppButton { id: deleteButton; text: qsTr("Delete"); visualRole: "destructive"; enabled: !root.selectedActive && !root.modelLocked; height: Constants.appStandardControlHeight } }
+                            Flow { visible: root.hasSelection; width: parent.width; height: implicitHeight; spacing: Constants.spacing; AppButton { id: exportButton; text: qsTr("Export"); height: Constants.appStandardControlHeight } AppButton { id: duplicateButton; text: qsTr("Duplicate"); height: Constants.appStandardControlHeight } AppButton { id: renameButton; text: qsTr("Rename"); enabled: !root.selectedActive && !root.modelLocked; height: Constants.appStandardControlHeight } }
                         }
                     }
                 }
+            }
+        }
+    }
+
+    Popup {
+        id: addModelPopup
+        anchors.centerIn: parent
+        width: Math.min(480, root.width - Constants.workspaceMargin * 2)
+        height: addModelPopupContent.implicitHeight + padding * 2
+        padding: Constants.spacing * 2
+        modal: true
+        focus: true
+        closePolicy: Popup.NoAutoClose
+
+        background: Rectangle {
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+        }
+
+        contentItem: Column {
+            id: addModelPopupContent
+            spacing: Constants.spacing
+
+            Text { text: qsTr("Add Model"); font: Constants.largeFont; color: Constants.textColor }
+            Text { text: qsTr("Name"); font: Constants.appLabelFont }
+            AppTextField { id: addModelNameField; width: parent.width; height: Constants.appStandardControlHeight }
+            Text { text: qsTr("Architecture"); font: Constants.appLabelFont }
+            AppComboBox {
+                id: addModelArchitectureSelector
+                width: parent.width
+                height: Constants.appStandardControlHeight
+                model: [qsTr("MobileNetV3-Small"), qsTr("EfficientNet-B0")]
+            }
+            Text { text: qsTr("Starting Weights"); font: Constants.appLabelFont }
+            AppComboBox {
+                id: addModelStartingWeightsSelector
+                width: parent.width
+                height: Constants.appStandardControlHeight
+                model: root.addModelStartingWeightsOptions
+            }
+            Text {
+                id: addModelValidationText
+                text: root.addModelValidationMessage
+                color: Constants.warningColor
+                wrapMode: Text.WordWrap
+                width: parent.width
+            }
+            Row {
+                spacing: Constants.spacing
+
+                AppButton { id: addModelConfirmButton; text: qsTr("Add Model"); visualRole: "primary"; enabled: root.addModelConfirmEnabled; height: Constants.appPrimaryButtonHeight }
+                AppButton { id: addModelCancelButton; text: qsTr("Cancel"); height: Constants.appStandardControlHeight }
             }
         }
     }

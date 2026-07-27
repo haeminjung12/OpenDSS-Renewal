@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: LicenseRef-Qt-Commercial OR GPL-3.0-only
 
 #include <QApplication>
+#include <QAbstractNativeEventFilter>
 #include <QDesktopServices>
 #include <QDir>
 #include <QEventLoop>
@@ -59,6 +60,48 @@
 #include "../../v2/training/training_controller.h"
 
 namespace {
+
+#ifdef Q_OS_WIN
+class RestoredMinimumNativeEventFilter final : public QAbstractNativeEventFilter
+{
+public:
+    explicit RestoredMinimumNativeEventFilter(HWND window)
+        : window_(window)
+    {
+    }
+
+    bool nativeEventFilter(const QByteArray &, void *message, qintptr *) override
+    {
+        auto *nativeMessage = static_cast<MSG *>(message);
+        if (!nativeMessage || nativeMessage->hwnd != window_)
+            return false;
+
+        if (nativeMessage->message == WM_GETMINMAXINFO) {
+            auto *limits = reinterpret_cast<MINMAXINFO *>(nativeMessage->lParam);
+            limits->ptMinTrackSize.x = qMax<LONG>(limits->ptMinTrackSize.x, 1600);
+            limits->ptMinTrackSize.y = qMax<LONG>(limits->ptMinTrackSize.y, 900);
+        } else if (nativeMessage->message == WM_WINDOWPOSCHANGING) {
+            auto *position = reinterpret_cast<WINDOWPOS *>(nativeMessage->lParam);
+            WINDOWPLACEMENT placement{};
+            placement.length = sizeof(placement);
+            const bool minimizing =
+                IsIconic(window_) ||
+                (GetWindowPlacement(window_, &placement) &&
+                 (placement.showCmd == SW_SHOWMINIMIZED ||
+                  placement.showCmd == SW_SHOWMINNOACTIVE ||
+                  placement.showCmd == SW_FORCEMINIMIZE));
+            if (!(position->flags & SWP_NOSIZE) && !minimizing) {
+                position->cx = qMax(position->cx, 1600);
+                position->cy = qMax(position->cy, 900);
+            }
+        }
+        return false;
+    }
+
+private:
+    HWND window_ = nullptr;
+};
+#endif
 
 QString trainingWorkingDirectory()
 {
@@ -496,28 +539,27 @@ int main(int argc, char *argv[])
                                   {QStringLiteral("sequenceTestController"), QVariant::fromValue(&sequenceTestController)}});
     engine.load(url);
 
+#ifdef Q_OS_WIN
+    std::unique_ptr<RestoredMinimumNativeEventFilter> restoredMinimumFilter;
+#endif
     if (!engine.rootObjects().isEmpty()) {
         if (auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst())) {
-            const auto enforceRestoredMinimum = [window]() {
-                if (window->visibility() != QWindow::Windowed)
-                    return;
-                const QSize clampedSize(qMax(window->width(), 1600),
-                                        qMax(window->height(), 900));
-                if (window->size() != clampedSize)
-                    window->resize(clampedSize);
-            };
-            QObject::connect(window, &QWindow::widthChanged, window,
-                             enforceRestoredMinimum);
-            QObject::connect(window, &QWindow::heightChanged, window,
-                             enforceRestoredMinimum);
-            QObject::connect(window, &QWindow::visibilityChanged, window,
-                             enforceRestoredMinimum);
             window->setMinimumSize(QSize(1600, 900));
+#ifdef Q_OS_WIN
+            restoredMinimumFilter =
+                std::make_unique<RestoredMinimumNativeEventFilter>(
+                    reinterpret_cast<HWND>(window->winId()));
+            app.installNativeEventFilter(restoredMinimumFilter.get());
+#endif
             QTimer::singleShot(0, window, &QWindow::showMaximized);
         }
     }
 
     const int exitCode = engine.rootObjects().isEmpty() ? -1 : app.exec();
+#ifdef Q_OS_WIN
+    if (restoredMinimumFilter)
+        app.removeNativeEventFilter(restoredMinimumFilter.get());
+#endif
 
     auto waitForCameraCommand = [&cameraController]() {
         if (!cameraController.busy())

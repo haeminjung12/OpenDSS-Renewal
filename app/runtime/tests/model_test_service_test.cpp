@@ -15,6 +15,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
+#include <QTextStream>
 
 #include <atomic>
 #include <condition_variable>
@@ -161,9 +162,78 @@ QString copyBundledModelPackage(const QString& parent) {
     require(QFile::copy(source.filePath("metadata.json"),
                         destination.filePath("metadata.json")) &&
                 QFile::copy(source.filePath("model.onnx"),
-                            destination.filePath("model.onnx")),
+                            destination.filePath("model.onnx")) &&
+                QFile::copy(source.filePath("model.onnx"),
+                            destination.filePath("checkpoint.pth")),
             "copy bundled model package");
     return packagePath;
+}
+
+int runFakeModelTestProcess(const QStringList& arguments) {
+    QTextStream input(stdin);
+    QTextStream output(stdout);
+    const int checkpointOption = arguments.indexOf("--checkpoint");
+    if (checkpointOption < 0 || checkpointOption + 1 >= arguments.size())
+        return 2;
+    const QJsonObject request =
+        QJsonDocument::fromJson(input.readLine().toUtf8()).object();
+    const QJsonArray items = request.value("items").toArray();
+    output << QJsonDocument(
+                  QJsonObject{{"schema_version", 1},
+                              {"event", "ready"},
+                              {"checkpoint_sha256",
+                               sha(arguments.at(checkpointOption + 1))},
+                              {"device", "cpu"},
+                              {"total", items.size()}})
+                  .toJson(QJsonDocument::Compact)
+           << Qt::endl;
+    if (QJsonDocument::fromJson(input.readLine().toUtf8())
+            .object()
+            .value("command")
+            .toString() != "start") {
+        return 3;
+    }
+
+    qint64 processed = 0;
+    bool stopped = false;
+    for (qsizetype index = 0; index < items.size() && !stopped; ++index) {
+        const QJsonObject item = items.at(index).toObject();
+        output << QJsonDocument(
+                      QJsonObject{
+                          {"schema_version", 1},
+                          {"event", "batch_ready"},
+                          {"batch_index", index},
+                          {"facts",
+                           QJsonArray{QJsonObject{
+                               {"sequence", item.value("sequence")},
+                               {"record_id", item.value("record_id")},
+                               {"image_path", item.value("image_path")},
+                               {"true_class_id", item.value("true_class_id")},
+                               {"predicted_class_id", QString::number(index)},
+                               {"class_scores",
+                                index == 0
+                                    ? QJsonArray{0.9, 0.05, 0.05}
+                                    : QJsonArray{0.05, 0.9, 0.05}}}}}})
+                      .toJson(QJsonDocument::Compact)
+               << Qt::endl;
+        const QJsonObject acknowledgement =
+            QJsonDocument::fromJson(input.readLine().toUtf8()).object();
+        if (acknowledgement.value("command").toString() != "committed" ||
+            acknowledgement.value("batch_index").toInteger(-1) != index) {
+            return 4;
+        }
+        ++processed;
+        stopped = acknowledgement.value("stop").toBool();
+    }
+    output << QJsonDocument(
+                  QJsonObject{{"schema_version", 1},
+                              {"event", "run_finished"},
+                              {"status", stopped ? "stopped" : "completed"},
+                              {"processed", processed},
+                              {"total", items.size()}})
+                  .toJson(QJsonDocument::Compact)
+           << Qt::endl;
+    return 0;
 }
 
 PreparedModelTestModel prepared(
@@ -172,7 +242,7 @@ PreparedModelTestModel prepared(
     PreparedModelTestModel model;
     model.snapshot.id = "active-entry";
     model.snapshot.name = "Active Model";
-    model.snapshot.onnxSha256 = QString(64, 'a');
+    model.snapshot.checkpointSha256 = QString(64, 'a');
     model.snapshot.metadataSha256 = QString(64, 'b');
     model.snapshot.classes = {{"red-internal", "Model Red"},
                               {"blue-internal", "Model Blue"}};
@@ -223,23 +293,15 @@ void testCompletedAndClassCountOnly() {
             "source Dataset unchanged");
 }
 
-void testProductionActiveModelLoader() {
-    stage = "production-loader";
+void testCheckpointProvenanceMigration() {
+    stage = "checkpoint-provenance";
     QTemporaryDir temporary;
-    const auto fixture =
-        makeDataset(temporary.path(), true, false, 3);
     const QString packagePath = copyBundledModelPackage(temporary.path());
+    const QString metadataPath = QDir(packagePath).filePath("metadata.json");
+    const QString checkpointPath = QDir(packagePath).filePath("checkpoint.pth");
     const QString registryPath =
         QDir(temporary.path()).filePath("registry/model_registry.json");
     const QString registryName = "Registry Display Name";
-    const QString metadataName =
-        QJsonDocument::fromJson(
-            bytes(QDir(packagePath).filePath("metadata.json")))
-            .object()
-            .value("model_name")
-            .toString();
-    require(!metadataName.isEmpty() && metadataName != registryName,
-            "registry and metadata names differ for stale-name regression");
     writeJson(
         registryPath,
         QJsonObject{
@@ -249,39 +311,102 @@ void testProductionActiveModelLoader() {
                                     {"display_name", registryName},
                                     {"package_path",
                                      QDir::cleanPath(packagePath)},
+                                     {"active", true}}}}});
+
+    ModelLoadService loader(registryPath);
+    const QJsonObject before =
+        QJsonDocument::fromJson(bytes(metadataPath)).object();
+    require(!before.value("artifact")
+                 .toObject()
+                 .contains("checkpoint_sha256"),
+            "legacy metadata starts without checkpoint SHA");
+    const auto migrated = loader.inspectAndMigratePersistedActiveCheckpoint();
+    require(migrated.loadable && migrated.id == "real-active" &&
+                migrated.displayName == registryName &&
+                migrated.checkpointSha256 == sha(checkpointPath) &&
+                migrated.metadataSha256 == sha(metadataPath),
+            qPrintable(migrated.error));
+    QJsonObject expected = before;
+    QJsonObject expectedArtifact = expected.value("artifact").toObject();
+    expectedArtifact.insert("checkpoint_sha256", sha(checkpointPath));
+    expected.insert("artifact", expectedArtifact);
+    const QJsonObject after =
+        QJsonDocument::fromJson(bytes(metadataPath)).object();
+    require(after == expected,
+            "legacy migration changes exactly checkpoint_sha256");
+
+    const QByteArray migratedBytes = bytes(metadataPath);
+    const auto repeated = loader.inspectAndMigratePersistedActiveCheckpoint();
+    require(repeated.loadable && bytes(metadataPath) == migratedBytes,
+            "trusted provenance is stable after migration");
+
+    QJsonObject mismatch = after;
+    QJsonObject mismatchArtifact = mismatch.value("artifact").toObject();
+    mismatchArtifact.insert("checkpoint_sha256", QString(64, 'c'));
+    mismatch.insert("artifact", mismatchArtifact);
+    writeJson(metadataPath, mismatch);
+    const QByteArray mismatchBytes = bytes(metadataPath);
+    const auto rejectedMismatch =
+        loader.inspectAndMigratePersistedActiveCheckpoint();
+    require(!rejectedMismatch.loadable &&
+                rejectedMismatch.error.contains("does not match") &&
+                bytes(metadataPath) == mismatchBytes,
+            "checkpoint hash mismatch blocks without rewriting metadata");
+
+    require(QFile::remove(checkpointPath), "remove checkpoint fixture");
+    const auto rejectedMissing =
+        loader.inspectAndMigratePersistedActiveCheckpoint();
+    require(!rejectedMissing.loadable &&
+                rejectedMissing.error.contains("missing or unreadable") &&
+                bytes(metadataPath) == mismatchBytes,
+            "missing checkpoint blocks without rewriting metadata");
+}
+
+void testProductionProcessCommitsBatchBeforeStop() {
+    stage = "production-process-stop";
+    QTemporaryDir temporary;
+    const auto fixture = makeDataset(temporary.path(), true, false, 3);
+    const QString packagePath = copyBundledModelPackage(temporary.path());
+    const QString registryPath =
+        QDir(temporary.path()).filePath("registry/model_registry.json");
+    writeJson(
+        registryPath,
+        QJsonObject{
+            {"schema_version", "model-registry-v3-simple"},
+            {"entries",
+             QJsonArray{QJsonObject{{"registry_entry_id", "real-active"},
+                                    {"display_name", "Registry Display Name"},
+                                    {"package_path", QDir::cleanPath(packagePath)},
                                     {"active", true}}}}});
 
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
-    ModelTestService service(operations, &loader);
-    const QString output = QDir(temporary.path()).filePath("real-result");
-    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
-            "set deterministic CUDA override");
+    ModelTestService* servicePointer = nullptr;
+    ModelTestService service(
+        operations, &loader, {},
+        [&](qint64 processed, qint64) {
+            if (processed == 1)
+                servicePointer->requestStop();
+        },
+        QCoreApplication::applicationFilePath(), temporary.path());
+    servicePointer = &service;
+    const QString output = QDir(temporary.path()).filePath("process-result");
     QString error;
-    const bool ran =
-        service.run({fixture.datasetJson, output, "2.0"}, &error);
-    qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
-    require(ran, qPrintable(error));
-
-    auto summary = ModelTestSummaryV2::load(
-        QDir(output).filePath("model_test_summary.json"), &error);
-    require(summary && summary->data().status == ModelTestStatus::Completed,
+    require(service.run({fixture.datasetJson, output, "2.0"}, &error),
             qPrintable(error));
-    const auto& model = summary->data().activeModel;
-    require(model.id == "real-active" && model.name == registryName &&
-                model.classes.size() == 3 &&
-                model.onnxSha256 ==
-                    sha(QDir(packagePath).filePath("model.onnx")) &&
-                model.metadataSha256 ==
+
+    const auto summary = ModelTestSummaryV2::load(
+        QDir(output).filePath("model_test_summary.json"), &error);
+    require(summary && summary->data().status == ModelTestStatus::Stopped &&
+                summary->data().stopReason == "user" &&
+                summary->predictions().size() == 1 &&
+                summary->predictions().constFirst().imagePath ==
+                    "crops/first.png" &&
+                summary->data().activeModel.checkpointSha256 ==
+                    sha(QDir(packagePath).filePath("checkpoint.pth")) &&
+                summary->data().activeModel.metadataSha256 ==
                     sha(QDir(packagePath).filePath("metadata.json")),
-            "production snapshot uses registry identity and verified artifacts");
-    require(summary->data().effectiveDevice == EffectiveDevice::Cpu &&
-                summary->data().fallbackWarning &&
-                summary->data().fallbackWarning->contains(
-                    "CUDA", Qt::CaseInsensitive) &&
-                summary->predictions().size() == 2 &&
-                summary->predictions().at(0).scores.size() == 3,
-            "Auto fallback and real adapter inference are factual");
+            qPrintable(error));
 }
 
 void testConflictsAndSetupFailures() {
@@ -486,8 +611,11 @@ void testConcurrentRunRejected() {
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
+    if (application.arguments().contains("model-test-process"))
+        return runFakeModelTestProcess(application.arguments());
     testCompletedAndClassCountOnly();
-    testProductionActiveModelLoader();
+    testCheckpointProvenanceMigration();
+    testProductionProcessCommitsBatchBeforeStop();
     testConflictsAndSetupFailures();
     testRuntimeFailuresAndStop();
     testConcurrentRunRejected();

@@ -100,6 +100,8 @@ namespace desktop_app::v2::model_test {
 ModelTestController::ModelTestController(OperationCoordinator& operations,
                                          ModelLoadService& modelLoader,
                                          QString opendssVersion,
+                                         QString pythonExecutable,
+                                         QString workingDirectory,
                                          QObject* parent)
     : QObject(parent), operations_(operations), modelLoader_(modelLoader),
       opendssVersion_(std::move(opendssVersion)),
@@ -108,7 +110,8 @@ ModelTestController::ModelTestController(OperationCoordinator& operations,
                    if (stopRequested_.load(std::memory_order_acquire))
                        service_.requestStop();
                    postProgress(processed, eligible);
-               }) {
+               },
+               std::move(pythonExecutable), std::move(workingDirectory)) {
     updatePreflight();
 }
 

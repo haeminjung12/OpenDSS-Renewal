@@ -47,6 +47,8 @@ class ModelTestController final : public QObject {
     ModelTestController(OperationCoordinator& operations,
                         ModelLoadService& modelLoader,
                         QString opendssVersion,
+                        QString pythonExecutable = {},
+                        QString workingDirectory = {},
                         QObject* parent = nullptr);
     ~ModelTestController() override;
 

@@ -93,7 +93,7 @@ ModelTestSummaryData data(QTemporaryDir& temporary, int classCount,
     value.opendssVersion = "2.0";
     value.activeModel.id = "model";
     value.activeModel.name = "Active";
-    value.activeModel.onnxSha256 = QString(64, 'c');
+    value.activeModel.checkpointSha256 = QString(64, 'c');
     value.activeModel.metadataSha256 = QString(64, 'd');
     for (int index = 0; index < classCount; ++index)
         value.activeModel.classes.push_back(
@@ -124,14 +124,18 @@ void testCompletedEscapingRecoveryAndSourceUntouched() {
     const QString partialSummary =
         QDir(root).filePath("model_test_summary.partial.json");
     const QByteArray staleSummary = readFile(partialSummary);
-    require(writer->appendPrediction(
-                {"crops/a.png", "dataset-0", "model-0",
-                 {0.9, 0.05, 0.05}}, &error),
+    require(writer->appendBatch(
+                {{"crops/a.png", "dataset-0", "model-0",
+                  {0.9, 0.05, 0.05}},
+                 {"crops/b,comma.png", "dataset-1", "model-2",
+                  {0.1, 0.2, 0.7}}},
+                &error),
             qPrintable(error));
-    require(writer->appendPrediction(
-                {"crops/b,comma.png", "dataset-1", "model-2",
-                 {0.1, 0.2, 0.7}}, &error),
-            qPrintable(error));
+    auto completedBatch =
+        ModelTestSummaryV2::load(partialSummary, &error);
+    require(completedBatch &&
+                completedBatch->derivedResults().processedImages == 2,
+            "completed batch summary is durable before progress publication");
     const QByteArray recoverableCsv =
         readFile(QDir(root).filePath("predictions.partial.csv"));
     writeFile(partialSummary, staleSummary);
@@ -189,15 +193,16 @@ void testRollbackAndFailedRecovery() {
     QTemporaryDir temporary;
     QString error;
     const QString root = QDir(temporary.path()).filePath("output");
-    auto writer = ModelTestWriter::start(root, data(temporary, 2, 1), &error);
+    auto writer = ModelTestWriter::start(root, data(temporary, 2, 2), &error);
     require(writer.has_value(), qPrintable(error));
     const QByteArray initialCsv =
         readFile(QDir(root).filePath("predictions.partial.csv"));
     ModelTestWriterTestAccess::failNextAppend(*writer);
-    require(!writer->appendPrediction(
-                {"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}},
+    require(!writer->appendBatch(
+                {{"crops/a.png", "dataset-0", "model-0", {0.6, 0.4}},
+                 {"crops/b,comma.png", "dataset-1", "model-1", {0.4, 0.6}}},
                 &error),
-            "injected partial append failure");
+            "injected completed-batch append failure");
     require(readFile(QDir(root).filePath("predictions.partial.csv")) == initialCsv &&
                 writer->predictions().isEmpty(),
             "partial append rolls back exactly");

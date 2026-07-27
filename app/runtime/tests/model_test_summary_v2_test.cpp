@@ -79,7 +79,7 @@ ModelTestSummaryData data(QTemporaryDir& temporary, int classCount,
     value.opendssVersion = "2.0";
     value.activeModel.id = "model-1";
     value.activeModel.name = "Active Model";
-    value.activeModel.onnxSha256 = QString(64, 'a');
+    value.activeModel.checkpointSha256 = QString(64, 'a');
     value.activeModel.metadataSha256 = QString(64, 'b');
     for (int index = 0; index < classCount; ++index)
         value.activeModel.classes.push_back(
@@ -138,6 +138,37 @@ void testThreeClassMetricsAndStrictRoundTrip() {
     const QByteArray validCpuJson = jsonFile.readAll();
     jsonFile.close();
     QJsonObject object = QJsonDocument::fromJson(validCpuJson).object();
+    const QJsonObject currentModel = object.value("active_model").toObject();
+    require(object.value("schema").toString() ==
+                    ModelTestSummaryV2::SchemaVersion &&
+                currentModel.value("checkpoint_sha256").toString() ==
+                    summary.activeModel.checkpointSha256 &&
+                !currentModel.contains("onnx_sha256"),
+            "v3 records the exact executed checkpoint");
+
+    const QString legacyFolder =
+        QDir(temporary.path()).filePath("legacy-v2-readable");
+    QDir().mkpath(legacyFolder);
+    QJsonObject legacy = object;
+    legacy.insert("schema", ModelTestSummaryV2::LegacySchemaVersion);
+    QJsonObject legacyModel = legacy.value("active_model").toObject();
+    legacyModel.remove("checkpoint_sha256");
+    legacyModel.insert("onnx_sha256", QString(64, 'c'));
+    legacy.insert("active_model", legacyModel);
+    const QString legacyJson =
+        QDir(legacyFolder).filePath("model_test_summary.json");
+    writeFile(legacyJson, QJsonDocument(legacy).toJson());
+    writeFile(QDir(legacyFolder).filePath("predictions.csv"),
+              csv(summary, predictions));
+    const auto legacyLoaded = ModelTestSummaryV2::load(legacyJson, &error);
+    require(legacyLoaded &&
+                legacyLoaded->data().schemaVersion ==
+                    ModelTestSummaryV2::LegacySchemaVersion &&
+                legacyLoaded->data().activeModel.onnxSha256 ==
+                    QString(64, 'c') &&
+                legacyLoaded->data().activeModel.checkpointSha256.isEmpty(),
+            qPrintable(error));
+
     QJsonObject contradictoryDevice = object.value("device").toObject();
     contradictoryDevice.insert("effective", "cuda");
     object.insert("device", contradictoryDevice);

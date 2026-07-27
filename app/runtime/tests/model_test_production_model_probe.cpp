@@ -183,16 +183,21 @@ int main(int argc, char** argv) {
     const QString usage =
         QStringLiteral("Usage: model_test_production_model_probe "
                        "--dataset-manifest <path> --model-registry <path> "
-                       "--output-root <fresh-root>");
+                       "--output-root <fresh-root> --python <path> "
+                       "--working-directory <path>");
 
     const QStringList arguments = application.arguments();
-    if (arguments.size() != 7 ||
+    if (arguments.size() != 11 ||
         arguments.at(1) != QStringLiteral("--dataset-manifest") ||
         arguments.at(3) != QStringLiteral("--model-registry") ||
         arguments.at(5) != QStringLiteral("--output-root") ||
+        arguments.at(7) != QStringLiteral("--python") ||
+        arguments.at(9) != QStringLiteral("--working-directory") ||
         arguments.at(2).trimmed().isEmpty() ||
         arguments.at(4).trimmed().isEmpty() ||
-        arguments.at(6).trimmed().isEmpty()) {
+        arguments.at(6).trimmed().isEmpty() ||
+        arguments.at(8).trimmed().isEmpty() ||
+        arguments.at(10).trimmed().isEmpty()) {
         failure << usage << '\n';
         return 2;
     }
@@ -200,9 +205,13 @@ int main(int argc, char** argv) {
     const QString auditManifestArgument = arguments.at(2).trimmed();
     const QString registryArgument = arguments.at(4).trimmed();
     const QString outputArgument = arguments.at(6).trimmed();
+    const QString pythonArgument = arguments.at(8).trimmed();
+    const QString workingDirectoryArgument = arguments.at(10).trimmed();
     if (!localAbsolutePath(auditManifestArgument) ||
         !localAbsolutePath(registryArgument) ||
-        !localAbsolutePath(outputArgument)) {
+        !localAbsolutePath(outputArgument) ||
+        !localAbsolutePath(pythonArgument) ||
+        !localAbsolutePath(workingDirectoryArgument)) {
         failure << "FAIL: All inputs must be absolute local paths.\n";
         return 3;
     }
@@ -210,6 +219,9 @@ int main(int argc, char** argv) {
         normalizedAbsolutePath(auditManifestArgument);
     const QString registryPath = normalizedAbsolutePath(registryArgument);
     const QString outputRoot = normalizedAbsolutePath(outputArgument);
+    const QString pythonPath = normalizedAbsolutePath(pythonArgument);
+    const QString workingDirectory =
+        normalizedAbsolutePath(workingDirectoryArgument);
     output << "output_root=" << outputRoot << Qt::endl;
     const auto fail = [&](int code, const QString& message) {
         failure << "FAIL: " << message << '\n';
@@ -224,8 +236,12 @@ int main(int argc, char** argv) {
         !QFileInfo(registryPath).isReadable()) {
         return fail(5, QStringLiteral("Model registry is not readable."));
     }
+    if (!QFileInfo(pythonPath).isFile() ||
+        !QFileInfo(workingDirectory).isDir()) {
+        return fail(6, QStringLiteral("Installed Python runtime is unavailable."));
+    }
     if (QFileInfo::exists(outputRoot)) {
-        return fail(6, QStringLiteral("Output root already exists; refusing to replace it."));
+        return fail(7, QStringLiteral("Output root already exists; refusing to replace it."));
     }
     const QFileInfo outputInfo(outputRoot);
     const QFileInfo outputParent(outputInfo.absolutePath());
@@ -383,7 +399,7 @@ int main(int argc, char** argv) {
                             : package.message);
     }
     const QString onnxHash = fileSha256(package.onnxPath);
-    const QString metadataHash = fileSha256(package.metadataPath);
+    const QString checkpointHash = fileSha256(package.checkpointPath);
     if (onnxHash != QLatin1String(ExpectedOnnxSha256)) {
         return fail(23, QStringLiteral("Active Model ONNX SHA-256 mismatch: %1")
                             .arg(onnxHash));
@@ -413,6 +429,15 @@ int main(int argc, char** argv) {
                             ? QStringLiteral("Active Model loader inspection mismatch.")
                             : inspection.error);
     }
+    const PersistedActiveCheckpointInspection checkpointInspection =
+        loader.inspectAndMigratePersistedActiveCheckpoint();
+    if (!checkpointInspection.loadable ||
+        checkpointInspection.checkpointSha256 != checkpointHash) {
+        return fail(25, checkpointInspection.error.isEmpty()
+                            ? QStringLiteral("Active checkpoint provenance mismatch.")
+                            : checkpointInspection.error);
+    }
+    const QString metadataHash = checkpointInspection.metadataSha256;
 
     const QString registryHashBefore = fileSha256(registryPath);
     qint64 progressProcessed = -1;
@@ -423,7 +448,8 @@ int main(int argc, char** argv) {
         [&](qint64 processed, qint64 eligible) {
             progressProcessed = processed;
             progressEligible = eligible;
-        });
+        },
+        pythonPath, workingDirectory);
     QElapsedTimer elapsed;
     elapsed.start();
     const bool ran =
@@ -437,6 +463,7 @@ int main(int argc, char** argv) {
         fileSha256(datasetJsonPath) != datasetJsonHash ||
         fileSha256(registryPath) != registryHashBefore ||
         fileSha256(package.onnxPath) != onnxHash ||
+        fileSha256(package.checkpointPath) != checkpointHash ||
         fileSha256(package.metadataPath) != metadataHash) {
         return fail(26, QStringLiteral("A supplied input changed during the probe."));
     }
@@ -471,7 +498,7 @@ int main(int argc, char** argv) {
         !expectedClasses(data.dataset.classes) ||
         data.activeModel.id != QLatin1String(ExpectedRegistryEntryId) ||
         data.activeModel.name != QLatin1String(ExpectedModelName) ||
-        data.activeModel.onnxSha256 != QLatin1String(ExpectedOnnxSha256) ||
+        data.activeModel.checkpointSha256 != checkpointHash ||
         data.activeModel.metadataSha256 != metadataHash ||
         !expectedClasses(data.activeModel.classes)) {
         return fail(29, QStringLiteral("Final Model Test summary facts mismatch."));
@@ -509,7 +536,8 @@ int main(int argc, char** argv) {
            << " production_supports=3142,386,92"
            << " model_id=" << data.activeModel.id
            << " model_name=\"" << data.activeModel.name << '"'
-           << " onnx_sha256=" << data.activeModel.onnxSha256.toUpper()
+           << " checkpoint_sha256="
+           << data.activeModel.checkpointSha256.toUpper()
            << " confusion_sum=" << confusionSum
            << " predictions_lines=" << predictionsBytes.count('\n')
            << Qt::endl;

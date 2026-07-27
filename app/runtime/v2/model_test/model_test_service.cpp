@@ -10,12 +10,18 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
+#include <QProcessEnvironment>
 #include <QRegularExpression>
 #include <QUuid>
 
 #include <algorithm>
 #include <cmath>
 #include <exception>
+#include <limits>
 #include <memory>
 
 namespace {
@@ -32,78 +38,11 @@ QString now() {
     return QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
 }
 
-std::optional<PreparedModelTestModel>
-prepareProductionModel(ModelLoadService& loader, QString* error) {
-    QString warning;
-    QString displayName;
-    auto adapter = loader.preparePersistedActive(
-        QStringLiteral("auto"), &warning, error, &displayName);
-    if (!adapter)
-        return std::nullopt;
-    if (displayName.trimmed().isEmpty()) {
-        setError(error,
-                 QStringLiteral("The Active Model registry display name is invalid."));
-        return std::nullopt;
-    }
-
-    const Metadata& metadata = adapter->metadata();
-    if ((metadata.classes.size() != 2 && metadata.classes.size() != 3) ||
-        metadata.displayLabels.size() != metadata.classes.size()) {
-        setError(error,
-                 QStringLiteral("Verified model classes and display labels are invalid."));
-        return std::nullopt;
-    }
-
-    PreparedModelTestModel prepared;
-    prepared.snapshot.id = QString::fromStdString(adapter->modelId());
-    prepared.snapshot.name = displayName;
-    prepared.snapshot.onnxSha256 =
-        QString::fromStdString(adapter->declaredOnnxSha256()).toLower();
-    prepared.snapshot.metadataSha256 =
-        QString::fromStdString(adapter->metadataSha256()).toLower();
-    for (std::size_t index = 0; index < metadata.classes.size(); ++index) {
-        prepared.snapshot.classes.push_back(
-            {QString::fromStdString(metadata.classes[index]),
-             QString::fromStdString(metadata.displayLabels[index])});
-    }
-    prepared.effectiveDevice =
-        adapter->executionProvider() == "CUDA" ? EffectiveDevice::Cuda
-                                                : EffectiveDevice::Cpu;
-    if (prepared.effectiveDevice == EffectiveDevice::Cpu) {
-        prepared.fallbackWarning =
-            warning.trimmed().isEmpty()
-                ? QStringLiteral("CUDA was unavailable or unusable; Auto mode used CPU.")
-                : warning;
-    }
-
-    auto shared = std::shared_ptr<OnnxInferenceAdapter>(std::move(adapter));
-    prepared.classify =
-        [shared](const cv::Mat& crop,
-                 QString* outputError) -> std::optional<ModelTestInferenceResult> {
-        try {
-            const ClassificationResult result = shared->classify(crop);
-            ModelTestInferenceResult output;
-            output.scores.reserve(static_cast<qsizetype>(result.scores.size()));
-            for (float score : result.scores)
-                output.scores.push_back(score);
-            return output;
-        } catch (const std::exception& exception) {
-            setError(outputError,
-                     QStringLiteral("Model inference failed: %1")
-                         .arg(exception.what()));
-        } catch (...) {
-            setError(outputError, QStringLiteral("Model inference failed."));
-        }
-        return std::nullopt;
-    };
-    return prepared;
-}
-
 bool validPreparedModel(const PreparedModelTestModel& model) {
     if (!model.classify || model.snapshot.id.trimmed().isEmpty() ||
         model.snapshot.name.trimmed().isEmpty() ||
         !QRegularExpression(QStringLiteral("^[0-9a-f]{64}$"))
-             .match(model.snapshot.onnxSha256)
+             .match(model.snapshot.checkpointSha256)
              .hasMatch() ||
         !QRegularExpression(QStringLiteral("^[0-9a-f]{64}$"))
              .match(model.snapshot.metadataSha256)
@@ -122,6 +61,53 @@ bool validPreparedModel(const PreparedModelTestModel& model) {
                      !model.fallbackWarning->trimmed().isEmpty();
 }
 
+bool writeProcessMessage(QProcess& process, const QJsonObject& message,
+                         QString* error) {
+    const QByteArray line = QJsonDocument(message).toJson(QJsonDocument::Compact) +
+                            '\n';
+    if (process.write(line) != line.size() || !process.waitForBytesWritten(5000)) {
+        setError(error, QStringLiteral("Could not write to the Model Test process."));
+        return false;
+    }
+    return true;
+}
+
+std::optional<QJsonObject> readProcessMessage(QProcess& process,
+                                              QByteArray& buffer,
+                                              QString* error) {
+    while (true) {
+        const qsizetype newline = buffer.indexOf('\n');
+        if (newline >= 0) {
+            const QByteArray line = buffer.left(newline).trimmed();
+            buffer.remove(0, newline + 1);
+            QJsonParseError parseError;
+            const QJsonDocument document =
+                QJsonDocument::fromJson(line, &parseError);
+            if (parseError.error != QJsonParseError::NoError ||
+                !document.isObject()) {
+                setError(error,
+                         QStringLiteral("Model Test process emitted malformed JSONL."));
+                return std::nullopt;
+            }
+            return document.object();
+        }
+        if (process.bytesAvailable() > 0)
+            buffer += process.readAllStandardOutput();
+        if (buffer.indexOf('\n') >= 0)
+            continue;
+        if (process.state() == QProcess::NotRunning) {
+            buffer += process.readAllStandardOutput();
+            if (buffer.indexOf('\n') >= 0)
+                continue;
+            setError(error,
+                     QStringLiteral("Model Test process exited before completing its protocol: %1")
+                         .arg(QString::fromUtf8(process.readAllStandardError()).trimmed()));
+            return std::nullopt;
+        }
+        process.waitForReadyRead(100);
+    }
+}
+
 class RunningGuard final {
   public:
     explicit RunningGuard(std::atomic_bool& running) : running_(running) {}
@@ -138,9 +124,13 @@ namespace desktop_app::v2::model_test {
 ModelTestService::ModelTestService(OperationCoordinator& operations,
                                    ModelLoadService* modelLoader,
                                    ModelTestModelProvider modelProvider,
-                                   ModelTestProgress progress)
+                                   ModelTestProgress progress,
+                                   QString pythonExecutable,
+                                   QString workingDirectory)
     : operations_(operations), modelLoader_(modelLoader),
-      modelProvider_(std::move(modelProvider)), progress_(std::move(progress)) {}
+      modelProvider_(std::move(modelProvider)), progress_(std::move(progress)),
+      pythonExecutable_(std::move(pythonExecutable)),
+      workingDirectory_(std::move(workingDirectory)) {}
 
 void ModelTestService::requestStop() noexcept {
     stopRequested_.store(true, std::memory_order_release);
@@ -204,19 +194,32 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
             return false;
         }
 
-        auto model =
-            modelProvider_ ? modelProvider_(&localError)
-                           : (modelLoader_
-                                  ? prepareProductionModel(*modelLoader_,
-                                                           &localError)
-                                  : std::nullopt);
-        if (!model || !validPreparedModel(*model)) {
-            lease.transition(OperationLifecycle::Failed);
-            setError(error,
-                     localError.isEmpty()
-                         ? QStringLiteral("The Active Model is unavailable or invalid.")
-                         : localError);
-            return false;
+        std::optional<PreparedModelTestModel> model;
+        std::optional<PersistedActiveCheckpointInspection> checkpoint;
+        if (modelProvider_) {
+            model = modelProvider_(&localError);
+            if (!model || !validPreparedModel(*model)) {
+                lease.transition(OperationLifecycle::Failed);
+                setError(error,
+                         localError.isEmpty()
+                             ? QStringLiteral("The Active Model is unavailable or invalid.")
+                             : localError);
+                return false;
+            }
+        } else {
+            if (!modelLoader_) {
+                lease.transition(OperationLifecycle::Failed);
+                setError(error,
+                         QStringLiteral("The Active Model loader is unavailable."));
+                return false;
+            }
+            checkpoint =
+                modelLoader_->inspectAndMigratePersistedActiveCheckpoint();
+            if (!checkpoint->loadable) {
+                lease.transition(OperationLifecycle::Failed);
+                setError(error, checkpoint->error);
+                return false;
+            }
         }
 
         auto dataset = dataset::DatasetManifestV2::load(
@@ -238,13 +241,15 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                      QStringLiteral("The Dataset has no eligible labeled crops."));
             return false;
         }
-        if (model->snapshot.classes.size() != dataset->classes().size()) {
+        const qsizetype modelClassCount =
+            model ? model->snapshot.classes.size() : checkpoint->classes.size();
+        if (modelClassCount != dataset->classes().size()) {
             lease.transition(OperationLifecycle::Failed);
             setError(
                 error,
                 QStringLiteral("The Active Model has %1 output classes, but the "
                                "Dataset defines %2 classes.")
-                    .arg(model->snapshot.classes.size())
+                    .arg(modelClassCount)
                     .arg(dataset->classes().size()));
             return false;
         }
@@ -256,79 +261,284 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
         summary.testId = QUuid::createUuid().toString(QUuid::WithoutBraces);
         summary.startedAt = now();
         summary.opendssVersion = request.opendssVersion;
-        summary.activeModel = model->snapshot;
+        if (model) {
+            summary.activeModel = model->snapshot;
+        } else {
+            summary.activeModel.id = checkpoint->id;
+            summary.activeModel.name = checkpoint->displayName;
+            summary.activeModel.checkpointSha256 =
+                checkpoint->checkpointSha256;
+            summary.activeModel.metadataSha256 = checkpoint->metadataSha256;
+            for (const auto& cls : checkpoint->classes)
+                summary.activeModel.classes.push_back({cls.id, cls.displayLabel});
+        }
         summary.dataset.id = dataset->datasetId();
         summary.dataset.sourcePath = datasetRoot;
         for (const auto& cls : dataset->classes())
             summary.dataset.classes.push_back({cls.id, cls.name});
-        summary.effectiveDevice = model->effectiveDevice;
-        summary.fallbackWarning = model->fallbackWarning;
         summary.eligibleImages = samples.size();
 
-        writer = ModelTestWriter::start(request.outputFolder, summary,
-                                        &localError);
-        if (!writer) {
-            lease.transition(OperationLifecycle::Failed);
-            setError(error, localError);
-            return false;
-        }
-        if (progress_)
-            progress_(0, samples.size());
-
         qint64 processed = 0;
-        for (const auto& sample : samples) {
-            if (stopRequested_.load(std::memory_order_acquire))
-                break;
-
-            QImageReader reader(sample.cropPath);
-            QImage image = reader.read();
-            if (image.isNull())
-                return failAfterStart(
-                    QStringLiteral("Eligible crop '%1' could not be decoded.")
-                        .arg(sample.cropPath),
-                    QStringLiteral("corrupt_image"));
-            image = image.convertToFormat(QImage::Format_Grayscale8);
-            cv::Mat crop(image.height(), image.width(), CV_8UC1, image.bits(),
-                         image.bytesPerLine());
-            auto result = model->classify(crop, &localError);
-            if (!result)
-                return failAfterStart(
-                    localError.isEmpty()
-                        ? QStringLiteral("Model inference failed.")
-                        : localError,
-                    QStringLiteral("classification_failed"));
-            if (result->scores.size() != model->snapshot.classes.size() ||
-                std::any_of(result->scores.cbegin(), result->scores.cend(),
-                            [](double score) {
-                                return !std::isfinite(score);
-                            })) {
-                return failAfterStart(
-                    QStringLiteral(
-                        "Model inference returned an invalid Class Score vector."),
-                    QStringLiteral("invalid_class_scores"));
+        bool stopped = false;
+        if (model) {
+            summary.effectiveDevice = model->effectiveDevice;
+            summary.fallbackWarning = model->fallbackWarning;
+            writer = ModelTestWriter::start(request.outputFolder, summary,
+                                            &localError);
+            if (!writer) {
+                lease.transition(OperationLifecycle::Failed);
+                setError(error, localError);
+                return false;
             }
-            int bestIndex = 0;
-            for (int index = 1; index < result->scores.size(); ++index) {
-                if (result->scores.at(index) >
-                    result->scores.at(bestIndex)) {
-                    bestIndex = index;
-                }
-            }
-            const QString relativePath = QDir::fromNativeSeparators(
-                QDir(datasetRoot).relativeFilePath(sample.cropPath));
-            ModelTestPrediction prediction{
-                relativePath, sample.classId,
-                model->snapshot.classes.at(bestIndex).id, result->scores};
-            if (!writer->appendPrediction(prediction, &localError))
-                return failAfterStart(localError,
-                                      QStringLiteral("artifact_write_failed"));
-            ++processed;
             if (progress_)
-                progress_(processed, samples.size());
+                progress_(0, samples.size());
+            for (const auto& sample : samples) {
+                if (stopRequested_.load(std::memory_order_acquire))
+                    break;
+                QImageReader reader(sample.cropPath);
+                QImage image = reader.read();
+                if (image.isNull())
+                    return failAfterStart(
+                        QStringLiteral("Eligible crop '%1' could not be decoded.")
+                            .arg(sample.cropPath),
+                        QStringLiteral("corrupt_image"));
+                image = image.convertToFormat(QImage::Format_Grayscale8);
+                cv::Mat crop(image.height(), image.width(), CV_8UC1, image.bits(),
+                             image.bytesPerLine());
+                auto result = model->classify(crop, &localError);
+                if (!result)
+                    return failAfterStart(localError,
+                                          QStringLiteral("classification_failed"));
+                if (result->scores.size() != model->snapshot.classes.size() ||
+                    std::any_of(result->scores.cbegin(), result->scores.cend(),
+                                [](double score) { return !std::isfinite(score); })) {
+                    return failAfterStart(
+                        QStringLiteral("Active Model returned invalid class scores."),
+                        QStringLiteral("invalid_class_scores"));
+                }
+                int bestIndex = 0;
+                for (int index = 1; index < result->scores.size(); ++index) {
+                    if (result->scores.at(index) >
+                        result->scores.at(bestIndex))
+                        bestIndex = index;
+                }
+                const QString relativePath = QDir::fromNativeSeparators(
+                    QDir(datasetRoot).relativeFilePath(sample.cropPath));
+                if (!writer->appendPrediction(
+                        {relativePath, sample.classId,
+                         model->snapshot.classes.at(bestIndex).id,
+                         result->scores},
+                        &localError)) {
+                    return failAfterStart(
+                        localError, QStringLiteral("artifact_write_failed"));
+                }
+                ++processed;
+                if (progress_)
+                    progress_(processed, samples.size());
+            }
+            stopped = stopRequested_.load(std::memory_order_acquire);
+        } else {
+            if (!QFileInfo(pythonExecutable_).isFile() ||
+                !QFileInfo(workingDirectory_).isDir()) {
+                lease.transition(OperationLifecycle::Failed);
+                setError(error,
+                         QStringLiteral("The installed Model Test Python runtime is unavailable."));
+                return false;
+            }
+            QProcess process;
+            QProcessEnvironment environment =
+                QProcessEnvironment::systemEnvironment();
+            environment.remove(QStringLiteral("PYTHONPATH"));
+            environment.remove(QStringLiteral("PYTHONHOME"));
+            environment.insert(QStringLiteral("PYTHONNOUSERSITE"),
+                               QStringLiteral("1"));
+            process.setProcessEnvironment(environment);
+            process.setWorkingDirectory(workingDirectory_);
+            process.setProgram(pythonExecutable_);
+            process.setArguments(
+                {QStringLiteral("-I"), QStringLiteral("-m"),
+                 QStringLiteral("droplet_trainer"),
+                 QStringLiteral("model-test-process"),
+                 QStringLiteral("--checkpoint"), checkpoint->checkpointPath});
+            process.setProcessChannelMode(QProcess::SeparateChannels);
+            process.start();
+            if (!process.waitForStarted(10000)) {
+                lease.transition(OperationLifecycle::Failed);
+                setError(error,
+                         QStringLiteral("Model Test Python process could not start: ") +
+                             process.errorString());
+                return false;
+            }
+
+            QJsonArray classIds;
+            for (const auto& cls : dataset->classes())
+                classIds.append(cls.id);
+            QJsonArray processItems;
+            for (qsizetype index = 0; index < samples.size(); ++index) {
+                const auto& sample = samples.at(index);
+                processItems.append(
+                    QJsonObject{{"sequence", index},
+                                {"record_id", sample.recordId},
+                                {"image_path", sample.cropPath},
+                                {"true_class_id", sample.classId}});
+            }
+            if (!writeProcessMessage(
+                    process,
+                    QJsonObject{{"schema", "opendss.model_test.request.v1"},
+                                {"class_ids", classIds},
+                                {"items", processItems}},
+                    &localError)) {
+                process.kill();
+                process.waitForFinished();
+                lease.transition(OperationLifecycle::Failed);
+                setError(error, localError);
+                return false;
+            }
+
+            QByteArray outputBuffer;
+            const auto ready =
+                readProcessMessage(process, outputBuffer, &localError);
+            const QString device =
+                ready ? ready->value("device").toString() : QString{};
+            if (!ready || ready->value("event").toString() != "ready" ||
+                ready->value("checkpoint_sha256").toString().toLower() !=
+                    checkpoint->checkpointSha256 ||
+                ready->value("total").toInteger(-1) != samples.size() ||
+                (device != "cuda" && device != "cpu")) {
+                process.kill();
+                process.waitForFinished();
+                lease.transition(OperationLifecycle::Failed);
+                setError(error,
+                         localError.isEmpty()
+                             ? QStringLiteral("Model Test Python readiness is invalid.")
+                             : localError);
+                return false;
+            }
+            summary.effectiveDevice =
+                device == "cuda" ? EffectiveDevice::Cuda : EffectiveDevice::Cpu;
+            if (summary.effectiveDevice == EffectiveDevice::Cpu) {
+                summary.fallbackWarning = QStringLiteral(
+                    "CUDA was unavailable or unusable; automatic Model Test used CPU.");
+            }
+            writer = ModelTestWriter::start(request.outputFolder, summary,
+                                            &localError);
+            if (!writer) {
+                process.kill();
+                process.waitForFinished();
+                lease.transition(OperationLifecycle::Failed);
+                setError(error, localError);
+                return false;
+            }
+            if (progress_)
+                progress_(0, samples.size());
+            if (!writeProcessMessage(process, QJsonObject{{"command", "start"}},
+                                     &localError)) {
+                process.kill();
+                process.waitForFinished();
+                return failAfterStart(
+                    localError, QStringLiteral("process_protocol_failed"));
+            }
+            const auto failProcessAfterStart =
+                [&](const QString& message, const QString& reason) {
+                    if (process.state() != QProcess::NotRunning)
+                        process.kill();
+                    process.waitForFinished();
+                    return failAfterStart(message, reason);
+                };
+
+            qint64 expectedBatch = 0;
+            bool processFinished = false;
+            while (!processFinished) {
+                const auto message =
+                    readProcessMessage(process, outputBuffer, &localError);
+                if (!message) {
+                    return failProcessAfterStart(
+                        localError, QStringLiteral("process_protocol_failed"));
+                }
+                const QString event = message->value("event").toString();
+                if (event == "run_failed") {
+                    return failProcessAfterStart(
+                        message->value("error").toString(),
+                        QStringLiteral("classification_failed"));
+                }
+                if (event == "run_finished") {
+                    stopped = message->value("status").toString() == "stopped";
+                    if ((!stopped &&
+                         message->value("status").toString() != "completed") ||
+                        message->value("processed").toInteger(-1) != processed ||
+                        message->value("total").toInteger(-1) != samples.size()) {
+                        return failProcessAfterStart(
+                            QStringLiteral("Model Test completion protocol is invalid."),
+                            QStringLiteral("process_protocol_failed"));
+                    }
+                    processFinished = true;
+                    continue;
+                }
+                if (event != "batch_ready" ||
+                    message->value("batch_index").toInteger(-1) != expectedBatch ||
+                    !message->value("facts").isArray()) {
+                    return failProcessAfterStart(
+                        QStringLiteral("Model Test batch protocol is invalid."),
+                        QStringLiteral("process_protocol_failed"));
+                }
+                const QJsonArray facts = message->value("facts").toArray();
+                if (facts.isEmpty() || processed + facts.size() > samples.size())
+                    return failProcessAfterStart(
+                        QStringLiteral("Model Test batch size is invalid."),
+                        QStringLiteral("process_protocol_failed"));
+                QVector<ModelTestPrediction> predictions;
+                predictions.reserve(facts.size());
+                for (qsizetype index = 0; index < facts.size(); ++index) {
+                    const QJsonObject fact = facts.at(index).toObject();
+                    const auto& sample = samples.at(processed + index);
+                    if (fact.value("sequence").toInteger(-1) != processed + index ||
+                        fact.value("record_id").toString() != sample.recordId ||
+                        QFileInfo(fact.value("image_path").toString()).absoluteFilePath() !=
+                            QFileInfo(sample.cropPath).absoluteFilePath() ||
+                        fact.value("true_class_id").toString() != sample.classId ||
+                        !fact.value("class_scores").isArray()) {
+                        return failProcessAfterStart(
+                            QStringLiteral("Model Test per-image protocol is invalid."),
+                            QStringLiteral("process_protocol_failed"));
+                    }
+                    QVector<double> scores;
+                    for (const auto& score : fact.value("class_scores").toArray())
+                        scores.push_back(score.toDouble(
+                            std::numeric_limits<double>::quiet_NaN()));
+                    predictions.push_back(
+                        {QDir::fromNativeSeparators(
+                             QDir(datasetRoot).relativeFilePath(sample.cropPath)),
+                         sample.classId,
+                         fact.value("predicted_class_id").toString(), scores});
+                }
+                if (!writer->appendBatch(predictions, &localError))
+                    return failProcessAfterStart(
+                        localError, QStringLiteral("artifact_write_failed"));
+                processed += facts.size();
+                if (progress_)
+                    progress_(processed, samples.size());
+                stopped = stopRequested_.load(std::memory_order_acquire);
+                if (!writeProcessMessage(
+                        process,
+                        QJsonObject{{"command", "committed"},
+                                    {"batch_index", expectedBatch},
+                                    {"stop", stopped}},
+                        &localError)) {
+                    return failProcessAfterStart(
+                        localError, QStringLiteral("process_protocol_failed"));
+                }
+                ++expectedBatch;
+            }
+            process.waitForFinished();
+            if (process.exitStatus() != QProcess::NormalExit ||
+                process.exitCode() != 0) {
+                return failProcessAfterStart(
+                    QStringLiteral("Model Test Python process failed: ") +
+                        QString::fromUtf8(process.readAllStandardError()).trimmed(),
+                    QStringLiteral("classification_failed"));
+            }
         }
 
-        const bool stopped =
-            stopRequested_.load(std::memory_order_acquire);
         const ModelTestStatus status =
             stopped ? ModelTestStatus::Stopped : ModelTestStatus::Completed;
         const QString reason =

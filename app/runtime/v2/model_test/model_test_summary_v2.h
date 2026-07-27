@@ -21,6 +21,7 @@ struct ActiveModelSnapshot {
     QString id;
     QString name;
     QString onnxSha256;
+    QString checkpointSha256;
     QString metadataSha256;
     QVector<ModelTestClassSnapshot> classes;
 };
@@ -51,6 +52,7 @@ struct ModelTestSummaryData {
     std::optional<QString> fallbackWarning;
     qint64 eligibleImages = 0;
     QString predictionsCsv = QStringLiteral("predictions.csv");
+    QString schemaVersion = QStringLiteral("opendss.model_test.v3");
 };
 
 struct ModelTestClassMetrics {
@@ -70,7 +72,8 @@ struct ModelTestDerivedResults {
 
 class ModelTestSummaryV2 {
   public:
-    static constexpr auto SchemaVersion = "opendss.model_test.v2";
+    static constexpr auto SchemaVersion = "opendss.model_test.v3";
+    static constexpr auto LegacySchemaVersion = "opendss.model_test.v2";
     static constexpr auto DevicePolicy = "automatic_gpu_cpu_fallback";
 
     static std::optional<ModelTestSummaryV2> load(const QString& path,

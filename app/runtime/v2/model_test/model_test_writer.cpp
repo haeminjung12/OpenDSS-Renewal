@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QSaveFile>
+#include <QSet>
 
 #include <algorithm>
 
@@ -65,6 +66,29 @@ bool atomicWrite(const QString& path, const QByteArray& bytes, QString* error) {
     if (!file.commit())
         return fail(error, QString("Could not publish predictions CSV: %1").arg(file.errorString()));
     return true;
+}
+
+bool atomicReplace(const QString& path, const QByteArray& bytes, QString* error) {
+    QSaveFile file(path);
+    file.setDirectWriteFallback(false);
+    if (!file.open(QIODevice::WriteOnly))
+        return fail(error, QString("Could not open '%1': %2").arg(path, file.errorString()));
+    if (file.write(bytes) != bytes.size()) {
+        file.cancelWriting();
+        return fail(error, "Could not completely write recoverable predictions CSV.");
+    }
+    if (!file.commit())
+        return fail(error, QString("Could not publish recoverable predictions CSV: %1")
+                               .arg(file.errorString()));
+    return true;
+}
+
+QByteArray partialCsvBytes(const ModelTestSummaryData& data,
+                           const QVector<ModelTestPrediction>& predictions) {
+    QByteArray bytes = csvHeader(data.activeModel.classes.size());
+    for (const auto& prediction : predictions)
+        bytes += csvRow(data, prediction);
+    return bytes;
 }
 
 } // namespace
@@ -138,52 +162,67 @@ ModelTestWriter::~ModelTestWriter() = default;
 
 bool ModelTestWriter::appendPrediction(const ModelTestPrediction& prediction,
                                        QString* error) {
+    return appendBatch({prediction}, error);
+}
+
+bool ModelTestWriter::appendBatch(
+    const QVector<ModelTestPrediction>& predictions, QString* error) {
     if (error)
         error->clear();
     if (finalized_ || !partialCsv_ || !partialCsv_->isOpen())
         return fail(error, "Model Test writer is not active.");
-    if (predictions_.size() >= data_.eligibleImages)
+    if (predictions.isEmpty())
+        return fail(error, "A completed Model Test batch must not be empty.");
+    if (predictions_.size() + predictions.size() > data_.eligibleImages)
         return fail(error, "All eligible images have already been processed.");
-    if (!ModelTestSummaryV2::validatePrediction(data_, prediction, true, error))
-        return false;
-    if (std::any_of(predictions_.begin(), predictions_.end(),
-                    [&](const ModelTestPrediction& old) {
-                        return old.imagePath == prediction.imagePath;
-                    })) {
-        return fail(error, "Prediction image paths must be unique.");
+    QSet<QString> paths;
+    for (const auto& old : predictions_)
+        paths.insert(old.imagePath);
+    for (const auto& prediction : predictions) {
+        if (!ModelTestSummaryV2::validatePrediction(data_, prediction, true, error))
+            return false;
+        if (paths.contains(prediction.imagePath))
+            return fail(error, "Prediction image paths must be unique.");
+        paths.insert(prediction.imagePath);
     }
 
-    const qint64 priorOffset = partialCsv_->pos();
-    const QByteArray row = csvRow(data_, prediction);
-    bool written = false;
+    const QByteArray priorBytes = partialCsvBytes(data_, predictions_);
+    QVector<ModelTestPrediction> combined = predictions_;
+    combined += predictions;
+    const QByteArray combinedBytes = partialCsvBytes(data_, combined);
+    partialCsv_->close();
     if (failNextAppendForTest_) {
         failNextAppendForTest_ = false;
-        partialCsv_->write(row.left(row.size() / 2));
-        partialCsv_->flush();
-    } else {
-        written = partialCsv_->write(row) == row.size() && partialCsv_->flush();
+        static_cast<void>(
+            partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append));
+        return fail(error, "Could not append prediction.");
     }
-    if (!written) {
-        const bool rolledBack = partialCsv_->resize(priorOffset) &&
-                                partialCsv_->seek(priorOffset) &&
-                                partialCsv_->flush();
-        return fail(error, rolledBack ? "Could not append prediction."
-                                      : "Prediction append and rollback both failed.");
+    if (!atomicReplace(partialCsv_->fileName(), combinedBytes, error)) {
+        static_cast<void>(
+            partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append));
+        return false;
     }
 
-    predictions_.push_back(prediction);
+    predictions_ = combined;
     if (!ModelTestSummaryV2::savePartialWithValidatedSources(
             QDir(outputFolder_)
                 .filePath(QStringLiteral("model_test_summary.partial.json")),
             data_, predictions_, error)) {
-        predictions_.removeLast();
-        const bool rolledBack = partialCsv_->resize(priorOffset) &&
-                                partialCsv_->seek(priorOffset) &&
-                                partialCsv_->flush();
+        predictions_.resize(predictions_.size() - predictions.size());
+        QString rollbackError;
+        const bool rolledBack =
+            atomicReplace(partialCsv_->fileName(), priorBytes, &rollbackError);
+        static_cast<void>(
+            partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append));
         return fail(error, rolledBack
                                ? "Could not update recoverable Model Test Summary."
-                               : "Partial summary update and CSV rollback both failed.");
+                               : "Partial summary update and batch rollback both failed: " +
+                                     rollbackError);
     }
+    if (!partialCsv_->open(QIODevice::ReadWrite | QIODevice::Append))
+        return fail(error, "Could not reopen recoverable predictions CSV.");
+    if (!partialCsv_->seek(partialCsv_->size()))
+        return fail(error, "Could not position recoverable predictions CSV.");
     return true;
 }
 

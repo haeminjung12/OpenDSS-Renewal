@@ -1,5 +1,5 @@
 set(OPENDSS_CUDA_RUNTIME_DIR
-  "$ENV{LOCALAPPDATA}/OpenVisualDropletSorter/training-venv-gpu/Lib/site-packages/torch/lib"
+  "$ENV{LOCALAPPDATA}/OpenDSS/training-venv-gpu/Lib/site-packages/torch/lib"
   CACHE PATH "Qualified CUDA 13 and cuDNN runtime DLL directory"
 )
 
@@ -1184,10 +1184,14 @@ target_link_libraries(model_test_summary_v2_test PRIVATE
 add_test(
   NAME model_test_summary_v2_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:model_test_summary_v2_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:model_test_summary_v2_test>
 )
 set_tests_properties(model_test_summary_v2_test PROPERTIES TIMEOUT 15)
+opendss_configure_offscreen_test(
+  model_test_summary_v2_test
+  model_test_summary_v2_test
+)
 
 qt_add_executable(model_test_writer_test
   model_test_writer_test.cpp
@@ -1203,10 +1207,14 @@ target_link_libraries(model_test_writer_test PRIVATE
 add_test(
   NAME model_test_writer_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:model_test_writer_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:model_test_writer_test>
 )
 set_tests_properties(model_test_writer_test PROPERTIES TIMEOUT 30)
+opendss_configure_offscreen_test(
+  model_test_writer_test
+  model_test_writer_test
+)
 
 qt_add_executable(model_test_service_test
   model_test_service_test.cpp
@@ -1242,10 +1250,44 @@ target_link_libraries(model_test_service_test PRIVATE
 add_test(
   NAME model_test_service_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:model_test_service_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:model_test_service_test>
 )
 set_tests_properties(model_test_service_test PROPERTIES TIMEOUT 30)
+opendss_configure_offscreen_test(
+  model_test_service_test
+  model_test_service_test
+)
+opendss_deploy_qualified_cuda(model_test_service_test)
+
+set(OPENDSS_TEST_INSTALLER_PYTHON
+  "$ENV{LOCALAPPDATA}/OpenDSS/training-venv-gpu/Scripts/python.exe"
+  CACHE FILEPATH "Installer-owned OpenDSS Python used by Model Test validation"
+)
+if(NOT EXISTS "${OPENDSS_TEST_INSTALLER_PYTHON}")
+  message(FATAL_ERROR
+    "Model Test Python validation requires the installer-owned OpenDSS runtime at "
+    "${OPENDSS_TEST_INSTALLER_PYTHON}"
+  )
+endif()
+add_test(
+  NAME model_test_batch_backend_python_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    --unset=PYTHONPATH
+    --unset=PYTHONHOME
+    "PYTHONNOUSERSITE=1"
+    "PIP_NO_INDEX=1"
+    "HF_HUB_OFFLINE=1"
+    "TRANSFORMERS_OFFLINE=1"
+    "PATH=$<TARGET_FILE_DIR:qt_offscreen_platform_smoke_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
+    "${OPENDSS_TEST_INSTALLER_PYTHON}" -I -m unittest
+    droplet_trainer.test_model_test_batch_backend
+)
+set_tests_properties(model_test_batch_backend_python_test PROPERTIES TIMEOUT 60)
+opendss_configure_offscreen_test(
+  model_test_batch_backend_python_test
+  qt_offscreen_platform_smoke_test
+)
 
 qt_add_executable(model_test_production_model_probe
   model_test_production_model_probe.cpp

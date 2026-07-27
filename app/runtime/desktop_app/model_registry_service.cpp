@@ -1609,6 +1609,7 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
     artifact["onnx_file"] = "model.onnx";
     artifact["checkpoint_file"] = "checkpoint.pth";
     artifact["onnx_sha256"] = sha256FileHex(promotedModelPath);
+    artifact["checkpoint_sha256"] = sha256FileHex(promotedCheckpointPath);
     artifact["format"] = "onnx";
     QJsonArray externalDataFiles;
     for (const QString& sidecarName : sidecarNames) {

@@ -126,7 +126,14 @@ bool validateData(const ModelTestSummaryData& data, bool requireDataset,
         data.opendssVersion.trimmed().isEmpty() ||
         data.activeModel.id.trimmed().isEmpty() ||
         data.activeModel.name.trimmed().isEmpty() ||
-        !validSha(data.activeModel.onnxSha256) ||
+        (data.schemaVersion == ModelTestSummaryV2::SchemaVersion &&
+         (!validSha(data.activeModel.checkpointSha256) ||
+          !data.activeModel.onnxSha256.isEmpty())) ||
+        (data.schemaVersion == ModelTestSummaryV2::LegacySchemaVersion &&
+         (!validSha(data.activeModel.onnxSha256) ||
+          !data.activeModel.checkpointSha256.isEmpty())) ||
+        (data.schemaVersion != ModelTestSummaryV2::SchemaVersion &&
+         data.schemaVersion != ModelTestSummaryV2::LegacySchemaVersion) ||
         !validSha(data.activeModel.metadataSha256) ||
         !validClasses(data.activeModel.classes) ||
         data.dataset.id.trimmed().isEmpty() ||
@@ -224,20 +231,24 @@ QJsonObject summaryJson(const ModelTestSummaryData& data,
                        {"effective", deviceText(data.effectiveDevice)}};
     if (data.fallbackWarning)
         device.insert("fallback_warning", *data.fallbackWarning);
+    QJsonObject activeModel{{"id", data.activeModel.id},
+                            {"name", data.activeModel.name},
+                            {"metadata_sha256", data.activeModel.metadataSha256},
+                            {"classes", classesJson(data.activeModel.classes)}};
+    if (data.schemaVersion == ModelTestSummaryV2::LegacySchemaVersion)
+        activeModel.insert("onnx_sha256", data.activeModel.onnxSha256);
+    else
+        activeModel.insert("checkpoint_sha256",
+                           data.activeModel.checkpointSha256);
     return QJsonObject{
-        {"schema", ModelTestSummaryV2::SchemaVersion},
+        {"schema", data.schemaVersion},
         {"test_id", data.testId},
         {"status", statusText(data.status)},
         {"timestamps",
          QJsonObject{{"started_at", data.startedAt}, {"ended_at", data.endedAt}}},
         {"stop_reason", data.stopReason},
         {"opendss_version", data.opendssVersion},
-        {"active_model",
-         QJsonObject{{"id", data.activeModel.id},
-                     {"name", data.activeModel.name},
-                     {"onnx_sha256", data.activeModel.onnxSha256},
-                     {"metadata_sha256", data.activeModel.metadataSha256},
-                     {"classes", classesJson(data.activeModel.classes)}}},
+        {"active_model", activeModel},
         {"dataset",
          QJsonObject{{"id", data.dataset.id},
                      {"source_path", data.dataset.sourcePath},
@@ -596,8 +607,9 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
         "active_model",    "dataset",          "device",
         "counts",          "overall_accuracy", "per_class",
         "confusion_matrix", "predictions_csv"};
+    const QString schema = root.value("schema").toString();
     if (!exactKeys(root, rootKeys) ||
-        root.value("schema").toString() != SchemaVersion ||
+        (schema != SchemaVersion && schema != LegacySchemaVersion) ||
         !root.value("test_id").isString() || !root.value("status").isString() ||
         !root.value("timestamps").isObject() ||
         !root.value("stop_reason").isString() ||
@@ -611,6 +623,7 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
     }
 
     ModelTestSummaryV2 result;
+    result.data_.schemaVersion = schema;
     auto status = parseStatus(root.value("status").toString());
     if (!status)
         return failed<ModelTestSummaryV2>(error, "Model Test status is invalid.");
@@ -629,19 +642,35 @@ ModelTestSummaryV2::load(const QString& path, QString* error) {
     result.data_.endedAt = timestamps.value("ended_at").toString();
 
     const QJsonObject model = root.value("active_model").toObject();
-    if (!exactKeys(model, {"id", "name", "onnx_sha256", "metadata_sha256", "classes"}) ||
+    const bool legacy = schema == LegacySchemaVersion;
+    const QSet<QString> modelKeys =
+        legacy ? QSet<QString>{"id", "name", "onnx_sha256",
+                              "metadata_sha256", "classes"}
+               : QSet<QString>{"id", "name", "checkpoint_sha256",
+                               "metadata_sha256", "classes"};
+    const QString executedHashKey =
+        legacy ? QStringLiteral("onnx_sha256")
+               : QStringLiteral("checkpoint_sha256");
+    if (!exactKeys(model, modelKeys) ||
         !model.value("id").isString() || !model.value("name").isString() ||
-        !model.value("onnx_sha256").isString() ||
+        !model.value(executedHashKey).isString() ||
         !model.value("metadata_sha256").isString()) {
         return failed<ModelTestSummaryV2>(error, "Active Model snapshot is invalid.");
     }
     auto modelClasses = parseClasses(model.value("classes"), error);
     if (!modelClasses)
         return std::nullopt;
-    result.data_.activeModel = {
-        model.value("id").toString(), model.value("name").toString(),
-        model.value("onnx_sha256").toString(),
-        model.value("metadata_sha256").toString(), *modelClasses};
+    result.data_.activeModel.id = model.value("id").toString();
+    result.data_.activeModel.name = model.value("name").toString();
+    if (legacy)
+        result.data_.activeModel.onnxSha256 =
+            model.value(executedHashKey).toString();
+    else
+        result.data_.activeModel.checkpointSha256 =
+            model.value(executedHashKey).toString();
+    result.data_.activeModel.metadataSha256 =
+        model.value("metadata_sha256").toString();
+    result.data_.activeModel.classes = *modelClasses;
 
     const QJsonObject dataset = root.value("dataset").toObject();
     if (!exactKeys(dataset, {"id", "source_path", "classes"}) ||

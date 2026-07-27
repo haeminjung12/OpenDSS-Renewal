@@ -216,7 +216,8 @@ int main(int argc, char *argv[])
         modelLibraryController, trainingPythonExecutable(), trainingWorkingDirectory(),
         defaultOpenDssModelsPath());
     desktop_app::v2::model_test::ModelTestController modelTestController(
-        operationCoordinator, modelLoadService, QCoreApplication::applicationVersion());
+        operationCoordinator, modelLoadService, QCoreApplication::applicationVersion(),
+        trainingPythonExecutable(), trainingWorkingDirectory());
     QObject::connect(&modelLibraryController,
                      &desktop_app::v2::ModelLibraryController::changed,
                      &modelTestController,

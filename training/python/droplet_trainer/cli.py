@@ -9,6 +9,7 @@ from .dataset import inspect_dataset, validate_dataset
 from .env import run_env_check
 from .errors import EXIT_USAGE, handle_exception, json_error
 from .metadata import metadata_scaffold
+from .model_test_batch_backend import run_model_test_process
 from .schema import parse_schema
 from .train import run_train
 from .validate_images import run_validate_images
@@ -108,6 +109,9 @@ def build_parser() -> argparse.ArgumentParser:
     val_sequence.add_argument("--json", action="store_true")
     val_sequence.add_argument("--jsonl", action="store_true")
 
+    model_test = sub.add_parser("model-test-process")
+    model_test.add_argument("--checkpoint", required=True)
+
     meta = sub.add_parser("metadata-scaffold")
     add_common_dataset_args(meta)
     meta.add_argument("--json", action="store_true")
@@ -158,6 +162,8 @@ def main(argv: list[str] | None = None) -> int:
                 if missing:
                     return json_error(command, "CLI_USAGE_ERROR", "Runner-wrapped validate-sequence is missing required options.", EXIT_USAGE, {"missing": missing})
                 payload, exit_code = run_validate_sequence_runner(args, parse_schema(args))
+        elif command == "model-test-process":
+            return run_model_test_process(args)
         elif command == "metadata-scaffold":
             schema = parse_schema(args)
             payload = {"schema_version": 1, "command": "metadata-scaffold", "status": "ok", "metadata": metadata_scaffold(schema.classes, schema.display_labels)}

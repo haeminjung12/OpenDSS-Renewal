@@ -44,7 +44,9 @@ class ModelTestService final {
     ModelTestService(OperationCoordinator& operations,
                      ModelLoadService* modelLoader,
                      ModelTestModelProvider modelProvider = {},
-                     ModelTestProgress progress = {});
+                     ModelTestProgress progress = {},
+                     QString pythonExecutable = {},
+                     QString workingDirectory = {});
 
     bool run(const ModelTestRequest& request, QString* error = nullptr);
     void requestStop() noexcept;
@@ -54,6 +56,8 @@ class ModelTestService final {
     ModelLoadService* modelLoader_;
     ModelTestModelProvider modelProvider_;
     ModelTestProgress progress_;
+    QString pythonExecutable_;
+    QString workingDirectory_;
     std::atomic_bool running_{false};
     std::atomic_bool stopRequested_{false};
 };

@@ -26,6 +26,8 @@ class ModelTestWriter {
 
     bool appendPrediction(const ModelTestPrediction& prediction,
                           QString* error = nullptr);
+    bool appendBatch(const QVector<ModelTestPrediction>& predictions,
+                     QString* error = nullptr);
     bool flush(QString* error = nullptr);
     bool finalize(ModelTestStatus status, const QString& endedAt,
                   const QString& stopReason, QString* error = nullptr);

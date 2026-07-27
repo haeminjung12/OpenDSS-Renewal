@@ -393,6 +393,105 @@ PersistedActiveModelInspection ModelLoadService::inspectPersistedActive() const 
     return result;
 }
 
+PersistedActiveCheckpointInspection
+ModelLoadService::inspectAndMigratePersistedActiveCheckpoint() const {
+    PersistedActiveCheckpointInspection result;
+    const PersistedActiveModelInspection active = inspectPersistedActive();
+    result.id = active.id;
+    result.displayName = active.displayName;
+    result.classes = active.classes;
+    if (!active.loadable) {
+        result.error = active.error;
+        return result;
+    }
+
+    QString readError;
+    const QJsonObject registry = registryObject(registryFilePath_, &readError);
+    if (registry.isEmpty()) {
+        result.error = readError;
+        return result;
+    }
+    QJsonObject activeEntry;
+    for (const QJsonValue& value : registry.value("entries").toArray()) {
+        const QJsonObject entry = value.toObject();
+        if (entry.value("active").toBool(false)) {
+            if (!activeEntry.isEmpty()) {
+                result.error =
+                    QStringLiteral("Model registry contains multiple active entries.");
+                return result;
+            }
+            activeEntry = entry;
+        }
+    }
+    const ModelPackageInspection package = inspectModelPackage(activeEntry);
+    const QFileInfo checkpoint(package.checkpointPath);
+    if (!checkpoint.isFile() || !checkpoint.isReadable() ||
+        checkpoint.size() <= 0) {
+        result.error =
+            QStringLiteral("The Active Model checkpoint is missing or unreadable.");
+        return result;
+    }
+    const QString actualCheckpointSha =
+        sha256File(checkpoint.absoluteFilePath()).toLower();
+    if (actualCheckpointSha.size() != 64) {
+        result.error =
+            QStringLiteral("The Active Model checkpoint could not be hashed.");
+        return result;
+    }
+
+    QJsonObject metadata = readJsonObject(package.metadataPath, &readError);
+    if (metadata.isEmpty()) {
+        result.error = readError;
+        return result;
+    }
+    QJsonObject artifact = metadata.value("artifact").toObject();
+    const QString declared =
+        artifact.value("checkpoint_sha256").toString().trimmed().toLower();
+    if (!declared.isEmpty() && declared != actualCheckpointSha) {
+        result.error = QStringLiteral(
+            "The Active Model checkpoint SHA-256 does not match its package metadata.");
+        return result;
+    }
+    if (declared.isEmpty()) {
+        artifact.insert(QStringLiteral("checkpoint_sha256"),
+                        actualCheckpointSha);
+        metadata.insert(QStringLiteral("artifact"), artifact);
+        QString migrationError;
+        if (!desktop_app::writeJsonObjectAtomically(
+                package.metadataPath, metadata, &migrationError)) {
+            result.error = QStringLiteral(
+                               "The Active Model checkpoint provenance migration "
+                               "could not be committed atomically: ") +
+                           migrationError;
+            return result;
+        }
+        const QJsonObject migrated =
+            readJsonObject(package.metadataPath, &migrationError);
+        if (migrated.value("artifact")
+                .toObject()
+                .value("checkpoint_sha256")
+                .toString()
+                .trimmed()
+                .toLower() != actualCheckpointSha) {
+            result.error = QStringLiteral(
+                "The Active Model checkpoint provenance migration could not be verified.");
+            return result;
+        }
+    }
+
+    const QString metadataSha = sha256File(package.metadataPath).toLower();
+    if (metadataSha.size() != 64) {
+        result.error =
+            QStringLiteral("The migrated Active Model metadata could not be hashed.");
+        return result;
+    }
+    result.checkpointPath = checkpoint.absoluteFilePath();
+    result.checkpointSha256 = actualCheckpointSha;
+    result.metadataSha256 = metadataSha;
+    result.loadable = true;
+    return result;
+}
+
 std::unique_ptr<OnnxInferenceAdapter> ModelLoadService::prepare(const QString& registryEntryId,
                                                                 const QString& requestedDevice,
                                                                 QString* warning,

@@ -27,11 +27,24 @@ struct PersistedActiveModelInspection {
     QString error;
 };
 
+struct PersistedActiveCheckpointInspection {
+    bool loadable = false;
+    QString id;
+    QString displayName;
+    QString checkpointPath;
+    QString checkpointSha256;
+    QString metadataSha256;
+    QVector<PersistedActiveModelClass> classes;
+    QString error;
+};
+
 class ModelLoadService {
 public:
     explicit ModelLoadService(QString registryFilePath);
 
     PersistedActiveModelInspection inspectPersistedActive() const;
+    PersistedActiveCheckpointInspection
+    inspectAndMigratePersistedActiveCheckpoint() const;
     std::unique_ptr<OnnxInferenceAdapter> prepare(const QString& registryEntryId,
                                                   const QString& requestedDevice,
                                                   QString* warning = nullptr,

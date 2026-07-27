@@ -42,7 +42,9 @@ private:
     using OutputRoots = std::array<QString, OutputRootCount>;
 
     bool save(const PreferencesState &preferences, const OutputRoots &outputRoots,
-              QString *error) const;
+              OutputRoots *persistedOutputRoots, QString *error) const;
+    void reconcileSavedOutputRoots(const OutputRoots &requestedOutputRoots,
+                                   const OutputRoots &persistedOutputRoots);
 
     QString preferencesFilePath_;
     ApplicationStateStore &stateStore_;

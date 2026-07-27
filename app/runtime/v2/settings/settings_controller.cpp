@@ -9,11 +9,23 @@
 #include <QDesktopServices>
 #include <QFileInfo>
 
+#include <array>
 #include <utility>
 
 namespace desktop_app::v2 {
 
 namespace {
+
+constexpr std::array<OutputRootSelector, 9> kOutputRootSelectors{
+    OutputRootSelector::CaptureSingle,
+    OutputRootSelector::CaptureSequence,
+    OutputRootSelector::CaptureDataset,
+    OutputRootSelector::Train,
+    OutputRootSelector::ModelTest,
+    OutputRootSelector::Live,
+    OutputRootSelector::SequenceTest,
+    OutputRootSelector::LibraryCreate,
+    OutputRootSelector::LibraryExport};
 
 QString cameraAvailabilityText(const CameraState &camera)
 {
@@ -74,6 +86,7 @@ SettingsController::SettingsController(SettingsRepository &repository, Applicati
     , folderOpener_(std::move(folderOpener))
     , lastNotifiedTextSizePercent_(textSizePercent())
     , lastNotifiedStorageRoot_(stateStore_.snapshot().preferences.storageRoot)
+    , lastNotifiedOutputRootsState_(outputRootsState())
 {
     if (!folderOpener_)
         folderOpener_ = [](const QUrl &url) { return QDesktopServices::openUrl(url); };
@@ -100,7 +113,8 @@ int SettingsController::textSizePercent() const
 
 void SettingsController::setTextSizePercent(int textSizePercent)
 {
-    repository_.setTextSizePercent(textSizePercent);
+    if (repository_.setTextSizePercent(textSizePercent))
+        notifyOutputRootsIfChanged();
 }
 
 QUrl SettingsController::storageRoot() const
@@ -120,6 +134,7 @@ QString SettingsController::setStorageRoot(const QUrl &storageRoot)
     QString error;
     if (!repository_.setStorageRoot(localStorageRoot, &error))
         return error;
+    notifyOutputRootsIfChanged();
     return {};
 }
 
@@ -153,17 +168,10 @@ QString SettingsController::setOutputRoot(OutputRootSelector selector,
     if (localOutputRoot.isEmpty())
         return QStringLiteral("Output location must be a local folder URL.");
 
-    const QUrl previousRoot = this->outputRoot(selector);
-    const bool previouslyFellBack = outputRootFellBack(selector);
-    const QString previousReason = outputRootFallbackReason(selector);
     QString error;
     if (!repository_.setOutputRoot(selector, localOutputRoot, &error))
         return error;
-    if (this->outputRoot(selector) != previousRoot
-        || outputRootFellBack(selector) != previouslyFellBack
-        || outputRootFallbackReason(selector) != previousReason) {
-        emit outputRootsChanged();
-    }
+    notifyOutputRootsIfChanged();
     return {};
 }
 
@@ -252,6 +260,30 @@ QString SettingsController::openExistingFolder(
     if (!folderOpener_(folder))
         return QStringLiteral("Unable to request opening the folder.");
     return {};
+}
+
+QString SettingsController::outputRootsState() const
+{
+    QString state;
+    for (const OutputRootSelector selector : kOutputRootSelectors) {
+        state += repository_.outputRoot(selector);
+        state += QChar(0x1f);
+        state += repository_.outputRootFellBack(selector)
+            ? QLatin1Char('1') : QLatin1Char('0');
+        state += QChar(0x1f);
+        state += repository_.outputRootFallbackReason(selector);
+        state += QChar(0x1e);
+    }
+    return state;
+}
+
+void SettingsController::notifyOutputRootsIfChanged()
+{
+    const QString currentState = outputRootsState();
+    if (currentState == lastNotifiedOutputRootsState_)
+        return;
+    lastNotifiedOutputRootsState_ = currentState;
+    emit outputRootsChanged();
 }
 
 } // namespace desktop_app::v2

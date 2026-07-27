@@ -69,6 +69,8 @@ signals:
 
 private:
     QString openExistingFolder(const QUrl &folder, const QString &unavailableReason) const;
+    QString outputRootsState() const;
+    void notifyOutputRootsIfChanged();
 
     SettingsRepository &repository_;
     ApplicationStateStore &stateStore_;
@@ -76,6 +78,7 @@ private:
     SettingsDiagnostics diagnostics_;
     int lastNotifiedTextSizePercent_;
     QString lastNotifiedStorageRoot_;
+    QString lastNotifiedOutputRootsState_;
 };
 
 } // namespace desktop_app::v2

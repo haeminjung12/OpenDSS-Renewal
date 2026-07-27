@@ -148,6 +148,20 @@ int main(int argc, char **argv)
             != expectedDatasetsRoot) {
         return fail(5, "Controller did not expose a factual unavailable-root fallback.");
     }
+    controller.setTextSizePercent(80);
+    if (controller.textSizePercent() != 80 || textSizeChangedCount != 1
+        || outputRootsChangedCount != 2
+        || !QDir().mkpath(captureOutputRoot)
+        || controller.outputRoot(
+               desktop_app::v2::OutputRootSelector::CaptureSingle).toLocalFile()
+            != expectedDatasetsRoot
+        || !controller.outputRootFellBack(
+            desktop_app::v2::OutputRootSelector::CaptureSingle)
+        || controller.outputRootFallbackReason(
+               desktop_app::v2::OutputRootSelector::CaptureSingle).isEmpty()
+        || outputRootsChangedCount != 2) {
+        return fail(5, "Unrelated save did not reconcile one unavailable-root fallback.");
+    }
 
     const QString openStorageRootError = controller.openStorageRoot();
     if (!openStorageRootError.isEmpty() || openedUrls.size() != 1 ||

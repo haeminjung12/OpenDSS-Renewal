@@ -59,6 +59,13 @@ QString standardRoot(OutputRootSelector selector)
         .filePath(QString::fromLatin1(definition(selector).fallbackFolder));
 }
 
+QString fallbackReason(OutputRootSelector selector, const QString &validationError)
+{
+    return QStringLiteral("%1 Using the standard location %2.")
+        .arg(validationError,
+             QDir::toNativeSeparators(standardRoot(selector)));
+}
+
 bool isKnownPreferenceKey(const QString &key)
 {
     if (key == QStringLiteral("schema_version") || key == QStringLiteral("storage_root")
@@ -229,9 +236,7 @@ bool parsePreferences(const QJsonObject &document, PreferencesState *preferences
             outputRoots->at(index) = selectedRoot;
         } else {
             fallbackReasons->at(index) =
-                QStringLiteral("%1 Using the standard location %2.")
-                    .arg(validationError,
-                         QDir::toNativeSeparators(standardRoot(item.selector)));
+                fallbackReason(item.selector, validationError);
             *needsNormalization = true;
         }
     }
@@ -288,8 +293,12 @@ bool SettingsRepository::load(QString *error)
             != candidate.textSizePercent) {
         needsNormalization = true;
     }
-    if (needsNormalization && !save(candidate, outputRoots, error))
-        return false;
+    if (needsNormalization) {
+        OutputRoots persistedOutputRoots;
+        if (!save(candidate, outputRoots, &persistedOutputRoots, error))
+            return false;
+        outputRoots = persistedOutputRoots;
+    }
     outputRoots_ = outputRoots;
     loadFallbackReasons_ = fallbackReasons;
     stateStore_.publishPreferences(candidate);
@@ -297,21 +306,52 @@ bool SettingsRepository::load(QString *error)
 }
 
 bool SettingsRepository::save(const PreferencesState &preferences,
-                              const OutputRoots &outputRoots, QString *error) const
+                              const OutputRoots &outputRoots,
+                              OutputRoots *persistedOutputRoots,
+                              QString *error) const
 {
     if (!validatePreferences(preferences, error))
         return false;
 
+    OutputRoots persisted;
+    persisted.fill({});
     QJsonObject document{
         {QStringLiteral("schema_version"), kSchemaVersion},
         {QStringLiteral("storage_root"), preferences.storageRoot},
         {QStringLiteral("text_size_percent"), preferences.textSizePercent}};
     for (const OutputRootDefinition &item : kOutputRootDefinitions) {
         const QString &outputRoot = outputRoots.at(selectorIndex(item.selector));
-        if (!outputRoot.isEmpty() && validateOutputRoot(outputRoot, nullptr))
+        if (!outputRoot.isEmpty() && validateOutputRoot(outputRoot, nullptr)) {
             document.insert(QString::fromLatin1(item.key), outputRoot);
+            persisted.at(selectorIndex(item.selector)) = outputRoot;
+        }
     }
-    return desktop_app::writeJsonObjectAtomically(preferencesFilePath_, document, error);
+    if (!desktop_app::writeJsonObjectAtomically(preferencesFilePath_, document, error))
+        return false;
+    *persistedOutputRoots = persisted;
+    return true;
+}
+
+void SettingsRepository::reconcileSavedOutputRoots(
+    const OutputRoots &requestedOutputRoots,
+    const OutputRoots &persistedOutputRoots)
+{
+    for (const OutputRootDefinition &item : kOutputRootDefinitions) {
+        const std::size_t index = selectorIndex(item.selector);
+        if (!persistedOutputRoots.at(index).isEmpty()) {
+            outputRoots_.at(index) = persistedOutputRoots.at(index);
+            loadFallbackReasons_.at(index).clear();
+            continue;
+        }
+        if (requestedOutputRoots.at(index).isEmpty())
+            continue;
+
+        QString validationError;
+        validateOutputRoot(requestedOutputRoots.at(index), &validationError);
+        outputRoots_.at(index).clear();
+        loadFallbackReasons_.at(index) =
+            fallbackReason(item.selector, validationError);
+    }
 }
 
 bool SettingsRepository::setStorageRoot(const QString &storageRoot, QString *error)
@@ -323,8 +363,10 @@ bool SettingsRepository::setStorageRoot(const QString &storageRoot, QString *err
             *error = QStringLiteral("Current text size percent is unsupported.");
         return false;
     }
-    if (!save(candidate, outputRoots_, error))
+    OutputRoots persistedOutputRoots;
+    if (!save(candidate, outputRoots_, &persistedOutputRoots, error))
         return false;
+    reconcileSavedOutputRoots(outputRoots_, persistedOutputRoots);
     stateStore_.publishPreferences(candidate);
     return true;
 }
@@ -337,8 +379,10 @@ bool SettingsRepository::setTextSizePercent(int textSizePercent, QString *error)
             *error = QStringLiteral("Text size percent must be 80, 100, or 125.");
         return false;
     }
-    if (!save(candidate, outputRoots_, error))
+    OutputRoots persistedOutputRoots;
+    if (!save(candidate, outputRoots_, &persistedOutputRoots, error))
         return false;
+    reconcileSavedOutputRoots(outputRoots_, persistedOutputRoots);
     stateStore_.publishPreferences(candidate);
     return true;
 }
@@ -371,8 +415,7 @@ QString SettingsRepository::outputRootFallbackReason(OutputRootSelector selector
     QString validationError;
     if (validateOutputRoot(outputRoots_.at(index), &validationError))
         return {};
-    return QStringLiteral("%1 Using the standard location %2.")
-        .arg(validationError, QDir::toNativeSeparators(standardRoot(selector)));
+    return fallbackReason(selector, validationError);
 }
 
 bool SettingsRepository::setOutputRoot(OutputRootSelector selector,
@@ -384,10 +427,12 @@ bool SettingsRepository::setOutputRoot(OutputRootSelector selector,
     OutputRoots candidate = outputRoots_;
     const std::size_t index = selectorIndex(selector);
     candidate.at(index) = outputRoot;
-    if (!save(stateStore_.snapshot().preferences, candidate, error))
+    OutputRoots persistedOutputRoots;
+    if (!save(stateStore_.snapshot().preferences, candidate,
+              &persistedOutputRoots, error)) {
         return false;
-    outputRoots_ = candidate;
-    loadFallbackReasons_.at(index).clear();
+    }
+    reconcileSavedOutputRoots(candidate, persistedOutputRoots);
     return true;
 }
 

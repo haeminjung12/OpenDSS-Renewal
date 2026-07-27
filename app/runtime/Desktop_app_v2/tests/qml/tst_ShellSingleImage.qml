@@ -426,11 +426,15 @@ Item {
         property var resultSummary: ({})
         property url summaryUrl: ""
         property url predictionsCsvUrl: ""
+        property url partialSummaryUrl: ""
+        property url partialPredictionsCsvUrl: ""
         property url artifactOutputFolderUrl: ""
         property int startCallCount: 0
         property int stopCallCount: 0
         property int openSummaryCallCount: 0
         property int openPredictionsCallCount: 0
+        property int openPartialSummaryCallCount: 0
+        property int openPartialPredictionsCallCount: 0
 
         function reset() {
             datasetManifestUrl = "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
@@ -449,11 +453,15 @@ Item {
             resultSummary = ({})
             summaryUrl = ""
             predictionsCsvUrl = ""
+            partialSummaryUrl = ""
+            partialPredictionsCsvUrl = ""
             artifactOutputFolderUrl = ""
             startCallCount = 0
             stopCallCount = 0
             openSummaryCallCount = 0
             openPredictionsCallCount = 0
+            openPartialSummaryCallCount = 0
+            openPartialPredictionsCallCount = 0
         }
 
         function start() {
@@ -473,6 +481,16 @@ Item {
 
         function openPredictions() {
             ++openPredictionsCallCount
+            return true
+        }
+
+        function openPartialSummary() {
+            ++openPartialSummaryCallCount
+            return true
+        }
+
+        function openPartialPredictions() {
+            ++openPartialPredictionsCallCount
             return true
         }
     }
@@ -2581,6 +2599,50 @@ Item {
         verify(shell.form.modelTestWorkspace.showError)
         compare(shell.form.modelTestWorkspace.blockerText,
                 "No Active Model is available.")
+    }
+
+    function test_modelTestRecoveryControllerWiring() {
+        shell.modelLibraryController = null
+        shell.modelTestController = modelTestController
+        shell.form.navModelTestButton.clicked()
+
+        modelTestController.resultSummary = {
+            status: "stopped",
+            overallAccuracy: 0.5,
+            perClass: [{classId: "0", accuracy: 0.5}],
+            confusionMatrix: [[1]]
+        }
+        modelTestController.partialSummaryUrl =
+                "file:///C:/OpenDSS/Model%20Tests/result-001/model_test_summary.partial.json"
+        modelTestController.presentation = "interrupted"
+        verify(shell.form.modelTestWorkspace.serviceFactsOnly)
+        verify(shell.form.modelTestWorkspace.showError)
+        verify(!shell.form.modelTestWorkspace.resultFactsVisible)
+        verify(shell.form.modelTestWorkspace.openPartialSummaryButton.visible)
+        verify(!shell.form.modelTestWorkspace.openPartialPredictionsButton.visible)
+        verify(shell.form.modelTestWorkspace.recoveryStartButton.enabled)
+        shell.form.modelTestWorkspace.openPartialSummaryButton.clicked()
+        compare(modelTestController.openPartialSummaryCallCount, 1)
+
+        modelTestController.partialPredictionsCsvUrl =
+                "file:///C:/OpenDSS/Model%20Tests/result-001/predictions.partial.csv"
+        verify(shell.form.modelTestWorkspace.openPartialSummaryButton.visible)
+        verify(shell.form.modelTestWorkspace.openPartialPredictionsButton.visible)
+        modelTestController.partialSummaryUrl = ""
+        verify(!shell.form.modelTestWorkspace.openPartialSummaryButton.visible)
+        verify(shell.form.modelTestWorkspace.openPartialPredictionsButton.visible)
+        shell.form.modelTestWorkspace.openPartialPredictionsButton.clicked()
+        compare(modelTestController.openPartialPredictionsCallCount, 1)
+
+        modelTestController.partialPredictionsCsvUrl = ""
+        modelTestController.errorMessage = "Model inference failed."
+        modelTestController.presentation = "failed"
+        verify(shell.form.modelTestWorkspace.showError)
+        verify(!shell.form.modelTestWorkspace.resultFactsVisible)
+        verify(!shell.form.modelTestWorkspace.openPartialSummaryButton.visible)
+        verify(!shell.form.modelTestWorkspace.openPartialPredictionsButton.visible)
+        shell.form.modelTestWorkspace.recoveryStartButton.clicked()
+        compare(modelTestController.startCallCount, 1)
     }
 
     function test_sequenceTestAndRunsStates() {

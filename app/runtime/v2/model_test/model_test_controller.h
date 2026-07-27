@@ -37,6 +37,9 @@ class ModelTestController final : public QObject {
     Q_PROPERTY(QVariantMap resultSummary READ resultSummary NOTIFY changed)
     Q_PROPERTY(QUrl summaryUrl READ summaryUrl NOTIFY changed)
     Q_PROPERTY(QUrl predictionsCsvUrl READ predictionsCsvUrl NOTIFY changed)
+    Q_PROPERTY(QUrl partialSummaryUrl READ partialSummaryUrl NOTIFY changed)
+    Q_PROPERTY(QUrl partialPredictionsCsvUrl READ partialPredictionsCsvUrl NOTIFY
+                   changed)
     Q_PROPERTY(QUrl artifactOutputFolderUrl READ artifactOutputFolderUrl NOTIFY
                    changed)
 
@@ -66,12 +69,16 @@ class ModelTestController final : public QObject {
     QVariantMap resultSummary() const;
     QUrl summaryUrl() const;
     QUrl predictionsCsvUrl() const;
+    QUrl partialSummaryUrl() const;
+    QUrl partialPredictionsCsvUrl() const;
     QUrl artifactOutputFolderUrl() const;
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE bool stop();
     Q_INVOKABLE bool openSummary();
     Q_INVOKABLE bool openPredictions();
+    Q_INVOKABLE bool openPartialSummary();
+    Q_INVOKABLE bool openPartialPredictions();
 
   public slots:
     void refreshPreflight();
@@ -106,6 +113,8 @@ class ModelTestController final : public QObject {
     QVariantMap resultSummary_;
     QUrl summaryUrl_;
     QUrl predictionsCsvUrl_;
+    QUrl partialSummaryUrl_;
+    QUrl partialPredictionsCsvUrl_;
     QUrl artifactOutputFolderUrl_;
     ModelTestService service_;
     std::atomic_bool stopRequested_{false};

@@ -78,7 +78,7 @@ QString copyBundledModelPackage(const QString& parent) {
     return packagePath;
 }
 
-QString makeDataset(const QString& parent) {
+QString makeDataset(const QString& parent, bool corruptSecond = false) {
     const QString root = QDir(parent).filePath("dataset");
     const QString first = QDir(root).filePath("crops/first.png");
     const QString second = QDir(root).filePath("crops/second.png");
@@ -88,7 +88,14 @@ QString makeDataset(const QString& parent) {
     image.fill(32);
     require(image.save(first, "PNG"), "save first crop");
     image.fill(224);
-    require(image.save(second, "PNG"), "save second crop");
+    if (corruptSecond) {
+        QFile corrupt(second);
+        require(corrupt.open(QIODevice::WriteOnly | QIODevice::Truncate) &&
+                    corrupt.write("not-an-image") == 12,
+                "save corrupt second crop");
+    } else {
+        require(image.save(second, "PNG"), "save second crop");
+    }
 
     DatasetManifestData data;
     data.datasetId = QStringLiteral("controller-dataset");
@@ -211,7 +218,7 @@ void testValidationAndCompletedResult() {
     require(controller.start(), "start accepted");
     require(waitUntil([&] {
                 return controller.presentation() == "completed" ||
-                       controller.presentation() == "error";
+                       controller.presentation() == "failed";
             }),
             "completed result published");
     qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
@@ -246,6 +253,9 @@ void testValidationAndCompletedResult() {
                 controller.artifactOutputFolderUrl() ==
                     QUrl::fromLocalFile(output),
             "artifact URLs published");
+    require(controller.partialSummaryUrl().isEmpty() &&
+                controller.partialPredictionsCsvUrl().isEmpty(),
+            "completed output has no partial artifacts");
     require(QFileInfo(controller.artifactOutputFolderUrl().toLocalFile())
                     .absolutePath() == QFileInfo(outputParent).absoluteFilePath(),
             "unique Model Test run directory remains contained by output parent");
@@ -290,15 +300,77 @@ void testImmediateStop() {
             "immediate Stop accepted");
     require(waitUntil([&] {
                 return controller.presentation() == "interrupted" ||
-                       controller.presentation() == "error";
+                       controller.presentation() == "failed";
             }),
             "stopped result published");
     qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
     require(controller.presentation() == "interrupted" &&
                 controller.resultSummary().value("status").toString() ==
                     "stopped" &&
-                controller.errorMessage().isEmpty(),
+                controller.errorMessage().isEmpty() &&
+                controller.partialSummaryUrl().isEmpty() &&
+                controller.partialPredictionsCsvUrl().isEmpty() &&
+                !controller.summaryUrl().isEmpty() &&
+                !controller.predictionsCsvUrl().isEmpty(),
             "immediate Stop remains effective after service startup");
+
+    require(controller.start() && controller.stop(),
+            "recovery Start Another accepted");
+    require(waitUntil([&] {
+                return controller.presentation() == "interrupted" ||
+                       controller.presentation() == "failed";
+            }) &&
+                QFileInfo::exists(
+                    QDir(temporary.path()).filePath("model-test-2")),
+            "recovery starts a unique output");
+}
+
+void testFailedPartialRecovery() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create failed temporary directory");
+    const QString packagePath = copyBundledModelPackage(temporary.path());
+    const QString registryPath =
+        QDir(temporary.path()).filePath("registry/model_registry.json");
+    writeJson(
+        registryPath,
+        QJsonObject{
+            {"schema_version", "model-registry-v3-simple"},
+            {"entries",
+             QJsonArray{QJsonObject{{"registry_entry_id", "active-model"},
+                                    {"display_name", "Active Test Model"},
+                                    {"package_path",
+                                     QDir::cleanPath(packagePath)},
+                                    {"active", true}}}}});
+    require(qputenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE", "1"),
+            "set deterministic failed preflight CUDA override");
+    OperationCoordinator operations;
+    ModelLoadService loader(registryPath);
+    ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    controller.setDatasetManifestUrl(
+        QUrl::fromLocalFile(makeDataset(temporary.path(), true)));
+    const QString outputParent =
+        QDir(temporary.path()).filePath("failed-results");
+    require(QDir().mkpath(outputParent), "create failed output parent");
+    controller.setOutputFolderUrl(QUrl::fromLocalFile(outputParent));
+    require(controller.start(), "failed run start accepted");
+    require(waitUntil(
+                [&] { return controller.presentation() == "failed"; }),
+            "runtime failure published distinctly");
+    qunsetenv("OVDS_TEST_FORCE_CUDA_UNAVAILABLE");
+
+    const QString output = QDir(outputParent).filePath("model-test");
+    require(controller.errorMessage().contains("could not be decoded") &&
+                controller.artifactOutputFolderUrl() ==
+                    QUrl::fromLocalFile(output) &&
+                controller.partialSummaryUrl() ==
+                    QUrl::fromLocalFile(QDir(output).filePath(
+                        "model_test_summary.partial.json")) &&
+                controller.partialPredictionsCsvUrl() ==
+                    QUrl::fromLocalFile(
+                        QDir(output).filePath("predictions.partial.csv")) &&
+                controller.resultSummary().value("status").toString() ==
+                    "failed",
+            "failed run publishes factual recoverable artifacts");
 }
 
 void testRegistryMutationRefresh() {
@@ -369,6 +441,7 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testValidationAndCompletedResult();
     testImmediateStop();
+    testFailedPartialRecovery();
     testRegistryMutationRefresh();
     return 0;
 }

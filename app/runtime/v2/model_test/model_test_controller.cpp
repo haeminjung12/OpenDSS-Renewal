@@ -202,6 +202,14 @@ QUrl ModelTestController::predictionsCsvUrl() const {
     return predictionsCsvUrl_;
 }
 
+QUrl ModelTestController::partialSummaryUrl() const {
+    return partialSummaryUrl_;
+}
+
+QUrl ModelTestController::partialPredictionsCsvUrl() const {
+    return partialPredictionsCsvUrl_;
+}
+
 QUrl ModelTestController::artifactOutputFolderUrl() const {
     return artifactOutputFolderUrl_;
 }
@@ -274,6 +282,16 @@ bool ModelTestController::openPredictions() {
                              QStringLiteral("Model Test predictions"));
 }
 
+bool ModelTestController::openPartialSummary() {
+    return openLocalArtifact(partialSummaryUrl_,
+                             QStringLiteral("Partial Model Test summary"));
+}
+
+bool ModelTestController::openPartialPredictions() {
+    return openLocalArtifact(partialPredictionsCsvUrl_,
+                             QStringLiteral("Partial Model Test predictions"));
+}
+
 bool ModelTestController::active() const {
     return presentation_ == QStringLiteral("starting") ||
            presentation_ == QStringLiteral("running") ||
@@ -288,6 +306,8 @@ void ModelTestController::clearOutcome() {
     resultSummary_.clear();
     summaryUrl_.clear();
     predictionsCsvUrl_.clear();
+    partialSummaryUrl_.clear();
+    partialPredictionsCsvUrl_.clear();
     artifactOutputFolderUrl_.clear();
 }
 
@@ -409,8 +429,22 @@ void ModelTestController::finishRun(bool succeeded,
                                     const QString& serviceError,
                                     const QString& outputPath) {
     stopRequested_.store(false, std::memory_order_release);
+    const QDir output(outputPath);
+    if (QFileInfo(outputPath).isDir())
+        artifactOutputFolderUrl_ = QUrl::fromLocalFile(outputPath);
+
+    const QString partialSummaryPath =
+        output.filePath(QStringLiteral("model_test_summary.partial.json"));
+    if (QFileInfo(partialSummaryPath).isFile())
+        partialSummaryUrl_ = QUrl::fromLocalFile(partialSummaryPath);
+    const QString partialPredictionsPath =
+        output.filePath(QStringLiteral("predictions.partial.csv"));
+    if (QFileInfo(partialPredictionsPath).isFile())
+        partialPredictionsCsvUrl_ =
+            QUrl::fromLocalFile(partialPredictionsPath);
+
     const QString summaryPath =
-        QDir(outputPath).filePath(QStringLiteral("model_test_summary.json"));
+        output.filePath(QStringLiteral("model_test_summary.json"));
     QString summaryError;
     auto summary = ModelTestSummaryV2::load(summaryPath, &summaryError);
     if (summary) {
@@ -420,19 +454,19 @@ void ModelTestController::finishRun(bool succeeded,
         eligibleImages_ = data.eligibleImages;
         resultSummary_ = resultMap(*summary);
         summaryUrl_ = QUrl::fromLocalFile(summaryPath);
-        artifactOutputFolderUrl_ = QUrl::fromLocalFile(outputPath);
         const QString predictionsPath =
-            QDir(outputPath).filePath(data.predictionsCsv);
+            output.filePath(data.predictionsCsv);
         if (QFileInfo(predictionsPath).isFile())
             predictionsCsvUrl_ = QUrl::fromLocalFile(predictionsPath);
-        presentation_ =
-            data.status == ModelTestStatus::Completed
-                ? QStringLiteral("completed")
-                : data.status == ModelTestStatus::Stopped
-                      ? QStringLiteral("interrupted")
-                      : QStringLiteral("error");
+        if (!succeeded || data.status == ModelTestStatus::Failed) {
+            presentation_ = QStringLiteral("failed");
+        } else if (data.status == ModelTestStatus::Stopped) {
+            presentation_ = QStringLiteral("interrupted");
+        } else {
+            presentation_ = QStringLiteral("completed");
+        }
     } else {
-        presentation_ = QStringLiteral("error");
+        presentation_ = QStringLiteral("failed");
     }
 
     if (!succeeded)

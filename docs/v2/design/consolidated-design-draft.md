@@ -46,15 +46,15 @@ Model Test and Sequence Test display the Active Model as read-only context and c
 
 ### Live and hit boundary
 
-Live keeps one workspace. Its right panel contains Setup Profile, Run Information, Trigger & Timing, Output & Recording, and Running disclosures. Running is collapsed before Start. Start collapses setup, expands Running, makes setup read-only, and retains the Camera preview. `CameraActionBar` below the preview contains Start Camera and Start Sorting.
+Live keeps one workspace. Its right panel contains Setup Profile, Run Information, Trigger & Timing, Output & Recording, and Running disclosures. Running is collapsed before Start. Start collapses setup, expands Running, makes non-boundary setup fields read-only, keeps Hit boundary calibration editable, and retains the Camera preview. `CameraActionBar` below the preview contains Start Camera and Start Sorting.
 
-Trigger & Timing contains Active Model, Hit Class, independent Trigger Every Droplet and DAQ Output toggles, Send Test Pulse, and `HitBoundaryOverlay`. The overlay begins at one clicked Camera point, extends horizontally to the bottom-left, and pairs with Top is Hit or Bottom is Hit. It is a route-observation overlay, not a Decision or physical-output control.
+Trigger & Timing contains Active Model, Hit Class, independent Trigger Every Droplet and DAQ Output toggles, Send Test Pulse, and `HitBoundaryOverlay`. The overlay begins at one clicked Camera point and extends horizontally from that point to the left edge of the displayed image. The clicked X and Y coordinates pair with Top is Hit or Bottom is Hit. The clicked point is workspace-local presentation state only; it is a route-observation overlay, not a Decision or physical-output control.
 
 Running contains status, elapsed time, Total Droplets, Predicted Class counts, Decision Hit/Waste, Observed Hit/Waste/Unresolved, Camera FPS, Inference Time, Pause/Resume, and Stop.
 
 ### Sequence Test, Results, Settings, and Hardware
 
-Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, Start, and Stop. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default.
+Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, its own editable Hit boundary calibration, Start, and Stop. It does not reuse or modify Live calibration. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default, and Sequence Test inference defaults to CPU.
 
 Results keeps the loaded Run in the center. `RunListSection` on the right contains the selectable Run list and a bottom Load button. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
 
@@ -1979,7 +1979,11 @@ Trigger Every Droplet choices are first-class peers and remain visible in pre-ru
 
 ## 15.7 Hit boundary calibration
 
-The user must explicitly choose:
+The user selects an exact X and Y point on the displayed Camera image. `HitBoundaryOverlay` begins at that clicked point and extends horizontally from the point to the **left edge of the displayed image**. It MUST NOT extend rightward and MUST NOT use the geometrically unclear phrase `bottom-left`.
+
+The clicked X and Y values are workspace-local presentation state in the owning workspace. They MUST NOT be written to Setup Profiles, Run files, `events.csv`, `run_summary.json`, Results, logs, or any other exported artifact, and they MUST NOT leave or synchronize outside their owning workspace.
+
+The user must also explicitly choose:
 
 ```text
 +Y — Downward in the displayed image
@@ -1994,6 +1998,8 @@ The panel immediately displays the resulting mapping:
 ```
 
 This mapping should use a small coordinate diagram plus text. It must not use the ambiguous term `Hit Channel`. Hit boundary calibration remains separate from DAQ Output Channel.
+
+The selected +Y/−Y mapping may follow the applicable profile and Run configuration contracts, but the clicked X and Y point is explicitly excluded from all persistence and provenance.
 
 ## 15.8 Active Model presentation
 
@@ -2051,7 +2057,8 @@ STARTING
     ├── create Run ID and folder
     ├── write initial run_summary.json
     ├── open recoverable Droplet Log
-    ├── snapshot effective user selections and fixed configuration
+    ├── snapshot effective user selections and fixed configuration,
+    │   excluding the workspace-local Hit boundary X and Y point
     ├── lock Camera, DAQ, selected model, Run output, and global slot
     ├── close Hardware panel
     └── replace configuration panel with Live monitor
@@ -2062,7 +2069,8 @@ RUNNING
 Visual requirements:
 
 - Start Sorting becomes a busy `Starting…` action immediately.
-- Pre-run inputs become read-only before the panel transitions; they are not briefly left editable.
+- Non-boundary pre-run inputs become read-only before the panel transitions; they are not briefly left editable.
+- Hit boundary calibration remains available for modification after Start, including during Running and Paused.
 - The Hardware panel closes and focus returns to the Live status heading.
 - The operation panel may show named initialization stages and an indeterminate progress indicator.
 - Stop becomes available as soon as cancellation can be handled safely.
@@ -2112,6 +2120,9 @@ When no model is used, Predicted Class and Inference Time groups are absent or d
 ## 15.13 Running interaction behavior
 
 - Live inference uses the qualified CPU path. GPU status is not presented as a Live prerequisite.
+- Hit boundary calibration remains editable after Start. The clicked X and Y point remains visible and editable with the same left-edge overlay geometry.
+- A Live boundary edit updates the workspace-local overlay presentation only. No timestamped boundary history or boundary-version association is created, and no clicked X or Y value is written to a Run, event, Result, log, profile, or exported artifact.
+- No operational application semantics may be inferred from a workspace-local boundary edit: it does not alter Decision, physical output, persisted Observed Route, or any prior or subsequent event record.
 - Every finalized event saves one Droplet Crop and one Droplet Log row.
 - Record Full Image Sequence controls only full-frame retention. Droplet Crops and event data are always saved.
 - Optional nonpersistent detection/trajectory overlays MAY appear on the live preview when they add no controls, do not alter source images, and do not obscure the factual feed.
@@ -2250,7 +2261,8 @@ Sort > Sequence Test
 │                                              │ ( ) Trigger Every Droplet    │
 │ Active Model: <name/none>                  │                              │
 │                                              │ Hit Class [ class ▼ ]        │
-│ Fixed qualified processing                   │ Hit boundary calibration         │
+│ Fixed qualified processing                   │ Own hit boundary calibration │
+│                                              │ Point X [value] Y [value]    │
 │                                              │ ( ) +Y — Downward            │
 │                                              │ ( ) −Y — Upward              │
 │                                              │                              │
@@ -2287,6 +2299,9 @@ A new Sequence Test setup initializes Physical DAQ Output as unchecked. This def
 - Model selection is local to Sequence Test and MUST NOT change Active Model.
 - The read-only Active Model context displays Class IDs/Class Names and compatibility facts as needed.
 - No Class Score threshold or manual compute-device control is shown.
+- Sequence Test inference defaults to the qualified CPU path.
+
+Sequence Test owns and edits its own workspace-local Hit boundary calibration. It MUST NOT read, reuse, overwrite, or synchronize Live calibration. Its workspace maintains its own clicked X and Y presentation point plus the selected +Y/−Y mapping. The clicked point MUST NOT leave the Sequence Test workspace or be persisted. Its overlay extends horizontally from the clicked point to the left edge of the displayed sequence image.
 
 ## 16.5 Physical DAQ Output
 
@@ -2305,7 +2320,7 @@ The checkbox is not a software arming state and does not create an Emergency Sto
 
 - No Camera preview region appears and Camera status is never a prerequisite.
 - The source area may show the first frame or a representative static preview as a read-only sequence fact, but must not imply live acquisition.
-- Fixed detector, Droplet Crop, routing-algorithm, and internal timing configuration is described factually and not editable.
+- Fixed detector, Droplet Crop, routing-algorithm, and internal timing configuration is described factually and not editable. Sequence Test's own Hit boundary calibration is the explicit exception and remains editable in setup.
 - Processing controls from Sequence Viewer is not shown and has no effect. Sequence Test processes at the configured Processing FPS.
 
 ## 16.7 Running presentation
@@ -2457,7 +2472,7 @@ The selected Run MUST display, as available:
 - status, start/end timestamps, requested Duration, elapsed duration, stop reason, and save location;
 - operation type and Experiment Type;
 - model name/ID/checksum, class count, and stored Class Name snapshot when a model was present;
-- Trigger Every Droplet, Hit Class when applicable, and Hit boundary calibration;
+- Trigger Every Droplet, Hit Class when applicable, calibration owner (`Live` or `Sequence Test`), and the selected +Y/−Y mapping; clicked Hit boundary X and Y coordinates are never Run provenance and MUST NOT appear in Results;
 - Physical DAQ Output state for Sequence Test;
 - Camera, DAQ, and fixed qualified processing configuration/version needed for provenance;
 - OpenDSS and schema versions where recorded.
@@ -2799,7 +2814,7 @@ A Profile may contain:
 - Active Model reference;
 - Trigger Every Droplet;
 - Hit Class;
-- Hit boundary calibration;
+- Live Hit boundary +Y/−Y mapping; clicked X and Y coordinates are workspace-local and MUST NOT be written to the Profile;
 - Record Full Image Sequence preference;
 - Run Name;
 - default Save Location.

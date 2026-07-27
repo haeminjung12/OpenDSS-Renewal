@@ -12,7 +12,7 @@ This manifest records provenance documents and the user-designated master specif
 | `docs/v2/canonical/information-architecture.md` | Incorporated provenance | Information-architecture source consolidated into ODSS-DES-002; cannot override the master. | `7e469dbb5f7c4a1f07a25496af2ac2b9cc5dcf286b949c688bc1c71ec668fb98` |
 | `docs/v2/canonical/interaction-and-state.md` | Incorporated provenance | Interaction/state source consolidated into ODSS-DES-002; cannot override the master. | `23acb38f9bf9a5f3a1d59d004b75e5e54ec247781a2c97ee1fb9159d3498f8d1` |
 | `docs/v2/canonical/detailed-workflows.md` | Incorporated provenance | Workflow source consolidated into ODSS-DES-002; cannot override the master. | `9b03b8af4552e3f5ac60c7c2a3c3057760637806b8b4bc93f16340826e4e2f1c` |
-| `docs/v2/design/consolidated-design-draft.md` | **User-Designated Master Specification** | Single controlling product/design authority; canonical LF SHA-256 verified through `consolidated-design-lock.json`. | `76c1b5a27f6c71afb77f7e3d3dc9aaccc26ca033d7a9b1210f2c057b96e82033` |
+| `docs/v2/design/consolidated-design-draft.md` | **User-Designated Master Specification** | Single controlling product/design authority; canonical LF SHA-256 verified through `consolidated-design-lock.json`. | `fe186542b89c1ce4c10061643e97a362f1146241a4b2c99bc98b096355d8d359` |
 | `docs/v2/archive/product-design-draft-v0.1.md` | Archived Draft v0.1 | Historical, non-normative evidence only. | `c34ca181c885061ceddce1b2a4f2457f52caaa20253a8f0bcd36343927939d9b` |
 
 Changing the master requires explicit user approval and a same-change refresh of `consolidated-design-lock.json`. Silent editorial rewrites or re-hashing are prohibited.

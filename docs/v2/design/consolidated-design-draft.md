@@ -2755,6 +2755,7 @@ Small-droplet rejection    <current pixel area>    [ Set ]
 - The drawn rectangle is mapped through the displayed-frame transform into source-image pixels.
 - The rectangle's source-pixel area becomes the existing detector minimum contour-area threshold. Rectangle width and height are not separate thresholds, and no new width/height rejection, detector mode, or parallel detector state may be invented.
 - The rectangle is an input gesture, not a second persisted geometry setting. The one authoritative applied value is the existing minimum contour-area threshold expressed in source pixels.
+- The initial authoritative minimum contour-area threshold is exactly `100 px²`. The product MUST NOT present or retain `Automatic` or `-1` as its initial/default state.
 - When no frame view exists, `Set` is disabled with **No frame is available**.
 - The control remains editable during an active Run. A successfully committed change applies immediately to subsequent detector processing.
 - An in-run change MUST NOT be written to logs, `events.csv`, Run summaries, Results, or any other Run file. No history, timestamp, frame association, or Run provenance may be inferred or added.

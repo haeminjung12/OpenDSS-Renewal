@@ -1118,6 +1118,38 @@ add_test(
 )
 set_tests_properties(model_test_service_test PROPERTIES TIMEOUT 30)
 
+qt_add_executable(model_test_production_model_probe
+  model_test_production_model_probe.cpp
+  ../desktop_app/app_utils.cpp
+  ../desktop_app/json_persistence.cpp
+  ../desktop_app/model_registry_service.cpp
+  ../inference/onnx_inference_adapter.cpp
+  ../metadata_loader.cpp
+  ../onnx_classifier.cpp
+  ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/model/model_load_service.cpp
+  ../v2/model_test/model_test_service.cpp
+  ../v2/model_test/model_test_summary_v2.cpp
+  ../v2/model_test/model_test_writer.cpp
+  ../v2/operation/operation_coordinator.cpp
+)
+target_compile_definitions(model_test_production_model_probe PRIVATE
+  OPENDSS_MODEL_LOAD_NO_PIPELINE
+)
+target_include_directories(model_test_production_model_probe PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${ONNXRUNTIME_INCLUDE_DIR}
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(model_test_production_model_probe PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  Qt6::Widgets
+  ${ONNXRUNTIME_LIB}
+  ${OpenCV_LIBS}
+)
+
 qt_add_executable(model_test_controller_test
   model_test_controller_test.cpp
   ../desktop_app/app_utils.cpp

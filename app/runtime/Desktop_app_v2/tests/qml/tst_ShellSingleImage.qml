@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import QtQuick.Dialogs
 import QtTest
 import Desktop_app_v2
@@ -3316,6 +3317,9 @@ Item {
 
         for (let index = 0; index < viewers.length; ++index) {
             verify(typeof viewers[index].scrollBy === "function")
+            compare(viewers[index].color, "#000000")
+            verify(viewers[index].viewport.ScrollBar.horizontal.interactive)
+            verify(viewers[index].viewport.ScrollBar.vertical.interactive)
             compare(viewers[index].zoomScale, 1)
             viewers[index].zoomScale = 0.3
             viewers[index].zoomAt(Qt.point(0, 0), -120)
@@ -3331,6 +3335,10 @@ Item {
         wait(0)
         verify(viewer.viewport.contentWidth > viewer.viewport.width)
         verify(viewer.viewport.contentHeight > viewer.viewport.height)
+        compare(viewer.viewport.ScrollBar.horizontal.policy,
+                ScrollBar.AlwaysOn)
+        compare(viewer.viewport.ScrollBar.vertical.policy,
+                ScrollBar.AlwaysOn)
         viewer.viewport.contentX = 120
         viewer.viewport.contentY = 120
         verify(viewer.scrollBy(120, false))
@@ -3340,6 +3348,11 @@ Item {
         compare(viewer.viewport.contentX, 240)
         compare(viewer.viewport.contentY, 0)
         viewer.zoomScale = 1
+        wait(0)
+        compare(viewer.viewport.ScrollBar.horizontal.policy,
+                ScrollBar.AlwaysOff)
+        compare(viewer.viewport.ScrollBar.vertical.policy,
+                ScrollBar.AlwaysOff)
     }
     }
 }

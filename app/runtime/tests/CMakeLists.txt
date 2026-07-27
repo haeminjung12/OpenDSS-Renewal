@@ -906,10 +906,14 @@ target_link_libraries(sequence_test_service_test PRIVATE
 add_test(
   NAME sequence_test_service_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:sequence_test_service_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:sequence_test_service_test>
 )
 set_tests_properties(sequence_test_service_test PROPERTIES TIMEOUT 30)
+opendss_configure_offscreen_test(
+  sequence_test_service_test
+  sequence_test_service_test
+)
 
 qt_add_executable(sequence_test_production_model_probe
   sequence_test_production_model_probe.cpp
@@ -1026,10 +1030,14 @@ target_link_libraries(live_sorting_service_test PRIVATE
 add_test(
   NAME live_sorting_service_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:live_sorting_service_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:live_sorting_service_test>
 )
 set_tests_properties(live_sorting_service_test PROPERTIES TIMEOUT 30)
+opendss_configure_offscreen_test(
+  live_sorting_service_test
+  live_sorting_service_test
+)
 
 qt_add_executable(live_sorting_controller_test
   live_sorting_controller_test.cpp

@@ -1,5 +1,6 @@
 /* This is a UI file (.ui.qml) intended for Qt Design Studio editing. */
 import QtQuick
+import QtQuick.Controls
 import Desktop_app_v2
 
 Rectangle {
@@ -32,6 +33,9 @@ Rectangle {
         contentWidth: Math.max(width, image.width)
         contentHeight: Math.max(height, image.height)
         boundsBehavior: Flickable.StopAtBounds
+
+        ScrollBar.horizontal: ScrollBar {}
+        ScrollBar.vertical: ScrollBar {}
 
         Image {
             id: image

@@ -8,6 +8,9 @@ param(
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
     [string]$ModelsDir = "",
     [string]$TrainerWheelPath = $env:OPENDSS_TRAINER_WHEEL,
+    [string]$WheelBuildPython = (
+        Join-Path $env:LOCALAPPDATA "OpenDSS\training-venv-gpu\Scripts\python.exe"
+    ),
     [string]$OutputDir = "",
     [string]$NiInstaller = "",
     [string]$VcRedist = "",
@@ -46,6 +49,13 @@ if ($CopyNidaq) {
 if (-not (Test-Path $InnoSetup)) {
     throw "Inno Setup compiler not found: $InnoSetup"
 }
+$innoFile = Get-Item -LiteralPath $InnoSetup
+$innoSignature = Get-AuthenticodeSignature -LiteralPath $InnoSetup
+if ($innoFile.VersionInfo.FileDescription -ne "Inno Setup Command-Line Compiler" -or
+    $innoSignature.Status -ne [System.Management.Automation.SignatureStatus]::Valid -or
+    $innoSignature.SignerCertificate.Subject -notmatch "Pyrsys B[.]V[.]") {
+    throw "Inno Setup compiler must be the valid Pyrsys-signed command-line compiler: $InnoSetup"
+}
 
 if (-not $VcRedist) {
     $prerequisiteDir = Join-Path $RepoParent "artifacts\internal-release\prerequisites"
@@ -82,6 +92,7 @@ $packageDir = & $packageScript `
     -VcpkgBin $VcpkgBin `
     -ModelsDir $ModelsDir `
     -TrainerWheelPath $TrainerWheelPath `
+    -WheelBuildPython $WheelBuildPython `
     -OutputDir (Join-Path $RepoParent "artifacts\internal-release\portable") `
     -CopyNidaq:$CopyNidaq
 

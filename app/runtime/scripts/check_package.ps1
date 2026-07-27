@@ -338,7 +338,7 @@ foreach ($relativePath in @(
     "training\python\outputs",
     "training\python\droplet_trainer.egg-info",
     "training\python\droplet_trainer\__pycache__",
-    "training\python\scripts\windows\build-offline-training-payload.ps1",
+    "training\python\scripts\windows\build-training-bootstrap-wheel.ps1",
     "training\python\scripts\windows\create-training-venv.ps1",
     "training\python\scripts\windows\inspect-dataset.ps1",
     "training\python\scripts\windows\install-training-gpu-cu130.ps1",

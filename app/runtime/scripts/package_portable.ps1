@@ -9,6 +9,9 @@ param(
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
     [string]$ModelsDir = "",
     [string]$TrainerWheelPath = $env:OPENDSS_TRAINER_WHEEL,
+    [string]$WheelBuildPython = (
+        Join-Path $env:LOCALAPPDATA "OpenDSS\training-venv-gpu\Scripts\python.exe"
+    ),
     [string]$OutputDir = "",
     [switch]$CopyNidaq = $true,
     [switch]$SkipPackageCheck,
@@ -73,6 +76,7 @@ $requiredTrainerFiles = @(
     "README-windows-training.md",
     "droplet_trainer\__main__.py",
     "droplet_trainer\cli.py",
+    "scripts\windows\build-training-bootstrap-wheel.ps1",
     "scripts\windows\provision-training-runtime.ps1",
     "requirements\windows-py312-gpu-cu130-downloads.json",
     "requirements\windows-py312-gpu-cu130.lock",
@@ -111,7 +115,18 @@ foreach ($relativeTrainerFile in $requiredTrainerFiles) {
         throw "Required trainer asset not found: $trainerPath"
     }
 }
-if (-not $TrainerWheelPath -or -not (Test-Path -LiteralPath $TrainerWheelPath -PathType Leaf)) {
+if (-not $TrainerWheelPath) {
+    $wheelBuilder = Join-Path $trainerSourceRoot (
+        "scripts\windows\build-training-bootstrap-wheel.ps1")
+    if (-not (Test-Path -LiteralPath $WheelBuildPython -PathType Leaf)) {
+        throw "WheelBuildPython is required to build the source-owned trainer wheel."
+    }
+    $TrainerWheelPath = & $wheelBuilder -SourceRoot $trainerSourceRoot `
+        -PythonExecutable $WheelBuildPython `
+        -OutputDirectory (Join-Path $OutputDir "training-bootstrap")
+    $TrainerWheelPath = @($TrainerWheelPath)[-1]
+}
+if (-not (Test-Path -LiteralPath $TrainerWheelPath -PathType Leaf)) {
     throw "TrainerWheelPath must name the deterministic droplet-trainer 0.2.0 wheel."
 }
 $TrainerWheelPath = (Resolve-Path -LiteralPath $TrainerWheelPath).Path
@@ -284,7 +299,7 @@ Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "droplet_trainer") -D
 Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "requirements") -DestinationDir (Join-Path $trainerOut "requirements")
 Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "scripts\windows") -DestinationDir (Join-Path $trainerOut "scripts\windows")
 foreach ($onlineSetupFile in @(
-    "scripts\windows\build-offline-training-payload.ps1",
+    "scripts\windows\build-training-bootstrap-wheel.ps1",
     "scripts\windows\create-training-venv.ps1",
     "scripts\windows\inspect-dataset.ps1",
     "scripts\windows\install-training-gpu-cu130.ps1",

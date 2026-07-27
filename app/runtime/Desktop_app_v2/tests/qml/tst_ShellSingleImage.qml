@@ -3161,5 +3161,62 @@ Item {
         verify(!shell.form.sequenceViewerWorkspace.actualSize)
         compare(shell.form.sequenceViewerWorkspace.zoomScale, 1)
     }
+
+    function findFullSizeViewers(item, result) {
+        if (!item)
+            return
+        if (typeof item.zoomAt === "function"
+                && item.viewport !== undefined
+                && item.image !== undefined) {
+            result.push(item)
+        }
+        const children = item.children || []
+        for (let index = 0; index < children.length; ++index)
+            findFullSizeViewers(children[index], result)
+    }
+
+    function ancestorFullSizeViewer(item) {
+        let candidate = item
+        while (candidate) {
+            if (typeof candidate.zoomAt === "function"
+                    && candidate.viewport !== undefined
+                    && candidate.image !== undefined) {
+                return candidate
+            }
+            candidate = candidate.parent
+        }
+        return null
+    }
+
+    function test_fullSizeViewerConsumersShareOneRuntimeBehavior() {
+        const viewers = [
+            ancestorFullSizeViewer(shell.form.cameraPreviewImage),
+            ancestorFullSizeViewer(
+                    shell.form.liveWorkspace.cameraPreviewImage),
+            ancestorFullSizeViewer(
+                    shell.form.sequenceTestWorkspace.sequencePreviewImage)
+        ]
+        const sequenceViewerMatches = []
+        findFullSizeViewers(shell.form.sequenceViewerWorkspace,
+                            sequenceViewerMatches)
+        compare(sequenceViewerMatches.length, 1)
+        viewers.push(sequenceViewerMatches[0])
+        const labelMatches = []
+        findFullSizeViewers(shell.form.labelWorkspace, labelMatches)
+        compare(labelMatches.length, 1)
+        viewers.push(labelMatches[0])
+        compare(viewers.length, 5)
+
+        for (let index = 0; index < viewers.length; ++index) {
+            compare(viewers[index].zoomScale, 1)
+            viewers[index].zoomScale = 0.3
+            viewers[index].zoomAt(Qt.point(0, 0), -120)
+            compare(viewers[index].zoomScale, 0.3)
+            viewers[index].zoomScale = 10
+            viewers[index].zoomAt(Qt.point(0, 0), 120)
+            compare(viewers[index].zoomScale, 10)
+            viewers[index].zoomScale = 1
+        }
+    }
     }
 }

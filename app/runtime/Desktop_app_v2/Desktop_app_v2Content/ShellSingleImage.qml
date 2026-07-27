@@ -1316,8 +1316,8 @@ Item {
     Connections { target: screen.sequenceViewerWorkspace.jumpForward10Button; function onClicked() { if (root.sequenceViewerController) root.sequenceViewerController.jump(10) } }
     Connections { target: screen.sequenceViewerWorkspace.jumpForward50Button; function onClicked() { if (root.sequenceViewerController) root.sequenceViewerController.jump(50) } }
     Connections { target: screen.sequenceViewerWorkspace.frameSlider; function onMoved() { if (root.sequenceViewerController) root.sequenceViewerController.seek(Math.round(screen.sequenceViewerWorkspace.frameSlider.value)) } }
-    Connections { target: screen.sequenceViewerWorkspace.zoomOutButton; function onClicked() { screen.sequenceViewerWorkspace.zoomScale = Math.max(0.25, screen.sequenceViewerWorkspace.zoomScale / 1.25) } }
-    Connections { target: screen.sequenceViewerWorkspace.zoomInButton; function onClicked() { screen.sequenceViewerWorkspace.zoomScale = Math.min(8, screen.sequenceViewerWorkspace.zoomScale * 1.25) } }
+    Connections { target: screen.sequenceViewerWorkspace.zoomOutButton; function onClicked() { screen.sequenceViewerWorkspace.zoomScale = Math.max(0.3, screen.sequenceViewerWorkspace.zoomScale / 1.25) } }
+    Connections { target: screen.sequenceViewerWorkspace.zoomInButton; function onClicked() { screen.sequenceViewerWorkspace.zoomScale = Math.min(10, screen.sequenceViewerWorkspace.zoomScale * 1.25) } }
     Connections { target: screen.sequenceViewerWorkspace.fitButton; function onClicked() { screen.sequenceViewerWorkspace.actualSize = false; screen.sequenceViewerWorkspace.zoomScale = 1 } }
     Connections { target: screen.sequenceViewerWorkspace.actualSizeButton; function onClicked() { screen.sequenceViewerWorkspace.actualSize = true; screen.sequenceViewerWorkspace.zoomScale = 1 } }
     Connections { target: screen.sequenceViewerWorkspace.directSeekField; function onAccepted() { if (root.sequenceViewerController) root.sequenceViewerController.seek(Number(screen.sequenceViewerWorkspace.directSeekField.text)); else state.seekViewerFrame(screen.sequenceViewerWorkspace.directSeekField.text) } }

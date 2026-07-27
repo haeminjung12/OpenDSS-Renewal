@@ -379,8 +379,8 @@ int main(int argc, char *argv[])
                 : cameraController.bitDepth().section(QLatin1Char('-'), 0, 0).toInt();
             if (width > 0 && height > 0) {
                 facts.hitBoundary = {
-                    height / 2.0,
-                    desktop_app::v2::run::HitSide::PositiveY,
+                    -1.0,
+                    desktop_app::v2::run::HitSide::NegativeY,
                     width, height};
             }
             facts.detectorSettings = detectorSettings;

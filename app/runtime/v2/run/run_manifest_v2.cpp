@@ -118,9 +118,6 @@ QString statusText(RunStatus value) {
 QString triggerText(TriggerMode value) {
     return value == TriggerMode::ClassBased ? "class_based" : "every_droplet";
 }
-QString hitSideText(HitSide value) {
-    return value == HitSide::PositiveY ? "positive_y" : "negative_y";
-}
 template <typename T>
 bool parseEnum(const QString& text, std::initializer_list<std::pair<const char*, T>> values,
                T& out) {
@@ -385,13 +382,6 @@ bool validateData(const RunManifestData& data, QString* error) {
     if (data.operation == RunOperation::LiveSorting &&
         (data.requestedProcessingFps != 0.0 || data.achievedProcessingFps != 0.0))
         return fail(error, "Live Sorting must not contain Sequence Test processing FPS.");
-    if (!std::isfinite(data.hitBoundary.boundaryY) ||
-        data.hitBoundary.boundaryY < 0.0 ||
-        data.hitBoundary.imageWidth <= 0 || data.hitBoundary.imageHeight <= 0 ||
-        data.hitBoundary.boundaryY >= data.hitBoundary.imageHeight ||
-        (data.hitBoundary.hitSide != HitSide::PositiveY &&
-         data.hitBoundary.hitSide != HitSide::NegativeY))
-        return fail(error, "Hit boundary snapshot is invalid.");
     if (data.files.eventsCsv != "events.csv" || data.files.cropsPath != "crops")
         return fail(error, "Run files must use events.csv and crops.");
     if (data.files.sequencePath &&
@@ -766,38 +756,6 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
     data.daqSettings = settings.value("daq").toObject();
     data.timingSettings = settings.value("timing").toObject();
 
-    if (!root.value("hit_boundary").isObject()) {
-        fail(error, "hit_boundary must be an object.");
-        return std::nullopt;
-    }
-    const auto boundary = root.value("hit_boundary").toObject();
-    qint64 imageWidth = 0;
-    qint64 imageHeight = 0;
-    if (!only(boundary, {"boundary_y", "hit_side", "image_width", "image_height"},
-              "hit_boundary", error) ||
-        !boundary.value("boundary_y").isDouble() ||
-        !std::isfinite(boundary.value("boundary_y").toDouble()) ||
-        !parseEnum(boundary.value("hit_side").toString(),
-                   {{"positive_y", HitSide::PositiveY},
-                    {"negative_y", HitSide::NegativeY}},
-                   data.hitBoundary.hitSide) ||
-        !boundary.value("image_width").isDouble() ||
-        !boundary.value("image_height").isDouble()) {
-        fail(error, "hit_boundary contains invalid values.");
-        return std::nullopt;
-    }
-    imageWidth = boundary.value("image_width").toInteger(-1);
-    imageHeight = boundary.value("image_height").toInteger(-1);
-    if (imageWidth <= 0 || imageHeight <= 0 ||
-        imageWidth > (std::numeric_limits<int>::max)() ||
-        imageHeight > (std::numeric_limits<int>::max)()) {
-        fail(error, "hit_boundary image dimensions must be positive integers.");
-        return std::nullopt;
-    }
-    data.hitBoundary.boundaryY = boundary.value("boundary_y").toDouble();
-    data.hitBoundary.imageWidth = static_cast<int>(imageWidth);
-    data.hitBoundary.imageHeight = static_cast<int>(imageHeight);
-
     if (data.operation == RunOperation::SequenceTest) {
         if (!root.value("processing").isObject()) {
             fail(error, "Sequence Test processing must be an object.");
@@ -966,11 +924,6 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
                      {"crop", data.cropSettings},
                      {"daq", data.daqSettings},
                      {"timing", data.timingSettings}}},
-        {"hit_boundary",
-         QJsonObject{{"boundary_y", data.hitBoundary.boundaryY},
-                     {"hit_side", hitSideText(data.hitBoundary.hitSide)},
-                     {"image_width", data.hitBoundary.imageWidth},
-                     {"image_height", data.hitBoundary.imageHeight}}},
         {"integrity", integrityJson(data.integrity)},
         {"counts", derivedJson(data, counts)},
         {"decision_vs_observed", matrixJson(counts)},

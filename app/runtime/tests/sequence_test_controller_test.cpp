@@ -12,6 +12,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
+#include <QJsonDocument>
 #include <QTemporaryDir>
 #include <QThread>
 #include <QUrlQuery>
@@ -207,6 +208,16 @@ SequenceTestController makeController(
          QStringLiteral("2"));
 }
 
+void placeDecisionBoundary(SequenceTestController& controller,
+                           double xRatio = 0.25,
+                           double yRatio = 0.5) {
+    require(controller.setDecisionBoundary(xRatio, yRatio) &&
+                controller.decisionBoundaryDefined() &&
+                controller.decisionBoundaryXRatio() == xRatio &&
+                controller.decisionBoundaryYRatio() == yRatio,
+            "place workspace-local Decision Boundary");
+}
+
 QString onlyRunFolder(const QString& output);
 
 void derivedBoundarySupportsArbitraryDimensions() {
@@ -228,25 +239,30 @@ void derivedBoundarySupportsArbitraryDimensions() {
                 controller.loadToMemory() &&
                 waitUntil([&] { return controller.memoryReady(); }),
             "load arbitrary-size Sequence");
+    require(!controller.canStart() &&
+                controller.errorMessage() ==
+                    QStringLiteral("No Decision Boundary set"),
+            "explicit Decision Boundary is required");
+    placeDecisionBoundary(controller, 0.25, 0.75);
     controller.setTriggerEveryDroplet(true);
     require(controller.canStart() && controller.start() &&
                 waitUntil([&] {
                     return controller.presentation() ==
                            QStringLiteral("completed");
                 }),
-            "start arbitrary-size Sequence with derived boundary");
+            "start arbitrary-size Sequence with explicit boundary");
 
     QString error;
     const auto run = run::RunManifestV2::load(
         QDir(onlyRunFolder(output)).filePath(QStringLiteral("run_summary.json")),
         &error);
-    require(run.has_value() &&
-                run->data().hitBoundary.imageWidth == 13 &&
-                run->data().hitBoundary.imageHeight == 7 &&
-                run->data().hitBoundary.boundaryY == 3.5 &&
-                run->data().hitBoundary.hitSide ==
-                    run::HitSide::PositiveY,
-            "Run did not preserve exact provisional midpoint boundary");
+    QFile summary(
+        QDir(onlyRunFolder(output)).filePath(QStringLiteral("run_summary.json")));
+    require(run.has_value() && summary.open(QIODevice::ReadOnly) &&
+                !QJsonDocument::fromJson(summary.readAll())
+                     .object()
+                     .contains(QStringLiteral("hit_boundary")),
+            "Run persisted workspace-local Decision Boundary coordinates");
 }
 
 QString onlyRunFolder(const QString& output) {
@@ -357,6 +373,7 @@ void selectionLoadingAndImmutableBuffer() {
                 controller.memoryReady() && controller.bufferBytes() == 192,
             "publish complete immutable memory load");
 
+    placeDecisionBoundary(controller);
     controller.setTriggerEveryDroplet(true);
     const QByteArray acceptedManifestBytes = fileBytes(validManifest);
     QString provenanceError;
@@ -507,6 +524,7 @@ void modelRoutingAndDaqFacts() {
                 controller.loadToMemory() &&
                 waitUntil([&] { return controller.memoryReady(); }),
             "load model-routing Sequence");
+    placeDecisionBoundary(controller);
     require(controller.activeModelReady() &&
                 controller.activeModelName() ==
                     QStringLiteral("Active Model") &&
@@ -624,6 +642,7 @@ void failedRunReasonSurvivesAutomaticPreflightRefresh() {
                 controller.loadToMemory() &&
                 waitUntil([&] { return controller.memoryReady(); }),
             "load failed-run Sequence");
+    placeDecisionBoundary(controller);
     controller.setSelectedHitClassId(QStringLiteral("1"));
     require(controller.canStart() && controller.start(),
             "start failed-run Sequence");
@@ -680,6 +699,7 @@ void asynchronousStopAndTeardown() {
                 controller.loadToMemory() &&
                 waitUntil([&] { return controller.memoryReady(); }),
             "load stoppable Sequence");
+    placeDecisionBoundary(controller);
     controller.setTriggerEveryDroplet(true);
     controller.setRequestedProcessingFps(1000.0);
     require(controller.start(), "start stoppable Sequence");
@@ -740,6 +760,7 @@ void asynchronousStopAndTeardown() {
                 teardownController->loadToMemory() &&
                 waitUntil([&] { return teardownController->memoryReady(); }),
             "load teardown Sequence");
+    placeDecisionBoundary(*teardownController);
     teardownController->setTriggerEveryDroplet(true);
     teardownController->setRequestedProcessingFps(1000.0);
     require(teardownController->start() &&
@@ -799,6 +820,7 @@ void latestPreviewTransportIsBounded() {
                 controller.loadToMemory() &&
                 waitUntil([&] { return controller.memoryReady(); }),
             "load preview transport Sequence");
+    placeDecisionBoundary(controller);
     controller.setTriggerEveryDroplet(true);
     controller.setRequestedProcessingFps(1000.0);
     require(controller.start(), "start preview transport Sequence");

@@ -215,6 +215,23 @@ bool SequenceTestController::canStart() const {
     return canStart_;
 }
 
+bool SequenceTestController::decisionBoundaryDefined() const {
+    return decisionBoundaryDefined_;
+}
+
+double SequenceTestController::decisionBoundaryXRatio() const {
+    return decisionBoundaryXRatio_;
+}
+
+double SequenceTestController::decisionBoundaryYRatio() const {
+    return decisionBoundaryYRatio_;
+}
+
+QString SequenceTestController::decisionBoundarySide() const {
+    return hitBoundary_.hitSide == run::HitSide::NegativeY
+               ? QStringLiteral("top") : QStringLiteral("bottom");
+}
+
 QString SequenceTestController::activeModelName() const {
     return activeModelName_;
 }
@@ -466,8 +483,9 @@ bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     frameFilenamePattern_ = data.frameFilenamePattern;
     imageWidth_ = data.imageWidth;
     imageHeight_ = data.imageHeight;
-    hitBoundary_ = {imageHeight_ / 2.0, run::HitSide::PositiveY,
+    hitBoundary_ = {-1.0, run::HitSide::NegativeY,
                     imageWidth_, imageHeight_};
+    decisionBoundaryDefined_ = false;
     recordedFps_ = data.nominalFps;
     requestedProcessingFps_ = data.nominalFps;
     cameraSettings_ = data.cameraSettings;
@@ -744,6 +762,45 @@ bool SequenceTestController::start() {
     return true;
 }
 
+bool SequenceTestController::setDecisionBoundary(double xRatio, double yRatio) {
+    if (!std::isfinite(xRatio) || !std::isfinite(yRatio) ||
+        xRatio < 0.0 || xRatio > 1.0 || yRatio < 0.0 || yRatio > 1.0 ||
+        imageWidth_ <= 0 || imageHeight_ <= 0) {
+        return false;
+    }
+    const double sourceX =
+        std::min(xRatio * imageWidth_, static_cast<double>(imageWidth_ - 1));
+    hitBoundary_.boundaryY =
+        std::min(yRatio * imageHeight_, static_cast<double>(imageHeight_ - 1));
+    decisionBoundaryXRatio_ = sourceX / imageWidth_;
+    decisionBoundaryYRatio_ = hitBoundary_.boundaryY / imageHeight_;
+    hitBoundary_.imageWidth = imageWidth_;
+    hitBoundary_.imageHeight = imageHeight_;
+    decisionBoundaryDefined_ = true;
+    updatePreflight();
+    emit changed();
+    return true;
+}
+
+void SequenceTestController::resetDecisionBoundary() {
+    if (!decisionBoundaryDefined_)
+        return;
+    decisionBoundaryDefined_ = false;
+    hitBoundary_.boundaryY = -1.0;
+    updatePreflight();
+    emit changed();
+}
+
+void SequenceTestController::setDecisionBoundarySide(const QString& side) {
+    const auto value = side == QStringLiteral("top")
+                           ? run::HitSide::NegativeY
+                           : run::HitSide::PositiveY;
+    if (hitBoundary_.hitSide == value)
+        return;
+    hitBoundary_.hitSide = value;
+    emit changed();
+}
+
 bool SequenceTestController::stop() {
     if (!operationActive() ||
         presentation_ == QStringLiteral("stopping")) {
@@ -960,13 +1017,13 @@ void SequenceTestController::updatePreflight(bool preserveFailure) {
                requestedProcessingFps_ <= 0.0) {
         blocker =
             QStringLiteral("Processing FPS must be finite and positive.");
-    } else if (hitBoundary_.imageWidth != imageWidth_ ||
+    } else if (!decisionBoundaryDefined_ ||
+               hitBoundary_.imageWidth != imageWidth_ ||
                hitBoundary_.imageHeight != imageHeight_ ||
                !std::isfinite(hitBoundary_.boundaryY) ||
                hitBoundary_.boundaryY < 0.0 ||
                hitBoundary_.boundaryY >= hitBoundary_.imageHeight) {
-        blocker =
-            QStringLiteral("Hit boundary calibration does not match the Sequence.");
+        blocker = QStringLiteral("No Decision Boundary set");
     } else if (!triggerEveryDroplet_ && !activeModelReady_) {
         blocker =
             QStringLiteral("Class-Based Sorting requires the Active Model.");

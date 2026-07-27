@@ -278,14 +278,14 @@ int main(int argc, char** argv) {
     profileFile.close();
     ok &= check(savedProfile.value(QStringLiteral("schema_version")).toString()
                             == QStringLiteral("opendss.setup_profile.v2")
-                    && savedProfile.value(QStringLiteral("hit_boundary")).isObject()
+                    && !savedProfile.contains(QStringLiteral("hit_boundary"))
                     && savedProfile.value(QStringLiteral("detector_settings"))
                            == facts.detectorSettings
                     && savedProfile.value(QStringLiteral("crop_settings"))
                            == facts.cropSettings
                     && savedProfile.value(QStringLiteral("timing_settings"))
                            == facts.timingSettings,
-                "Saved Setup Profile must include the supported scientific snapshots.");
+                "Saved Setup Profile must include scientific snapshots without Decision Boundary coordinates.");
     controller->setRunName(QStringLiteral("Changed"));
     controller->setTriggerEveryDroplet(true);
     controller->setDaqOutputEnabled(false);
@@ -302,10 +302,8 @@ int main(int argc, char** argv) {
                 "Open Profile must round-trip selections and apply readable hardware/model facts.");
 
     QJsonObject partialProfile = savedProfile;
-    QJsonObject changedBoundary =
-        partialProfile.value(QStringLiteral("hit_boundary")).toObject();
-    changedBoundary.insert(QStringLiteral("boundary_y"), 3.0);
-    partialProfile.insert(QStringLiteral("hit_boundary"), changedBoundary);
+    partialProfile.insert(QStringLiteral("hit_boundary"),
+                          QJsonObject{{QStringLiteral("boundary_y"), 3.0}});
     partialProfile.insert(QStringLiteral("detector_settings"),
                           QStringLiteral("invalid"));
     partialProfile.insert(QStringLiteral("crop_settings"),
@@ -331,18 +329,14 @@ int main(int argc, char** argv) {
     const QJsonObject roundTrip =
         QJsonDocument::fromJson(roundTripFile.readAll()).object();
     roundTripFile.close();
-    ok &= check(roundTrip.value(QStringLiteral("hit_boundary"))
-                            .toObject()
-                            .value(QStringLiteral("boundary_y"))
-                            .toDouble()
-                        == 3.0
+    ok &= check(!roundTrip.contains(QStringLiteral("hit_boundary"))
                     && roundTrip.value(QStringLiteral("detector_settings"))
                            == facts.detectorSettings
                     && roundTrip.value(QStringLiteral("crop_settings"))
                            == QJsonObject{{QStringLiteral("size"), 96}}
                     && roundTrip.value(QStringLiteral("timing_settings"))
                            == QJsonObject{{QStringLiteral("fixed"), false}},
-                "Profile load must apply valid scientific sections while retaining the invalid section's current value.");
+                "Profile load must apply valid scientific sections without retaining Decision Boundary coordinates.");
     controller->setDaqOutputEnabled(false);
     controller->setTriggerEveryDroplet(true);
 
@@ -352,6 +346,15 @@ int main(int argc, char** argv) {
     ok &= check(controller->primaryAction() && waitForIdle(camera) &&
                     waitFor([&] { return controller->cameraStreaming(); }),
                 "Ready primary action must start Camera streaming.");
+    ok &= check(!controller->decisionBoundaryDefined() &&
+                    !controller->startSortingEnabled() &&
+                    controller->disabledReason() ==
+                        QStringLiteral("No Decision Boundary set") &&
+                    controller->setDecisionBoundary(0.25, 0.75) &&
+                    controller->decisionBoundaryDefined() &&
+                    controller->decisionBoundaryXRatio() == 0.25 &&
+                    controller->decisionBoundaryYRatio() == 0.75,
+                "Live requires explicit source-relative Decision Boundary placement.");
     ok &= check(controller->presentation() == QStringLiteral("ready") &&
                     controller->startSortingEnabled(),
                 "DAQ OFF must permit a technically ready Live start.");

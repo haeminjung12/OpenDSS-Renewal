@@ -131,6 +131,27 @@ bool LiveSortingController::startSortingEnabled() const {
            preflightError().isEmpty();
 }
 
+QString LiveSortingController::disabledReason() const {
+    return activeLifecycle(snapshot_.lifecycle) ? QString{} : preflightError();
+}
+
+bool LiveSortingController::decisionBoundaryDefined() const {
+    return decisionBoundaryDefined_;
+}
+
+double LiveSortingController::decisionBoundaryXRatio() const {
+    return decisionBoundaryXRatio_;
+}
+
+double LiveSortingController::decisionBoundaryYRatio() const {
+    return decisionBoundaryYRatio_;
+}
+
+QString LiveSortingController::decisionBoundarySide() const {
+    return facts_.hitBoundary.hitSide == run::HitSide::NegativeY
+               ? QStringLiteral("top") : QStringLiteral("bottom");
+}
+
 QString LiveSortingController::runName() const { return runName_; }
 
 void LiveSortingController::setRunName(const QString& value) {
@@ -279,38 +300,6 @@ bool LiveSortingController::canSaveProfile() const {
     return !profilePath_.isEmpty() && !activeLifecycle(snapshot_.lifecycle);
 }
 
-QJsonObject boundaryJson(const run::HitBoundarySnapshot& boundary) {
-    return {
-        {QStringLiteral("boundary_y"), boundary.boundaryY},
-        {QStringLiteral("hit_side"),
-         boundary.hitSide == run::HitSide::PositiveY
-             ? QStringLiteral("positive_y")
-             : QStringLiteral("negative_y")},
-        {QStringLiteral("image_width"), boundary.imageWidth},
-        {QStringLiteral("image_height"), boundary.imageHeight},
-    };
-}
-
-std::optional<run::HitBoundarySnapshot> parseBoundary(const QJsonValue& value) {
-    if (!value.isObject())
-        return std::nullopt;
-    const QJsonObject object = value.toObject();
-    const QString side = object.value(QStringLiteral("hit_side")).toString();
-    run::HitBoundarySnapshot boundary;
-    boundary.boundaryY = object.value(QStringLiteral("boundary_y")).toDouble(-1.0);
-    boundary.hitSide = side == QStringLiteral("positive_y")
-        ? run::HitSide::PositiveY
-        : run::HitSide::NegativeY;
-    boundary.imageWidth = object.value(QStringLiteral("image_width")).toInt();
-    boundary.imageHeight = object.value(QStringLiteral("image_height")).toInt();
-    if ((side != QStringLiteral("positive_y")
-         && side != QStringLiteral("negative_y"))
-        || !validBoundary(boundary)) {
-        return std::nullopt;
-    }
-    return boundary;
-}
-
 bool LiveSortingController::startCamera() {
     setActionError({});
     if (!cameraController_.start()) {
@@ -382,6 +371,47 @@ bool LiveSortingController::startSorting() {
     return true;
 }
 
+bool LiveSortingController::setDecisionBoundary(double xRatio, double yRatio) {
+    if (!std::isfinite(xRatio) || !std::isfinite(yRatio) ||
+        xRatio < 0.0 || xRatio > 1.0 || yRatio < 0.0 || yRatio > 1.0 ||
+        facts_.hitBoundary.imageWidth <= 0 ||
+        facts_.hitBoundary.imageHeight <= 0) {
+        return false;
+    }
+    const double sourceX =
+        std::min(xRatio * facts_.hitBoundary.imageWidth,
+                 static_cast<double>(facts_.hitBoundary.imageWidth - 1));
+    facts_.hitBoundary.boundaryY =
+        std::min(yRatio * facts_.hitBoundary.imageHeight,
+                 static_cast<double>(facts_.hitBoundary.imageHeight - 1));
+    decisionBoundaryXRatio_ = sourceX / facts_.hitBoundary.imageWidth;
+    decisionBoundaryYRatio_ =
+        facts_.hitBoundary.boundaryY / facts_.hitBoundary.imageHeight;
+    decisionBoundaryDefined_ = true;
+    setActionError({});
+    emit changed();
+    return true;
+}
+
+void LiveSortingController::resetDecisionBoundary() {
+    if (!decisionBoundaryDefined_)
+        return;
+    decisionBoundaryDefined_ = false;
+    facts_.hitBoundary.boundaryY = -1.0;
+    setActionError({});
+    emit changed();
+}
+
+void LiveSortingController::setDecisionBoundarySide(const QString& side) {
+    const auto value = side == QStringLiteral("top")
+                           ? run::HitSide::NegativeY
+                           : run::HitSide::PositiveY;
+    if (facts_.hitBoundary.hitSide == value)
+        return;
+    facts_.hitBoundary.hitSide = value;
+    emit changed();
+}
+
 bool LiveSortingController::pauseSorting() {
     if (snapshot_.lifecycle != OperationLifecycle::Running)
         return false;
@@ -440,10 +470,17 @@ void LiveSortingController::startNewRun() {
 }
 
 void LiveSortingController::refresh() {
+    const auto boundary = facts_.hitBoundary;
     if (factsProvider_)
         facts_ = factsProvider_();
-    if (profileHitBoundary_)
-        facts_.hitBoundary = *profileHitBoundary_;
+    if (decisionBoundaryDefined_) {
+        facts_.hitBoundary.boundaryY =
+            std::min(decisionBoundaryYRatio_ * facts_.hitBoundary.imageHeight,
+                     static_cast<double>(facts_.hitBoundary.imageHeight - 1));
+        facts_.hitBoundary.hitSide = boundary.hitSide;
+    } else {
+        facts_.hitBoundary.boundaryY = -1.0;
+    }
     if (profileDetectorSettings_)
         facts_.detectorSettings = *profileDetectorSettings_;
     if (profileCropSettings_)
@@ -496,15 +533,6 @@ bool LiveSortingController::openProfile(const QUrl& fileUrl) {
         run.value(QStringLiteral("record_full_image_sequence")).toBool(false);
 
     QStringList notices;
-    const auto boundary =
-        parseBoundary(root.value(QStringLiteral("hit_boundary")));
-    if (boundary) {
-        profileHitBoundary_ = *boundary;
-        facts_.hitBoundary = *boundary;
-    } else {
-        notices.push_back(QStringLiteral(
-            "Hit boundary values not applied — values are missing or invalid."));
-    }
     const auto applySettingsObject =
         [&root, &notices](const QString& key, const QString& label,
                           std::optional<QJsonObject>& destination,
@@ -589,7 +617,6 @@ QJsonObject LiveSortingController::profileDocument() const {
         {QStringLiteral("active_model_id"), facts_.activeModelId},
         {QStringLiteral("camera"), facts_.cameraSettings},
         {QStringLiteral("daq"), facts_.daqSettings},
-        {QStringLiteral("hit_boundary"), boundaryJson(facts_.hitBoundary)},
         {QStringLiteral("detector_settings"), facts_.detectorSettings},
         {QStringLiteral("crop_settings"), facts_.cropSettings},
         {QStringLiteral("timing_settings"), facts_.timingSettings},
@@ -641,8 +668,8 @@ QString LiveSortingController::preflightError() const {
     requestedDuration(&durationError);
     if (!durationError.isEmpty())
         return durationError;
-    if (!validBoundary(facts_.hitBoundary))
-        return QStringLiteral("Hit boundary calibration is required.");
+    if (!decisionBoundaryDefined_ || !validBoundary(facts_.hitBoundary))
+        return QStringLiteral("No Decision Boundary set");
     if (!triggerEveryDroplet_) {
         if (!facts_.activeModelLoadable)
             return QStringLiteral("Class-Based Sorting requires an Active Model.");

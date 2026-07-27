@@ -140,12 +140,6 @@ bool validateInitial(const RunManifestData& data, QString* error) {
         (sequenceTest && (!std::isfinite(data.requestedProcessingFps) ||
                           data.requestedProcessingFps <= 0.0)) ||
         (liveSorting && data.requestedProcessingFps != 0.0) ||
-        !std::isfinite(data.hitBoundary.boundaryY) ||
-        data.hitBoundary.boundaryY < 0.0 ||
-        data.hitBoundary.imageWidth <= 0 || data.hitBoundary.imageHeight <= 0 ||
-        data.hitBoundary.boundaryY >= data.hitBoundary.imageHeight ||
-        (data.hitBoundary.hitSide != HitSide::PositiveY &&
-         data.hitBoundary.hitSide != HitSide::NegativeY) ||
         data.files.eventsCsv != "events.csv" || data.files.cropsPath != "crops" ||
         (data.files.sequencePath && !safeRelativePath(*data.files.sequencePath))) {
         return fail(error, "Initial Run metadata is invalid.");

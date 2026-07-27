@@ -188,14 +188,6 @@ QVariantMap RunsResultsController::loadedRun() const
                       ? QStringLiteral("Every Droplet")
                       : QStringLiteral("Class-Based"));
     result.insert(QStringLiteral("hitClass"), hitClassText(data));
-    result.insert(QStringLiteral("hitBoundary"),
-                  QStringLiteral("y=%1 px; %2 is Hit; image %3 × %4")
-                      .arg(data.hitBoundary.boundaryY)
-                      .arg(data.hitBoundary.hitSide == run::HitSide::PositiveY
-                               ? QStringLiteral("positive Y")
-                               : QStringLiteral("negative Y"))
-                      .arg(data.hitBoundary.imageWidth)
-                      .arg(data.hitBoundary.imageHeight));
     result.insert(QStringLiteral("physicalDaqOutput"),
                   data.routing.physicalDaqOutputEnabled
                       ? QStringLiteral("On")

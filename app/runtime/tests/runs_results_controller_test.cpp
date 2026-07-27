@@ -175,6 +175,7 @@ void testRefreshSelectLoadAndNotes()
                     QStringLiteral("class-1")) &&
                 facts.value(QStringLiteral("physicalDaqOutput")).toString() ==
                     QStringLiteral("On") &&
+                !facts.contains(QStringLiteral("hitBoundary")) &&
                 facts.value(QStringLiteral("cameraSettings")).toString().contains(
                     QStringLiteral("exposure_us")) &&
                 facts.value(QStringLiteral("decisionHit")).toLongLong() == 1 &&

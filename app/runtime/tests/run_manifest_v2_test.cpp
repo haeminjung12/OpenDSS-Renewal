@@ -93,10 +93,8 @@ void testNoModelRoundTripAndStrictness() {
     require(loaded.has_value(), qPrintable(error));
     require(!loaded->data().model && loaded->data().events.size() == 3,
             "no-model events round-trip");
-    require(loaded->data().cameraSettings.value("exposure_us").toInt() == 100 &&
-                loaded->data().hitBoundary.boundaryY == 180.0 &&
-                loaded->data().hitBoundary.hitSide == HitSide::NegativeY,
-            "camera and Hit boundary snapshots round-trip");
+    require(loaded->data().cameraSettings.value("exposure_us").toInt() == 100,
+            "camera snapshot round-trips");
     const auto& counts = loaded->derivedCounts();
     require(counts.total == 3 && counts.unclassified == 3 &&
                 counts.decisionHit == 3 && counts.observedHit == 1 &&
@@ -115,15 +113,9 @@ void testNoModelRoundTripAndStrictness() {
     require(existing.open(QIODevice::ReadOnly) && existing.readAll() == before,
             "invalid save must not replace valid summary");
     existing.close();
-    invalid = loaded->data();
-    invalid.hitBoundary.boundaryY = invalid.hitBoundary.imageHeight;
-    require(!RunManifestV2::save(summary, invalid, &error),
-            "out-of-image Hit boundary must fail manifest validation");
-    require(existing.open(QIODevice::ReadOnly) && existing.readAll() == before,
-            "invalid Hit boundary must not replace valid summary");
-    existing.close();
-
     QJsonObject object = QJsonDocument::fromJson(before).object();
+    require(!object.contains(QStringLiteral("hit_boundary")),
+            "Run summary must not persist Decision Boundary coordinates.");
     QJsonObject staleCounts = object.value("counts").toObject();
     staleCounts.insert("total", 0);
     object.insert("counts", staleCounts);
@@ -199,16 +191,6 @@ void testValidationEdges() {
     auto writer = RunWriterV2::start(QDir(temporary.path()).filePath("run"),
                                      baseData(), &error);
     require(writer.has_value(), qPrintable(error));
-    RunManifestData negativeBoundary = baseData();
-    negativeBoundary.hitBoundary.boundaryY = -0.01;
-    require(!RunWriterV2::start(QDir(temporary.path()).filePath("negative-boundary"),
-                                negativeBoundary, &error),
-            "negative Hit boundary rejected at writer start");
-    RunManifestData endBoundary = baseData();
-    endBoundary.hitBoundary.boundaryY = endBoundary.hitBoundary.imageHeight;
-    require(!RunWriterV2::start(QDir(temporary.path()).filePath("end-boundary"),
-                                endBoundary, &error),
-            "Hit boundary must be less than image height");
     RunEvent traversal = event("bad-path", 1, Route::Hit);
     traversal.cropPath = "../outside.png";
     require(!writer->appendEvent(traversal, "crop", &error),

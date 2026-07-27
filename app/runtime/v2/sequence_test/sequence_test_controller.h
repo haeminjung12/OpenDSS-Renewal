@@ -30,6 +30,10 @@ class SequenceTestController final : public QObject {
     Q_PROPERTY(QString errorMessage READ errorMessage NOTIFY changed)
     Q_PROPERTY(bool canLoadToMemory READ canLoadToMemory NOTIFY changed)
     Q_PROPERTY(bool canStart READ canStart NOTIFY changed)
+    Q_PROPERTY(bool decisionBoundaryDefined READ decisionBoundaryDefined NOTIFY changed)
+    Q_PROPERTY(double decisionBoundaryXRatio READ decisionBoundaryXRatio NOTIFY changed)
+    Q_PROPERTY(double decisionBoundaryYRatio READ decisionBoundaryYRatio NOTIFY changed)
+    Q_PROPERTY(QString decisionBoundarySide READ decisionBoundarySide NOTIFY changed)
     Q_PROPERTY(QString activeModelName READ activeModelName NOTIFY changed)
     Q_PROPERTY(bool activeModelReady READ activeModelReady NOTIFY changed)
     Q_PROPERTY(QUrl sourceManifestUrl READ sourceManifestUrl NOTIFY changed)
@@ -82,6 +86,10 @@ class SequenceTestController final : public QObject {
     QString errorMessage() const;
     bool canLoadToMemory() const;
     bool canStart() const;
+    bool decisionBoundaryDefined() const;
+    double decisionBoundaryXRatio() const;
+    double decisionBoundaryYRatio() const;
+    QString decisionBoundarySide() const;
     QString activeModelName() const;
     bool activeModelReady() const;
     QUrl sourceManifestUrl() const;
@@ -119,6 +127,9 @@ class SequenceTestController final : public QObject {
     Q_INVOKABLE bool selectSequence(const QUrl& sequenceJson);
     Q_INVOKABLE bool loadToMemory();
     Q_INVOKABLE bool start();
+    Q_INVOKABLE bool setDecisionBoundary(double xRatio, double yRatio);
+    Q_INVOKABLE void resetDecisionBoundary();
+    Q_INVOKABLE void setDecisionBoundarySide(const QString& side);
     Q_INVOKABLE bool stop();
     Q_INVOKABLE void acknowledgePreviewReady(const QUrl& previewUrl);
     Q_INVOKABLE void startAnotherTest();
@@ -159,6 +170,9 @@ class SequenceTestController final : public QObject {
     AvailableMemoryProvider availableMemoryProvider_;
     DaqReadinessGate daqReadinessProvider_;
     run::HitBoundarySnapshot hitBoundary_;
+    double decisionBoundaryXRatio_ = 0.0;
+    double decisionBoundaryYRatio_ = 0.0;
+    bool decisionBoundaryDefined_ = false;
     const QJsonObject detectorSettings_;
     const QJsonObject cropSettings_;
     const QJsonObject timingSettings_;

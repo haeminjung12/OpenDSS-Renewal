@@ -594,6 +594,11 @@ Item {
         property string diagnostic: ""
         property bool cameraStreaming: true
         property bool startSortingEnabled: true
+        property string disabledReason: ""
+        property bool decisionBoundaryDefined: false
+        property real decisionBoundaryXRatio: 0.0
+        property real decisionBoundaryYRatio: 0.0
+        property string decisionBoundarySide: "top"
         property string runName: "Production Run"
         property string experimentType: "Sorting"
         property string notes: "Controller-backed"
@@ -632,6 +637,11 @@ Item {
             diagnostic = ""
             cameraStreaming = true
             startSortingEnabled = true
+            disabledReason = ""
+            decisionBoundaryDefined = false
+            decisionBoundaryXRatio = 0.0
+            decisionBoundaryYRatio = 0.0
+            decisionBoundarySide = "top"
             runName = "Production Run"
             experimentType = "Sorting"
             notes = "Controller-backed"
@@ -652,6 +662,18 @@ Item {
         function primaryAction() { ++primaryActionCallCount; return true }
         function secondaryAction() { ++secondaryActionCallCount; return true }
         function saveProfile() { ++saveProfileCallCount; return true }
+        function setDecisionBoundary(xRatio, yRatio) {
+            decisionBoundaryXRatio = xRatio
+            decisionBoundaryYRatio = yRatio
+            decisionBoundaryDefined = true
+            return true
+        }
+        function resetDecisionBoundary() {
+            decisionBoundaryDefined = false
+        }
+        function setDecisionBoundarySide(side) {
+            decisionBoundarySide = side
+        }
     }
 
     QtObject {
@@ -660,6 +682,10 @@ Item {
         property string errorMessage: ""
         property bool canLoadToMemory: true
         property bool canStart: false
+        property bool decisionBoundaryDefined: false
+        property real decisionBoundaryXRatio: 0.0
+        property real decisionBoundaryYRatio: 0.0
+        property string decisionBoundarySide: "top"
         property string activeModelName: "Production Model"
         property bool activeModelReady: true
         property url sourceManifestUrl: "file:///C:/Sequences/sequence.json"
@@ -704,6 +730,10 @@ Item {
             errorMessage = ""
             canLoadToMemory = true
             canStart = false
+            decisionBoundaryDefined = false
+            decisionBoundaryXRatio = 0.0
+            decisionBoundaryYRatio = 0.0
+            decisionBoundarySide = "top"
             requestedProcessingFps = 120
             triggerEveryDroplet = false
             selectedHitClassId = "1"
@@ -724,6 +754,18 @@ Item {
         function loadToMemory() { ++loadToMemoryCallCount; return true }
         function start() { ++startCallCount; return true }
         function stop() { ++stopCallCount; return true }
+        function setDecisionBoundary(xRatio, yRatio) {
+            decisionBoundaryXRatio = xRatio
+            decisionBoundaryYRatio = yRatio
+            decisionBoundaryDefined = true
+            return true
+        }
+        function resetDecisionBoundary() {
+            decisionBoundaryDefined = false
+        }
+        function setDecisionBoundarySide(side) {
+            decisionBoundarySide = side
+        }
         function acknowledgePreviewReady(url) {
             ++previewReadyAckCount
             acknowledgedPreviewUrl = url
@@ -1817,24 +1859,41 @@ Item {
         const liveX = Math.floor(liveInput.width * 0.75)
         const liveY = Math.floor(liveInput.height * 0.25)
         mouseClick(liveInput, liveX, liveY, Qt.LeftButton)
+        tryCompare(shell.form.liveWorkspace, "hitBoundaryDefined", false)
+        shell.form.liveWorkspace.setDecisionBoundaryButton.clicked()
+        tryCompare(liveInput, "enabled", true)
+        mouseClick(liveInput, liveX, liveY, Qt.LeftButton)
         tryCompare(shell.form.liveWorkspace, "hitBoundaryDefined", true)
+        tryCompare(shell, "liveHitBoundaryPlacementArmed", false)
         const liveOverlay = liveInput.parent
         const liveLine = liveOverlay.children[1]
         verify(!!liveLine, "Object exists")
-        tryCompare(liveLine, "x", 0)
-        tryCompare(liveLine, "width", liveX)
+        tryVerify(function() { return Math.abs(liveLine.x - liveX) <= 0.51 })
+        tryVerify(function() {
+            return Math.abs(liveLine.width - (liveInput.width - liveX)) <= 0.51
+        })
         shell.form.liveWorkspace.bottomIsHitControl.clicked()
-        compare(shell.liveHitBoundarySide, "bottom")
+        compare(liveSortingController.decisionBoundarySide, "bottom")
+        shell.form.liveWorkspace.resetDecisionBoundaryButton.clicked()
+        tryCompare(shell.form.liveWorkspace, "hitBoundaryDefined", false)
 
         liveSortingController.presentation = "running"
+        shell.form.liveWorkspace.setDecisionBoundaryButton.clicked()
         tryCompare(liveInput, "enabled", true)
         const runningLiveX = Math.floor(liveInput.width * 0.2)
         const runningLiveY = Math.floor(liveInput.height * 0.8)
         mouseClick(liveInput, runningLiveX, runningLiveY, Qt.LeftButton)
-        tryCompare(liveLine, "x", 0)
-        tryCompare(liveLine, "width", runningLiveX)
-        const runningLiveXRatio = shell.liveHitBoundaryXRatio
-        const runningLiveYRatio = shell.liveHitBoundaryYRatio
+        tryVerify(function() {
+            return Math.abs(liveLine.x - runningLiveX) <= 0.51
+        })
+        tryVerify(function() {
+            return Math.abs(liveLine.width
+                            - (liveInput.width - runningLiveX)) <= 0.51
+        })
+        const runningLiveXRatio =
+                liveSortingController.decisionBoundaryXRatio
+        const runningLiveYRatio =
+                liveSortingController.decisionBoundaryYRatio
         compare(liveSortingController.primaryActionCallCount, 0)
         compare(liveSortingController.secondaryActionCallCount, 0)
         compare(liveSortingController.saveProfileCallCount, 0)
@@ -1851,18 +1910,31 @@ Item {
         const sequenceY = Math.floor(sequenceInput.height * 0.4)
         mouseClick(sequenceInput, sequenceX, sequenceY, Qt.LeftButton)
         tryCompare(shell.form.sequenceTestWorkspace,
+                   "hitBoundaryDefined", false)
+        shell.form.sequenceTestWorkspace.setDecisionBoundaryButton.clicked()
+        tryCompare(sequenceInput, "enabled", true)
+        mouseClick(sequenceInput, sequenceX, sequenceY, Qt.LeftButton)
+        tryCompare(shell.form.sequenceTestWorkspace,
                    "hitBoundaryDefined", true)
         const sequenceOverlay = sequenceInput.parent
         const sequenceLine = sequenceOverlay.children[1]
         verify(!!sequenceLine, "Object exists")
-        tryCompare(sequenceLine, "x", 0)
         tryVerify(function() {
-            return Math.abs(sequenceLine.width - sequenceX) <= 0.51
+            return Math.abs(sequenceLine.x - sequenceX) <= 0.51
         })
-        tryCompare(shell, "liveHitBoundaryXRatio", runningLiveXRatio)
-        tryCompare(shell, "liveHitBoundaryYRatio", runningLiveYRatio)
+        tryVerify(function() {
+            return Math.abs(sequenceLine.width
+                            - (sequenceInput.width - sequenceX)) <= 0.51
+        })
+        tryCompare(liveSortingController, "decisionBoundaryXRatio",
+                   runningLiveXRatio)
+        tryCompare(liveSortingController, "decisionBoundaryYRatio",
+                   runningLiveYRatio)
         shell.form.sequenceTestWorkspace.bottomIsHitControl.clicked()
-        compare(shell.sequenceHitBoundarySide, "bottom")
+        compare(sequenceTestController.decisionBoundarySide, "bottom")
+        shell.form.sequenceTestWorkspace.resetDecisionBoundaryButton.clicked()
+        tryCompare(shell.form.sequenceTestWorkspace,
+                   "hitBoundaryDefined", false)
         compare(sequenceTestController.startCallCount, 0)
         compare(sequenceTestController.stopCallCount, 0)
         compare(daqController.refreshDevicesCallCount, 0)
@@ -2781,7 +2853,7 @@ Item {
         compare(shell.form.liveWorkspace.runNameField.text, "Production Run")
         compare(shell.form.liveWorkspace.activeModelText, "Production Model")
         compare(shell.form.liveWorkspace.hitBoundaryText,
-                "Click the Live preview to set its Hit boundary calibration.")
+                "No Decision Boundary set")
         compare(shell.form.liveWorkspace.hitClassControl.currentIndex, 1)
         compare(shell.form.liveWorkspace.hitClassControl.currentText, "Single")
         shell.form.liveWorkspace.hitClassControl.activated(2)
@@ -2838,7 +2910,7 @@ Item {
         compare(sequenceTestController.selectedHitClassId, "2")
         compare(shell.form.sequenceTestWorkspace.hitClassControl.model[1], "Empty")
         verify(shell.form.sequenceTestWorkspace.sequenceValidationText.text.indexOf(
-                   "Click the Sequence Test preview") >= 0)
+                   "No Decision Boundary set") >= 0)
         shell.form.sequenceTestWorkspace.loadToMemoryButton.clicked()
         compare(sequenceTestController.loadToMemoryCallCount, 1)
 

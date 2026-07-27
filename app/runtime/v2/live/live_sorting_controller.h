@@ -52,6 +52,11 @@ class LiveSortingController final : public QObject {
     Q_PROPERTY(QString diagnostic READ diagnostic NOTIFY changed)
     Q_PROPERTY(bool cameraStreaming READ cameraStreaming NOTIFY changed)
     Q_PROPERTY(bool startSortingEnabled READ startSortingEnabled NOTIFY changed)
+    Q_PROPERTY(QString disabledReason READ disabledReason NOTIFY changed)
+    Q_PROPERTY(bool decisionBoundaryDefined READ decisionBoundaryDefined NOTIFY changed)
+    Q_PROPERTY(double decisionBoundaryXRatio READ decisionBoundaryXRatio NOTIFY changed)
+    Q_PROPERTY(double decisionBoundaryYRatio READ decisionBoundaryYRatio NOTIFY changed)
+    Q_PROPERTY(QString decisionBoundarySide READ decisionBoundarySide NOTIFY changed)
     Q_PROPERTY(QString runName READ runName WRITE setRunName NOTIFY changed)
     Q_PROPERTY(QString experimentType READ experimentType WRITE setExperimentType
                    NOTIFY changed)
@@ -92,6 +97,11 @@ public:
     QString diagnostic() const;
     bool cameraStreaming() const;
     bool startSortingEnabled() const;
+    QString disabledReason() const;
+    bool decisionBoundaryDefined() const;
+    double decisionBoundaryXRatio() const;
+    double decisionBoundaryYRatio() const;
+    QString decisionBoundarySide() const;
     QString runName() const;
     void setRunName(const QString& value);
     QString experimentType() const;
@@ -125,6 +135,9 @@ public:
     Q_INVOKABLE bool startCamera();
     Q_INVOKABLE bool stopCamera();
     Q_INVOKABLE bool startSorting();
+    Q_INVOKABLE bool setDecisionBoundary(double xRatio, double yRatio);
+    Q_INVOKABLE void resetDecisionBoundary();
+    Q_INVOKABLE void setDecisionBoundarySide(const QString& side);
     Q_INVOKABLE bool pauseSorting();
     Q_INVOKABLE bool resumeSorting();
     Q_INVOKABLE bool stopSorting();
@@ -178,7 +191,9 @@ private:
     QString actionError_;
     QString profilePath_;
     QString profileStatus_;
-    std::optional<run::HitBoundarySnapshot> profileHitBoundary_;
+    double decisionBoundaryXRatio_ = 0.0;
+    double decisionBoundaryYRatio_ = 0.0;
+    bool decisionBoundaryDefined_ = false;
     std::optional<QJsonObject> profileDetectorSettings_;
     std::optional<QJsonObject> profileCropSettings_;
     std::optional<QJsonObject> profileTimingSettings_;

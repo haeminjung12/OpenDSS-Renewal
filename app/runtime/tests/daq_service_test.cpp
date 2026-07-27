@@ -49,11 +49,6 @@ struct FakeDaq {
 };
 
 FakeDaq fake;
-std::mutex createGateMutex;
-std::condition_variable createGateChanged;
-bool blockCreate = false;
-bool createEntered = false;
-bool releaseCreate = false;
 
 bool check(bool condition, const char *message)
 {
@@ -109,14 +104,6 @@ extern "C" int32 DAQmxGetDevAOMaxRate(const char[], float64 *value)
 
 extern "C" int32 DAQmxCreateTask(const char[], TaskHandle *task)
 {
-    {
-        std::unique_lock lock(createGateMutex);
-        if (blockCreate) {
-            createEntered = true;
-            createGateChanged.notify_all();
-            createGateChanged.wait(lock, [] { return releaseCreate; });
-        }
-    }
     ++fake.createCalls;
     if (fake.createStatus < 0)
         return fake.createStatus;
@@ -358,12 +345,21 @@ int main(int argc, char **argv)
     custom.frequencyHz = 2000.0;
     custom.durationMs = 4.0;
     custom.delayMs = 3.0;
-    {
-        std::lock_guard lock(createGateMutex);
-        blockCreate = true;
-        createEntered = false;
-        releaseCreate = false;
-    }
+    std::mutex authorizationGateMutex;
+    std::condition_variable authorizationGateChanged;
+    bool authorizationEntered = false;
+    bool releaseAuthorization = false;
+    const QMetaObject::Connection authorizationConnection =
+        QObject::connect(&operations, &OperationCoordinator::resourcesChanged,
+                         [&] {
+            std::unique_lock lock(authorizationGateMutex);
+            if (authorizationEntered)
+                return;
+            authorizationEntered = true;
+            authorizationGateChanged.notify_all();
+            authorizationGateChanged.wait(
+                lock, [&] { return releaseAuthorization; });
+        });
     bool concurrentApplied = false;
     QString concurrentApplyError;
     std::thread applyThread([&] {
@@ -371,28 +367,35 @@ int main(int argc, char **argv)
             daq.applySettings(custom, &concurrentApplyError);
     });
     {
-        std::unique_lock lock(createGateMutex);
-        createGateChanged.wait(lock, [] { return createEntered; });
+        std::unique_lock lock(authorizationGateMutex);
+        authorizationGateChanged.wait(lock,
+                                      [&] { return authorizationEntered; });
     }
     std::atomic_bool snapshotStarted{false};
+    std::atomic_bool snapshotReturned{false};
     QJsonObject concurrentSnapshot;
     std::thread snapshotThread([&] {
         snapshotStarted.store(true, std::memory_order_release);
         concurrentSnapshot = daq.settingsSnapshot();
+        snapshotReturned.store(true, std::memory_order_release);
     });
     while (!snapshotStarted.load(std::memory_order_acquire))
         std::this_thread::yield();
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    const bool snapshotWaited =
+        !snapshotReturned.load(std::memory_order_acquire);
     {
-        std::lock_guard lock(createGateMutex);
-        releaseCreate = true;
-        blockCreate = false;
+        std::lock_guard lock(authorizationGateMutex);
+        releaseAuthorization = true;
     }
-    createGateChanged.notify_all();
+    authorizationGateChanged.notify_all();
     applyThread.join();
     snapshotThread.join();
+    QObject::disconnect(authorizationConnection);
     auto successor = operations.acquire(OperationKind::LiveSorting,
                                         ResourceLock::Daq);
-    ok &= check(concurrentApplied && concurrentApplyError.isEmpty()
+    ok &= check(snapshotWaited && concurrentApplied
+                    && concurrentApplyError.isEmpty()
                     && concurrentSnapshot
                            .value(QStringLiteral("amplitude_vpp")).toDouble() == 8.0
                     && concurrentSnapshot
@@ -400,8 +403,9 @@ int main(int argc, char **argv)
                     && successor.acquired()
                     && fake.timingRate == 100000.0
                     && fake.timingSamples == 401,
-                "Snapshot must serialize behind a blocked apply, return the "
-                "successfully applied settings, and leave DAQ ownership releasable.");
+                "Snapshot must wait behind an authorized apply before its state "
+                "lock, return the successfully applied settings, and leave DAQ "
+                "ownership releasable.");
     successor.lease.release();
     fake.waveform.clear();
     ok &= check(daq.issueLiveHit(true, &error)

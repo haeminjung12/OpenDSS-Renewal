@@ -487,7 +487,7 @@ bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     frameFilenamePattern_ = data.frameFilenamePattern;
     imageWidth_ = data.imageWidth;
     imageHeight_ = data.imageHeight;
-    hitBoundary_ = {-1.0, run::HitSide::NegativeY,
+    hitBoundary_ = {-1.0, run::HitSide::PositiveY,
                     imageWidth_, imageHeight_};
     decisionBoundaryDefined_ = false;
     recordedFps_ = data.nominalFps;

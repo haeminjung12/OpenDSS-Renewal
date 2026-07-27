@@ -241,8 +241,9 @@ void derivedBoundarySupportsArbitraryDimensions() {
             "load arbitrary-size Sequence");
     require(!controller.canStart() &&
                 controller.errorMessage() ==
-                    QStringLiteral("No Decision Boundary set"),
-            "explicit Decision Boundary is required");
+                    QStringLiteral("No Decision Boundary set") &&
+                controller.decisionBoundarySide() == QStringLiteral("bottom"),
+            "explicit Decision Boundary is required with Bottom is Hit as default");
     placeDecisionBoundary(controller, 0.25, 0.75);
     controller.setTriggerEveryDroplet(true);
     require(controller.canStart() && controller.start() &&

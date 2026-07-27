@@ -424,7 +424,7 @@ int main(int argc, char *argv[])
             if (width > 0 && height > 0) {
                 facts.hitBoundary = {
                     -1.0,
-                    desktop_app::v2::run::HitSide::NegativeY,
+                    desktop_app::v2::run::HitSide::PositiveY,
                     width, height};
             }
             facts.detectorSettings = detectorSettings;

@@ -254,6 +254,8 @@ int main(int argc, char** argv) {
             ++resultsRefreshes;
             refreshedRun = runFolder;
         });
+    ok &= check(controller->decisionBoundarySide() == QStringLiteral("bottom"),
+                "Live Decision Boundary must default to Bottom is Hit.");
     const auto armPersistenceBlock = [&] {
         std::lock_guard lock(persistenceMutex);
         blockPersistence = true;

@@ -123,9 +123,9 @@ Item {
 
                     Rectangle {
                         visible: root.hitBoundaryDefined
-                        x: hitBoundaryOverlay.boundaryX
+                        x: 0
                         y: hitBoundaryOverlay.boundaryY - height / 2
-                        width: Math.max(0, hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX)
+                        width: hitBoundaryOverlay.boundaryX
                         height: 4
                         color: Constants.textColor
                         Accessible.ignored: true

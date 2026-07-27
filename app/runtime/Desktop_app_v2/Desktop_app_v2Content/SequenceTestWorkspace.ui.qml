@@ -13,6 +13,7 @@ Item {
     property real hitBoundaryXRatio: 0.0
     property real hitBoundaryYRatio: 0.5
     property string hitBoundarySide: "top"
+    property bool hitBoundaryEditable: true
     property alias loadSequenceButton: loadSequenceButton
     property alias loadToMemoryButton: loadToMemoryButton
     property alias startStopButton: startStopButton
@@ -20,6 +21,9 @@ Item {
     property alias sequencePreviewHost: sequencePreviewHost
     property alias sequencePreviewImage: sequencePreviewImage
     property alias sequencePreviewPlaceholder: sequencePreviewPlaceholder
+    property alias hitBoundaryInputArea: hitBoundaryInputArea
+    property alias topIsHitControl: topIsHitControl
+    property alias bottomIsHitControl: bottomIsHitControl
     property alias sequenceNameField: sequenceNameField
     property alias sequencePathField: sequencePathField
     property alias frameCountText: frameCountText
@@ -106,11 +110,17 @@ Item {
                         readonly property real boundaryX: Math.max(0, Math.min(1, root.hitBoundaryXRatio)) * width
                         readonly property real boundaryY: Math.max(0, Math.min(1, root.hitBoundaryYRatio)) * height
 
+                        MouseArea {
+                            id: hitBoundaryInputArea
+                            anchors.fill: parent
+                            enabled: root.hitBoundaryEditable && sequencePreviewImage.visible
+                        }
+
                         Rectangle {
                             visible: root.hitBoundaryDefined
-                            x: hitBoundaryOverlay.boundaryX
+                            x: 0
                             y: hitBoundaryOverlay.boundaryY - height / 2
-                            width: Math.max(0, hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX)
+                            width: hitBoundaryOverlay.boundaryX
                             height: 4
                             color: Constants.textColor
                             Accessible.ignored: true
@@ -244,7 +254,6 @@ Item {
                                 spacing: Constants.spacing
                                 Text { text: qsTr("Active Model: %1").arg(root.activeModelText); color: Constants.textColor; font: Constants.smallFont }
                                 Text {
-                                    visible: root.hitBoundaryDefined
                                     text: root.hitBoundarySide === "top" ? qsTr("Hit: −Y ↑   Waste: +Y ↓") : qsTr("Hit: +Y ↓   Waste: −Y ↑")
                                     color: Constants.mutedTextColor
                                     font: Constants.smallFont
@@ -317,6 +326,22 @@ Item {
                                     model: [qsTr("Select Hit Class")]
                                     enabled: !root.running && !triggerEveryDropletControl.checked
                                     Accessible.name: qsTr("Hit Class")
+                                }
+                                Text { text: qsTr("Hit boundary calibration"); color: Constants.textColor; font: Constants.font }
+                                Row {
+                                    spacing: Constants.spacing
+                                    AppRadioButton {
+                                        id: topIsHitControl
+                                        text: qsTr("Top is Hit")
+                                        checked: root.hitBoundarySide === "top"
+                                        enabled: root.hitBoundaryEditable
+                                    }
+                                    AppRadioButton {
+                                        id: bottomIsHitControl
+                                        text: qsTr("Bottom is Hit")
+                                        checked: root.hitBoundarySide === "bottom"
+                                        enabled: root.hitBoundaryEditable
+                                    }
                                 }
                                 Text { text: qsTr("Save Location"); color: Constants.textColor; font: Constants.font }
                                 Row {

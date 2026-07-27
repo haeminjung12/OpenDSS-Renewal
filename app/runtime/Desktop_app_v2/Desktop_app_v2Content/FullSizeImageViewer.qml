@@ -31,12 +31,40 @@ FullSizeImageViewerForm {
                 nextImageY + imagePositionY * image.height - position.y))
     }
 
+    function scrollBy(wheelDelta, horizontal) {
+        const extent = horizontal
+                ? viewport.contentWidth - viewport.width
+                : viewport.contentHeight - viewport.height
+        if (wheelDelta === 0 || extent <= 0)
+            return false
+
+        if (horizontal)
+            viewport.contentX = Math.max(0, Math.min(
+                    extent, viewport.contentX - wheelDelta))
+        else
+            viewport.contentY = Math.max(0, Math.min(
+                    extent, viewport.contentY - wheelDelta))
+        return true
+    }
+
     WheelHandler {
-        acceptedModifiers: Qt.ControlModifier
         target: null
         onWheel: event => {
-            root.zoomAt(point.position, event.angleDelta.y)
-            event.accepted = true
+            const modifiers = event.modifiers
+            const wheelDelta = (event.pixelDelta.y !== 0
+                                ? event.pixelDelta.y
+                                : event.angleDelta.y)
+                    * (event.inverted ? -1 : 1)
+            if (modifiers === Qt.ControlModifier) {
+                root.zoomAt(point.position, wheelDelta)
+                event.accepted = wheelDelta !== 0
+            } else if (modifiers === Qt.ShiftModifier) {
+                event.accepted = root.scrollBy(wheelDelta, true)
+            } else if (modifiers === Qt.NoModifier) {
+                event.accepted = root.scrollBy(wheelDelta, false)
+            } else {
+                event.accepted = false
+            }
         }
     }
 }

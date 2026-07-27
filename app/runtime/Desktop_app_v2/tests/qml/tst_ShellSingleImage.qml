@@ -3272,6 +3272,7 @@ Item {
         compare(viewers.length, 5)
 
         for (let index = 0; index < viewers.length; ++index) {
+            verify(typeof viewers[index].scrollBy === "function")
             compare(viewers[index].zoomScale, 1)
             viewers[index].zoomScale = 0.3
             viewers[index].zoomAt(Qt.point(0, 0), -120)
@@ -3281,6 +3282,21 @@ Item {
             compare(viewers[index].zoomScale, 10)
             viewers[index].zoomScale = 1
         }
+
+        const viewer = viewers[0]
+        viewer.zoomScale = 2
+        wait(0)
+        verify(viewer.viewport.contentWidth > viewer.viewport.width)
+        verify(viewer.viewport.contentHeight > viewer.viewport.height)
+        viewer.viewport.contentX = 120
+        viewer.viewport.contentY = 120
+        verify(viewer.scrollBy(120, false))
+        compare(viewer.viewport.contentX, 120)
+        compare(viewer.viewport.contentY, 0)
+        verify(viewer.scrollBy(-120, true))
+        compare(viewer.viewport.contentX, 240)
+        compare(viewer.viewport.contentY, 0)
+        viewer.zoomScale = 1
     }
     }
 }

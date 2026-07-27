@@ -216,11 +216,14 @@ int main(int argc, char** argv) {
     facts.activeModelId = QStringLiteral("model-id");
     facts.minimumContourArea = 100;
     int cameraProfileApplies = 0;
+    int appliedCameraBitDepth = 0;
     int daqProfileApplies = 0;
     int modelProfileApplies = 0;
     int minimumContourAreaApplies = 0;
     facts.applyCameraProfile = [&](const QJsonObject& value, QString*) {
         ++cameraProfileApplies;
+        appliedCameraBitDepth =
+            value.value(QStringLiteral("bit_depth")).toInt();
         return value.value(QStringLiteral("source")).toString() ==
                QStringLiteral("fixture");
     };
@@ -321,10 +324,27 @@ int main(int argc, char** argv) {
                     !controller->triggerEveryDroplet() &&
                     controller->daqOutputEnabled() &&
                     controller->recordFullImageSequence() &&
-                    cameraProfileApplies == 1 && daqProfileApplies == 1 &&
+                    cameraProfileApplies == 1 && appliedCameraBitDepth == 8 &&
+                    daqProfileApplies == 1 &&
                     modelProfileApplies == 1
                     && controller->minimumContourArea() == 143,
-                "Open Profile must round-trip selections, hardware/model facts, and the numeric threshold.");
+                "A legacy profile with no Bit Depth must apply the 8-bit default.");
+
+    QJsonObject explicitDepthProfile = savedProfile;
+    QJsonObject explicitDepthCamera =
+        explicitDepthProfile.value(QStringLiteral("camera")).toObject();
+    explicitDepthCamera.insert(QStringLiteral("bit_depth"), 12);
+    explicitDepthProfile.insert(QStringLiteral("camera"), explicitDepthCamera);
+    const QString explicitDepthPath =
+        QDir(runs.path()).filePath(QStringLiteral("explicit-depth-profile.json"));
+    QString explicitDepthError;
+    ok &= check(desktop_app::writeJsonObjectAtomically(
+                    explicitDepthPath, explicitDepthProfile,
+                    &explicitDepthError)
+                    && controller->openProfile(
+                        QUrl::fromLocalFile(explicitDepthPath))
+                    && appliedCameraBitDepth == 12,
+                "An explicit supported profile Bit Depth must remain unchanged.");
 
     QJsonObject partialProfile = savedProfile;
     partialProfile.insert(QStringLiteral("hit_boundary"),

@@ -125,6 +125,8 @@ private:
     bool previewDeliveryScheduled_ = false;
     bool previewRevisionInFlight_ = false;
     bool previewLutUpdatePending_ = false;
+    bool defaultBitDepthInitializationPending_ = false;
+    bool defaultBitDepthInitialized_ = false;
 };
 
 } // namespace desktop_app::v2

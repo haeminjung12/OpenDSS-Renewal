@@ -177,16 +177,17 @@ int main(int argc, char **argv)
                     && controller.resolutionPresets().at(21)
                            == QStringLiteral("512 x 128")
                     && controller.resolutionPresetIndex() == 0
-                    && controller.bitDepth() == QStringLiteral("12-bit")
+                    && controller.bitDepth() == QStringLiteral("8-bit")
                     && controller.exposureMs() == QStringLiteral("10")
-                    && controller.readoutMode() == QStringLiteral("Fast"),
-                "Controller must cache the queued open projection and factual settings.");
+                    && controller.readoutMode() == QStringLiteral("Fast")
+                    && fake->applyConfigurationCalls == 1,
+                "A new live Camera must apply and publish the 8-bit default.");
 
     ok &= check(controller.applyExposureMs(4.5)
                     && !controller.applyBitDepth(8)
                     && waitForIdle(controller, busySpy)
                     && controller.exposureMs() == QStringLiteral("4.5")
-                    && fake->applyConfigurationCalls == 1,
+                    && fake->applyConfigurationCalls == 2,
                 "Controller must serialize configuration and publish factual readback.");
 
     ok &= check(controller.selectCustomResolution()

@@ -593,7 +593,11 @@ bool LiveSortingController::openProfile(const QUrl& fileUrl) {
         notices.push_back(QStringLiteral(
             "Small-droplet rejection not applied — value is missing or invalid."));
     }
-    const QJsonObject camera = root.value(QStringLiteral("camera")).toObject();
+    QJsonObject camera = root.value(QStringLiteral("camera")).toObject();
+    if (!camera.isEmpty()
+        && !camera.contains(QStringLiteral("bit_depth"))) {
+        camera.insert(QStringLiteral("bit_depth"), 8);
+    }
     if (!camera.isEmpty() && facts_.applyCameraProfile) {
         QString error;
         if (!facts_.applyCameraProfile(camera, &error))

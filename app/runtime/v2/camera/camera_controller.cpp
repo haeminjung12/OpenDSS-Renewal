@@ -90,6 +90,20 @@ CameraController::CameraController(CameraService &service,
             this, &CameraController::updateConfiguration, Qt::QueuedConnection);
     connect(&service_, &CameraService::commandFinished, this,
             [this](bool success, const QString &error) {
+                if (defaultBitDepthInitializationPending_) {
+                    if (success && configurationAvailable_
+                        && appliedSettings_.bitDepth != 8) {
+                        CameraAppliedSettings requested = appliedSettings_;
+                        requested.bitDepth = 8;
+                        requested.pixelType = CameraPixelType::Mono8;
+                        emit configurationRequested(requested);
+                        return;
+                    }
+                    defaultBitDepthInitializationPending_ = false;
+                    defaultBitDepthInitialized_ =
+                        success && configurationAvailable_
+                        && appliedSettings_.bitDepth == 8;
+                }
                 if (pendingCustomResolutionSelected_) {
                     if (success) {
                         customResolutionSelected_ = *pendingCustomResolutionSelected_;
@@ -237,7 +251,10 @@ quint64 CameraController::latestDeliveryId() const
 
 bool CameraController::open()
 {
-    return request(&CameraController::openRequested);
+    const bool requested = request(&CameraController::openRequested);
+    if (requested && !defaultBitDepthInitialized_)
+        defaultBitDepthInitializationPending_ = true;
+    return requested;
 }
 
 bool CameraController::start()
@@ -252,7 +269,10 @@ bool CameraController::stop()
 
 bool CameraController::recover()
 {
-    return request(&CameraController::recoverRequested);
+    const bool requested = request(&CameraController::recoverRequested);
+    if (requested && !defaultBitDepthInitialized_)
+        defaultBitDepthInitializationPending_ = true;
+    return requested;
 }
 
 bool CameraController::close()

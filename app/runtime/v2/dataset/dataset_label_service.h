@@ -47,8 +47,9 @@ class DatasetLabelService {
 
     bool configureClassCount(int classCount, QString* error = nullptr);
     bool renameClass(const QString& classId, const QString& name, QString* error = nullptr);
-    bool assignClass(const QString& recordId, const QString& classId, QString* error = nullptr);
-    bool exclude(const QString& recordId, QString* error = nullptr);
+    bool assignClass(const QVector<QString>& recordIds, const QString& classId,
+                     QString* error = nullptr);
+    bool exclude(const QVector<QString>& recordIds, QString* error = nullptr);
     bool undo(QString* error = nullptr);
     bool saveAs(const QString& destinationFolder, QString* error = nullptr);
 

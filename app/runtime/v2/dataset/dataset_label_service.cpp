@@ -274,17 +274,21 @@ bool DatasetLabelService::renameClass(const QString& classId, const QString& nam
     return saveMutation(next, data_.labels, error);
 }
 
-bool DatasetLabelService::assignClass(const QString& recordId, const QString& classId,
+bool DatasetLabelService::assignClass(const QVector<QString>& recordIds, const QString& classId,
                                       QString* error) {
     if (error)
         error->clear();
     if (!isOpen(error))
         return false;
-    const bool recordExists = std::any_of(data_.records.cbegin(), data_.records.cend(), [&](const DatasetRecord& record) {
-        return record.recordId == recordId;
-    });
-    if (!recordExists)
-        return fail(error, "Unknown record ID: " + recordId);
+    if (recordIds.isEmpty())
+        return fail(error, "No Droplet Crop is selected.");
+    QSet<QString> knownRecordIds;
+    for (const DatasetRecord& record : data_.records)
+        knownRecordIds.insert(record.recordId);
+    for (const QString& recordId : recordIds) {
+        if (!knownRecordIds.contains(recordId))
+            return fail(error, "Unknown record ID: " + recordId);
+    }
     const bool classExists = std::any_of(data_.classes.cbegin(), data_.classes.cend(), [&](const DatasetClass& value) {
         return value.id == classId;
     });
@@ -292,45 +296,59 @@ bool DatasetLabelService::assignClass(const QString& recordId, const QString& cl
         return fail(error, "Class ID is not configured: " + classId);
 
     QVector<UserLabelRecord> next = data_.labels;
-    const auto current = std::find_if(next.begin(), next.end(), [&](const UserLabelRecord& label) {
-        return label.recordId == recordId;
-    });
-    if (current == next.end()) {
-        next.push_back(UserLabelRecord{QUuid::createUuid().toString(QUuid::WithoutBraces),
-                                       recordId, classId, false});
-    } else {
-        if (!current->excluded && current->classId == classId)
-            return true;
-        current->classId = classId;
-        current->excluded = false;
+    bool changed = false;
+    for (const QString& recordId : recordIds) {
+        const auto current = std::find_if(next.begin(), next.end(), [&](const UserLabelRecord& label) {
+            return label.recordId == recordId;
+        });
+        if (current == next.end()) {
+            next.push_back(UserLabelRecord{QUuid::createUuid().toString(QUuid::WithoutBraces),
+                                           recordId, classId, false});
+            changed = true;
+        } else if (current->excluded || current->classId != classId) {
+            current->classId = classId;
+            current->excluded = false;
+            changed = true;
+        }
     }
+    if (!changed)
+        return true;
     return saveMutation(data_.classes, next, error);
 }
 
-bool DatasetLabelService::exclude(const QString& recordId, QString* error) {
+bool DatasetLabelService::exclude(const QVector<QString>& recordIds, QString* error) {
     if (error)
         error->clear();
     if (!isOpen(error))
         return false;
-    const bool recordExists = std::any_of(data_.records.cbegin(), data_.records.cend(), [&](const DatasetRecord& record) {
-        return record.recordId == recordId;
-    });
-    if (!recordExists)
-        return fail(error, "Unknown record ID: " + recordId);
+    if (recordIds.isEmpty())
+        return fail(error, "No Droplet Crop is selected.");
+    QSet<QString> knownRecordIds;
+    for (const DatasetRecord& record : data_.records)
+        knownRecordIds.insert(record.recordId);
+    for (const QString& recordId : recordIds) {
+        if (!knownRecordIds.contains(recordId))
+            return fail(error, "Unknown record ID: " + recordId);
+    }
 
     QVector<UserLabelRecord> next = data_.labels;
-    const auto current = std::find_if(next.begin(), next.end(), [&](const UserLabelRecord& label) {
-        return label.recordId == recordId;
-    });
-    if (current == next.end()) {
-        next.push_back(UserLabelRecord{QUuid::createUuid().toString(QUuid::WithoutBraces),
-                                       recordId, {}, true});
-    } else {
-        if (current->excluded)
-            return true;
-        current->classId.clear();
-        current->excluded = true;
+    bool changed = false;
+    for (const QString& recordId : recordIds) {
+        const auto current = std::find_if(next.begin(), next.end(), [&](const UserLabelRecord& label) {
+            return label.recordId == recordId;
+        });
+        if (current == next.end()) {
+            next.push_back(UserLabelRecord{QUuid::createUuid().toString(QUuid::WithoutBraces),
+                                           recordId, {}, true});
+            changed = true;
+        } else if (!current->excluded) {
+            current->classId.clear();
+            current->excluded = true;
+            changed = true;
+        }
     }
+    if (!changed)
+        return true;
     return saveMutation(data_.classes, next, error);
 }
 

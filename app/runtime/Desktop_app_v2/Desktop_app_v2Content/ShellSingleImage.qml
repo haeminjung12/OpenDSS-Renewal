@@ -879,9 +879,12 @@ Item {
             MouseArea {
                 anchors.fill: parent
                 enabled: !!root.datasetLabelController
-                onClicked: {
+                onClicked: mouse => {
                     cropDelegate.forceActiveFocus()
-                    root.datasetLabelController.select(cropDelegate.recordId)
+                    root.datasetLabelController.select(
+                                cropDelegate.recordId,
+                                (mouse.modifiers & Qt.ControlModifier) !== 0,
+                                (mouse.modifiers & Qt.ShiftModifier) !== 0)
                 }
             }
             Keys.onReturnPressed: root.datasetLabelController.select(recordId)

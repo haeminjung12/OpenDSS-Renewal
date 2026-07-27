@@ -269,8 +269,10 @@ int main(int argc, char **argv)
                    controller.presentation() == QStringLiteral("ready"),
                QStringLiteral("rejected schema change corrupted projection")) ||
         !check(controller.exclude(), controller.errorMessage()) ||
-        !check(controller.rowCount() == 0 && controller.selectedRecordId().isEmpty(),
-               QStringLiteral("filter selection did not normalize after exclusion")) ||
+        !check(controller.rowCount() == 0 &&
+                   controller.selectedRecordId() == QStringLiteral("r2") &&
+                   controller.selectedIndex() == -1,
+               QStringLiteral("final filtered Crop did not stay selected after exclusion")) ||
         !check(controller.configureClassCount(2), controller.errorMessage()) ||
         !check(controller.classCount() == 2 && !controller.class2Enabled() &&
                    controller.filter() == QStringLiteral("all") && controller.canUndo(),
@@ -296,18 +298,39 @@ int main(int argc, char **argv)
                QStringLiteral("class-name rename projection is incorrect")) ||
         !check(controller.setFilter(QStringLiteral("all")), controller.errorMessage()) ||
         !check(controller.select(QStringLiteral("r1")), controller.errorMessage()) ||
+        !check(controller.select(QStringLiteral("r2"), true, false), controller.errorMessage()) ||
+        !check(!controller.assignClass(QStringLiteral("missing")),
+               QStringLiteral("unknown Class assignment succeeded")) ||
+        !check(controller.selectedRecordId() == QStringLiteral("r2") &&
+                   controller.data(controller.index(0),
+                                   DatasetLabelController::SelectedRole).toBool() &&
+                   controller.data(controller.index(1),
+                                   DatasetLabelController::SelectedRole).toBool() &&
+                   controller.class0Count() == 0 && controller.excludedCount() == 1,
+               QStringLiteral("failed atomic assignment changed selection, labels, or advance")) ||
         !check(controller.assignClass(QStringLiteral("0")), controller.errorMessage()) ||
-        !check(controller.class0Count() == 1 && controller.canUndo(),
-               QStringLiteral("Class 0 projection is incorrect")) ||
+        !check(controller.class0Count() == 2 &&
+                   controller.selectedRecordId() == QStringLiteral("r2"),
+               QStringLiteral("full selection assignment was not atomic or wrapped at final")) ||
+        !check(controller.undo(), controller.errorMessage()) ||
+        !check(controller.class0Count() == 0 && controller.excludedCount() == 1,
+               QStringLiteral("full selection assignment did not undo as one mutation")) ||
+        !check(controller.select(QStringLiteral("r1")), controller.errorMessage()) ||
+        !check(controller.assignClass(QStringLiteral("0")), controller.errorMessage()) ||
+        !check(controller.class0Count() == 1 && controller.canUndo() &&
+                   controller.selectedRecordId() == QStringLiteral("r2"),
+               QStringLiteral("Class assignment did not advance after the highest selection")) ||
         !check(controller.undo(), controller.errorMessage()) ||
         !check(controller.class0Count() == 0 && !controller.canUndo(),
                QStringLiteral("label undo projection is incorrect")) ||
+        !check(controller.select(QStringLiteral("r1")), controller.errorMessage()) ||
         !check(controller.exclude(), controller.errorMessage()) ||
         !check(controller.excludedCount() == 2 && controller.canUndo(),
                QStringLiteral("exclude projection is incorrect")) ||
         !check(controller.undo(), controller.errorMessage()) ||
         !check(controller.excludedCount() == 1 && !controller.canUndo(),
                QStringLiteral("exclude undo projection is incorrect")) ||
+        !check(controller.select(QStringLiteral("r1")), controller.errorMessage()) ||
         !check(controller.next(), controller.errorMessage()) ||
         !check(controller.selectedRecordId() == QStringLiteral("r2"), QStringLiteral("next did not select r2")) ||
         !check(!controller.next(), QStringLiteral("next accepted past final record")) ||
@@ -414,6 +437,38 @@ int main(int argc, char **argv)
         return 9;
 
     if (!check(largeController.select(firstRecordId), largeController.errorMessage()))
+        return 10;
+    if (!check(largeController.select(secondRecordId, true, false),
+               largeController.errorMessage()) ||
+        !check(largeController.data(largeController.index(0),
+                                    DatasetLabelController::SelectedRole).toBool() &&
+                   largeController.data(largeController.index(1),
+                                        DatasetLabelController::SelectedRole).toBool(),
+               QStringLiteral("Ctrl selection did not toggle an additional Crop")) ||
+        !check(largeController.select(lastRecordId, false, true),
+               largeController.errorMessage()) ||
+        !check(largeController.data(largeController.index(0),
+                                    DatasetLabelController::SelectedRole).toBool() &&
+                   largeController.data(largeController.index(largeRecordCount / 2),
+                                        DatasetLabelController::SelectedRole).toBool() &&
+                   largeController.data(largeController.index(largeRecordCount - 1),
+                                        DatasetLabelController::SelectedRole).toBool(),
+               QStringLiteral("Shift selection did not use the visible anchor range")) ||
+        !check(largeController.setFilter(QStringLiteral("class0")),
+               largeController.errorMessage()) ||
+        !check(largeController.rowCount() == 0 &&
+                   largeController.selectedRecordId().isEmpty(),
+               QStringLiteral("filter change retained hidden selected Crops")) ||
+        !check(largeController.setFilter(QStringLiteral("all")),
+               largeController.errorMessage()) ||
+        !check(largeController.select(secondRecordId, false, true),
+               largeController.errorMessage()) ||
+        !check(!largeController.data(largeController.index(0),
+                                     DatasetLabelController::SelectedRole).toBool() &&
+                   largeController.data(largeController.index(1),
+                                        DatasetLabelController::SelectedRole).toBool(),
+               QStringLiteral("filter change did not reset the Shift anchor")) ||
+        !check(largeController.select(firstRecordId), largeController.errorMessage()))
         return 10;
     modelSignals.clear();
     if (!check(largeController.next(), largeController.errorMessage()) ||

@@ -4,6 +4,7 @@
 
 #include <QAbstractListModel>
 #include <QMutex>
+#include <QSet>
 #include <QThread>
 #include <QUrl>
 #include <QVariantList>
@@ -86,7 +87,7 @@ public:
     Q_INVOKABLE bool undo();
     Q_INVOKABLE bool previous();
     Q_INVOKABLE bool next();
-    Q_INVOKABLE bool select(const QString &recordId);
+    Q_INVOKABLE bool select(const QString &recordId, bool control = false, bool shift = false);
     Q_INVOKABLE bool setFilter(const QString &filter);
     Q_INVOKABLE bool saveAs(const QUrl &destinationFolderUrl);
 
@@ -103,9 +104,12 @@ private:
     void refreshSnapshot(bool resetModel = false);
     void applySnapshot(DatasetLabelSnapshot nextSnapshot, bool resetModel);
     void rebuildFilteredRows();
-    void updateSelectedProjection();
+    void updateSelectedProjection(bool selectFirstIfEmpty = true);
     void setSelectedRecordId(const QString &recordId);
-    void emitSelectedRowsChanged(const QString &previousRecordId);
+    void setSelectedRecords(const QSet<QString> &recordIds, const QString &currentRecordId,
+                            bool selectFirstIfEmpty = false);
+    void emitSelectedRowsChanged(const QSet<QString> &previousRecordIds);
+    QVector<QString> selectedRecordIdsInVisibleOrder() const;
     int modelRowForRecordId(const QString &recordId) const;
     bool matchesFilter(DatasetLabelState state) const;
     bool isMatchingRecord(const QString &recordId) const;
@@ -116,7 +120,10 @@ private:
     DatasetLabelSnapshot snapshot_;
     QVector<int> filteredRows_;
     QString datasetRoot_;
+    QSet<QString> selectedRecordIds_;
     QString selectedRecordId_;
+    QString selectionAnchorRecordId_;
+    bool retainHiddenSelection_ = false;
     QUrl selectedCropUrl_;
     int selectedIndex_ = -1;
     QString filter_ = QStringLiteral("all");

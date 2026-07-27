@@ -118,6 +118,8 @@ Item {
         property int previousCallCount: 0
         property int nextCallCount: 0
         property string selectedRecordArgument: ""
+        property bool selectedControlArgument: false
+        property bool selectedShiftArgument: false
         property int selectCallCount: 0
         property string filterArgument: ""
         property int renamedClassIndex: -1
@@ -156,8 +158,10 @@ Item {
         function undo() { ++undoCallCount; return true }
         function previous() { ++previousCallCount; return true }
         function next() { ++nextCallCount; return true }
-        function select(recordId) {
+        function select(recordId, control, shift) {
             selectedRecordArgument = recordId
+            selectedControlArgument = !!control
+            selectedShiftArgument = !!shift
             ++selectCallCount
             return true
         }
@@ -2513,9 +2517,21 @@ Item {
         mouseClick(crop)
         tryCompare(labelController, "selectedRecordArgument", "r1")
         tryCompare(labelController, "selectCallCount", 1)
+        compare(labelController.selectedControlArgument, false)
+        compare(labelController.selectedShiftArgument, false)
+        mouseClick(crop, crop.width / 2, crop.height / 2, Qt.LeftButton,
+                   Qt.ControlModifier)
+        tryCompare(labelController, "selectCallCount", 2)
+        compare(labelController.selectedControlArgument, true)
+        compare(labelController.selectedShiftArgument, false)
+        mouseClick(crop, crop.width / 2, crop.height / 2, Qt.LeftButton,
+                   Qt.ShiftModifier)
+        tryCompare(labelController, "selectCallCount", 3)
+        compare(labelController.selectedControlArgument, false)
+        compare(labelController.selectedShiftArgument, true)
         crop.forceActiveFocus()
         keyClick(Qt.Key_Return)
-        compare(labelController.selectCallCount, 2)
+        compare(labelController.selectCallCount, 4)
 
         for (let index = 2; index < 1000; ++index) {
             labelController.append({

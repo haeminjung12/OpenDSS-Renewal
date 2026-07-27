@@ -10,6 +10,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 
+#include <algorithm>
 #include <iostream>
 
 using namespace desktop_app::v2::dataset;
@@ -65,6 +66,9 @@ DatasetManifestData fixture(const QString& root) {
     image.fill(77);
     const QString crop = QDir(root).filePath("crops/one.png");
     image.save(crop, "PNG");
+    image.fill(88);
+    const QString secondCrop = QDir(root).filePath("crops/two.png");
+    image.save(secondCrop, "PNG");
     DatasetManifestData data;
     data.datasetId = "original";
     auto& p = data.provenance;
@@ -79,7 +83,7 @@ DatasetManifestData fixture(const QString& root) {
     p.requestedDurationSeconds = 60.0;
     p.stopReason = "user";
     p.status = "completed";
-    p.sequence.frameCount = 1;
+    p.sequence.frameCount = 2;
     p.sequence.imageWidth = 100;
     p.sequence.imageHeight = 80;
     p.sequence.bitDepth = 8;
@@ -88,16 +92,20 @@ DatasetManifestData fixture(const QString& root) {
     p.cameraSettings = {{"camera", 1}};
     p.detectionSettings = {{"detector", 2}};
     p.programSettings = {{"program", 3}};
-    data.records = {{"r1", "crops/one.png",
-                     QString::fromLatin1(QCryptographicHash::hash(read(crop),
-                                                                  QCryptographicHash::Sha256)
-                                             .toHex()),
-                     "frame-1", "event-1", "2026-07-24T10:00:01Z",
-                     QRect(1, 2, 20, 20), 1}};
+    data.records = {
+        {"r1", "crops/one.png",
+         QString::fromLatin1(
+             QCryptographicHash::hash(read(crop), QCryptographicHash::Sha256).toHex()),
+         "frame-1", "event-1", "2026-07-24T10:00:01Z", QRect(1, 2, 20, 20), 1},
+        {"r2", "crops/two.png",
+         QString::fromLatin1(
+             QCryptographicHash::hash(read(secondCrop), QCryptographicHash::Sha256).toHex()),
+         "frame-2", "event-2", "2026-07-24T10:00:02Z", QRect(2, 3, 20, 20), 2}};
     return data;
 }
 DatasetManifestData legacyFixture(const QString& root) {
     DatasetManifestData data = fixture(root);
+    data.records.resize(1);
     auto& provenance = data.provenance;
     provenance.provenanceMode = "legacy_crop_only";
     provenance.opendssVersion.clear();
@@ -139,8 +147,30 @@ int main(int argc, char** argv) {
     if (!check(service.open(path, &error), error) ||
         !check(service.configureClassCount(2, &error), error) ||
         !check(service.renameClass("0", "Empty", &error), error) ||
-        !check(service.assignClass("r1", "1", &error), error) ||
-        !check(service.exclude("r1", &error), error) ||
+        !check(service.assignClass({"r1", "r2"}, "1", &error), error))
+        return 2;
+    const auto batchAssigned = DatasetManifestV2::load(path, &error);
+    const QByteArray batchAssignedBytes = read(path);
+    if (!check(batchAssigned && batchAssigned->data().labels.size() == 2 &&
+                   std::all_of(batchAssigned->data().labels.cbegin(),
+                               batchAssigned->data().labels.cend(),
+                               [](const UserLabelRecord& label) {
+                                   return !label.excluded && label.classId == "1";
+                               }),
+               "Full selection was not assigned in one persisted mutation") ||
+        !check(!service.assignClass({"r1", "missing"}, "0", &error),
+               "Atomic assignment accepted an unknown record") ||
+        !check(read(path) == batchAssignedBytes,
+               "Failed atomic assignment changed persisted labels") ||
+        !check(service.exclude({"r1", "r2"}, &error), error))
+        return 2;
+    const auto batchExcluded = DatasetManifestV2::load(path, &error);
+    if (!check(batchExcluded && batchExcluded->data().records.size() == 2 &&
+                   batchExcluded->data().labels.size() == 2 &&
+                   std::all_of(batchExcluded->data().labels.cbegin(),
+                               batchExcluded->data().labels.cend(),
+                               [](const UserLabelRecord& label) { return label.excluded; }),
+               "Exclude did not retain both Crops in the persisted Skipped state") ||
         !check(service.undo(&error), error))
         return 2;
     auto current = DatasetManifestV2::load(path, &error);
@@ -170,7 +200,7 @@ int main(int argc, char** argv) {
         return 16;
     const QString retainedCropPath = legacy.records.front().cropPath;
     const QString retainedCropSha256 = legacy.records.front().cropSha256;
-    if (!check(legacyService.exclude("r1", &error), error))
+    if (!check(legacyService.exclude({"r1"}, &error), error))
         return 22;
     const auto excludedIncludedCrop =
         DatasetManifestV2::load(legacyPath, &error);

@@ -8,6 +8,8 @@
 #include <QMutexLocker>
 #include <QSet>
 
+#include <algorithm>
+
 namespace desktop_app::v2::dataset {
 namespace {
 
@@ -85,7 +87,7 @@ QVariant DatasetLabelController::data(const QModelIndex &index, int role) const
     case StateRole:
         return stateText(record.state);
     case SelectedRole:
-        return record.recordId == selectedRecordId_;
+        return selectedRecordIds_.contains(record.recordId);
     default:
         return {};
     }
@@ -190,7 +192,10 @@ void DatasetLabelController::finishOpen()
     errorMessage_ = succeeded ? QString{} : error;
     if (succeeded) {
         filter_ = QStringLiteral("all");
+        selectedRecordIds_.clear();
         selectedRecordId_.clear();
+        selectionAnchorRecordId_.clear();
+        retainHiddenSelection_ = false;
         refreshSnapshot(true);
         publishDatasetState();
     }
@@ -219,7 +224,7 @@ void DatasetLabelController::applySnapshot(DatasetLabelSnapshot nextSnapshot, bo
         return;
     }
 
-    const QString previousSelectedRecordId = selectedRecordId_;
+    const QSet<QString> previousSelectedRecordIds = selectedRecordIds_;
     const bool cropRootChanged = snapshot_.manifestPath != nextSnapshot.manifestPath;
     QVector<int> changedSourceRows;
     for (qsizetype index = 0; index < snapshot_.records.size(); ++index) {
@@ -268,8 +273,8 @@ void DatasetLabelController::applySnapshot(DatasetLabelSnapshot nextSnapshot, bo
     if (cropRootChanged && !filteredRows_.isEmpty()) {
         emit dataChanged(index(0), index(filteredRows_.size() - 1), {CropUrlRole});
     }
-    if (previousSelectedRecordId != selectedRecordId_)
-        emitSelectedRowsChanged(previousSelectedRecordId);
+    if (previousSelectedRecordIds != selectedRecordIds_)
+        emitSelectedRowsChanged(previousSelectedRecordIds);
 }
 
 void DatasetLabelController::rebuildFilteredRows()
@@ -282,11 +287,36 @@ void DatasetLabelController::rebuildFilteredRows()
     }
 }
 
-void DatasetLabelController::updateSelectedProjection()
+void DatasetLabelController::updateSelectedProjection(bool selectFirstIfEmpty)
 {
-    if (!isMatchingRecord(selectedRecordId_)) {
-        selectedRecordId_ =
-            filteredRows_.isEmpty() ? QString{} : snapshot_.records.at(filteredRows_.first()).recordId;
+    QSet<QString> existingRecordIds;
+    existingRecordIds.reserve(snapshot_.records.size());
+    for (const DatasetLabelRecordState &record : snapshot_.records)
+        existingRecordIds.insert(record.recordId);
+
+    for (auto it = selectedRecordIds_.begin(); it != selectedRecordIds_.end();) {
+        if (!existingRecordIds.contains(*it) ||
+            (!retainHiddenSelection_ && !isMatchingRecord(*it))) {
+            it = selectedRecordIds_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    if (!selectedRecordId_.isEmpty() && !selectedRecordIds_.contains(selectedRecordId_))
+        selectedRecordId_.clear();
+    if (selectedRecordIds_.isEmpty() && selectFirstIfEmpty && !filteredRows_.isEmpty()) {
+        selectedRecordId_ = snapshot_.records.at(filteredRows_.first()).recordId;
+        selectedRecordIds_.insert(selectedRecordId_);
+    } else if (selectedRecordId_.isEmpty() && !selectedRecordIds_.isEmpty()) {
+        for (int sourceRow : filteredRows_) {
+            const QString &recordId = snapshot_.records.at(sourceRow).recordId;
+            if (selectedRecordIds_.contains(recordId)) {
+                selectedRecordId_ = recordId;
+                break;
+            }
+        }
+        if (selectedRecordId_.isEmpty())
+            selectedRecordId_ = *selectedRecordIds_.cbegin();
     }
 
     selectedIndex_ = -1;
@@ -295,26 +325,73 @@ void DatasetLabelController::updateSelectedProjection()
     if (row >= 0) {
         selectedIndex_ = row;
         selectedCropUrl_ = cropUrl(snapshot_.records.at(filteredRows_.at(row)));
+    } else if (!selectedRecordId_.isEmpty()) {
+        const auto record = std::find_if(snapshot_.records.cbegin(), snapshot_.records.cend(),
+                                         [this](const DatasetLabelRecordState &value) {
+                                             return value.recordId == selectedRecordId_;
+                                         });
+        if (record != snapshot_.records.cend())
+            selectedCropUrl_ = cropUrl(*record);
     }
 }
 
 void DatasetLabelController::setSelectedRecordId(const QString &recordId)
 {
-    const QString previousRecordId = selectedRecordId_;
-    selectedRecordId_ = recordId;
-    updateSelectedProjection();
-    if (previousRecordId != selectedRecordId_)
-        emitSelectedRowsChanged(previousRecordId);
+    setSelectedRecords(recordId.isEmpty() ? QSet<QString>{} : QSet<QString>{recordId}, recordId);
 }
 
-void DatasetLabelController::emitSelectedRowsChanged(const QString &previousRecordId)
+void DatasetLabelController::setSelectedRecords(const QSet<QString> &recordIds,
+                                                const QString &currentRecordId,
+                                                bool selectFirstIfEmpty)
 {
-    const int previousRow = modelRowForRecordId(previousRecordId);
-    const int currentRow = modelRowForRecordId(selectedRecordId_);
-    if (previousRow >= 0)
-        emit dataChanged(index(previousRow), index(previousRow), {SelectedRole});
-    if (currentRow >= 0 && currentRow != previousRow)
-        emit dataChanged(index(currentRow), index(currentRow), {SelectedRole});
+    const QSet<QString> previousRecordIds = selectedRecordIds_;
+    selectedRecordIds_ = recordIds;
+    selectedRecordId_ = currentRecordId;
+    retainHiddenSelection_ = false;
+    updateSelectedProjection(selectFirstIfEmpty);
+    if (previousRecordIds != selectedRecordIds_)
+        emitSelectedRowsChanged(previousRecordIds);
+}
+
+void DatasetLabelController::emitSelectedRowsChanged(const QSet<QString> &previousRecordIds)
+{
+    QVector<int> changedRows;
+    changedRows.reserve(previousRecordIds.size() + selectedRecordIds_.size());
+    for (int row = 0; row < filteredRows_.size(); ++row) {
+        const QString &recordId = snapshot_.records.at(filteredRows_.at(row)).recordId;
+        if (previousRecordIds.contains(recordId) != selectedRecordIds_.contains(recordId))
+            changedRows.append(row);
+    }
+    if (changedRows.size() <= 2) {
+        for (int row : changedRows)
+            emit dataChanged(index(row), index(row), {SelectedRole});
+        return;
+    }
+
+    int firstChangedRow = changedRows.first();
+    int previousChangedRow = firstChangedRow;
+    for (qsizetype index = 1; index < changedRows.size(); ++index) {
+        const int row = changedRows.at(index);
+        if (row != previousChangedRow + 1) {
+            emit dataChanged(this->index(firstChangedRow), this->index(previousChangedRow),
+                             {SelectedRole});
+            firstChangedRow = row;
+        }
+        previousChangedRow = row;
+    }
+    emit dataChanged(index(firstChangedRow), index(previousChangedRow), {SelectedRole});
+}
+
+QVector<QString> DatasetLabelController::selectedRecordIdsInVisibleOrder() const
+{
+    QVector<QString> recordIds;
+    recordIds.reserve(selectedRecordIds_.size());
+    for (int sourceRow : filteredRows_) {
+        const QString &recordId = snapshot_.records.at(sourceRow).recordId;
+        if (selectedRecordIds_.contains(recordId))
+            recordIds.append(recordId);
+    }
+    return recordIds;
 }
 
 int DatasetLabelController::modelRowForRecordId(const QString &recordId) const
@@ -391,22 +468,62 @@ bool DatasetLabelController::assignClass(const QString &classId)
 {
     if (rejectWhileLoading())
         return false;
-    if (selectedRecordId_.isEmpty())
+    const QVector<QString> selectedRecordIds = selectedRecordIdsInVisibleOrder();
+    if (selectedRecordIds.isEmpty())
         return finish(false, QStringLiteral("No Droplet Crop is selected."));
+    const int highestSelectedRow = modelRowForRecordId(selectedRecordIds.last());
+    const bool selectionIncludesFinalRow = highestSelectedRow == filteredRows_.size() - 1;
+    const QString nextRecordId =
+        selectionIncludesFinalRow
+            ? selectedRecordIds.last()
+            : snapshot_.records.at(filteredRows_.at(highestSelectedRow + 1)).recordId;
     QString error;
-    const bool success = service_.assignClass(selectedRecordId_, classId, &error);
-    return finish(success, error, true);
+    const bool success = service_.assignClass(selectedRecordIds, classId, &error);
+    if (!success)
+        return finish(false, error);
+
+    const QSet<QString> previousRecordIds = selectedRecordIds_;
+    selectedRecordIds_ =
+        selectionIncludesFinalRow ? QSet<QString>{selectedRecordIds.last()}
+                                  : QSet<QString>{nextRecordId};
+    selectedRecordId_ = nextRecordId;
+    selectionAnchorRecordId_ = nextRecordId;
+    retainHiddenSelection_ = selectionIncludesFinalRow;
+    refreshSnapshot();
+    if (previousRecordIds != selectedRecordIds_)
+        emitSelectedRowsChanged(previousRecordIds);
+    return finish(true, {});
 }
 
 bool DatasetLabelController::exclude()
 {
     if (rejectWhileLoading())
         return false;
-    if (selectedRecordId_.isEmpty())
+    const QVector<QString> selectedRecordIds = selectedRecordIdsInVisibleOrder();
+    if (selectedRecordIds.isEmpty())
         return finish(false, QStringLiteral("No Droplet Crop is selected."));
+    const int highestSelectedRow = modelRowForRecordId(selectedRecordIds.last());
+    const bool selectionIncludesFinalRow = highestSelectedRow == filteredRows_.size() - 1;
+    const QString nextRecordId =
+        selectionIncludesFinalRow
+            ? selectedRecordIds.last()
+            : snapshot_.records.at(filteredRows_.at(highestSelectedRow + 1)).recordId;
     QString error;
-    const bool success = service_.exclude(selectedRecordId_, &error);
-    return finish(success, error, true);
+    const bool success = service_.exclude(selectedRecordIds, &error);
+    if (!success)
+        return finish(false, error);
+
+    const QSet<QString> previousRecordIds = selectedRecordIds_;
+    selectedRecordIds_ =
+        selectionIncludesFinalRow ? QSet<QString>{selectedRecordIds.last()}
+                                  : QSet<QString>{nextRecordId};
+    selectedRecordId_ = nextRecordId;
+    selectionAnchorRecordId_ = nextRecordId;
+    retainHiddenSelection_ = selectionIncludesFinalRow;
+    refreshSnapshot();
+    if (previousRecordIds != selectedRecordIds_)
+        emitSelectedRowsChanged(previousRecordIds);
+    return finish(true, {});
 }
 
 bool DatasetLabelController::undo()
@@ -440,13 +557,36 @@ bool DatasetLabelController::next()
     return finish(true, {});
 }
 
-bool DatasetLabelController::select(const QString &recordId)
+bool DatasetLabelController::select(const QString &recordId, bool control, bool shift)
 {
     if (rejectWhileLoading())
         return false;
     if (!isMatchingRecord(recordId))
         return finish(false, QStringLiteral("Selected Droplet Crop is unavailable in the current filter."));
-    setSelectedRecordId(recordId);
+    const int clickedRow = modelRowForRecordId(recordId);
+    if (shift && isMatchingRecord(selectionAnchorRecordId_)) {
+        const int anchorRow = modelRowForRecordId(selectionAnchorRecordId_);
+        const int firstRow = std::min(anchorRow, clickedRow);
+        const int lastRow = std::max(anchorRow, clickedRow);
+        QSet<QString> range;
+        range.reserve(lastRow - firstRow + 1);
+        for (int row = firstRow; row <= lastRow; ++row)
+            range.insert(snapshot_.records.at(filteredRows_.at(row)).recordId);
+        setSelectedRecords(range, recordId);
+    } else if (control) {
+        QSet<QString> toggled = selectedRecordIds_;
+        if (toggled.contains(recordId))
+            toggled.remove(recordId);
+        else
+            toggled.insert(recordId);
+        const QString current =
+            toggled.contains(recordId) ? recordId
+                                       : (toggled.isEmpty() ? QString{} : selectedRecordId_);
+        setSelectedRecords(toggled, current);
+    } else {
+        setSelectedRecordId(recordId);
+        selectionAnchorRecordId_ = recordId;
+    }
     return finish(true, {});
 }
 
@@ -463,7 +603,8 @@ bool DatasetLabelController::setFilter(const QString &filter)
 
     beginResetModel();
     filter_ = filter;
-    selectedRecordId_.clear();
+    selectionAnchorRecordId_.clear();
+    retainHiddenSelection_ = false;
     rebuildFilteredRows();
     updateSelectedProjection();
     endResetModel();

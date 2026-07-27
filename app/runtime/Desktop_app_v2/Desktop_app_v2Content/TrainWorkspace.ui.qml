@@ -14,6 +14,10 @@ Rectangle {
     property string deviceText: qsTr("CPU (automatic)")
     property string disabledReason: qsTr("No dataset selected")
     property var libraryModelOptions: []
+    property var libraryModelCompatibility: ({
+        "hasCompatibleModels": true,
+        "reasons": []
+    })
     property string selectedLibraryModelName: ""
     property string selectedLibraryModelArchitecture: ""
     property string selectedLibraryModelStartingWeights: ""
@@ -252,7 +256,32 @@ Rectangle {
                                 id: libraryModelSelector
                                 width: parent.width
                                 height: Constants.appStandardControlHeight
+                                enabled: root.libraryModelOptions.length > 0
                                 model: root.libraryModelOptions
+                                delegate: ItemDelegate {
+                                    required property int index
+                                    required property var modelData
+                                    readonly property string compatibilityReason:
+                                        index < root.libraryModelCompatibility.reasons.length
+                                        ? root.libraryModelCompatibility.reasons[index]
+                                        : ""
+                                    width: libraryModelSelector.width
+                                    enabled: compatibilityReason === ""
+                                    highlighted: libraryModelSelector.highlightedIndex === index
+                                    text: compatibilityReason === ""
+                                          ? modelData
+                                          : qsTr("%1 — %2").arg(modelData).arg(compatibilityReason)
+                                }
+                            }
+                            Text {
+                                visible: root.libraryModelOptions.length === 0
+                                      || !root.libraryModelCompatibility.hasCompatibleModels
+                                text: root.libraryModelOptions.length === 0
+                                      ? qsTr("No Library models are available")
+                                      : qsTr("No compatible Library models are available")
+                                color: Constants.mutedTextColor
+                                wrapMode: Text.WordWrap
+                                width: parent.width
                             }
                             Text { text: qsTr("Name"); font: Constants.appLabelFont }
                             Text {

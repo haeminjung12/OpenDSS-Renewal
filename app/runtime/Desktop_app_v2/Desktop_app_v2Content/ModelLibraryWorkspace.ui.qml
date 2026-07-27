@@ -301,7 +301,14 @@ Rectangle {
                 id: addModelStartingWeightsSelector
                 width: parent.width
                 height: Constants.appStandardControlHeight
+                enabled: root.addModelStartingWeightsOptions.length > 0
                 model: root.addModelStartingWeightsOptions
+            }
+            Text {
+                text: qsTr("Approved locally available weights compatible with the selected architecture.")
+                color: Constants.mutedTextColor
+                wrapMode: Text.WordWrap
+                width: parent.width
             }
             Text {
                 id: addModelValidationText

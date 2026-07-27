@@ -10,7 +10,46 @@ if (-not (Test-Path -LiteralPath $documentPath -PathType Leaf)) {
     throw "Master specification is missing: $documentPath"
 }
 
-$actualHash = (Get-FileHash -LiteralPath $documentPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($lock.canonicalization -ne "crlf-to-lf") {
+    throw "Unsupported master-specification canonicalization: $($lock.canonicalization)"
+}
+
+# Git may materialize the same committed text with LF or CRLF depending on the
+# checkout's core.autocrlf/eol settings. Hash canonical LF bytes so the lock
+# validates identical content across worktrees while still detecting text edits.
+$documentBytes = [System.IO.File]::ReadAllBytes($documentPath)
+$canonicalStream = [System.IO.MemoryStream]::new()
+
+try {
+    for ($index = 0; $index -lt $documentBytes.Length; $index++) {
+        if (
+            $documentBytes[$index] -eq 13 -and
+            ($index + 1) -lt $documentBytes.Length -and
+            $documentBytes[$index + 1] -eq 10
+        ) {
+            $canonicalStream.WriteByte(10)
+            $index++
+            continue
+        }
+
+        $canonicalStream.WriteByte($documentBytes[$index])
+    }
+
+    $sha256 = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $actualHash = -join (
+            $sha256.ComputeHash($canonicalStream.ToArray()) |
+                ForEach-Object { $_.ToString("x2") }
+        )
+    }
+    finally {
+        $sha256.Dispose()
+    }
+}
+finally {
+    $canonicalStream.Dispose()
+}
+
 $expectedHash = ([string]$lock.sha256).ToLowerInvariant()
 
 if ($actualHash -ne $expectedHash) {

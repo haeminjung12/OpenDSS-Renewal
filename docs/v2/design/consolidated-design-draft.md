@@ -38,7 +38,7 @@ Sequence Viewer is a still-frame inspection surface. It shows current and total 
 
 ### Train, Library, and Active Model
 
-Library owns Add Model and Import Model. Add Model uses one popup requiring a nonblank unique Name, one supported Architecture, and approved Starting Weights. Train selects that Library-defined model read-only for identity, architecture, and initialization, then selects Dataset, Compute Device, and Output Location before Start. While Training it shows progress, timing, effective device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. Successful completion atomically creates the newly named package and makes it Active; failure leaves source identity/artifacts intact and shows `Error` and Retry Save without an Active success state.
+Library owns Add Model and Import Model. Add Model uses one popup requiring a nonblank unique Name, one supported Architecture, and approved, architecture-compatible Starting Weights already available locally. No Starting Weights action downloads or falls back to the network. Train selects that Library-defined model read-only for identity, architecture, and initialization, then selects Dataset, Compute Device, and Output Location before Start. While Training it shows progress, timing, effective device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. Successful completion atomically creates the newly named package and makes it Active; failure leaves source identity/artifacts intact and shows `Error` and Retry Save without an Active success state.
 
 `ModelListRow` shows only a green Active check when applicable, bold Model Name, and smaller lighter Architecture. The Active check has textual or accessible meaning. A selected row has a darker background and selection never activates it. `SelectedModelSection` is collapsible and contains name, Active state, architecture, Starting Weights, trained date, source Dataset, classes, Training results, package location, and actions.
 
@@ -46,7 +46,7 @@ Model Test and Sequence Test display the Active Model as read-only context and c
 
 ### Live and Decision Boundary
 
-Live keeps one workspace. Its right panel contains Setup Profile, Run Information, Trigger & Timing, Output & Recording, and Running disclosures. Running is collapsed before Start. Start collapses setup, expands Running, makes other setup fields read-only, keeps Set Decision Boundary available for one-click replacement, and retains the Camera preview. `CameraActionBar` below the preview contains Start Camera and Start Sorting.
+Live keeps one workspace. Its right panel contains Setup Profile, Run Information, Trigger & Timing, Output & Recording, and Running disclosures. Running is collapsed before Start. Start collapses setup, expands Running, keeps the explicitly authorized Trigger & Timing controls editable for subsequent droplets, keeps Set Decision Boundary available for one-click replacement, and retains the Camera preview. Unlisted setup fields become read-only. `CameraActionBar` below the preview contains Start Camera and Start Sorting.
 
 Trigger & Timing contains Active Model, Hit Class, independent Trigger Every Droplet and DAQ Output toggles, Send Test Pulse, and `Decision Boundary`. `Set Decision Boundary` arms exactly one placement click in the owning Camera frame; ordinary frame clicks do nothing. The clicked source-image X/Y point begins a horizontal observer/comparison segment that extends to the right edge only. `Top is Hit` or `Bottom is Hit` selects the Observed Route mapping, and `Reset` clears the boundary. Decision Boundary affects only Observed Route; it never changes Predicted Class, Decision, or DAQ output.
 
@@ -56,11 +56,11 @@ Running contains status, elapsed time, Total Droplets, Rejected, Predicted Class
 
 Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, its own editable Decision Boundary, Start, and Stop. It does not reuse or modify Live Decision Boundary state. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default, and Sequence Test inference defaults to CPU.
 
-Results keeps the loaded Run in the center. `RunListSection` on the right is internally scrollable and contains the selectable Run list plus bottom Load and Remove Run actions. After explicit confirmation, Remove Run moves the complete selected Run folder to the Windows Recycle Bin; it never performs direct permanent deletion. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
+Results keeps the loaded Run in the center. In `RunListSection` on the right, only the selectable Run list scrolls; the bottom Load and Remove Run actions remain fixed and continuously available. After explicit confirmation, Remove Run moves the complete selected Run folder to the Windows Recycle Bin; it never performs direct permanent deletion. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
 
 Settings uses a centered column with Storage, Application Information, and Diagnostics only.
 
-`BottomHardwarePanel` Camera content is Status, Device, Resolution preset, conditional Custom Width/Height, Bit Depth default 8-bit, Exposure, Readout mode default Fastest, and LUT controls. LUT is visibly preview-only. DAQ content is Status, auto-detected Device, conditional Device selector, Output Channel, and reported maximum voltage range/frequency. Only adapter-supported settings appear.
+`BottomHardwarePanel` Camera content is Status, Device, Resolution preset, conditional Custom Width/Height, Bit Depth default 8-bit for a new/default state, Exposure, Readout mode default Fastest, and a section titled exactly `LUT`. Saved profiles retain their supported Bit Depth. LUT behavior remains preview-only and no numeric LUT values are displayed beneath its title. DAQ content is Status, auto-detected Device, conditional Device selector, Output Channel, and reported maximum voltage range/frequency. Only adapter-supported settings appear.
 
 ### Shared component plan
 
@@ -617,6 +617,8 @@ A neutral, highly legible sans-serif SHOULD be used throughout the application. 
 
 Text Size offers exactly **Small (80%)**, **Medium (100%, default)**, and **Large (125%)**. **200% remains validation-only and is not selectable.** SettingsRepository and the UI integration must expose only 80, 100, and 125. Before publication or persistence, legacy persisted values must normalize as 90 → 100 and 150/175/200 → 125. The UI must never silently expose an unsupported value.
 
+One application-wide text scale drives every typography role; workspace-local or component-local scale systems are prohibited. After the selected application scale is applied, every visible non-title label, control label, control value, caption, status, warning, metadata value, table value, path, filename, and log line MUST render at no less than `10 pt`. Application, workspace, major-section, and section titles remain on distinct larger title roles so the hierarchy is consistent rather than flattened to the minimum.
+
 Numeric counters, timestamps, frame indices, Class Scores, Inference Time, FPS, and matrices SHOULD use tabular figures. Monospace must be limited to values that benefit from fixed-width alignment; it is not a general status typeface.
 
 Text MUST not be converted into raster assets. Labels must remain translatable and scalable even if localization is not part of the first release.
@@ -707,7 +709,7 @@ Every interactive component MUST define:
 | **Navigation item** | Icon, label, optional disclosure, selected indicator, compact/expanded variants | Selected and keyboard-focus treatments remain distinct. Tooltip and accessible name are required in compact mode. Disabled navigation is avoided; inaccessible operations are explained inside the workspace. |
 | **Global status item** | Label, value, optional state symbol, optional detail tooltip | Read-only projection of authoritative state. Color is supplemental. Long model names use end or middle elision with full text available. |
 | **Configuration action** | Configuration icon plus label at standard widths; icon plus tooltip at minimum width | Opens the shell-owned Configuration panel. It remains available during Live for Detector Configuration even while Camera and DAQ sections are locked. |
-| **Configuration-panel section** | Section heading, status, supported field groups, applied/validation feedback, lock-owner explanation, optional collapse | Camera and DAQ sections remain independently editable or locked according to ownership. Detector Configuration exposes only the approved Small-droplet rejection control. Unsupported properties are absent rather than shown as placeholders. |
+| **Configuration-panel section** | Section heading, status, supported field groups, applied/validation feedback, lock-owner explanation, optional collapse | Camera and DAQ sections remain independently editable or locked according to ownership. Detector Configuration exposes only the approved `Minimum Size` control. Unsupported properties are absent rather than shown as placeholders. |
 | **Operation-side panel** | Heading, optional artifact summary, field groups, status/metrics, final action region | Content changes by workspace/mode/state. Primary action remains in a consistent lower region. It never duplicates Camera or DAQ settings. |
 
 ## 6.3 Input and action components
@@ -1359,6 +1361,8 @@ Each Dataset thumbnail MUST reserve separate layers:
 3. state badge for Unlabeled, Skipped, Removed, or missing file;
 4. selection fill/indicator;
 5. keyboard-focus ring;
+
+After a successful persisted assignment through `Empty`, `Single`, `MoreThanOne`, or `Exclude`, Label advances in the current active filtered order. `Exclude` assigns the retained `Skipped` state; it never deletes or removes the crop. A multi-selection advances to the item after the highest selected item in that filtered order. If the assignment includes the final filtered item, that final item remains selected and the selection never wraps. A failed persistence operation does not advance.
 6. optional multi-selection check indicator.
 
 The 6 logical-px crop border is its own visual layer. Selection and keyboard focus are separate orthogonal layers and MUST NOT replace, resize, merge into, or be represented solely by the crop border.
@@ -1369,7 +1373,7 @@ Recommended treatment:
 - **Labeled:** class token plus `0`, `1`, or `2` badge and check marker.
 - **Skipped:** neutral muted badge labeled `Skipped`; image remains fully inspectable.
 - **Removed:** subdued overlay plus X and `Removed`; selection and focus remain visible above the overlay.
-- **Selected:** blue-tinted selection surface and check/structural marker, independent of class border.
+- **Selected:** neutral dark selection surface and check/structural marker, independent of class identity and crop border. Selection MUST NOT use the blue/navy viewer treatment or imply a class.
 - **Focused:** high-contrast focus ring outside selection/class layers.
 
 ## 10.7 Class assignment and crop actions
@@ -1649,7 +1653,9 @@ MobileNetV3-Small
 EfficientNet-B0
 ```
 
-Library Add Model requires a nonblank unique Name, one of those two architectures, and approved Starting Weights. Train must not infer, substitute, or edit any of them.
+Library Add Model requires a nonblank unique Name, one of those two architectures, and approved Starting Weights that are already present locally and explicitly compatible with the selected architecture. The selector shows only locally available approved compatible choices. It MUST NOT download weights, present a network action, or use a network fallback. Train must not infer, substitute, download, or edit Name, Architecture, or Starting Weights.
+
+Train keeps incompatible Library models visible but disabled and gives each one a factual compatibility reason. When Library contains no models, the exact empty message is **No Library models are available**. When models exist but none is compatible, the exact empty message is **No compatible Library models are available**.
 
 Retraining an already-trained Library model always begins with a new unique Name defined through Add Model and produces a new Library entry/package. The prior package is read-only initialization evidence and remains intact and protected; retraining never overwrites or mutates it.
 
@@ -1933,7 +1939,7 @@ Metrics use neutral presentation. No status badge derives from metric values.
 | Action | Design and behavior |
 |---|---|
 | **Set Active** | Primary when a valid nonactive package is selected and replacement is not locked. Successful activation updates header immediately. |
-| **Add Model** | Opens one popup requiring a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and approved Starting Weights. Library owns this identity. No additional architecture, option, or package schema is added. |
+| **Add Model** | Opens one popup requiring a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and locally available approved Starting Weights compatible with that Architecture. Library owns this identity. The selector never downloads weights or uses a network fallback. No additional architecture, option, or package schema is added. |
 | **Import Model** | Selects `metadata.json` inside one complete supported v2 Model Package and performs the existing technical and package-integrity checks. Raw weights, a bare ONNX file, an incomplete package, or any selection other than the package's `metadata.json` is not importable. Import does not perform conversion or assign scientific state. |
 | **Remove Model** | Adjacent to Import Model. It retains the existing direct confirmation naming the Model Package and consequence. After confirmation, it moves the OpenDSS-owned complete package folder to the Windows Recycle Bin. It never performs direct permanent deletion and cannot bypass Active Model, in-use, or package-integrity locks. |
 | **Export Model** | Writes the complete package to a user-selected location. |
@@ -2098,6 +2104,7 @@ The coordinate MUST NOT be written to Setup Profiles, Run files, `events.csv`, `
 Droplets flow left to right and EventDetector tracks each droplet through the frame. Observed Route timing is:
 
 - While a tracked droplet remains in the frame, including while it is left of the clicked Decision Boundary X, the observer calculation remains pending.
+- One missed frame does not end the authoritative track. The same track remains pending through that miss, and a reappearance updates its latest tracked source-image Y. Observed Route finalizes only when the qualified detector reports the track lifecycle ended.
 - The clicked X defines only the start of the visible right-edge segment. It is not a Decision or DAQ threshold.
 - Observed Route is calculated when the track ends or the droplet disappears. The final tracked source-image Y is compared with the Decision Boundary Y, and `Top is Hit` / `Bottom is Hit` supplies the observed Hit/Waste mapping.
 - The same final-Y comparison applies even in the unexpected case where the track ends or disappears before ever reaching the clicked X; clicked X alone never makes the outcome Unresolved.
@@ -2105,7 +2112,7 @@ Droplets flow left to right and EventDetector tracks each droplet through the fr
 
 This entire boundary/final-Y calculation is observer-only. It never changes Predicted Class or Decision and never requests, suppresses, or otherwise controls DAQ output. Trigger Every Droplet OFF makes the model Decision control DAQ; Trigger Every Droplet ON makes every accepted droplet Decision Hit. Observed Route is persisted only for factual comparison with Decision and is never a DAQ gate.
 
-The user must also explicitly choose the observer mapping:
+The product default observer mapping is `Bottom is Hit` in both Live and Sequence Test. The user may choose either mapping:
 
 ```text
 Top is Hit
@@ -2121,11 +2128,15 @@ Bottom is Hit: Hit = below boundary   Waste = above boundary
 
 This mapping should use a small coordinate diagram plus text. It must not use the ambiguous term `Hit Channel`. Decision Boundary remains separate from DAQ Output Channel.
 
-Start is unavailable until the owning workspace has a Decision Boundary and an operational side selection. The direct disabled reason is **No Decision Boundary set**.
+Start is unavailable until the owning workspace has a Decision Boundary. The default or user-selected observer side is already defined. The direct disabled reason is **No Decision Boundary set**.
+
+The authoritative `UAT-TRAJECTORY-001` fixture root is `C:\Users\goals\OneDrive\Documents\OpenDSS Renewal\Droplet trajectory test`. Its frames are `1200 × 360`, so the fixture boundary is exactly source-image `Y = height / 2 = 180`, with `Bottom is Hit`. Expected Observed Route is derived only from the final tracked source-image Y relative to that boundary; directory names and legacy behavior remain evidence, not product authority. This fixture characterizes observer-only final-Y behavior, including one-miss retention and lifecycle-end finalization. It MUST NOT change model Decision or request or suppress DAQ output.
 
 Decision Boundary remains editable during an active Live or Sequence Test Run. A successfully placed replacement boundary becomes the observer Hit/Waste line immediately for subsequent Observed Route calculations; it does not rewrite prior events or create persisted boundary provenance. `Reset` clears the boundary; a new Start remains unavailable until it is set again.
 
 The selected Top-is-Hit/Bottom-is-Hit mapping may follow the applicable profile and Run configuration contracts, but the boundary coordinate is explicitly excluded from all persistence and provenance.
+
+During active sorting, Trigger Every Droplet, Hit Class, Physical DAQ Output, voltage, frequency, duration, delay, Decision Boundary Set/Reset, and Top-is-Hit/Bottom-is-Hit remain editable. A successfully committed change applies only to subsequent droplets and never rewrites a prior event. Active Model remains read-only, and Send Test Pulse is disabled throughout active sorting. Trigger/DAQ setting changes are recorded in the Run configuration history. Decision Boundary coordinates remain workspace-local presentation state and are never written to that history or any Run, profile, log, result, or export.
 
 ## 15.8 Active Model presentation
 
@@ -2431,7 +2442,7 @@ A new Sequence Test setup initializes Physical DAQ Output as unchecked. This def
 - No Class Score threshold or manual compute-device control is shown.
 - Sequence Test real-time sorting inference uses the qualified C++ ONNX Runtime path and defaults to CPU.
 
-Sequence Test owns and edits its own workspace-local observer Decision Boundary. It MUST NOT read, reuse, overwrite, display, or synchronize Live state. `Set Decision Boundary` arms exactly one placement click; ordinary frame clicks are inert. The click maps through the current presentation transform to an exact source-image X/Y point. The horizontal observer segment begins at that point and extends to the right edge of the source frame only; it never extends leftward or across the full frame. `Top is Hit` or `Bottom is Hit` selects the Observed Route mapping, and Reset clears the boundary. Start is unavailable until the boundary is set. The clicked point MUST NOT leave the Sequence Test workspace or be persisted, logged, exported, or associated with an event or history.
+Sequence Test owns and edits its own workspace-local observer Decision Boundary. It MUST NOT read, reuse, overwrite, display, or synchronize Live state. `Set Decision Boundary` arms exactly one placement click; ordinary frame clicks are inert. The click maps through the current presentation transform to an exact source-image X/Y point. The horizontal observer segment begins at that point and extends to the right edge of the source frame only; it never extends leftward or across the full frame. `Bottom is Hit` is the default; the user may select `Top is Hit`. Reset clears the boundary. Start is unavailable until the boundary is set. The clicked point MUST NOT leave the Sequence Test workspace or be persisted, logged, exported, or associated with an event or history.
 
 When Physical DAQ Output is enabled, accepted-droplet output follows Decision exactly as defined in §15.6. The observer Decision Boundary and persisted Observed Route never control DAQ output.
 
@@ -2552,6 +2563,8 @@ Status values use factual semantic badges. A Failed Run is not removed from the 
 Rows must remain identifiable when optional metadata is missing. An unreadable entry may retain path/name facts and expose a direct file reason.
 
 Remove Run performs no action until the user explicitly confirms. After confirmation it moves the complete selected Run folder, including all contained files, to the Windows Recycle Bin. It does not directly or permanently delete the Run; cancelling the confirmation changes nothing.
+
+Only the Run-list body scrolls. `Load selected Run` and `Remove Run` remain in a fixed bottom action region and MUST NOT move out of view when the list is scrolled.
 
 ## 17.3 Selected Run layout
 
@@ -2781,8 +2794,7 @@ Header: Camera: Streaming | DAQ: Ready | Active Model: … | Activity: … [Conf
                                              │ <qualified supported fields> │
                                              │                              │
                                              │ DETECTOR CONFIGURATION       │
-                                             │ Small-droplet rejection      │
-                                             │ <current pixel area> [ Set ] │
+                                             │ Minimum Size <value> px² [Set]│
                                              │                              │
                                              │ [ Close ]                    │
                                              └──────────────────────────────┘
@@ -2815,10 +2827,10 @@ Camera and DAQ sections remain independently usable except during Live, which lo
 
 ### 19.3.1 Detector Configuration
 
-Detector Configuration contains exactly one approved detector control:
+Detector Configuration contains exactly one approved detector control, presented on one line:
 
 ```text
-Small-droplet rejection    <current pixel area>    [ Set ]
+Minimum Size    <current integer value> px²    [ Set ]
 ```
 
 - `Set` is enabled only when the current workspace presents a visible frame.
@@ -2828,13 +2840,25 @@ Small-droplet rejection    <current pixel area>    [ Set ]
 - The rectangle's source-pixel area becomes the existing detector minimum contour-area threshold. Rectangle width and height are not separate thresholds, and no new width/height rejection, detector mode, or parallel detector state may be invented.
 - The rectangle is an input gesture, not a second persisted geometry setting. The one authoritative applied value is the existing minimum contour-area threshold expressed in source pixels.
 - The initial authoritative minimum contour-area threshold is exactly `100 px²`. The product MUST NOT present or retain `Automatic` or `-1` as its initial/default state.
-- Loading a legacy Small-droplet rejection value of `-1` converts it to the authoritative numeric value `100 px²`; `-1` is not retained in product state.
+- Loading a legacy detector minimum-area value of `-1` converts it to the authoritative numeric value `100 px²`; `-1` is not retained in product state.
 - When no frame view exists, `Set` is disabled with **No frame is available**.
 - The control remains editable during an active Run. A successfully committed change applies immediately to subsequent detector processing.
 - An in-run change MUST NOT be written to logs, `events.csv`, Run summaries, Results, or any other Run file. No history, timestamp, frame association, or Run provenance may be inferred or added.
 - Setup Profile persistence stores only the current minimum contour-area threshold value.
 
 This UI exposes the existing qualified detector threshold; it does not authorize replacement or behavioral modification of protected detector mechanics. Implementation must reuse the current authoritative threshold boundary and satisfy protected-asset change control with the smallest direct adapter needed by the current consumer.
+
+### 19.3.2 Camera default, Auto Exposure, and LUT
+
+- Bit Depth is exactly `8-bit` only for a new/default live-Camera state. A legacy live-Camera profile with no Bit Depth field resolves to `8-bit`. Loading a saved supported Setup Profile preserves its explicit saved Bit Depth and MUST NOT overwrite that value with the default. Loaded image files and sequences retain their native bit depth and are never converted by this live-Camera default.
+- `Auto Exposure` is a one-shot action enabled only while a current valid Camera frame exists. One activation captures that valid-frame input, performs one qualified calculation and one apply operation, and publishes the successfully applied result as the ordinary manual Exposure value.
+- Auto Exposure becomes busy immediately, disables repeat activation while the one operation is in flight, and has no continuous mode, background adjustment, runtime network behavior, or independent cancellation mode. Camera loss, stale/invalid captured input, calculation failure, or apply failure leaves the prior manual Exposure authoritative and shows the direct factual failure. A late result may not apply after Camera ownership or validity has changed.
+- Auto Exposure MUST reuse and characterize the existing qualified/legacy one-shot camera mechanic and its supported exposure bounds. It MUST NOT block the UI thread, call the vendor SDK from QML, introduce a second exposure algorithm, or silently overwrite a saved profile outside the existing normal applied-value and profile-save semantics.
+- The visible section title is exactly `LUT`. Retain the existing preview-only LUT slider and required LUT behavior. Remove the displayed numeric row beneath it; the slider retains its accessible name, role, and current value without a replacement visual numeric readout.
+
+### 19.3.3 DAQ numeric-step responsiveness
+
+The existing `+` and `−` controls for voltage, frequency, duration, and delay MUST remain responsive during repeated interaction. Intermediate edits are coalesced and applied asynchronously through the existing DAQ owner; synchronous or repeated hardware, persistence, validation, or other expensive work MUST NOT block the UI thread for each intermediate step. The final accepted value is guaranteed to be applied exactly and reflected as authoritative. A rejected or failed apply restores the last successfully applied value and exposes the direct reason. Existing units/ranges/step semantics, ownership and active-run locks, waveform behavior, limits, Stop-to-zero, and every DAQ safety invariant remain unchanged.
 
 ## 19.4 Immediate-apply behavior
 
@@ -2869,7 +2893,7 @@ A transient draft that has not been committed must be visually distinct from the
 | **Idle and available** | Section visible and enabled. | Valid edits apply immediately. | None required. |
 | **Unavailable** | Panel opens; unavailable section remains visible with factual status. | All controls in that section disabled. Other available/idle section remains editable. | **Camera unavailable** or **DAQ unavailable**. |
 | **Owned by non-Live operation** | Panel may open. Owned section is read-only; unowned section remains independently editable. | No changes to owned device. | **Camera settings are locked while Droplet Dataset Capture is active**, or equivalent owner. |
-| **Live Starting/Running/Paused/Stopping** | Configuration remains openable; Camera and DAQ sections are locked; Detector Configuration remains available. | No Camera or DAQ edit. Small-droplet rejection remains editable and applies immediately after successful commit. | **Camera and DAQ settings are locked while sorting is active** or **The current Run is paused**. |
+| **Live Starting/Running/Paused/Stopping** | Configuration remains openable; Camera and DAQ sections are locked; Detector Configuration remains available. | No Camera or DAQ edit. Minimum Size remains editable and applies immediately after successful commit. | **Camera and DAQ settings are locked while sorting is active** or **The current Run is paused**. |
 | **Starting or Stopping non-Live operation** | Same ownership as accepted operation. | Owned section read-only. | Operation-specific starting/stopping message. |
 
 ## 19.6 Resource ownership effects
@@ -2892,7 +2916,7 @@ A transient draft that has not been committed must be visually distinct from the
 
 The panel MUST NOT expose:
 
-- droplet-detection parameters other than the approved Small-droplet rejection control mapped directly to the existing minimum contour-area threshold;
+- droplet-detection parameters other than the approved `Minimum Size` control mapped directly to the existing minimum contour-area threshold;
 - Droplet Crop parameters beyond the fixed artifact contract;
 - width-based or height-based small-droplet rejection;
 - routing-algorithm parameters;
@@ -2925,14 +2949,15 @@ DAQ Output Channel is a DAQ technical setting in the panel and remains distinct 
 
 ## 19.10 Collapse and responsive behavior
 
-- Camera, DAQ, and Detector Configuration sections MAY independently collapse, but headings, status, current Small-droplet rejection value, and applicable lock explanation remain visible.
+- Camera, DAQ, and Detector Configuration sections MAY independently collapse, but headings, status, current Minimum Size value, and applicable lock explanation remain visible.
 - At minimum height, the panel scrolls internally while Close and current section heading remain accessible.
 - At minimum width, it may occupy up to 44% of content width. It must not become a full-screen replacement that hides the global header.
+- Preserve the current default owning-panel width unless the one-line `Minimum Size <value> px² [ Set ]` presentation demonstrably clips at a supported layout. If adjustment is required, use only the smallest default-width increase that resolves that factual clipping.
 - Field labels must not truncate at 200% scaling; values may elide with full text available.
 
 ## 19.11 Minimum mock states
 
-Idle Camera/DAQ available; Camera unavailable/DAQ Ready; Camera Streaming; DAQ Active; invalid Camera number; rejected DAQ channel; Camera locked by Image Sequence; Camera locked by Droplet Dataset Capture; DAQ locked by Sequence Test; Sequence Test with DAQ off; Live Camera/DAQ lock with Detector Configuration editable; Live paused with Detector Configuration editable; Small-droplet rejection Set with a visible frame; Set disabled with no frame; display-to-source rectangle mapping; immediate in-run threshold update with no Run-file provenance; Starting/Stopping lock; long device names; unsupported property absent rather than disabled placeholder; 200% scaling; focus return after close.
+Idle Camera/DAQ available; Camera unavailable/DAQ Ready; Camera Streaming; DAQ Active; invalid Camera number; rejected DAQ channel; Camera locked by Image Sequence; Camera locked by Droplet Dataset Capture; DAQ locked by Sequence Test; Sequence Test with DAQ off; Live Camera/DAQ lock with Detector Configuration editable; Live paused with Detector Configuration editable; Minimum Size Set with a visible frame; Set disabled with no frame; display-to-source rectangle mapping; immediate in-run threshold update with no Run-file provenance; new/default Camera at 8-bit; saved explicit non-8-bit profile preserved; Auto Exposure unavailable without a valid frame; one-shot Auto Exposure success/failure; LUT without displayed numeric values; responsive repeated DAQ `+`/`−`; Starting/Stopping lock; long device names; unsupported property absent rather than disabled placeholder; 200% scaling; focus return after close.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §5.2, §§11–13 and D-002, D-016; *OpenDSS v2 Information Architecture and Screen Inventory* §§1.6–1.7 and §6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §5, §17, and applicable workspace ownership rules; *OpenDSS Detailed User Workflow Specification* hardware, concurrency, and error requirements as amended by *OpenDSS Approved v2 Product Model*; *OpenDSS Product Design Specification*, Draft v0.1 §§4–6, §8 contextual-panel evidence, and §§9–10 as adapted.
 
@@ -2979,7 +3004,7 @@ A Profile may contain:
 
 - Camera settings;
 - DAQ settings;
-- current Small-droplet rejection minimum contour-area threshold in source pixels;
+- current `Minimum Size` minimum contour-area threshold in source pixels;
 - Active Model reference;
 - Trigger Every Droplet;
 - Hit Class;
@@ -3043,7 +3068,7 @@ Save writes the current profile path. When no path exists, it behaves as Save As
 Save and Save As snapshot:
 
 - current authoritative applied Camera/DAQ settings;
-- current authoritative Small-droplet rejection minimum contour-area threshold;
+- current authoritative `Minimum Size` minimum contour-area threshold;
 - current Active Model reference when present;
 - current approved Live pre-run selections covered by the Profile.
 
@@ -3847,7 +3872,7 @@ Decision identifiers D-001 through D-019 belong exclusively to the *OpenDSS Appr
 | **16. Sequence Test** | PM §7.8, §§8, 10–14; D-004, D-005, D-006, D-008 | IA §§3.1, 4.14, §§5–6 | LF §13, §§16–19 | WF §19 amended for Sort placement and Unresolved | Component/accessibility evidence only |
 | **17. Results > Runs** | PM §7.9, §§8, 10, 14–17; D-005, D-013 | IA §§3.1, 4.15–4.16, §§5–6 | LF §14, §§16–19 | WF §22 and Run contracts amended for Unresolved | Table/master-detail evidence adapted; charts and broad history rejected |
 | **18. Settings** | PM §7.10, §§11–12; D-017 | IA §§1.4, 3.1, 4.17, §8 | LF §15–16 | WF §23 narrowed to Storage, Application Information, Diagnostics | Form treatment adapted; old System groups rejected |
-| **19. Configuration panel** | PM §5.2, §§11–13; D-002, D-016 | IA §§1.6–1.7, §6 | LF §5 and ownership rules | WF hardware/concurrency/error requirements as amended | Contextual panel pattern adapted; visible name is Configuration; content is Camera, DAQ, and the explicitly approved Small-droplet rejection threshold only |
+| **19. Configuration panel** | PM §5.2, §§11–13; D-002, D-016 | IA §§1.6–1.7, §6 | LF §5 and ownership rules | WF hardware/concurrency/error requirements as amended | Contextual panel pattern adapted; visible name is Configuration; content is Camera, DAQ, and the explicitly approved `Minimum Size` threshold only |
 | **20. Setup Profile** | PM §9, §11; D-009 | IA §3.2, §5, §8 | LF §12.3, §16 and ownership rules | WF §20 and §30 only where compatible with ordinary-file/narrowed content model | File-control visuals only; managed library discarded |
 | **21. Contextual links** | PM §§4, 6, 8 | IA §5 | LF §4.8, §18 | WF handoffs in §§12–22 as amended | No authority; compatible link styling only |
 | **22. Keyboard/focus** | PM shell/operation/fault boundaries | IA shell and workspace behavior | LF §§2, 4–18 and acceptance | WF §§9, 14, 18, 21, 38–43 | §9 adopted/adapted |
@@ -3878,7 +3903,7 @@ Decision identifiers D-001 through D-019 belong exclusively to the *OpenDSS Appr
 | **D-013 — Results contains Runs only** | Section 17. |
 | **D-014 — Shared Capture composition** | Section 9 shared preview and three fixed, independently collapsible section headings with no default expansion. |
 | **D-015 — No Advanced Training Parameters** | Section 12 fixed-config presentation and Section 29 exclusion. |
-| **D-016 — Camera/DAQ settings plus approved detector exception** | Sections 4 and 19 Configuration behavior. Camera/DAQ ownership rules remain; Small-droplet rejection is the sole approved detector-setting exception and remains editable during active Runs. |
+| **D-016 — Camera/DAQ settings plus approved detector exception** | Sections 4 and 19 Configuration behavior. Camera/DAQ ownership rules remain; `Minimum Size` is the sole approved detector-setting exception and remains editable during active Runs. |
 | **D-017 — Reduced Settings** | Section 18. |
 | **D-018 — Fixed startup** | Sections 3–4: Data > Capture with all three Capture sections collapsed, no last-workspace restore. |
 | **D-019 — Simple contextual faults** | Sections 6–7 and every workspace's direct reason/banner contract. |
@@ -3950,7 +3975,7 @@ The appendix is not an alternative-design menu. Rejected ideas do not remain ava
 | **Editable detector controls** | **Not carried forward** | Conflicts with PM §11 and approved constraints. Detection is fixed qualified application configuration and recorded in provenance. |
 | **Advanced Training Parameters** | **Not carried forward** | Training consumes Library-owned identity, Architecture, and Starting Weights read-only and exposes only the approved Dataset, Compute Device, Output Location, and fixed configuration facts. |
 | **Old decision-register identifiers D-001, D-002, etc.** | **Not carried forward** | Those identifiers now belong exclusively to the Approved Product Model. This specification does not reuse them or create a new product decision register. |
-| **One generic System-status panel containing all settings** | **Not carried forward** | Configuration contains Camera, DAQ, and only the approved Small-droplet rejection threshold; Storage/Application Information/Diagnostics remain in Settings. |
+| **One generic System-status panel containing all settings** | **Not carried forward** | Configuration contains Camera, DAQ, and only the approved `Minimum Size` threshold; Storage/Application Information/Diagnostics remain in Settings. |
 | **`Armed` as a product-level operational state** | **Not carried forward** | PM D-002 adds no separate software arming state. DAQ readiness and explicit Physical DAQ Output provide factual technical status. |
 | **Camera settings opened contextually from Live** | **Adapted** | Retained through global Configuration, available from all workspaces while idle rather than owned by Live. |
 | **Resizable/collapsible side panes** | **Adopted** | Retained with keyboard alternatives, stable selection/focus, and minimum-width rules. Active operation panels cannot disappear automatically. |
@@ -4000,7 +4025,7 @@ The normal product MUST NOT expose:
 - raw JSON editing for normal workflows;
 - a software DAQ arming state.
 
-Camera and DAQ technical settings plus the approved Small-droplet rejection minimum contour-area threshold are the only user-editable technical settings and exist only in shared Configuration.
+Camera and DAQ technical settings plus the approved `Minimum Size` minimum contour-area threshold are the only user-editable technical settings and exist only in shared Configuration.
 
 ## 29.3 Excluded scientific policy and status
 

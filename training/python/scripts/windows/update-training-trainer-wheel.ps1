@@ -821,6 +821,6 @@ try {
         -UpdateValidated $updateValidated -RollbackOutcome "not-required" `
         -RollbackDetail "" -CleanupOutcome $cleanupOutcome -CleanupDetail ""
 } catch {
-    Write-Warning "Trainer update succeeded, but its durable success diagnostic could not be written."
+    Write-Warning "Trainer update succeeded, but its durable success diagnostic could not be written." -WarningAction Continue
 }
 Write-Host "OpenDSS droplet-trainer updated atomically to $ExpectedHash."

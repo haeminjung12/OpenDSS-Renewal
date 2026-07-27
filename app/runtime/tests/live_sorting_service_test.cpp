@@ -1140,6 +1140,88 @@ void testThrowingPersistenceAndPromptFatalOffer() {
         require(!operations.snapshot().kind,
                 "concurrent persistence failure releases operation lease");
     }
+    {
+        QTemporaryDir temporary;
+        FakeDetector detector;
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f),
+                            detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
+        OperationCoordinator operations;
+        std::mutex gateMutex;
+        std::condition_variable gateReady;
+        bool persistenceEntered = false;
+        bool releasePersistence = false;
+        bool secondPulseEntered = false;
+        bool releaseSecondPulse = false;
+        std::atomic_int pulses{0};
+        live::LiveSortingService service(
+            operations, detector, nullptr,
+            [&](bool outputEnabled, QString*) {
+                const int pulseNumber = pulses.fetch_add(1) + 1;
+                if (pulseNumber == 2) {
+                    std::unique_lock lock(gateMutex);
+                    secondPulseEntered = true;
+                    gateReady.notify_all();
+                    gateReady.wait(lock, [&] { return releaseSecondPulse; });
+                }
+                return pulseStatus(outputEnabled);
+            },
+            {},
+            [&](QString*) -> bool {
+                std::unique_lock lock(gateMutex);
+                persistenceEntered = true;
+                gateReady.notify_all();
+                gateReady.wait(lock, [&] { return releasePersistence; });
+                throw std::runtime_error("injected overlapping persistence failure");
+            },
+            {},
+            [](QString*) { return true; });
+        auto value = request(temporary.path());
+        value.daqOutputEnabled = true;
+        QString error;
+        require(service.start(value, &error), qPrintable(error));
+        offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
+        {
+            std::unique_lock lock(gateMutex);
+            require(gateReady.wait_for(lock, std::chrono::seconds(2),
+                                       [&] { return persistenceEntered; }),
+                    "overlap persistence blocked");
+        }
+        offerAndWait(service, detector, 3, 3);
+        require(service.offerFrame(image(), meta(4), 100.0),
+                "offer overlapping disappearance frame");
+        {
+            std::unique_lock lock(gateMutex);
+            require(gateReady.wait_for(lock, std::chrono::seconds(2),
+                                       [&] { return secondPulseEntered; }),
+                    "second pulse callback entered");
+            releasePersistence = true;
+        }
+        gateReady.notify_all();
+        require(!waitFor([&] {
+                    return service.snapshot().integrity.consumerFailures.count == 1;
+                },
+                100),
+                "persistence fault cannot linearize during pulse callback");
+        {
+            std::lock_guard lock(gateMutex);
+            releaseSecondPulse = true;
+        }
+        gateReady.notify_all();
+        require(waitFor([&] {
+                    return service.snapshot().integrity.consumerFailures.count == 1;
+                }),
+                "overlapping persistence failure observed after pulse callback");
+        require(pulses.load() == 2,
+                "overlapping fault cannot create a post-fault pulse");
+        require(!service.offerFrame(image(), meta(5), 100.0),
+                "post-fault frame rejected after serialized pulse");
+        service.stop(&error);
+        require(!operations.snapshot().kind,
+                "overlapping persistence failure releases operation lease");
+    }
 }
 
 void testBoundedPersistenceLossAndContinuation() {
@@ -1568,9 +1650,15 @@ void testFullSequenceDisabledEnabledPauseGapsAndFaults() {
         require(service.start(value, &error), qPrintable(error));
         require(service.offerFrame(image(1), meta(1), 25.0),
                 "offer sequence-publication fixture frame");
-        require(waitFor([&] { return detector.processed.load() == 1; }),
-                "sequence-publication fixture frame consumed");
         const QString runFolder = service.snapshot().runFolder;
+        const QString framePath =
+            QDir(runFolder)
+                .filePath(QStringLiteral("sequence/frames/frame_00000001.tif"));
+        require(waitFor([&] {
+                    return detector.processed.load() == 1
+                        && QFileInfo::exists(framePath);
+                }),
+                "sequence-publication fixture frame persisted");
         const QString sequencePath =
             QDir(runFolder)
                 .filePath(QStringLiteral("sequence/sequence.json"));

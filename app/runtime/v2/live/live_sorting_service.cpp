@@ -871,6 +871,7 @@ private:
         }
         pending->event.decision = *decision;
         bool pulseFailed = false;
+        std::unique_lock pulseLock(pulseMutex);
         if (*decision == run::Route::Waste) {
             pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
         } else if (pending->event.observedRoute == run::Route::Unresolved ||
@@ -953,6 +954,7 @@ private:
     }
 
     void persistenceFailure(qint64 sourceIndex, const QString& error) {
+        std::lock_guard pulseLock(pulseMutex);
         recordConsumerFailure(sourceIndex > 0 ? sourceIndex : 1);
         fatal.store(true, std::memory_order_release);
         {
@@ -1321,6 +1323,7 @@ private:
     std::optional<PendingEvent> pending;
     std::optional<run::RunWriterV2> writer;
     std::mutex writerMutex;
+    std::mutex pulseMutex;
     std::atomic_bool fatal{false};
     std::atomic_bool acceptingOffers{false};
     std::atomic_bool processingAllowed{false};

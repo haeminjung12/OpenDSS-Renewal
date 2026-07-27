@@ -264,7 +264,7 @@ Item {
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Setup Profile")
                         expanded: root.setupProfileExpanded
-                        headingEnabled: !root.completed
+                        headingEnabled: !root.setupLocked
                         useIntrinsicBodyHeight: true
 
                         Item {

@@ -348,6 +348,7 @@ Item {
                                     id: triggerEveryDropletControl
                                     text: qsTr("Trigger Every Droplet")
                                     checked: false
+                                    enabled: !root.postOperation
                                 }
                                 Text { text: qsTr("Class-Based / Hit Class"); color: Constants.textColor; font: Constants.font }
                                 AppComboBox {
@@ -355,7 +356,7 @@ Item {
                                     width: parent.width
                                     height: Constants.appStandardControlHeight
                                     model: [qsTr("Select Hit Class")]
-                                    enabled: !triggerEveryDropletControl.checked
+                                    enabled: !root.postOperation && !triggerEveryDropletControl.checked
                                     Accessible.name: qsTr("Hit Class")
                                 }
                                 Text { text: qsTr("Decision Boundary"); color: Constants.textColor; font: Constants.font }
@@ -409,7 +410,7 @@ Item {
                                         enabled: !root.running
                                     }
                                 }
-                                AppCheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output") }
+                                AppCheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output"); enabled: !root.postOperation }
                                 Text {
                                     visible: !root.running && root.presentation !== "ready"
                                     text: root.activeModelText === qsTr("No Active Model") ? qsTr("Start requires an Active Model.") : (root.presentation === "selected" ? qsTr("Load the selected Sequence to memory before Start.") : (root.error ? qsTr("Resolve the current Error before Start.") : qsTr("Load a Sequence before Start.")))

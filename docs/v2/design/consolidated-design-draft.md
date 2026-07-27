@@ -544,7 +544,7 @@ The values below are recommended review tokens. They SHOULD be centralized and m
 
 | Token | Review value | Intended use |
 |---|---:|---|
-| `viewer.canvas` | `#0B1220` | Camera and image viewer background |
+| `viewer.canvas` | `#000000` | Shared full-size image-viewer canvas for Capture, Live, Sequence Test, Sequence Viewer, and Label selected crop |
 | `viewer.surface` | `#111827` | Viewer controls and overlays |
 | `viewer.text` | `#F8FAFC` | Viewer labels and factual overlays |
 | `viewer.textMuted` | `#CBD5E1` | Secondary viewer metadata |
@@ -748,11 +748,12 @@ All shared full-size image viewers use the same presentation-only navigation con
 - Scale `1.0` is the viewer's current fit-to-window presentation.
 - Zoom is clamped to `0.3` through `10`.
 - When zoomed content exceeds the viewport, normal wheel input scrolls vertically and `Shift`+wheel scrolls horizontally.
-- Vertical and horizontal scrollbars become visible as applicable and support pointer thumb dragging and pointer click scrolling.
+- Each axis uses scrollbar policy `AlwaysOn` exactly while that axis's content exceeds its viewport extent and `AlwaysOff` otherwise. Both scrollbars are interactive. During overflow they remain persistently visible and clickable; transient or `AsNeeded` presentation is prohibited. They support pointer thumb dragging and pointer click scrolling.
 - Existing pan remains available alongside scrolling.
 - Dataset grids, thumbnail grids, and other thumbnail presentations are excluded.
 - Zoom and navigation never change source-image coordinates, persisted artifacts, detector values, or operational geometry.
 - Exactly one shared production `FullSizeImageViewer` implementation serves the five full-size consumers: Capture, Live, Sequence Test, Sequence Viewer, and Label selected crop. Per-workspace viewer or hot-path JavaScript duplication is prohibited.
+- The canvas/background inside that shared full-size viewer is black (`#000000`) for exactly those five consumers. This replaces only the former blue/navy canvas. Surrounding panels, grids and thumbnails, placeholder text, overlays, controls, and borders remain unchanged.
 
 ## 6.6 Component state requirements
 

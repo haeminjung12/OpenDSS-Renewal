@@ -328,7 +328,7 @@ void testEveryDropletPulseRouteAndStopped() {
     require(!service.start(everyDropletRequest, &error), "duplicate start blocked");
     require(operations.snapshot().kind == OperationKind::LiveSorting &&
                 operations.snapshot().locks.testFlag(ResourceLock::Camera) &&
-                !operations.snapshot().locks.testFlag(ResourceLock::Daq) &&
+                operations.snapshot().locks.testFlag(ResourceLock::Daq) &&
                 operations.snapshot().locks.testFlag(ResourceLock::Run) &&
                 operations.snapshot().locks.testFlag(ResourceLock::Storage),
             "Live locks held");

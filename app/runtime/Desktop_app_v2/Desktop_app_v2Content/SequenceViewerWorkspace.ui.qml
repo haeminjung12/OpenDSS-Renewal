@@ -32,6 +32,8 @@ Rectangle {
     property alias zoomInButton: zoomInButton
     property alias fitButton: fitButton
     property alias actualSizeButton: actualSizeButton
+    property alias viewerViewport: viewerViewport
+    property alias currentFrameImage: currentFrameImage
 
     Column {
         anchors.fill: parent
@@ -74,7 +76,7 @@ Rectangle {
                     source: root.currentFrameSource
                     sourceSize.width: root.nativeImageWidth
                     sourceSize.height: root.nativeImageHeight
-                    fillMode: root.actualSize ? Image.Pad : Image.PreserveAspectFit
+                    fillMode: Image.PreserveAspectFit
                     asynchronous: true
                     cache: false
                     visible: root.currentFrameSource !== ""
@@ -146,7 +148,7 @@ Rectangle {
                     AppButton { id: zoomOutButton; text: qsTr("Zoom -"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }
                     AppButton { id: zoomInButton; text: qsTr("Zoom +"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }
                     AppButton { id: fitButton; text: qsTr("Fit"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }
-                    AppButton { id: actualSizeButton; text: qsTr("1:1"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }
+                    AppButton { id: actualSizeButton; text: qsTr("Actual Pixels"); enabled: root.presentation === "ready"; Layout.preferredHeight: Constants.appStandardControlHeight }
                 }
             }
             }

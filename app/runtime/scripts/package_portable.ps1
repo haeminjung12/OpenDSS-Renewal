@@ -5,6 +5,7 @@ param(
     [string]$Config = "Release",
     [string]$QtDir = "C:\Qt\6.10.1\msvc2022_64",
     [string]$OnnxDir = "C:\onnxruntime-gpu",
+    [string]$CudaRuntimeDir = "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu\Lib\site-packages\torch\lib",
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
     [string]$ModelsDir = "",
     [string]$OutputDir = "",
@@ -142,6 +143,25 @@ $onnxRuntimeDll = Join-Path $OnnxDir "lib\onnxruntime.dll"
 if (-not (Test-Path -LiteralPath $onnxRuntimeDll)) {
     throw "Required ONNX Runtime DLL not found: $onnxRuntimeDll"
 }
+$cudaReadinessPath = Join-Path $SourceRoot "models\cuda_inference_readiness.json"
+if (-not (Test-Path -LiteralPath $cudaReadinessPath)) {
+    throw "Required CUDA readiness artifact not found: $cudaReadinessPath"
+}
+$qualifiedRuntimeHashes = @{
+    "onnxruntime.dll" = "a64bdd69d14f3685142c34ff46546a98cdd9ccae6130619bbee7414b5dd83b1b"
+    "onnxruntime_providers_shared.dll" = "a22f19b4a103ac8c1828fdfe03c18a4e408332de9fd5003a9b6ccb3a0c2e3965"
+    "onnxruntime_providers_cuda.dll" = "b54ad9ce0feac6eb39843bdbeb01253b8dd4c8032b839ee2a6102bf29fa73468"
+    "cublas64_13.dll" = "5d083083cdd613577496791dd96d00fe3a78c955684b53ca46a8ffa3e0b1e170"
+    "cublasLt64_13.dll" = "e1c26671801ecd435baf97c6e9cfe28196cf55005c2039356b48030b09ce5dd5"
+    "cufft64_12.dll" = "611ba7e40dfab64b9b5bd35f4ad3593e00a8e93785fbf53160d9398aacd5ac14"
+    "cudnn64_9.dll" = "99a529a5c252fbc1efcb2f51860498aed053be878090f2094ac86638d4765021"
+    "cudnn_ops64_9.dll" = "92c09220f486c3eb3a456106e069667253f153792b2e8e91cba49db110a74f5e"
+    "cudnn_graph64_9.dll" = "bd641fd259e877928ae9469efae7a40666d0b4db71ea1df18a40479378b75dfe"
+    "cudnn_heuristic64_9.dll" = "c81c3cd1d76fade865512ceb5318f793b1871097aa92afefcddf5e4dd6cbd924"
+    "cudnn_engines_precompiled64_9.dll" = "c329d58cb49e3a1574d2bbdde12c6a53f787c12f813efa9db7efa8d16c4207fb"
+    "cudnn_engines_runtime_compiled64_9.dll" = "9d0cafc368b1998811f49509b031a4d69c5972a91a3210d89ae183ba7a918719"
+    "nvrtc64_130_0.dll" = "37d2195bcdc5db37a838a8eb4f286f502ea94d82319bb7de68751ad672f4ad6d"
+}
 
 $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $packageDir = Join-Path $OutputDir ("OpenDSS_" + $stamp)
@@ -167,17 +187,45 @@ Get-ChildItem -Path $buildDllDir -Filter "*.dll" | ForEach-Object {
 # not silently inherit stale PATH copies at runtime.
 $onnxDlls = @(
     @{ Name = "onnxruntime.dll"; Required = $true },
-    @{ Name = "onnxruntime_providers_shared.dll"; Required = $false },
-    @{ Name = "onnxruntime_providers_cuda.dll"; Required = $false },
-    @{ Name = "onnxruntime_providers_tensorrt.dll"; Required = $false }
+    @{ Name = "onnxruntime_providers_shared.dll"; Required = $true },
+    @{ Name = "onnxruntime_providers_cuda.dll"; Required = $true }
 )
 foreach ($dll in $onnxDlls) {
     $src = Join-Path $OnnxDir ("lib\" + $dll.Name)
     if (Test-Path -LiteralPath $src) {
+        $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash.ToLowerInvariant()
+        if ($actualHash -ne $qualifiedRuntimeHashes[$dll.Name]) {
+            throw "Qualified ONNX Runtime hash mismatch: $src"
+        }
         Copy-Item -LiteralPath $src -Destination $packageDir -Force
     } elseif ($dll.Required) {
         throw "Required ONNX Runtime DLL not found: $src"
     }
+}
+Copy-Item -LiteralPath $cudaReadinessPath -Destination (Join-Path $packageDir "cuda_inference_readiness.json") -Force
+
+$cudaRuntimeDlls = @(
+    "cublas64_13.dll",
+    "cublasLt64_13.dll",
+    "cufft64_12.dll",
+    "cudnn64_9.dll",
+    "cudnn_ops64_9.dll",
+    "cudnn_graph64_9.dll",
+    "cudnn_heuristic64_9.dll",
+    "cudnn_engines_precompiled64_9.dll",
+    "cudnn_engines_runtime_compiled64_9.dll",
+    "nvrtc64_130_0.dll"
+)
+foreach ($dllName in $cudaRuntimeDlls) {
+    $src = Join-Path $CudaRuntimeDir $dllName
+    if (-not (Test-Path -LiteralPath $src)) {
+        throw "Required qualified CUDA runtime DLL not found: $src"
+    }
+    $actualHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $src).Hash.ToLowerInvariant()
+    if ($actualHash -ne $qualifiedRuntimeHashes[$dllName]) {
+        throw "Qualified CUDA runtime hash mismatch: $src"
+    }
+    Copy-Item -LiteralPath $src -Destination $packageDir -Force
 }
 
 # Add OpenCV DLLs if available from vcpkg.
@@ -225,7 +273,7 @@ if (-not $SkipPackageCheck) {
         throw "Package check script not found: $checkScript"
     }
 
-    & $checkScript -PackageDir $packageDir -SourceRoot $SourceRoot -WriteManifest:(!$NoManifest)
+    & $checkScript -PackageDir $packageDir -SourceRoot $SourceRoot -ExpectedOnnxDir $OnnxDir -ExpectedCudaRuntimeDir $CudaRuntimeDir -WriteManifest:(!$NoManifest)
     if ($LASTEXITCODE -ne 0) {
         throw "Package check failed with exit code $LASTEXITCODE"
     }

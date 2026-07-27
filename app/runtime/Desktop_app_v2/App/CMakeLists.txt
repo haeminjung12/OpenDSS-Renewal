@@ -21,6 +21,36 @@ if (NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIB)
     message(FATAL_ERROR "ONNX Runtime not found. Set ONNXRUNTIME_DIR to a valid install path.")
 endif()
 
+set(OPENDSS_CUDA_RUNTIME_DIR
+    "$ENV{LOCALAPPDATA}/OpenVisualDropletSorter/training-venv-gpu/Lib/site-packages/torch/lib"
+    CACHE PATH "Qualified CUDA 13 and cuDNN runtime DLL directory")
+set(OPENDSS_QUALIFIED_RUNTIME_FILE_HASHES
+    "${ONNXRUNTIME_DIR}/lib/onnxruntime.dll" "a64bdd69d14f3685142c34ff46546a98cdd9ccae6130619bbee7414b5dd83b1b"
+    "${ONNXRUNTIME_DIR}/lib/onnxruntime_providers_shared.dll" "a22f19b4a103ac8c1828fdfe03c18a4e408332de9fd5003a9b6ccb3a0c2e3965"
+    "${ONNXRUNTIME_DIR}/lib/onnxruntime_providers_cuda.dll" "b54ad9ce0feac6eb39843bdbeb01253b8dd4c8032b839ee2a6102bf29fa73468"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cublas64_13.dll" "5d083083cdd613577496791dd96d00fe3a78c955684b53ca46a8ffa3e0b1e170"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cublasLt64_13.dll" "e1c26671801ecd435baf97c6e9cfe28196cf55005c2039356b48030b09ce5dd5"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cufft64_12.dll" "611ba7e40dfab64b9b5bd35f4ad3593e00a8e93785fbf53160d9398aacd5ac14"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cudnn64_9.dll" "99a529a5c252fbc1efcb2f51860498aed053be878090f2094ac86638d4765021"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cudnn_ops64_9.dll" "92c09220f486c3eb3a456106e069667253f153792b2e8e91cba49db110a74f5e"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cudnn_graph64_9.dll" "bd641fd259e877928ae9469efae7a40666d0b4db71ea1df18a40479378b75dfe"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cudnn_heuristic64_9.dll" "c81c3cd1d76fade865512ceb5318f793b1871097aa92afefcddf5e4dd6cbd924"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cudnn_engines_precompiled64_9.dll" "c329d58cb49e3a1574d2bbdde12c6a53f787c12f813efa9db7efa8d16c4207fb"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/cudnn_engines_runtime_compiled64_9.dll" "9d0cafc368b1998811f49509b031a4d69c5972a91a3210d89ae183ba7a918719"
+    "${OPENDSS_CUDA_RUNTIME_DIR}/nvrtc64_130_0.dll" "37d2195bcdc5db37a838a8eb4f286f502ea94d82319bb7de68751ad672f4ad6d"
+)
+while(OPENDSS_QUALIFIED_RUNTIME_FILE_HASHES)
+    list(POP_FRONT OPENDSS_QUALIFIED_RUNTIME_FILE_HASHES runtime_dll expected_sha256)
+    if (NOT EXISTS "${runtime_dll}")
+        message(FATAL_ERROR "Qualified CUDA deployment file is missing: ${runtime_dll}")
+    endif()
+    file(SHA256 "${runtime_dll}" actual_sha256)
+    if (NOT actual_sha256 STREQUAL expected_sha256)
+        message(FATAL_ERROR "Qualified CUDA deployment hash mismatch: ${runtime_dll}")
+    endif()
+    list(APPEND OPENDSS_QUALIFIED_RUNTIME_FILES "${runtime_dll}")
+endwhile()
+
 target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "main.cpp"
     "../../crops/crop_service.cpp"
@@ -159,6 +189,17 @@ target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     dcamapi
     ${ONNXRUNTIME_LIB}
     ${OpenCV_LIBS})
+
+add_custom_target(opendss_deploy_qualified_cuda ALL
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        ${OPENDSS_QUALIFIED_RUNTIME_FILES}
+        "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../models/cuda_inference_readiness.json"
+        "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+    DEPENDS ${CMAKE_PROJECT_NAME}
+    COMMENT "Deploying qualified ONNX Runtime CUDA 13 provider and readiness evidence"
+)
 
 if (ENABLE_NIDAQMX)
     find_path(NIDAQMX_INCLUDE_DIR NIDAQmx.h

@@ -10,7 +10,8 @@ param(
     [switch]$WriteManifest,
     [string]$ManifestPath = "",
     [string]$ExpectedOnnxDir = "C:\onnxruntime-gpu",
-    [string]$MinimumOnnxRuntimeMajorMinor = "1.23"
+    [string]$ExpectedCudaRuntimeDir = "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu\Lib\site-packages\torch\lib",
+    [string]$MinimumOnnxRuntimeMajorMinor = "1.25"
 )
 
 $ErrorActionPreference = "Stop"
@@ -165,10 +166,10 @@ function Test-OnnxRuntimePackage {
             Add-CheckResult -List $List -Name "ONNX Runtime source hash" -Status "fail" -Path $PackageDll -Detail $message
             [void]$Errors.Add($message)
         }
-    } else {
+    } elseif ($ExpectedDll) {
         $message = "Expected ONNX Runtime source DLL not found: $ExpectedDll"
-        Add-CheckResult -List $List -Name "ONNX Runtime source hash" -Status "warn" -Path $ExpectedDll -Detail $message
-        [void]$Warnings.Add($message)
+        Add-CheckResult -List $List -Name "ONNX Runtime source hash" -Status "fail" -Path $ExpectedDll -Detail $message
+        [void]$Errors.Add($message)
     }
 }
 
@@ -284,6 +285,19 @@ foreach ($relativePath in @(
     "Qt6Gui.dll",
     "Qt6Widgets.dll",
     "onnxruntime.dll",
+    "onnxruntime_providers_shared.dll",
+    "onnxruntime_providers_cuda.dll",
+    "cuda_inference_readiness.json",
+    "cublas64_13.dll",
+    "cublasLt64_13.dll",
+    "cufft64_12.dll",
+    "cudnn64_9.dll",
+    "cudnn_ops64_9.dll",
+    "cudnn_graph64_9.dll",
+    "cudnn_heuristic64_9.dll",
+    "cudnn_engines_precompiled64_9.dll",
+    "cudnn_engines_runtime_compiled64_9.dll",
+    "nvrtc64_130_0.dll",
     "opencv_core4.dll",
     "opencv_imgproc4.dll",
     "opencv_imgcodecs4.dll",
@@ -358,8 +372,49 @@ if (Test-Path -LiteralPath $registryPath) {
 }
 
 $packageOnnxRuntimeDll = Join-Path $PackageDir "onnxruntime.dll"
-$expectedOnnxRuntimeDll = Join-Path $ExpectedOnnxDir "lib\onnxruntime.dll"
-Test-OnnxRuntimePackage -List $checks -Errors $errors -Warnings $warnings -PackageDll $packageOnnxRuntimeDll -ExpectedDll $expectedOnnxRuntimeDll -MinimumMajorMinor $MinimumOnnxRuntimeMajorMinor
+Test-OnnxRuntimePackage -List $checks -Errors $errors -Warnings $warnings -PackageDll $packageOnnxRuntimeDll -ExpectedDll "" -MinimumMajorMinor $MinimumOnnxRuntimeMajorMinor
+
+$qualifiedRuntimeHashes = [ordered]@{
+    "onnxruntime.dll" = "a64bdd69d14f3685142c34ff46546a98cdd9ccae6130619bbee7414b5dd83b1b"
+    "onnxruntime_providers_shared.dll" = "a22f19b4a103ac8c1828fdfe03c18a4e408332de9fd5003a9b6ccb3a0c2e3965"
+    "onnxruntime_providers_cuda.dll" = "b54ad9ce0feac6eb39843bdbeb01253b8dd4c8032b839ee2a6102bf29fa73468"
+    "cublas64_13.dll" = "5d083083cdd613577496791dd96d00fe3a78c955684b53ca46a8ffa3e0b1e170"
+    "cublasLt64_13.dll" = "e1c26671801ecd435baf97c6e9cfe28196cf55005c2039356b48030b09ce5dd5"
+    "cufft64_12.dll" = "611ba7e40dfab64b9b5bd35f4ad3593e00a8e93785fbf53160d9398aacd5ac14"
+    "cudnn64_9.dll" = "99a529a5c252fbc1efcb2f51860498aed053be878090f2094ac86638d4765021"
+    "cudnn_ops64_9.dll" = "92c09220f486c3eb3a456106e069667253f153792b2e8e91cba49db110a74f5e"
+    "cudnn_graph64_9.dll" = "bd641fd259e877928ae9469efae7a40666d0b4db71ea1df18a40479378b75dfe"
+    "cudnn_heuristic64_9.dll" = "c81c3cd1d76fade865512ceb5318f793b1871097aa92afefcddf5e4dd6cbd924"
+    "cudnn_engines_precompiled64_9.dll" = "c329d58cb49e3a1574d2bbdde12c6a53f787c12f813efa9db7efa8d16c4207fb"
+    "cudnn_engines_runtime_compiled64_9.dll" = "9d0cafc368b1998811f49509b031a4d69c5972a91a3210d89ae183ba7a918719"
+    "nvrtc64_130_0.dll" = "37d2195bcdc5db37a838a8eb4f286f502ea94d82319bb7de68751ad672f4ad6d"
+}
+foreach ($entry in $qualifiedRuntimeHashes.GetEnumerator()) {
+    Test-Hash -List $checks -Errors $errors -Name ("qualified hash: " + $entry.Key) -Path (Join-Path $PackageDir $entry.Key) -Expected $entry.Value
+}
+
+$readinessPath = Join-Path $PackageDir "cuda_inference_readiness.json"
+if (Test-Path -LiteralPath $readinessPath) {
+    try {
+        $readiness = Get-Content -LiteralPath $readinessPath -Raw | ConvertFrom-Json
+        if ([string]$readiness.status -ne "accepted" -or
+            [string]$readiness.onnxruntime_version -ne "1.25.1" -or
+            [bool]$readiness.cuda_provider_options.use_tf32) {
+            throw "Readiness status, ONNX Runtime version, or TF32 contract is not accepted."
+        }
+        foreach ($entry in $qualifiedRuntimeHashes.GetEnumerator()) {
+            $declared = [string]$readiness.runtime_file_hashes.PSObject.Properties[$entry.Key].Value
+            if (-not $declared -or $declared.ToLowerInvariant() -ne $entry.Value) {
+                throw "Readiness manifest does not pin the accepted hash for $($entry.Key)."
+            }
+        }
+        Add-CheckResult -List $checks -Name "CUDA readiness trust manifest" -Status "pass" -Path $readinessPath -Detail "Accepted fixed 13-file runtime closure."
+    } catch {
+        $message = "CUDA readiness trust manifest failed: $($_.Exception.Message)"
+        Add-CheckResult -List $checks -Name "CUDA readiness trust manifest" -Status "fail" -Path $readinessPath -Detail $message
+        [void]$errors.Add($message)
+    }
+}
 
 $systemDir = [Environment]::SystemDirectory
 $nidaqRuntime = Join-Path $systemDir "nicaiu.dll"

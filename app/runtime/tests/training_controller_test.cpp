@@ -48,6 +48,12 @@ bool writeBytes(const QString &path, const QByteArray &bytes)
         && file.write(bytes) == bytes.size();
 }
 
+QByteArray readBytes(const QString &path)
+{
+    QFile file(path);
+    return file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray{};
+}
+
 bool writeJson(const QString &path, const QJsonObject &object)
 {
     return writeBytes(
@@ -528,6 +534,19 @@ int main(int argc, char **argv)
     const QString initialIdentityWeightPath =
         modelLibraryController.trainingModelRows().front().toMap()
             .value(QStringLiteral("weightPath")).toString();
+    const QByteArray initialIdentityWeights = readBytes(initialIdentityWeightPath);
+    if (!check(!initialIdentityWeights.isEmpty()
+                   && writeBytes(initialIdentityWeightPath,
+                                 initialIdentityWeights + QByteArrayLiteral("tamper"))
+                   && !controller.start()
+                   && controller.errorMessage().contains(QStringLiteral("Weights")),
+               QStringLiteral("Training did not block a Starting Weights hash mismatch."))
+        || !check(writeBytes(initialIdentityWeightPath, initialIdentityWeights)
+                      && modelLibraryController.refresh()
+                      && controller.selectLibraryModel(0),
+                  QStringLiteral("Could not restore the validated Starting Weights fixture."))) {
+        return 32;
+    }
     if (!check(controller.presentation() == QStringLiteral("ready")
                    && controller.errorMessage().isEmpty(),
                QStringLiteral("Valid Training inputs are not Ready."))) {
@@ -561,6 +580,9 @@ int main(int argc, char **argv)
                       && QFileInfo::exists(controller.modelOnnxUrl().toLocalFile())
                       && QFileInfo::exists(controller.metadataUrl().toLocalFile())
                       && QFileInfo(controller.registeredPackageUrl().toLocalFile()).isDir()
+                      && QDir(successOutput).entryList(
+                             {QStringLiteral(".*.staging-*")},
+                             QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty()
                       && !controller.retrySaveAvailable()
                       && modelLibraryController.selectedId()
                           == modelLibraryController.activeId(),
@@ -626,7 +648,10 @@ int main(int argc, char **argv)
                       && QFileInfo(controller.modelOnnxUrl().toLocalFile()).isFile()
                       && QFileInfo(controller.metadataUrl().toLocalFile()).isFile()
                       && QFileInfo(QDir(controller.resultDirectoryUrl().toLocalFile())
-                                       .filePath(QStringLiteral("checkpoint.pth"))).isFile()
+                                        .filePath(QStringLiteral("checkpoint.pth"))).isFile()
+                      && QDir(retryOutput).entryList(
+                             {QStringLiteral(".*.staging-*")},
+                             QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty()
                       && modelLibraryController.modelRows().size() == modelCountBeforeRetry,
                   QStringLiteral("Save failure did not retain retryable Training artifacts."))) {
         return 14;
@@ -636,6 +661,14 @@ int main(int argc, char **argv)
                    && modelLibraryController.modelRows().size() == modelCountBeforeRetry,
                QStringLiteral("Repeated failed save corrupted registration state."))) {
         return 15;
+    }
+    const QString retryIdentityPackage =
+        modelLibraryController.selectedDetail()
+            .value(QStringLiteral("packageLocation")).toString();
+    auto retryWrite = operations.acquireModel(retryIdentityPackage, ModelAccess::Write);
+    if (!check(!retryWrite.acquired(),
+               QStringLiteral("Retry Save did not retain the Library model read lease."))) {
+        return 33;
     }
     if (!check(QDir(retryCollision).removeRecursively(),
                QStringLiteral("Could not clear retry collision fixture."))
@@ -648,6 +681,13 @@ int main(int argc, char **argv)
                   QStringLiteral("Retry Save did not register and activate the retained result."))) {
         return 16;
     }
+    auto writeAfterRetry = operations.acquireModel(
+        controller.registeredPackageUrl().toLocalFile(), ModelAccess::Write);
+    if (!check(writeAfterRetry.acquired(),
+               QStringLiteral("Successful Retry Save did not release the model read lease."))) {
+        return 34;
+    }
+    writeAfterRetry.lease.release();
 
     const QString cancelOutput =
         QDir(temporary.path()).filePath(QStringLiteral("cancel"));
@@ -657,11 +697,20 @@ int main(int argc, char **argv)
         return 31;
     }
     controller.setOutputDirectoryUrl(QUrl::fromLocalFile(cancelOutput));
+    const QString cancelledIdentityPackage =
+        modelLibraryController.selectedDetail()
+            .value(QStringLiteral("packageLocation")).toString();
     if (!check(controller.start(), controller.errorMessage())
         || !check(waitForFile(
                       QDir(cancelOutput).filePath(QStringLiteral("trainer_started")), 3000),
                   QStringLiteral("Cancellation trainer did not start."))) {
         return 17;
+    }
+    auto runningWrite =
+        operations.acquireModel(cancelledIdentityPackage, ModelAccess::Write);
+    if (!check(!runningWrite.acquired(),
+               QStringLiteral("Running Training did not hold the Library model read lease."))) {
+        return 35;
     }
     if (!check(!controller.selectLibraryModel(0)
                    && controller.modelName() == QStringLiteral("Cancelled model"),
@@ -680,6 +729,13 @@ int main(int argc, char **argv)
                QStringLiteral("Interrupted Training state was not published."))) {
         return 19;
     }
+    auto writeAfterStop =
+        operations.acquireModel(cancelledIdentityPackage, ModelAccess::Write);
+    if (!check(writeAfterStop.acquired(),
+               QStringLiteral("Interrupted Training did not release the model read lease."))) {
+        return 36;
+    }
+    writeAfterStop.lease.release();
 
     return 0;
 }

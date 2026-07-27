@@ -5,6 +5,7 @@
 #include "../../desktop_app/model_registry_service.h"
 
 #include <QDir>
+#include <QCryptographicHash>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -133,6 +134,76 @@ QJsonObject packageMetadata(const QString &packagePath)
     return QJsonDocument::fromJson(file.readAll()).object();
 }
 
+QString fileSha256(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    QCryptographicHash hash(QCryptographicHash::Sha256);
+    if (!hash.addData(&file))
+        return {};
+    return QString::fromLatin1(hash.result().toHex());
+}
+
+bool recordedWeightIsValid(const QString &packagePath, const QJsonObject &metadata,
+                           QString *weightPath = nullptr)
+{
+    const QJsonObject initialization =
+        metadata.value(QStringLiteral("initialization")).toObject();
+    const QString weightFile =
+        initialization.value(QStringLiteral("weight_file")).toString().trimmed();
+    const QString expectedHash =
+        initialization.value(QStringLiteral("weight_sha256")).toString().trimmed();
+    const QFileInfo weight(QDir(packagePath).filePath(weightFile));
+    if (weightFile.isEmpty() || QFileInfo(weightFile).isAbsolute()
+        || weight.fileName() != weightFile || !weight.isFile() || !weight.isReadable()
+        || expectedHash.isEmpty()
+        || fileSha256(weight.absoluteFilePath()).compare(
+               expectedHash, Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+    if (weightPath)
+        *weightPath = weight.absoluteFilePath();
+    return true;
+}
+
+bool imageNetTemplateIsValid(const QString &architecture, QString *packagePath = nullptr)
+{
+    const ModelPackageInspection inspection = inspectModelPackage(
+        packagedModernModelRegistryEntry(architecture, QStringLiteral("blank")));
+    const QJsonObject metadata = packageMetadata(inspection.packagePath);
+    const QFileInfo weight(QDir(inspection.packagePath).filePath(
+        QStringLiteral("imagenet_weights.pth")));
+    const QString expectedHash =
+        metadata.value(QStringLiteral("initialization")).toObject()
+            .value(QStringLiteral("source_checkpoint_sha256")).toString().trimmed();
+    if (metadata.value(QStringLiteral("status")).toString()
+            != QStringLiteral("imagenet_transfer_start")
+        || !weight.isFile() || expectedHash.isEmpty()
+        || fileSha256(weight.absoluteFilePath()).compare(
+               expectedHash, Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+    if (packagePath)
+        *packagePath = inspection.packagePath;
+    return true;
+}
+
+bool packageCheckpointIsValid(const QString &packagePath, const QJsonObject &metadata)
+{
+    const QJsonObject artifact = metadata.value(QStringLiteral("artifact")).toObject();
+    const QString checkpointFile =
+        artifact.value(QStringLiteral("checkpoint_file")).toString().trimmed();
+    const QString expectedHash =
+        artifact.value(QStringLiteral("checkpoint_sha256")).toString().trimmed();
+    const QFileInfo checkpoint(QDir(packagePath).filePath(checkpointFile));
+    return !checkpointFile.isEmpty() && !QFileInfo(checkpointFile).isAbsolute()
+        && checkpoint.fileName() == checkpointFile && checkpoint.isFile()
+        && !expectedHash.isEmpty()
+        && fileSha256(checkpoint.absoluteFilePath()).compare(
+               expectedHash, Qt::CaseInsensitive) == 0;
+}
+
 QString architectureIdForIndex(int index)
 {
     if (index == 0)
@@ -256,6 +327,11 @@ bool ModelLibraryController::canDelete() const
     return selectedPackageAvailable(ModelAccess::Write);
 }
 
+int ModelLibraryController::revision() const
+{
+    return revision_;
+}
+
 QVariantList ModelLibraryController::trainingModelRows() const
 {
     QVariantList rows;
@@ -267,17 +343,13 @@ QVariantList ModelLibraryController::trainingModelRows() const
             metadata.value(QStringLiteral("initialization")).toObject();
         const QString mode =
             initialization.value(QStringLiteral("mode")).toString();
-        const QString weightFile =
-            initialization.value(QStringLiteral("weight_file")).toString();
-        const QFileInfo weight(QDir(inspection.packagePath).filePath(weightFile));
+        QString weightPath;
         if (!inspection.canTrain
             || (inspection.architectureId != QStringLiteral("mobilenet_v3_small")
                 && inspection.architectureId != QStringLiteral("efficientnet_b0"))
             || (mode != QStringLiteral("imagenet")
                 && mode != QStringLiteral("checkpoint"))
-            || weightFile.isEmpty() || QFileInfo(weightFile).isAbsolute()
-            || weight.fileName() != weightFile || !weight.isFile()
-            || !weight.isReadable()) {
+            || !recordedWeightIsValid(inspection.packagePath, metadata, &weightPath)) {
             continue;
         }
         rows.append(QVariantMap{
@@ -289,7 +361,8 @@ QVariantList ModelLibraryController::trainingModelRows() const
                  ? QStringLiteral("ImageNet")
                  : initialization.value(QStringLiteral("source_model_name"))
                        .toString(QStringLiteral("Library checkpoint"))},
-            {QStringLiteral("weightPath"), weight.absoluteFilePath()},
+            {QStringLiteral("weightPath"), weightPath},
+            {QStringLiteral("packagePath"), inspection.packagePath},
             {QStringLiteral("initializationMode"), mode},
         });
     }
@@ -302,6 +375,7 @@ bool ModelLibraryController::refresh()
     QString warning;
     QJsonArray refreshed = readModelRegistryEntriesFromPath(registryFilePath_, &warning);
     entries_ = std::move(refreshed);
+    ++revision_;
     selectedIndex_ = -1;
     for (int index = 0; index < entries_.size(); ++index) {
         if (!priorSelection.isEmpty()
@@ -333,14 +407,18 @@ QStringList ModelLibraryController::startingWeightOptions(int architectureIndex)
     if (architecture.isEmpty())
         return {};
 
-    QStringList options{QStringLiteral("ImageNet")};
+    QStringList options;
+    if (imageNetTemplateIsValid(architecture))
+        options.append(QStringLiteral("ImageNet"));
     for (const QJsonValue &value : entries_) {
         const QJsonObject entry = value.toObject();
         const ModelPackageInspection inspection = inspectModelPackage(entry);
+        const QJsonObject metadata = packageMetadata(inspection.packagePath);
         QString validationError;
         if (inspection.architectureId == architecture
             && validateCompleteV2ModelPackage(inspection.packagePath,
-                                              &validationError)) {
+                                              &validationError)
+            && packageCheckpointIsValid(inspection.packagePath, metadata)) {
             options.append(entryName(entry));
         }
     }
@@ -359,30 +437,33 @@ bool ModelLibraryController::addModel(const QString &name, int architectureIndex
     if (name.trimmed().isEmpty())
         return fail(QStringLiteral("Model name is required."));
 
+    const QStringList options = startingWeightOptions(architectureIndex);
+    if (startingWeightsIndex < 0 || startingWeightsIndex >= options.size())
+        return fail(QStringLiteral("Select approved Starting Weights."));
+
     QString sourcePackagePath;
     QString initializationMode;
-    if (startingWeightsIndex == 0) {
-        sourcePackagePath = inspectModelPackage(
-            packagedModernModelRegistryEntry(architecture,
-                                             QStringLiteral("blank"))).packagePath;
+    const QString selectedStartingWeights = options.at(startingWeightsIndex);
+    if (selectedStartingWeights == QStringLiteral("ImageNet")) {
+        if (!imageNetTemplateIsValid(architecture, &sourcePackagePath))
+            return fail(QStringLiteral("The approved ImageNet Starting Weights are unavailable."));
         initializationMode = QStringLiteral("imagenet");
     } else {
-        int matchingIndex = 0;
         for (const QJsonValue &value : entries_) {
             const QJsonObject entry = value.toObject();
             const ModelPackageInspection inspection = inspectModelPackage(entry);
+            const QJsonObject metadata = packageMetadata(inspection.packagePath);
             QString validationError;
             if (inspection.architectureId != architecture
                 || !validateCompleteV2ModelPackage(inspection.packagePath,
-                                                   &validationError)) {
+                                                   &validationError)
+                || !packageCheckpointIsValid(inspection.packagePath, metadata)
+                || entryName(entry) != selectedStartingWeights) {
                 continue;
             }
-            ++matchingIndex;
-            if (matchingIndex == startingWeightsIndex) {
-                sourcePackagePath = inspection.packagePath;
-                initializationMode = QStringLiteral("checkpoint");
-                break;
-            }
+            sourcePackagePath = inspection.packagePath;
+            initializationMode = QStringLiteral("checkpoint");
+            break;
         }
     }
     if (sourcePackagePath.isEmpty())

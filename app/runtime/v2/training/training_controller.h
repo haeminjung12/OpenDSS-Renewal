@@ -1,6 +1,7 @@
 #pragma once
 
 #include "training_service.h"
+#include "../operation/operation_coordinator.h"
 
 #include <QObject>
 #include <QString>
@@ -91,6 +92,7 @@ private:
         QString id;
         QString architecture;
         QString startingWeights;
+        QString packagePath;
     };
 
     enum class RegistrationState {
@@ -109,6 +111,7 @@ private:
     QString selectedWeightPath() const;
 
     TrainingService service_;
+    OperationCoordinator &operations_;
     ApplicationStateStore &stateStore_;
     ModelLoadService &modelLoadService_;
     PipelineRunner &pipeline_;
@@ -126,6 +129,7 @@ private:
     QString registrationError_;
     QUrl registeredPackageUrl_;
     RegistrationState registrationState_ = RegistrationState::NotStarted;
+    ModelLease selectedModelLease_;
 };
 
 } // namespace training

@@ -881,7 +881,21 @@ Item {
     Binding { target: screen.modelLibraryWorkspace.exportButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canExport; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace.duplicateButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canDuplicate; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace.deleteButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canDelete; when: !!root.modelLibraryController }
-    Binding { target: screen.modelLibraryWorkspace; property: "addModelStartingWeightsOptions"; value: root.modelLibraryController && typeof root.modelLibraryController.startingWeightOptions === "function" ? root.modelLibraryController.startingWeightOptions(screen.modelLibraryWorkspace.addModelArchitectureSelector.currentIndex) : [] }
+    Binding {
+        target: screen.modelLibraryWorkspace
+        property: "addModelStartingWeightsOptions"
+        value: {
+            const revision = root.modelLibraryController
+                    ? root.modelLibraryController.revision : 0
+            if (revision < 0)
+                return []
+            return root.modelLibraryController
+                    && typeof root.modelLibraryController.startingWeightOptions === "function"
+                    ? root.modelLibraryController.startingWeightOptions(
+                          screen.modelLibraryWorkspace.addModelArchitectureSelector.currentIndex)
+                    : []
+        }
+    }
     Binding { target: screen.modelLibraryWorkspace; property: "addModelValidationMessage"; value: root.modelLibraryController && screen.modelLibraryWorkspace.addModelPopup.opened ? root.modelLibraryController.errorMessage : "" }
     Binding { target: screen.modelLibraryWorkspace; property: "addModelConfirmEnabled"; value: root.modelLibraryController && screen.modelLibraryWorkspace.addModelNameField.text.trim() !== "" && screen.modelLibraryWorkspace.addModelStartingWeightsSelector.currentIndex >= 0 && !root.modelLibraryController.operationInProgress }
     Binding { target: screen.modelLibraryWorkspace.openInModelTestButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId; when: !!root.modelLibraryController }

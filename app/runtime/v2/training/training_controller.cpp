@@ -46,8 +46,9 @@ TrainingController::TrainingController(OperationCoordinator &operations,
                                        QString pythonExecutable,
                                        QString workingDirectory,
                                        QObject *parent)
-    : QObject(parent)
-    , service_(operations)
+      : QObject(parent)
+      , service_(operations)
+      , operations_(operations)
     , stateStore_(stateStore)
     , modelLoadService_(modelLoadService)
     , pipeline_(pipeline)
@@ -242,6 +243,7 @@ void TrainingController::setRequestedDevice(const QString &device)
 
 bool TrainingController::start()
 {
+    refreshLibraryModels();
     const QString validationError = inputError();
     if (!validationError.isEmpty()) {
         controllerError_ = validationError;
@@ -255,6 +257,15 @@ bool TrainingController::start()
     registrationState_ = RegistrationState::NotStarted;
     QString error;
     const WeightOption &weights = weightOptions_.at(selectedWeightIndex_);
+    auto modelLease = operations_.acquireModel(weights.packagePath, ModelAccess::Read);
+    if (!modelLease.acquired()) {
+        controllerError_ = modelLease.fault
+            ? modelLease.fault->reason
+            : QStringLiteral("The selected Library model is in use.");
+        emit changed();
+        return false;
+    }
+    selectedModelLease_ = std::move(modelLease.lease);
     const TrainingRequest request{
         datasetManifestUrl_.toLocalFile(),
         architecture_ == QStringLiteral("mobilenet")
@@ -271,6 +282,7 @@ bool TrainingController::start()
     };
     const bool started = service_.start(request, &error);
     if (!started && service_.state() == TrainingState::Ready) {
+        selectedModelLease_ = {};
         controllerError_ = error;
         emit changed();
     }
@@ -281,6 +293,7 @@ bool TrainingController::selectLibraryModel(int index)
 {
     if (selectionsLocked())
         return false;
+    refreshLibraryModels();
     if (index < 0 || index >= weightOptions_.size()) {
         controllerError_ = QStringLiteral("Select an existing Library model.");
         emit changed();
@@ -320,6 +333,7 @@ void TrainingController::refreshLibraryModels()
             row.value(QStringLiteral("id")).toString(),
             row.value(QStringLiteral("architecture")).toString(),
             row.value(QStringLiteral("startingWeights")).toString(),
+            row.value(QStringLiteral("packagePath")).toString(),
         });
     }
 
@@ -409,6 +423,7 @@ bool TrainingController::saveCompletedTraining()
     }
 
     registrationState_ = RegistrationState::Completed;
+    selectedModelLease_ = {};
     publishTrainingState();
     emit changed();
     return true;
@@ -421,6 +436,10 @@ void TrainingController::handleServiceChanged()
         && registrationState_ == RegistrationState::NotStarted) {
         saveCompletedTraining();
         return;
+    }
+    if (service_.state() == TrainingState::Failed
+        || service_.state() == TrainingState::Interrupted) {
+        selectedModelLease_ = {};
     }
     publishTrainingState();
     emit changed();

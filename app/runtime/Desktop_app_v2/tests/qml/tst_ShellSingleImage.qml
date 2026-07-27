@@ -147,6 +147,7 @@ Item {
         property string presentation: "ready"
         property string errorMessage: ""
         property bool operationInProgress: false
+        property int revision: 1
         readonly property bool canImport: !operationInProgress
         readonly property bool canExport: !operationInProgress && selectedIndex >= 0
         readonly property bool canDuplicate: canExport
@@ -187,6 +188,7 @@ Item {
             presentation = "ready"
             errorMessage = ""
             operationInProgress = false
+            revision = 1
             selectCallCount = 0
             setActiveCallCount = 0
             renameCallCount = 0
@@ -256,7 +258,9 @@ Item {
 
         function startingWeightOptions(architectureIndex) {
             return architectureIndex === 0
-                    ? ["ImageNet", "Candidate Model"]
+                    ? (revision > 1
+                       ? ["ImageNet", "Candidate Model", "Training Destination"]
+                       : ["ImageNet", "Candidate Model"])
                     : ["ImageNet", "Active Model"]
         }
 
@@ -265,6 +269,7 @@ Item {
             addedModelName = name
             addedArchitectureIndex = architectureIndex
             addedStartingWeightsIndex = startingWeightsIndex
+            ++revision
             return true
         }
 
@@ -1490,6 +1495,8 @@ Item {
         compare(modelLibraryController.addedModelName, "Training Destination")
         compare(modelLibraryController.addedArchitectureIndex, 0)
         compare(modelLibraryController.addedStartingWeightsIndex, 1)
+        compare(shell.form.modelLibraryWorkspace.addModelStartingWeightsSelector.model.length,
+                3)
         verify(!shell.form.modelLibraryWorkspace.addModelPopup.opened)
 
         shell.mockState.selectedWorkspace = "library"

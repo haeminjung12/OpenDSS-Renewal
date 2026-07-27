@@ -29,7 +29,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 TRAINING_PYTHON = REPO_ROOT / "training" / "python"
 sys.path.insert(0, str(TRAINING_PYTHON))
 
-from droplet_trainer.train import _build_model, _export_onnx, _load_source_checkpoint
+from droplet_trainer.train import _build_model, _checkpoint_output_count, _export_onnx
 
 
 ARCHITECTURE_LABELS = {
@@ -51,6 +51,36 @@ def sha256(path: Path) -> str:
 def model_id(name: str, source_hash: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "model"
     return f"opendss-{slug}-{source_hash[:12]}"
+
+
+def load_checkpoint_weights(model, source: Path) -> None:
+    import torch
+
+    try:
+        loaded = torch.load(source, map_location="cpu", weights_only=True)
+    except Exception as exc:
+        raise ValueError(
+            "Checkpoint could not be loaded with the safe weights-only loader."
+        ) from exc
+    state = (
+        loaded.get("model_state", loaded.get("state_dict", loaded))
+        if isinstance(loaded, dict) else None
+    )
+    if not isinstance(state, dict):
+        raise ValueError("Checkpoint does not contain a supported weights dictionary.")
+    cleaned = {}
+    for original_key, value in state.items():
+        if not isinstance(original_key, str):
+            raise ValueError("Checkpoint contains a non-string weight key.")
+        key = original_key
+        for prefix in ("module.", "model.", "net.", "1."):
+            if key.startswith(prefix):
+                key = key[len(prefix):]
+        if not key.startswith("0."):
+            cleaned[key] = value
+    if _checkpoint_output_count(cleaned) != len(CLASSES):
+        raise ValueError("Checkpoint must contain a supported three-class classifier head.")
+    model.load_state_dict(cleaned, strict=True)
 
 
 def metadata(name: str, architecture: str, source: Path, checkpoint: Path,
@@ -153,7 +183,7 @@ def main() -> int:
             "seed": 42,
         }
         model = _build_model(config, len(CLASSES))
-        _load_source_checkpoint(model, str(source))
+        load_checkpoint_weights(model, source)
 
         import torch
 

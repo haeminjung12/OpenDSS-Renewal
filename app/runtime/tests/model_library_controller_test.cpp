@@ -357,9 +357,85 @@ void testPackagePathSafetyAndRegistryIntegrity()
     error.clear();
     require(!exportCompleteModelPackage(sourcePackage, destinationAlias,
                                         &exportedPath, &error)
-                && error.contains(QStringLiteral("overlap")),
-            "canonical destination alias nesting rejected");
+                && error.contains(QStringLiteral("junction")),
+            "destination reparse root rejected before staging");
     require(QDir().rmdir(destinationAlias), "remove destination junction");
+
+    const QString publicationTarget =
+        QDir(temporary.path()).filePath(QStringLiteral("publication-target"));
+    const QString publicationAlias =
+        QDir(temporary.path()).filePath(QStringLiteral("publication-alias"));
+    require(QDir().mkpath(publicationTarget)
+                && createJunction(publicationAlias, publicationTarget),
+            "create publication root junction");
+    const QString publicationRegistry = createSimpleRegistry(
+        QDir(temporary.path()).filePath(QStringLiteral("publication-registry")));
+    QString savedPackage;
+    QString registeredEntry;
+    error.clear();
+    require(!saveTrainedModelArtifacts(
+                publicationRegistry, sourcePackage,
+                QDir(sourcePackage).filePath(QStringLiteral("model.onnx")),
+                QDir(sourcePackage).filePath(QStringLiteral("metadata.json")),
+                {}, {}, {}, {}, {}, QStringLiteral("Blocked Publication"),
+                publicationAlias, &savedPackage, &registeredEntry, &error)
+                && error.contains(QStringLiteral("junction"))
+                && QDir(publicationTarget).isEmpty(),
+            "publication reparse root rejected before package mutation");
+    require(QDir().rmdir(publicationAlias), "remove publication root junction");
+
+    const QString identityModels =
+        QDir(temporary.path()).filePath(QStringLiteral("identity-models"));
+    qputenv("OVDS_MODELS_ROOT_PATH",
+            QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR))
+                .filePath(QStringLiteral("models")).toUtf8());
+    const QString identityRegistry = createSimpleRegistry(identityModels);
+    const QString identityTarget =
+        QDir(temporary.path()).filePath(QStringLiteral("identity-target"));
+    require(QDir().mkpath(identityTarget)
+                && createJunction(QDir(identityModels).filePath(
+                                      QStringLiteral(".opendss-model-identities")),
+                                  identityTarget),
+            "create identity root junction");
+    OperationCoordinator identityOperations;
+    ModelLibraryController identityController(identityRegistry, identityOperations);
+    require(!identityController.addModel(QStringLiteral("Blocked Identity"), 0, 0)
+                && identityController.errorMessage().contains(QStringLiteral("junction"))
+                && QDir(identityTarget).isEmpty(),
+            "identity reparse root rejected before mutation");
+    require(QDir().rmdir(QDir(identityModels).filePath(
+                QStringLiteral(".opendss-model-identities"))),
+            "remove identity root junction");
+
+    const QString recoveryModels =
+        QDir(temporary.path()).filePath(QStringLiteral("recovery-models"));
+    const QString recoveryPackage =
+        createPackage(recoveryModels, QStringLiteral("mobilenet_v3_small"));
+    const QString recoveryRegistry = createSimpleRegistry(
+        recoveryModels,
+        QJsonArray{entry(QStringLiteral("recovery-model"),
+                         QStringLiteral("Recovery Model"), recoveryPackage, false)});
+    const QString recoveryTarget =
+        QDir(temporary.path()).filePath(QStringLiteral("recovery-target"));
+    require(QDir().mkpath(recoveryTarget)
+                && createJunction(QDir(recoveryModels).filePath(
+                                      QStringLiteral(".opendss-model-recovery")),
+                                  recoveryTarget),
+            "create recovery root junction");
+    bool recoveryRegistryCommitted = false;
+    QString reparseRecoveryPath;
+    error.clear();
+    require(!deleteRegisteredModelPackage(
+                recoveryRegistry, QStringLiteral("recovery-model"),
+                &recoveryRegistryCommitted, nullptr, &reparseRecoveryPath, &error)
+                && error.contains(QStringLiteral("junction"))
+                && !recoveryRegistryCommitted
+                && QFileInfo(recoveryPackage).isDir()
+                && QDir(recoveryTarget).isEmpty(),
+            "deletion recovery reparse root rejected before mutation");
+    require(QDir().rmdir(QDir(recoveryModels).filePath(
+                QStringLiteral(".opendss-model-recovery"))),
+            "remove recovery root junction");
 #endif
 
     const QString unrelatedDirectory =
@@ -663,6 +739,14 @@ void testLibraryOwnedIdentityCreation()
                                         "templates/blank/mobilenet_v3_small")),
                                 Qt::CaseInsensitive) != 0,
             "Library identity owns a distinct local package");
+    const QString identityWeight =
+        trainingRows.front().toMap().value(QStringLiteral("weightPath")).toString();
+    QFile tamperedWeight(identityWeight);
+    require(tamperedWeight.open(QIODevice::Append), "open identity weight for tamper");
+    require(tamperedWeight.write("tamper") == 6, "tamper identity weight");
+    tamperedWeight.close();
+    require(controller.trainingModelRows().isEmpty(),
+            "Starting Weights hash mismatch removes the identity from Training");
     const QByteArray registryAfterCreate = bytes(registryPath);
     require(!controller.addModel(QStringLiteral(" new mobilenet identity "), 0, 0)
                 && controller.errorMessage().contains(

@@ -30,6 +30,7 @@ class ModelLibraryController final : public QObject
     Q_PROPERTY(bool canDuplicate READ canDuplicate NOTIFY changed)
     Q_PROPERTY(bool canDelete READ canDelete NOTIFY changed)
     Q_PROPERTY(QVariantList trainingModelRows READ trainingModelRows NOTIFY changed)
+    Q_PROPERTY(int revision READ revision NOTIFY changed)
 
 public:
     ModelLibraryController(QString registryFilePath,
@@ -49,6 +50,7 @@ public:
     bool canDuplicate() const;
     bool canDelete() const;
     QVariantList trainingModelRows() const;
+    int revision() const;
 
     Q_INVOKABLE bool refresh();
     Q_INVOKABLE bool select(int index);
@@ -82,6 +84,7 @@ private:
     int selectedIndex_ = -1;
     QString errorMessage_;
     bool operationInProgress_ = false;
+    int revision_ = 0;
     std::function<void()> activeModelCleared_;
 };
 

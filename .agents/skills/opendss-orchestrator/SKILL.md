@@ -34,11 +34,12 @@ Do not use Computer Use for deterministic state already available through Qt/CLI
 
 Read in order:
 
-1. `docs/v2/CONTEXT.md`.
-2. `docs/v2/implementation/current-slice.md`.
-3. Only the exact canonical sections and audit or implementation-plan sections referenced by the current slice.
+1. Run `docs/v2/design/verify-consolidated-design-lock.ps1`.
+2. Read `docs/v2/implementation/current-slice.md` only for the authorized work boundary.
+3. Narrow to the exact applicable section of `docs/v2/design/consolidated-design-draft.md` using grepai and `rtk rg`; do not read the whole document.
+4. Read `docs/v2/CONTEXT.md` and other derived material only for continuation or provenance.
 
-Report canonical conflicts instead of resolving them silently. Do not broadly reread source or legacy repositories.
+Treat `ODSS-DES-002` as the single master specification. Every work order must cite its exact section and heading and include only the shortest decisive excerpt. If any implementation, form, plan, ledger, derived document, review opinion, fallback, or proposed behavior deviates, follow the master. If the master is ambiguous, internally inconsistent, missing the required behavior, or cannot be followed safely, stop and ask the user. Never invent or preserve a provisional fallback, and never let a derived document resolve the conflict.
 
 ## Visual scaffold two-round workflow
 
@@ -61,6 +62,7 @@ Do not parallelize jobs that share authoritative state, files, generated artifac
 Create one bounded work order per job containing:
 
 - slice identity, job ID, dependencies, status, branch, worktree, expected base commit, and integration order;
+- exact controlling `ODSS-DES-002` section, heading, and shortest decisive excerpt;
 - one concise objective;
 - an ordered list of exact files and sections to read;
 - the exact applicable Qt skills required by `AGENTS.md`, their load order, and any adjacent Qt skills intentionally excluded;

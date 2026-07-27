@@ -4,7 +4,7 @@
 **Purpose:** Describe exactly how every approved OpenDSS v2 page, workspace, and shared shell surface should look and behave before further Qt Design Studio or production work.  
 **Scope:** Documentation interpretation only. Existing application screens and the superseded Single Image-only implementation are not design authority.
 
-**Amendment status:** Reconciled July 23, 2026 to `OpenDSS_v2_UIUX_Design_Amendment.md`. The amendment controls every explicitly changed UI, layout, naming, interaction, and workflow matter. Any retained detail below applies only where it agrees with this summary and the revised canonical sources.
+**Authority status:** Reconciled against the sources incorporated into `ODSS-DES-002`. This review is interpretation and evidence only; retained detail applies only where it agrees with the master specification.
 
 ## Amendment-controlled page composition
 
@@ -28,17 +28,17 @@ Design QA must review only the maximized window using the current display's full
 
 This document separates three kinds of statements:
 
-- **Approved requirement** — controlled by the Approved Product Model (PM), Information Architecture (IA), or Low-Fidelity Interaction and Application-State Specification (LF).
-- **Retained workflow detail** — supplied by the Detailed Workflow Specification (WF) only where it does not conflict with higher authority.
-- **Draft visual guidance** — supplied by the Consolidated Product Design Specification (CDS), which remains **Consolidated Draft for Review**. Recommended colors, dimensions, typography, shortcuts, optional inspectors, and mock states are review guidance, not approved product decisions.
+- **Master requirement** — controlled by the Consolidated Product Design Specification (CDS/ODSS-DES-002).
+- **Provenance detail** — supplied by PM, IA, LF, WF, amendments, or earlier design evidence only where the master explicitly incorporates it.
+- **Review interpretation** — this document may explain the master but cannot override it.
 
 The controlling order is:
 
-1. [Approved Product Model](../canonical/product-model.md), especially §§4–20 and D-001 through D-019.
-2. [Information Architecture and Screen Inventory](../canonical/information-architecture.md) §§1–6 and [Low-Fidelity Interaction and Application-State Specification](../canonical/interaction-and-state.md) §§1–20.
-3. Nonconflicting page-specific requirements in the [Detailed Workflow Specification](../canonical/detailed-workflows.md).
-4. [Consolidated Product Design Specification](../design/consolidated-design-draft.md), still a draft for review.
-5. [Reuse-First Implementation Plan](../implementation/reuse-first-plan.md) P1-7 and sequencing notes as subordinate engineering guidance only.
+1. [Consolidated Product Design Specification](../design/consolidated-design-draft.md) (`ODSS-DES-002`) as the single master.
+2. Current-slice and implementation records for scope and sequence only.
+3. PM, IA, LF, WF, amendments, and earlier design documents as provenance only where the master incorporates them.
+
+If this interpretation differs from the master, the master controls. If the master is ambiguous or internally inconsistent, stop and clarify with the user.
 
 The simplest complete interpretation is one persistent desktop shell, ten directly accessible workspaces, one shell-owned Hardware panel, and state changes inside workspaces rather than extra pages, wizards, dashboards, or modes.
 
@@ -197,9 +197,8 @@ Approved behavior:
 11. After Completed, Interrupted, or Failed, the other headings re-enable and the result section remains expanded until the user manually collapses it.
 12. Collapse does not discard that section's in-session draft fields. If focus is inside a body when it collapses, focus returns to its heading.
 
-Draft visual guidance only: CDS §5.8 recommends a dark viewer surface and
-aspect-preserving image treatment. Those traits are not approved Capture
-behavior. [CDS §5.8](../design/consolidated-design-draft.md)
+Master requirement: CDS §5.8 specifies the dark viewer surface and
+aspect-preserving image treatment. [CDS §5.8](../design/consolidated-design-draft.md)
 
 The preview remains visible when Camera is unavailable and centers the text **Camera unavailable**. Expanded file/name fields stay visible, while Camera-dependent actions show that direct reason. The fault banner sits above the preview/panel split and never replaces the headings. Camera settings exist only in the Hardware panel. [PM §7.1 and D-014](../canonical/product-model.md); [IA §§1.5, 2.1, 3](../canonical/information-architecture.md); [LF §6](../canonical/interaction-and-state.md); [CDS §9.1](../design/consolidated-design-draft.md).
 

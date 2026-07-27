@@ -2,18 +2,15 @@
 
 ## Authority
 
-Use this order when requirements differ:
+The [Consolidated Product Design Specification](design/consolidated-design-draft.md) (`ODSS-DES-002`) is the single master product and design specification.
 
-1. [Approved Product Model](canonical/product-model.md).
-2. [User-approved visual-review amendment](OpenDSS_v2_UIUX_Visual_Review_Amendment_2026-07-23.md) for its listed UI layout, naming, disclosure, and composition topics. It is subordinate to the Product Model and supersedes conflicting lower visual sources.
-3. [Approved UI/UX Design Amendment](OpenDSS_v2_UIUX_Design_Amendment.md) for its nonconflicting UI, layout, naming, interaction, and workflow decisions.
-4. [Information Architecture and Screen Inventory](canonical/information-architecture.md) and [Interaction and Application-State Specification](canonical/interaction-and-state.md), except where the scoped visual-review amendment supersedes conflicting visual language.
-5. Nonconflicting requirements in the [Detailed Workflow Specification](canonical/detailed-workflows.md).
-6. [Consolidated Product Design Specification](design/consolidated-design-draft.md), which remains **Consolidated Draft for Review**.
-7. [Archived historical design evidence](archive/product-design-draft-v0.1.md).
-8. Repository code as implementation evidence only.
+- The current slice limits authorized work but cannot override the master.
+- Other canonical documents, amendments, reviews, and repository behavior are provenance or evidence only.
+- If anything deviates, follow the master. If the master is ambiguous, internally inconsistent, missing, or unsafe to follow, stop and clarify with the user.
+- Verify the pinned master hash with [verify-consolidated-design-lock.ps1](design/verify-consolidated-design-lock.ps1) and read only the exact applicable sections.
+- [Archived historical design evidence](archive/product-design-draft-v0.1.md) and repository code remain evidence only.
 
-Except for the expressly scoped user-approved visual-review amendment, derived engineering documents, including this file, cannot override canonical specifications. Report a conflict rather than choosing a convenient interpretation.
+Derived engineering documents, including this file, cannot override `ODSS-DES-002`. Report ambiguity or conflict rather than choosing a convenient interpretation.
 
 ## Documentation map
 

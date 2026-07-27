@@ -6,6 +6,8 @@
 
 #include <QCoreApplication>
 #include <QDebug>
+#include <QElapsedTimer>
+#include <QThread>
 #include <QVariantMap>
 
 #include <memory>
@@ -23,6 +25,8 @@ class FakeDaqOutput final : public IDaqOutput
 public:
     bool configure(const DaqConfig &config, QString *error) override
     {
+        if (configureDelayMs > 0)
+            QThread::msleep(configureDelayMs);
         ++configureCalls;
         configurations.push_back(config);
         if (!configureError.isEmpty()) {
@@ -115,6 +119,7 @@ public:
     int stopContinuousCalls = 0;
     bool continuous = false;
     int shutdownCalls = 0;
+    unsigned long configureDelayMs = 0;
     std::vector<DaqConfig> configurations;
 };
 
@@ -123,6 +128,18 @@ bool check(bool condition, const char *message)
     if (!condition)
         qCritical().noquote() << message;
     return condition;
+}
+
+bool waitForApply(DaqController &controller, int timeoutMs = 5000)
+{
+    QElapsedTimer timer;
+    timer.start();
+    while (controller.applyInProgress() && timer.elapsed() < timeoutMs) {
+        QCoreApplication::processEvents();
+        QThread::msleep(1);
+    }
+    QCoreApplication::processEvents();
+    return !controller.applyInProgress();
 }
 
 DaqDeviceInfo device(const std::string &name, const std::string &product,
@@ -213,7 +230,8 @@ int main(int argc, char **argv)
                 };
             });
 
-        ok &= check(controller.apply() && controller.ready()
+        ok &= check(controller.apply() && waitForApply(controller)
+                        && controller.ready()
                         && controller.selectedOutputChannel()
                                == QStringLiteral("Dev1/ao0"),
                     "A usable discovered channel must be selectable and applicable.");
@@ -348,7 +366,8 @@ int main(int argc, char **argv)
     controller.setFrequencyHz(2000.0);
     controller.setDurationMs(4.0);
     controller.setDelayMs(3.0);
-    ok &= check(controller.apply() && fake->configureCalls == 1
+    ok &= check(controller.apply() && waitForApply(controller)
+                    && fake->configureCalls == 1
                     && fake->configurations.back().channel == "Dev2/ao1"
                     && fake->configurations.back().amplitude == 4.0
                     && fake->configurations.back().frequencyHz == 2000.0
@@ -359,7 +378,39 @@ int main(int argc, char **argv)
                     && store.snapshot().daq.appliedSettings.outputChannel
                            == QStringLiteral("Dev2/ao1")
                     && store.snapshot().daq.appliedSettings.amplitudeVpp == 8.0,
-                "Apply must delegate current supported configuration to the service.");
+                 "Apply must delegate current supported configuration to the service.");
+
+    fake->configureDelayMs = 120;
+    const int configureCallsBeforeCoalescing = fake->configureCalls;
+    controller.setAmplitudeVpp(6.0);
+    QElapsedTimer initialApplyTimer;
+    initialApplyTimer.start();
+    const bool initialApplyAccepted = controller.apply();
+    const qint64 initialApplyCallMs = initialApplyTimer.elapsed();
+
+    QElapsedTimer repeatedEditTimer;
+    repeatedEditTimer.start();
+    for (int step = 1; step <= 20; ++step) {
+        controller.setAmplitudeVpp(6.0 + step * 0.1);
+        ok &= controller.apply();
+    }
+    const qint64 repeatedEditMs = repeatedEditTimer.elapsed();
+    ok &= check(initialApplyAccepted && controller.applyInProgress()
+                    && initialApplyCallMs < 30 && repeatedEditMs < 50
+                    && waitForApply(controller)
+                    && fake->configureCalls == configureCallsBeforeCoalescing + 2
+                    && fake->configurations.at(
+                           static_cast<std::size_t>(configureCallsBeforeCoalescing))
+                               .amplitude == 3.0
+                    && fake->configurations.back().amplitude == 4.0
+                    && controller.amplitudeVpp() == 8.0
+                    && store.snapshot().daq.appliedSettings.amplitudeVpp == 8.0,
+                "Repeated numeric edits must stay responsive, coalesce, and apply the exact final value.");
+    qInfo().noquote()
+        << "daq_apply_sync_equivalent_ms=120"
+        << "initial_async_call_ms=" << initialApplyCallMs
+        << "repeated_20_edits_ms=" << repeatedEditMs;
+    fake->configureDelayMs = 0;
 
     ok &= check(service.issueLiveHit(false)
                             == run::DaqPulseStatus::SuppressedNotIssued
@@ -417,13 +468,15 @@ int main(int argc, char **argv)
                 "An unready DAQ must not issue another output.");
 
     fake->fireError.clear();
-    ok &= check(controller.apply() && controller.ready()
-                    && fake->configureCalls == 2,
+    ok &= check(controller.apply() && waitForApply(controller)
+                    && controller.ready()
+                    && fake->configureCalls == configureCallsBeforeCoalescing + 3,
                 "A successful apply must recover a faulted DAQ.");
 
     fake->configureError = QStringLiteral("Injected apply fault.");
     controller.setAmplitudeVpp(7.0);
-    ok &= check(!controller.apply() && controller.ready()
+    ok &= check(controller.apply() && waitForApply(controller)
+                    && controller.ready()
                     && store.snapshot().daq.status == DaqStatus::Ready
                     && controller.amplitudeVpp() == 8.0
                     && controller.error()
@@ -432,14 +485,16 @@ int main(int argc, char **argv)
 
     fake->dropReadyOnConfigureFailure = true;
     controller.setAmplitudeVpp(7.0);
-    ok &= check(!controller.apply() && !controller.ready()
+    ok &= check(controller.apply() && waitForApply(controller)
+                    && !controller.ready()
                     && store.snapshot().daq.status == DaqStatus::Faulted
                     && fake->shutdownCalls >= 2,
                 "Apply failure after readiness loss must shut down and fault DAQ.");
 
     fake->configureError.clear();
     fake->dropReadyOnConfigureFailure = false;
-    ok &= check(controller.apply() && controller.ready(),
+    ok &= check(controller.apply() && waitForApply(controller)
+                    && controller.ready(),
                 "Only a successful explicit apply must recover DAQ.");
 
     const int fireCallsBeforeMissingChannel = fake->fireCalls;
@@ -461,6 +516,7 @@ int main(int argc, char **argv)
 
     discoveryMode = DiscoveryMode::Available;
     ok &= check(controller.refreshDevices() && controller.apply()
+                    && waitForApply(controller)
                     && controller.ready(),
                 "Explicit apply must recover after the configured channel returns.");
 
@@ -483,6 +539,7 @@ int main(int argc, char **argv)
 
     discoveryMode = DiscoveryMode::Available;
     ok &= check(controller.refreshDevices() && controller.apply()
+                    && waitForApply(controller)
                     && controller.ready(),
                 "Explicit apply must recover after discovery recovers.");
     service.shutdown();

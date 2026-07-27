@@ -144,6 +144,7 @@ Item {
     function commitDaqChannel(index) {
         if (!root.daqController || root.daqDraftCommitInProgress
                 || !root.daqController.canApply
+                || root.daqController.applyInProgress
                 || index < 0 || index >= root.daqController.outputChannels.length)
             return
 
@@ -770,6 +771,7 @@ Item {
         target: screen.daqRefreshDevicesButton
         property: "enabled"
         value: root.daqController !== null
+               && !root.daqController.applyInProgress
                && !(root.liveSortingController
                     ? root.realLiveOwnsOperation : state.liveOwnsOperation)
                && !(root.sequenceTestController
@@ -778,7 +780,7 @@ Item {
                       && state.physicalDaqOutputChecked)
         when: root.daqController !== null
     }
-    Binding { target: screen.daqChannelSelector; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
+    Binding { target: screen.daqChannelSelector; property: "enabled"; value: root.daqController ? root.daqController.canApply && !root.daqController.applyInProgress : false; when: root.daqController !== null }
     Binding { target: screen.daqVppSpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
     Binding { target: screen.daqFrequencySpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }
     Binding { target: screen.daqEventDurationSpinBox; property: "enabled"; value: root.daqController ? root.daqController.canApply : false; when: root.daqController !== null }

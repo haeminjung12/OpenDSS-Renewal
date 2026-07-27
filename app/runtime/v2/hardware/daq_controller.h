@@ -4,12 +4,15 @@
 #include "../state/domain_state.h"
 
 #include <QObject>
+#include <QMutex>
 #include <QStringList>
 #include <QVariantList>
 
 #include <functional>
 #include <string>
 #include <vector>
+
+class QThread;
 
 namespace desktop_app::v2 {
 
@@ -37,6 +40,7 @@ class DaqController final : public QObject
     Q_PROPERTY(QString daqStatus READ daqStatus NOTIFY stateChanged)
     Q_PROPERTY(bool ready READ ready NOTIFY stateChanged)
     Q_PROPERTY(bool canApply READ canApply NOTIFY stateChanged)
+    Q_PROPERTY(bool applyInProgress READ applyInProgress NOTIFY stateChanged)
     Q_PROPERTY(bool continuousWaveformActive READ continuousWaveformActive NOTIFY stateChanged)
     Q_PROPERTY(QString error READ error NOTIFY stateChanged)
 
@@ -45,6 +49,7 @@ public:
                   OperationCoordinator &operations,
                   DaqDiscoveryFunction discovery = {},
                   QObject *parent = nullptr);
+    ~DaqController() override;
 
     QVariantList devices() const;
     QStringList outputChannels() const;
@@ -61,6 +66,7 @@ public:
     QString daqStatus() const;
     bool ready() const;
     bool canApply() const;
+    bool applyInProgress() const;
     bool continuousWaveformActive() const;
     QString error() const;
 
@@ -77,6 +83,8 @@ signals:
 private:
     DaqAppliedSettings draftSettings() const;
     bool selectedChannelExists() const;
+    void startApply(const DaqAppliedSettings &settings);
+    void finishApply();
     void setActionError(const QString &error);
     void restoreAppliedSettings();
 
@@ -92,6 +100,12 @@ private:
     double delayMs_ = 0.0;
     QString actionError_;
     DaqAppliedSettings observedAppliedSettings_;
+    DaqAppliedSettings pendingSettings_;
+    QThread *applyThread_ = nullptr;
+    QMutex applyResultMutex_;
+    QString applyError_;
+    bool applySucceeded_ = false;
+    bool hasPendingSettings_ = false;
     bool actionInProgress_ = false;
 };
 

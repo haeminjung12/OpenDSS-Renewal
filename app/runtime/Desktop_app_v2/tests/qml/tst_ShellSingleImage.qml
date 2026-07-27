@@ -641,6 +641,7 @@ Item {
         property real delayMs: 0
         property string daqStatus: "Ready"
         property bool canApply: true
+        property bool applyInProgress: false
         property bool ready: true
         property bool continuousWaveformActive: false
         property string error: ""
@@ -659,6 +660,7 @@ Item {
             delayMs = 0
             daqStatus = "Ready"
             canApply = true
+            applyInProgress = false
             ready = true
             continuousWaveformActive = false
             error = ""
@@ -1398,6 +1400,33 @@ Item {
         shell.form.daqDecisionDelaySpinBox.valueModified()
         compare(daqController.delayMs, 2)
         compare(daqController.applyCallCount, 5)
+    }
+
+    function test_daqNumericEditsRemainAvailableDuringAsyncApply() {
+        shell.daqController = daqController
+        daqController.applyInProgress = true
+
+        verify(!shell.form.daqRefreshDevicesButton.enabled)
+        verify(!shell.form.daqChannelSelector.enabled)
+        verify(shell.form.daqVppSpinBox.enabled)
+        verify(shell.form.daqFrequencySpinBox.enabled)
+        verify(shell.form.daqEventDurationSpinBox.enabled)
+        verify(shell.form.daqDecisionDelaySpinBox.enabled)
+
+        shell.form.daqVppSpinBox.value = 6
+        shell.form.daqVppSpinBox.valueModified()
+        shell.form.daqFrequencySpinBox.value = 11
+        shell.form.daqFrequencySpinBox.valueModified()
+        shell.form.daqEventDurationSpinBox.value = 7
+        shell.form.daqEventDurationSpinBox.valueModified()
+        shell.form.daqDecisionDelaySpinBox.value = 2
+        shell.form.daqDecisionDelaySpinBox.valueModified()
+
+        compare(daqController.applyCallCount, 4)
+        compare(daqController.amplitudeVpp, 6)
+        compare(daqController.frequencyHz, 11000)
+        compare(daqController.durationMs, 7)
+        compare(daqController.delayMs, 2)
     }
 
     function test_daqControllerProjectionRefreshDoesNotApply() {

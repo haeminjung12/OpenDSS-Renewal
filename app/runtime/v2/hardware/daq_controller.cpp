@@ -5,6 +5,8 @@
 #include "../state/application_state_store.h"
 
 #include <QVariantMap>
+#include <QMutexLocker>
+#include <QThread>
 
 #include <utility>
 
@@ -59,14 +61,26 @@ DaqController::DaqController(DaqService &service,
         const DaqAppliedSettings applied =
             stateStore_.snapshot().daq.appliedSettings;
         if (!sameSettings(applied, observedAppliedSettings_)) {
-            restoreAppliedSettings();
-            emit settingsChanged();
+            observedAppliedSettings_ = applied;
+            if (!applyThread_) {
+                restoreAppliedSettings();
+                emit settingsChanged();
+            }
         }
         emit stateChanged();
     });
     connect(&operations_, &OperationCoordinator::resourcesChanged,
             this, &DaqController::stateChanged);
     refreshDevices();
+}
+
+DaqController::~DaqController()
+{
+    if (!applyThread_)
+        return;
+    disconnect(applyThread_, nullptr, this, nullptr);
+    applyThread_->wait();
+    delete applyThread_;
 }
 
 QVariantList DaqController::devices() const
@@ -180,11 +194,17 @@ bool DaqController::ready() const
 
 bool DaqController::canApply() const
 {
-    return !actionInProgress_ && selectedChannelExists()
-        && !service_.continuousActive()
-        && DaqService::settingsValidationError(draftSettings()).isEmpty()
+    if (!selectedChannelExists()
+        || !DaqService::settingsValidationError(draftSettings()).isEmpty()) {
+        return false;
+    }
+    if (applyThread_)
+        return true;
+    return !actionInProgress_ && !service_.continuousActive()
         && operations_.momentaryAvailable(ResourceLock::Daq);
 }
+
+bool DaqController::applyInProgress() const { return applyThread_ != nullptr; }
 
 bool DaqController::continuousWaveformActive() const
 {
@@ -258,35 +278,103 @@ bool DaqController::refreshDevices()
 
 bool DaqController::apply()
 {
-    if (actionInProgress_)
+    const DaqAppliedSettings settings = draftSettings();
+    const QString invalid = DaqService::settingsValidationError(settings);
+    if (!invalid.isEmpty()) {
+        restoreAppliedSettings();
+        setActionError(invalid);
+        emit settingsChanged();
+        emit stateChanged();
         return false;
+    }
     if (!selectedChannelExists()) {
+        restoreAppliedSettings();
         setActionError(
             QStringLiteral("Select an available DAQ analog-output channel."));
+        emit settingsChanged();
         emit stateChanged();
         return false;
     }
+    if (applyThread_) {
+        pendingSettings_ = settings;
+        hasPendingSettings_ = true;
+        setActionError({});
+        emit stateChanged();
+        return true;
+    }
+    if (actionInProgress_)
+        return false;
     if (!operations_.momentaryAvailable(ResourceLock::Daq)) {
+        restoreAppliedSettings();
         setActionError(
             QStringLiteral("DAQ settings are locked by another operation."));
+        emit settingsChanged();
         emit stateChanged();
         return false;
     }
 
+    startApply(settings);
+    return true;
+}
+
+void DaqController::startApply(const DaqAppliedSettings &settings)
+{
     actionInProgress_ = true;
     setActionError({});
+    applyThread_ = QThread::create([this, settings] {
+        QString error;
+        const bool succeeded = service_.applySettings(settings, &error);
+        const QMutexLocker lock(&applyResultMutex_);
+        applySucceeded_ = succeeded;
+        applyError_ = std::move(error);
+    });
+    connect(applyThread_, &QThread::finished, this, &DaqController::finishApply);
+    applyThread_->start();
     emit stateChanged();
-    const DaqAppliedSettings settings = draftSettings();
+}
 
-    QString serviceError;
-    const bool applied = service_.applySettings(settings, &serviceError);
-    if (!applied)
+void DaqController::finishApply()
+{
+    QThread *completedThread = applyThread_;
+    applyThread_ = nullptr;
+    if (completedThread)
+        completedThread->deleteLater();
+
+    bool succeeded = false;
+    QString error;
+    {
+        const QMutexLocker lock(&applyResultMutex_);
+        succeeded = applySucceeded_;
+        error = applyError_;
+    }
+
+    if (!succeeded) {
+        hasPendingSettings_ = false;
+        actionInProgress_ = false;
         restoreAppliedSettings();
-    setActionError(serviceError);
+        setActionError(error.isEmpty()
+                           ? QStringLiteral("The DAQ settings could not be applied.")
+                           : error);
+        emit settingsChanged();
+        emit stateChanged();
+        return;
+    }
+
+    if (hasPendingSettings_
+        && !sameSettings(pendingSettings_,
+                         stateStore_.snapshot().daq.appliedSettings)) {
+        const DaqAppliedSettings nextSettings = pendingSettings_;
+        hasPendingSettings_ = false;
+        startApply(nextSettings);
+        return;
+    }
+
+    hasPendingSettings_ = false;
     actionInProgress_ = false;
+    restoreAppliedSettings();
+    setActionError({});
     emit settingsChanged();
     emit stateChanged();
-    return applied;
 }
 
 bool DaqController::sendTestSineWave()

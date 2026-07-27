@@ -1,11 +1,14 @@
 #pragma once
 
+#include <cstddef>
 #include <opencv2/core.hpp>
 
 struct DropletDetectionFrame {
     bool detected = false;
     bool eventEntered = false;
-    bool lifecycleEnded = false;
+bool lifecycleEnded = false;
+const double* rejectedAreas = nullptr;
+std::size_t rejectedCount = 0;
     double area = 0.0;
     cv::Rect bbox;
     cv::Point2f centroid = {0.0f, 0.0f};

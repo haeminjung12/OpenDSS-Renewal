@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstddef>
 #include <deque>
 #include <vector>
 #include <opencv2/core.hpp>
@@ -25,7 +26,9 @@ struct FastEventConfig {
 struct FastEventResult {
     bool detected = false;
     bool fired = false;
-    bool lifecycleEnded = false;
+bool lifecycleEnded = false;
+const double* rejectedAreas = nullptr;
+std::size_t rejectedCount = 0;
     double area = 0.0;
     cv::Rect bbox;
     cv::Point2f centroid = {0.0f, 0.0f};
@@ -67,6 +70,7 @@ class FastEventDetector {
     RollingBackground8 rolling_;
     std::vector<cv::Mat> bgStack_;
     cv::Mat morphKernel_;
+    std::vector<double> rejectedAreas_;
 
     bool triggered_ = false;
     int noDetectCount_ = 0;

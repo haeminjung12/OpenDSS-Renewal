@@ -489,6 +489,7 @@ public:
         pending.reset();
         eventNumber = 0;
         persistedEvents.store(0);
+        rejectedEvents.store(0);
         fatal.store(false);
         acceptingOffers.store(true);
         processingAllowed.store(true);
@@ -687,8 +688,9 @@ public:
     LiveSortingSnapshot snapshot() const {
         std::lock_guard lock(stateMutex);
         return {lifecycle, runFolder, elapsedSecondsLocked(),
-                persistedEvents.load(std::memory_order_acquire), integrity,
-                diagnostic, stopReason};
+                persistedEvents.load(std::memory_order_acquire),
+                rejectedEvents.load(std::memory_order_acquire), integrity, diagnostic,
+                stopReason};
     }
 
     bool updateDecisionBoundary(const run::HitBoundarySnapshot& boundary) {
@@ -802,19 +804,42 @@ private:
             return;
         QString localError;
 
+        for (std::size_t index = 0; index < detection.rejectedCount; ++index) {
+            if (!detection.rejectedAreas ||
+                !std::isfinite(detection.rejectedAreas[index]) ||
+                detection.rejectedAreas[index] <= 0.0) {
+                consumerFault(frameIndex(meta),
+                              QStringLiteral("Rejected candidate area is invalid."));
+            }
+            ++eventNumber;
+            PersistenceItem item;
+            item.sourceIndex = frameIndex(meta);
+            run::RunEvent event;
+            event.eventId =
+                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
+            event.detectionTimestamp =
+                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+            event.sourceFrameIndex = item.sourceIndex;
+            event.rejected = 1;
+            item.event = std::move(event);
+            enqueue(std::move(item));
+        }
+
         if (detection.eventEntered) {
             finalizePending();
+            ++eventNumber;
+            const QString eventId =
+                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
+            const QString detectionTimestamp =
+                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
             desktop_app::DatasetCrop crop;
             if (!desktop_app::CropService::makeDatasetCrop(
                     frame, detection.bbox, &crop, &localError)) {
                 consumerFault(frameIndex(meta), localError);
             }
             pending.emplace();
-            ++eventNumber;
-            pending->event.eventId =
-                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
-            pending->event.detectionTimestamp =
-                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+            pending->event.eventId = eventId;
+            pending->event.detectionTimestamp = detectionTimestamp;
             pending->event.sourceFrameIndex = frameIndex(meta);
             pending->event.cropPath =
                 QStringLiteral("crops/droplet_%1.png")
@@ -837,16 +862,20 @@ private:
                 }
                 result = model->classify(crop.image, &localError);
                 const double inferenceMs =
-                    static_cast<double>(inferenceTimer.nsecsElapsed()) / 1'000'000.0;
+                    static_cast<double>(inferenceTimer.nsecsElapsed()) /
+                    1'000'000.0;
                 if (!result ||
                     result->scores.size() != model->snapshot.classes.size() ||
                     std::any_of(result->scores.begin(), result->scores.end(),
-                                [](double score) { return !std::isfinite(score); })) {
+                                [](double score) {
+                                    return !std::isfinite(score);
+                                })) {
                     pending.reset();
-                    consumerFault(frameIndex(meta),
-                                  localError.isEmpty()
-                                      ? QStringLiteral("Model inference result is invalid.")
-                                      : localError);
+                    consumerFault(
+                        frameIndex(meta),
+                        localError.isEmpty()
+                            ? QStringLiteral("Model inference result is invalid.")
+                            : localError);
                 }
                 int bestIndex = 0;
                 for (int index = 1; index < result->scores.size(); ++index) {
@@ -1072,7 +1101,10 @@ private:
                     if (!accepted) {
                         persistenceFailure(item.sourceIndex, localError);
                     } else if (item.event) {
-                        persistedEvents.fetch_add(1, std::memory_order_release);
+                        if (item.event->rejected == 0)
+                            persistedEvents.fetch_add(1, std::memory_order_release);
+                        else
+                            rejectedEvents.fetch_add(1, std::memory_order_release);
                         ++eventsSinceCheckpoint;
                         lastSourceIndex = item.sourceIndex;
                         const bool checkpointDue =
@@ -1365,6 +1397,7 @@ private:
     std::atomic_bool processingAllowed{false};
     std::atomic_bool pulseAllowed{false};
     std::atomic<qint64> persistedEvents{0};
+    std::atomic<qint64> rejectedEvents{0};
     qint64 sequenceFrameCount = 0;
     int sequenceWidth = 0;
     int sequenceHeight = 0;

@@ -60,6 +60,7 @@ QByteArray csvRow(const RunEvent& event) {
         event.detectionTimestamp,
         QString::number(event.sourceFrameIndex),
         event.effectiveConfigurationId,
+        QString::number(event.rejected),
         event.cropPath,
         event.predictedClassId.value_or(QString()),
     };
@@ -68,9 +69,9 @@ QByteArray csvRow(const RunEvent& event) {
                              ? QString::number(event.scores.at(i), 'g', 17)
                              : QString());
     }
-    fields.push_back(routeText(event.decision));
-    fields.push_back(routeText(event.observedRoute));
-    fields.push_back(pulseText(event.daqPulseStatus));
+    fields.push_back(event.rejected == 1 ? QString() : routeText(event.decision));
+    fields.push_back(event.rejected == 1 ? QString() : routeText(event.observedRoute));
+    fields.push_back(event.rejected == 1 ? QString() : pulseText(event.daqPulseStatus));
     fields.push_back(event.inferenceTimeMs
                          ? QString::number(*event.inferenceTimeMs, 'g', 17)
                          : QString());
@@ -80,7 +81,7 @@ QByteArray csvRow(const RunEvent& event) {
 
 const QByteArray CsvHeader =
     "event_id,detection_timestamp,source_frame_index,effective_configuration_id,"
-    "crop_path,predicted_class_id,score_class_0,score_class_1,score_class_2,"
+    "rejected,crop_path,predicted_class_id,score_class_0,score_class_1,score_class_2,"
     "decision,observed_route,daq_pulse_status,inference_time_ms\n";
 
 bool safeCropPath(const QString& path) {
@@ -186,16 +187,28 @@ bool validateEventForAppend(const RunManifestData& data, const RunEvent& event,
     if (event.eventId.trimmed().isEmpty() ||
         !QDateTime::fromString(event.detectionTimestamp, Qt::ISODate).isValid() ||
         event.sourceFrameIndex <= 0 || event.effectiveConfigurationId != "initial" ||
-        !safeCropPath(event.cropPath) ||
+        (event.rejected != 0 && event.rejected != 1)) {
+        return fail(error, "Run event identity, timestamp, frame, rejection, or configuration is invalid.");
+    }
+    if (std::any_of(data.events.begin(), data.events.end(), [&](const RunEvent& old) {
+            return old.eventId == event.eventId ||
+                   (!event.cropPath.isEmpty() && old.cropPath == event.cropPath);
+        })) {
+        return fail(error, "Run event ID and crop path must be unique.");
+    }
+    if (event.rejected == 1) {
+        if (!event.cropPath.isEmpty() || event.predictedClassId ||
+            !event.scores.isEmpty() || event.inferenceTimeMs ||
+            event.daqPulseStatus != DaqPulseStatus::NotRequested) {
+            return fail(error, "Rejected events cannot contain crop, inference, or DAQ facts.");
+        }
+        return true;
+    }
+    if (!safeCropPath(event.cropPath) ||
         (event.decision != Route::Hit && event.decision != Route::Waste) ||
         (event.observedRoute != Route::Hit && event.observedRoute != Route::Waste &&
          event.observedRoute != Route::Unresolved)) {
         return fail(error, "Run event identity, timestamp, frame, crop, decision, or configuration is invalid.");
-    }
-    if (std::any_of(data.events.begin(), data.events.end(), [&](const RunEvent& old) {
-            return old.eventId == event.eventId || old.cropPath == event.cropPath;
-        })) {
-        return fail(error, "Run event ID and crop path must be unique.");
     }
     if (!data.model) {
         if (event.predictedClassId || !event.scores.isEmpty() || event.inferenceTimeMs)
@@ -319,16 +332,21 @@ bool RunWriterV2::appendEvent(const RunEvent& event, const QByteArray& cropBytes
         error->clear();
     if (finalized_ || !partialFile_ || !partialFile_->isOpen())
         return fail(error, "Run writer is not active.");
-    if (cropBytes.isEmpty())
+    if (event.rejected == 0 && cropBytes.isEmpty())
         return fail(error, "Droplet Crop bytes must not be empty.");
+    if (event.rejected == 1 && !cropBytes.isEmpty())
+        return fail(error, "Rejected events must not contain Droplet Crop bytes.");
     if (!validateEventForAppend(data_, event, error))
         return false;
-    const QString cropFile = QDir(runFolder_).filePath(event.cropPath);
-    if (!safeOutputPath(runFolder_, event.cropPath, error))
-        return false;
-    if (!QDir().mkpath(QFileInfo(cropFile).absolutePath()) ||
-        !atomicWrite(cropFile, cropBytes, error)) {
-        return false;
+    QString cropFile;
+    if (event.rejected == 0) {
+        cropFile = QDir(runFolder_).filePath(event.cropPath);
+        if (!safeOutputPath(runFolder_, event.cropPath, error))
+            return false;
+        if (!QDir().mkpath(QFileInfo(cropFile).absolutePath()) ||
+            !atomicWrite(cropFile, cropBytes, error)) {
+            return false;
+        }
     }
     const qint64 priorOffset = partialFile_->pos();
     const QByteArray row = csvRow(event);
@@ -344,7 +362,8 @@ bool RunWriterV2::appendEvent(const RunEvent& event, const QByteArray& cropBytes
         const bool rolledBack = partialFile_->resize(priorOffset) &&
                                 partialFile_->seek(priorOffset) &&
                                 partialFile_->flush();
-        QFile::remove(cropFile);
+        if (!cropFile.isEmpty())
+            QFile::remove(cropFile);
         return fail(error, rolledBack ? "Could not append the finalized event."
                                       : "CSV append and rollback both failed.");
     }

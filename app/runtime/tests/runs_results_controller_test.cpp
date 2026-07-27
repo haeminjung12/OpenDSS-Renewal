@@ -106,6 +106,14 @@ void createRun(const QString &folder)
     require(eventAppended,
             qPrintable(error.isEmpty() ? QStringLiteral("append Run event fixture")
                                        : error));
+    RunEvent rejected;
+    rejected.eventId = QStringLiteral("event-002");
+    rejected.detectionTimestamp = data.startedAt;
+    rejected.sourceFrameIndex = 2;
+    rejected.rejected = 1;
+    require(writer->appendEvent(rejected, {}, &error),
+            qPrintable(error.isEmpty() ? QStringLiteral("append rejected fixture")
+                                       : error));
     const bool runFinalized = writer->finalize(
         desktop_app::v2::run::RunStatus::Completed, data.endedAt,
         data.stopReason, 20.0, &error);
@@ -153,7 +161,11 @@ void testRefreshSelectLoadAndNotes()
     const QVariantMap entry = runs.first().toMap();
     require(entry.value(QStringLiteral("id")).toString() == QStringLiteral("run-001") &&
                 entry.value(QStringLiteral("runName")).toString() == QStringLiteral("Run 001") &&
-                entry.value(QStringLiteral("loadable")).toBool(),
+                entry.value(QStringLiteral("loadable")).toBool() &&
+                entry.value(QStringLiteral("totalCount")).toLongLong() == 1 &&
+                entry.value(QStringLiteral("rejectedCount")).toLongLong() == 1 &&
+                entry.value(QStringLiteral("summaryText")).toString().contains(
+                    QStringLiteral("Rejected: 1")),
             "Run projection is factual");
 
     require(controller.selectRun(QStringLiteral("run-001")), "select discovered Run");
@@ -181,6 +193,9 @@ void testRefreshSelectLoadAndNotes()
                 facts.value(QStringLiteral("cameraSettings")).toString().contains(
                     QStringLiteral("exposure_us")) &&
                 facts.value(QStringLiteral("decisionHit")).toLongLong() == 1 &&
+                facts.value(QStringLiteral("rejectedCount")).toLongLong() == 1 &&
+                facts.value(QStringLiteral("predictedCounts")).toString().contains(
+                    QStringLiteral("Rejected: 1")) &&
                 facts.value(QStringLiteral("hitDecisionUnresolved")).toLongLong() == 1,
             "loaded Run detail projection is factual");
 
@@ -305,6 +320,7 @@ void testInvalidEntriesExposeNoFabricatedFacts()
                     !entry.contains(QStringLiteral("startedAt")) &&
                     !entry.contains(QStringLiteral("durationSeconds")) &&
                     !entry.contains(QStringLiteral("totalCount")) &&
+                    !entry.contains(QStringLiteral("rejectedCount")) &&
                     !entry.contains(QStringLiteral("modelName")) &&
                     !entry.contains(QStringLiteral("recoverable")),
                 "invalid Run exposes no fabricated optional facts");

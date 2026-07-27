@@ -65,11 +65,15 @@ private:
 };
 
 DropletDetectionFrame detection(bool detected, bool entered, float y,
-                                 bool lifecycleEnded = true) {
+                                bool lifecycleEnded = true,
+                                const double* rejectedAreas = nullptr,
+                                std::size_t rejectedCount = 0) {
     DropletDetectionFrame value;
     value.detected = detected;
     value.eventEntered = entered;
     value.lifecycleEnded = !detected && lifecycleEnded;
+    value.rejectedAreas = rejectedAreas;
+    value.rejectedCount = rejectedCount;
     value.bbox = {1, 1, 4, 4};
     value.centroid = {3.0f, y};
     return value;
@@ -389,6 +393,63 @@ void testEveryDropletPulseRouteAndStopped() {
                 equalityData.events.first().daqPulseStatus ==
                     run::DaqPulseStatus::Issued,
             "Observed Route Unresolved suppressed a Live Hit Decision");
+}
+
+void testRejectedEveryDropletSkipsCropInferenceRouteAndPulse() {
+    stage = "rejected every droplet";
+    QTemporaryDir temporary;
+    FakeDetector detector;
+    const double rejectedAreas[] = {30.0, 56.0};
+    detector.results = {detection(true, true, 2.0f, true, rejectedAreas, 2),
+                        detection(false, false, 0.0f)};
+    OperationCoordinator operations;
+    std::atomic_int pulses{0};
+    live::LiveSortingService service(
+        operations, detector, nullptr,
+        [&](bool, QString*) {
+            pulses.fetch_add(1);
+            return run::DaqPulseStatus::Issued;
+        },
+        {}, {}, {}, [](QString*) { return true; });
+    auto value = request(temporary.path());
+    value.daqOutputEnabled = true;
+    QString error;
+    require(service.start(value, &error), qPrintable(error));
+    offerAndWait(service, detector, 1, 1);
+    offerAndWait(service, detector, 2, 2);
+    require(waitFor([&] { return pulses.load() == 1; }),
+            "accepted Every Droplet event did not pulse");
+    require(service.stop(&error), qPrintable(error));
+    require(service.snapshot().persistedEvents == 1 &&
+                service.snapshot().rejectedEvents == 2,
+            "Live Total and Rejected did not remain distinct");
+    const auto data = loadRun(temporary.path());
+    require(data.events.size() == 3 && data.events.at(0).rejected == 1 &&
+                data.events.at(0).cropPath.isEmpty() &&
+                !data.events.at(0).predictedClassId &&
+                data.events.at(0).scores.isEmpty() &&
+                !data.events.at(0).inferenceTimeMs &&
+                data.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::NotRequested &&
+                data.events.at(1).rejected == 1 &&
+                data.events.at(1).cropPath.isEmpty() &&
+                !data.events.at(1).predictedClassId &&
+                data.events.at(1).scores.isEmpty() &&
+                !data.events.at(1).inferenceTimeMs &&
+                data.events.at(1).daqPulseStatus ==
+                    run::DaqPulseStatus::NotRequested &&
+                data.events.at(2).rejected == 0 &&
+                data.events.at(2).decision == run::Route::Hit &&
+                data.events.at(2).daqPulseStatus == run::DaqPulseStatus::Issued &&
+                pulses.load() == 1,
+            "ordered rejected facts reached crop, inference, Decision, route, or DAQ");
+    require(!QFileInfo::exists(
+                QDir(temporary.path()).filePath("Live/crops/droplet_000001.png")) &&
+                !QFileInfo::exists(
+                    QDir(temporary.path()).filePath("Live/crops/droplet_000002.png")) &&
+                QFileInfo::exists(
+                    QDir(temporary.path()).filePath("Live/crops/droplet_000003.png")),
+            "rejected facts wrote crops or the accepted event omitted its crop");
 }
 
 void testClassBasedTwoAndThreeClass() {
@@ -1817,6 +1878,7 @@ int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testDaqOutputReadinessAndPersistence();
     testEveryDropletPulseRouteAndStopped();
+    testRejectedEveryDropletSkipsCropInferenceRouteAndPulse();
     testClassBasedTwoAndThreeClass();
     testPauseResumeSourceGapAndDuration();
     testBacklogCancellationAtPauseAndStop();

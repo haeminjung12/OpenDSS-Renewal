@@ -78,6 +78,7 @@ class LiveSortingController final : public QObject {
                    setRecordFullImageSequence NOTIFY changed)
     Q_PROPERTY(double elapsedSeconds READ elapsedSeconds NOTIFY changed)
     Q_PROPERTY(qint64 persistedEvents READ persistedEvents NOTIFY changed)
+    Q_PROPERTY(qint64 rejectedEvents READ rejectedEvents NOTIFY changed)
     Q_PROPERTY(QVariantMap integrity READ integrity NOTIFY changed)
     Q_PROPERTY(QString stopReason READ stopReason NOTIFY changed)
     Q_PROPERTY(QString runFolder READ runFolder NOTIFY changed)
@@ -128,6 +129,7 @@ public:
     void setRecordFullImageSequence(bool value);
     double elapsedSeconds() const;
     qint64 persistedEvents() const;
+    qint64 rejectedEvents() const;
     QVariantMap integrity() const;
     QString stopReason() const;
     QString runFolder() const;

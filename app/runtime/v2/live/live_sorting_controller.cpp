@@ -277,6 +277,10 @@ qint64 LiveSortingController::persistedEvents() const {
     return snapshot_.persistedEvents;
 }
 
+qint64 LiveSortingController::rejectedEvents() const {
+    return snapshot_.rejectedEvents;
+}
+
 QVariantMap LiveSortingController::integrity() const {
     return {{QStringLiteral("sourceFrameGaps"),
              integritySeries(snapshot_.integrity.sourceFrameGaps)},

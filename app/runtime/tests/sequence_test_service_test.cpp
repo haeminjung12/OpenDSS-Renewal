@@ -79,11 +79,15 @@ private:
 };
 
 DropletDetectionFrame detection(bool detected, bool entered, float y,
-                                 bool lifecycleEnded = true) {
+                                bool lifecycleEnded = true,
+                                const double* rejectedAreas = nullptr,
+                                std::size_t rejectedCount = 0) {
     DropletDetectionFrame value;
     value.detected = detected;
     value.eventEntered = entered;
     value.lifecycleEnded = !detected && lifecycleEnded;
+    value.rejectedAreas = rejectedAreas;
+    value.rejectedCount = rejectedCount;
     value.bbox = {1, 1, 4, 4};
     value.centroid = {3.0f, y};
     return value;
@@ -277,8 +281,10 @@ void classBasedModel() {
     require(QDir().mkpath(output), "Could not create output.");
     const QString manifest = makeSequence(sequenceRoot, 4, {1, 2, 3, 4});
     FakeDetector detector;
+    const double rejectedAreas[] = {30.0, 56.0};
     detector.results = {detection(true, true, 2.0f), detection(false, false, 0.0f),
-                        detection(true, true, 6.0f), detection(false, false, 0.0f)};
+                        detection(true, true, 6.0f, true, rejectedAreas, 2),
+                        detection(false, false, 0.0f)};
     auto calls = std::make_shared<int>(0);
     sequence_test::ModelProvider provider = [calls](QString*) {
         sequence_test::PreparedModel model;
@@ -306,16 +312,37 @@ void classBasedModel() {
     require(service.run(value, &error), qPrintable(error));
     const auto data = loadRun(output);
     require(data.model && data.model->classes.size() == 3 &&
-                data.events.size() == 2 &&
+                data.events.size() == 4 &&
                 data.events.at(0).predictedClassId == QStringLiteral("c1") &&
                 data.events.at(0).decision == run::Route::Hit &&
                 data.events.at(0).observedRoute == run::Route::Waste &&
-                data.events.at(1).predictedClassId == QStringLiteral("c0") &&
-                data.events.at(1).decision == run::Route::Waste &&
-                data.events.at(1).observedRoute == run::Route::Hit &&
+                data.events.at(1).rejected == 1 &&
+                data.events.at(1).cropPath.isEmpty() &&
+                !data.events.at(1).predictedClassId &&
+                data.events.at(1).scores.isEmpty() &&
+                !data.events.at(1).inferenceTimeMs &&
+                data.events.at(1).daqPulseStatus ==
+                    run::DaqPulseStatus::NotRequested &&
+                data.events.at(2).rejected == 1 &&
+                data.events.at(2).cropPath.isEmpty() &&
+                !data.events.at(2).predictedClassId &&
+                data.events.at(2).scores.isEmpty() &&
+                !data.events.at(2).inferenceTimeMs &&
+                data.events.at(2).daqPulseStatus ==
+                    run::DaqPulseStatus::NotRequested &&
+                data.events.at(3).rejected == 0 &&
+                data.events.at(3).predictedClassId == QStringLiteral("c0") &&
+                data.events.at(3).decision == run::Route::Waste &&
+                data.events.at(3).observedRoute == run::Route::Hit &&
                 data.events.at(0).inferenceTimeMs &&
-                *data.events.at(0).inferenceTimeMs >= 0.0,
-            "Class-Based prediction, decision, route, or timing is incorrect.");
+                *data.events.at(0).inferenceTimeMs >= 0.0 && *calls == 2 &&
+                !QFileInfo::exists(
+                    QDir(output).filePath("Run/crops/droplet_000002.png")) &&
+                !QFileInfo::exists(
+                    QDir(output).filePath("Run/crops/droplet_000003.png")) &&
+                QFileInfo::exists(
+                    QDir(output).filePath("Run/crops/droplet_000004.png")),
+            "Class-Based rejected facts reached crop, inference, Decision, route, or DAQ.");
 }
 
 void productionModelPreparationRequestsCpu() {

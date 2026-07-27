@@ -1031,6 +1031,7 @@ Item {
     Binding { target: screen.liveWorkspace; property: "runArtifactPath"; value: root.liveSortingController ? root.liveSortingController.runFolder : "" }
     Binding { target: screen.liveWorkspace; property: "elapsedTimeText"; value: root.liveSortingController ? root.elapsedTimeText(root.liveSortingController.elapsedSeconds) : "" }
     Binding { target: screen.liveWorkspace; property: "persistedEventCountText"; value: root.liveSortingController ? String(root.liveSortingController.persistedEvents) : "" }
+    Binding { target: screen.liveWorkspace; property: "rejectedCountText"; value: root.liveSortingController ? String(root.liveSortingController.rejectedEvents) : "" }
     Binding { target: screen.liveWorkspace; property: "integrityStatusText"; value: root.liveSortingController ? root.liveIntegrityText() : "" }
     Binding { target: screen.liveWorkspace; property: "finalOutcomeText"; value: root.liveSortingController ? root.liveSortingController.stopReason : "" }
     Binding { target: screen.liveWorkspace; property: "outputStatusText"; value: root.liveSortingController && root.liveSortingController.recordFullImageSequence ? qsTr("Each detected event records a Droplet Crop and factual Droplet Log row; the full image sequence is also recorded.") : qsTr("Each detected event records a Droplet Crop and factual Droplet Log row."); when: !!root.liveSortingController }

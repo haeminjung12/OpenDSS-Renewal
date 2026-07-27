@@ -75,6 +75,14 @@ QString createNoModelRun(const QString& root) {
     stage = "create no-model append 3";
     ok = writer->appendEvent(event("event-3", 3, Route::Unresolved), "crop3", &error);
     require(ok, qPrintable(error));
+    stage = "create rejected append";
+    RunEvent rejected;
+    rejected.eventId = "event-4";
+    rejected.detectionTimestamp = "2026-07-24T10:00:01Z";
+    rejected.sourceFrameIndex = 4;
+    rejected.rejected = 1;
+    ok = writer->appendEvent(rejected, {}, &error);
+    require(ok, qPrintable(error));
     stage = "create no-model finalize";
     require(writer->finalize(RunStatus::Completed, "2026-07-24T10:00:02Z",
                              "duration", 19.5, &error),
@@ -91,16 +99,30 @@ void testNoModelRoundTripAndStrictness() {
     QString error;
     auto loaded = RunManifestV2::load(summary, &error);
     require(loaded.has_value(), qPrintable(error));
-    require(!loaded->data().model && loaded->data().events.size() == 3,
+    require(!loaded->data().model && loaded->data().events.size() == 4 &&
+                loaded->data().events.first().rejected == 0 &&
+                loaded->data().events.last().rejected == 1,
             "no-model events round-trip");
     require(loaded->data().cameraSettings.value("exposure_us").toInt() == 100,
             "camera snapshot round-trips");
     const auto& counts = loaded->derivedCounts();
-    require(counts.total == 3 && counts.unclassified == 3 &&
+    require(counts.total == 3 && counts.rejected == 1 &&
+                counts.unclassified == 3 &&
                 counts.decisionHit == 3 && counts.observedHit == 1 &&
                 counts.observedWaste == 1 && counts.observedUnresolved == 1 &&
                 counts.hitDecisionUnresolved == 1,
-            "derived Decision-vs-Observed counts");
+            "rejected count is separate from all accepted-event counts");
+    QFile events(QDir(runRoot).filePath("events.csv"));
+    require(events.open(QIODevice::ReadOnly), "read Droplet Log");
+    const QByteArray csv = events.readAll();
+    const QList<QByteArray> lines = csv.trimmed().split('\n');
+    const QList<QByteArray> rejectedFields = lines.last().split(',');
+    require(!csv.contains("rejection_reason") && rejectedFields.size() == 14 &&
+                rejectedFields.at(4) == "1",
+            "Droplet Log has integer rejected and no rejection_reason column");
+    for (int index = 5; index < rejectedFields.size(); ++index)
+        require(rejectedFields.at(index).isEmpty(),
+                "rejected row contains crop, inference, Decision, route, or DAQ facts");
 
     QFile existing(summary);
     require(existing.open(QIODevice::ReadOnly), "read summary");
@@ -116,6 +138,8 @@ void testNoModelRoundTripAndStrictness() {
     QJsonObject object = QJsonDocument::fromJson(before).object();
     require(!object.contains(QStringLiteral("hit_boundary")),
             "Run summary must not persist Decision Boundary coordinates.");
+    require(object.value("counts").toObject().value("rejected").toInteger() == 1,
+            "Results export omits the separate rejected fact");
     QJsonObject staleCounts = object.value("counts").toObject();
     staleCounts.insert("total", 0);
     object.insert("counts", staleCounts);
@@ -132,6 +156,60 @@ void testNoModelRoundTripAndStrictness() {
     corrupt.write(QJsonDocument(object).toJson());
     corrupt.close();
     require(!RunManifestV2::load(summary, &error), "unknown root field rejected");
+}
+
+void testLegacyThirteenColumnRead() {
+    stage = "legacy 13-column";
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "temporary directory");
+    const QString runRoot = QDir(temporary.path()).filePath("run");
+    QString error;
+    auto writer = RunWriterV2::start(runRoot, baseData(), &error);
+    require(writer.has_value(), qPrintable(error));
+    require(writer->appendEvent(event("legacy-1", 1, Route::Hit), "crop", &error),
+            qPrintable(error));
+    require(writer->finalize(RunStatus::Completed, "2026-07-24T10:00:02Z",
+                             "duration", 19.5, &error),
+            qPrintable(error));
+
+    const QString summaryPath = QDir(runRoot).filePath("run_summary.json");
+    QFile summary(summaryPath);
+    require(summary.open(QIODevice::ReadOnly), "read current Run Summary");
+    QJsonObject legacySummary =
+        QJsonDocument::fromJson(summary.readAll()).object();
+    summary.close();
+    QJsonObject legacyCounts = legacySummary.value("counts").toObject();
+    legacyCounts.remove("rejected");
+    legacySummary.insert("counts", legacyCounts);
+    require(summary.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "rewrite old Run Summary");
+    summary.write(QJsonDocument(legacySummary).toJson());
+    summary.close();
+    require(!RunManifestV2::load(summaryPath, &error),
+            "modern 14-column Run missing counts.rejected must remain invalid");
+
+    QFile events(QDir(runRoot).filePath("events.csv"));
+    require(events.open(QIODevice::ReadOnly), "read current Droplet Log");
+    QList<QByteArray> lines = events.readAll().trimmed().split('\n');
+    events.close();
+    for (QByteArray& line : lines) {
+        QList<QByteArray> fields = line.trimmed().split(',');
+        require(fields.size() == 14, "current Droplet Log fixture column count");
+        fields.removeAt(4);
+        line = fields.join(',');
+    }
+    require(events.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "rewrite legacy Droplet Log");
+    events.write(lines.join('\n'));
+    events.write("\n");
+    events.close();
+
+    auto loaded = RunManifestV2::load(summaryPath, &error);
+    require(loaded.has_value() && loaded->data().events.size() == 1 &&
+                loaded->data().events.first().rejected == 0 &&
+                loaded->derivedCounts().total == 1 &&
+                loaded->derivedCounts().rejected == 0,
+            qPrintable(error));
 }
 
 void testTwoAndThreeClassHistory() {
@@ -408,6 +486,7 @@ void testLivePhysicalOutputRoundTrip() {
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     testNoModelRoundTripAndStrictness();
+    testLegacyThirteenColumnRead();
     testTwoAndThreeClassHistory();
     testValidationEdges();
     testLiveStoppedIntegrityRoundTrip();

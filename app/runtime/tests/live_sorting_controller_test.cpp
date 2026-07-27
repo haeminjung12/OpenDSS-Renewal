@@ -116,7 +116,12 @@ public:
             pixels_.push_back(frame.at<uchar>(0, 0));
         }
         processed.fetch_add(1, std::memory_order_release);
-        return {};
+        DropletDetectionFrame result;
+        if (rejectNext.exchange(false, std::memory_order_acq_rel)) {
+            result.rejectedAreas = rejectedAreas_;
+            result.rejectedCount = 2;
+        }
+        return result;
     }
     QVector<int> pixels() const {
         std::lock_guard lock(mutex_);
@@ -124,8 +129,10 @@ public:
     }
 
     std::atomic_int processed{0};
+    std::atomic_bool rejectNext{false};
 
 private:
+    const double rejectedAreas_[2]{30.0, 56.0};
     mutable std::mutex mutex_;
     QVector<int> pixels_;
 };
@@ -413,6 +420,7 @@ int main(int argc, char** argv) {
 
     controlled->pixel = 11;
     controlled->timestampNs = 1'000'000'000;
+    detector.rejectNext.store(true, std::memory_order_release);
     controlled->delivery = 1;
     ok &= check(waitFor([&] {
                     return detector.processed.load() == 1 &&
@@ -465,6 +473,8 @@ int main(int argc, char** argv) {
                     }) &&
                     controller->stopReason() == QStringLiteral("user") &&
                     !controller->runFolder().isEmpty() &&
+                    controller->persistedEvents() == 0 &&
+                    controller->rejectedEvents() == 2 &&
                     resultsRefreshes == 1 &&
                     refreshedRun == controller->runFolder(),
                 "Stop must finalize, project the result, and refresh Results once.");
@@ -510,7 +520,9 @@ int main(int argc, char** argv) {
                     manifest->data().experimentType == QStringLiteral("sorting") &&
                     manifest->data().notes == QStringLiteral("controller contract") &&
                     !manifest->data().routing.physicalDaqOutputEnabled &&
-                    manifest->data().files.sequencePath.has_value(),
+                    manifest->data().files.sequencePath.has_value() &&
+                    manifest->derivedCounts().total == 0 &&
+                    manifest->derivedCounts().rejected == 2,
                 "Controller drafts must construct the exact accepted Live request.");
 
     controller->startNewRun();

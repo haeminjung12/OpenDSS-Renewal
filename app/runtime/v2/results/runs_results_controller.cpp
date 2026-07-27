@@ -52,7 +52,14 @@ QVariantMap entryMap(const RunEntry &entry)
     result.insert(QStringLiteral("startedAt"), entry.startedAt);
     result.insert(QStringLiteral("durationSeconds"), entry.elapsedDurationSeconds);
     result.insert(QStringLiteral("totalCount"), entry.counts.total);
+    result.insert(QStringLiteral("rejectedCount"), entry.counts.rejected);
     result.insert(QStringLiteral("modelName"), entry.modelName.value_or(QString{}));
+    result.insert(
+        QStringLiteral("summaryText"),
+        QStringLiteral("Total Droplets: %1  |  Rejected: %2  |  Model: %3")
+            .arg(entry.counts.total)
+            .arg(entry.counts.rejected)
+            .arg(entry.modelName.value_or(QStringLiteral("No model"))));
     result.insert(QStringLiteral("recoverable"), entry.recoverable);
     return result;
 }
@@ -79,13 +86,15 @@ QString classSnapshotText(const std::optional<run::ModelSnapshot> &model)
 QString predictedCountsText(const run::RunManifestData &data,
                             const run::RunDerivedCounts &counts)
 {
-    if (!data.model || data.model->classes.isEmpty())
-        return QStringLiteral("Not applicable");
+    QStringList values{QStringLiteral("Rejected: %1").arg(counts.rejected)};
+    if (!data.model || data.model->classes.isEmpty()) {
+        values.append(QStringLiteral("Predicted Classes: Not applicable"));
+        return values.join(QLatin1Char('\n'));
+    }
 
-    QStringList values;
     const qsizetype count = std::min(data.model->classes.size(),
                                      counts.predictedByClass.size());
-    values.reserve(count + (counts.unclassified > 0 ? 1 : 0));
+    values.reserve(1 + count + (counts.unclassified > 0 ? 1 : 0));
     for (qsizetype index = 0; index < count; ++index) {
         const run::RunClassSnapshot &entry = data.model->classes.at(index);
         values.append(QStringLiteral("%1 (%2): %3")
@@ -210,6 +219,7 @@ QVariantMap RunsResultsController::loadedRun() const
     result.insert(QStringLiteral("opendssVersion"), data.opendssVersion);
     result.insert(QStringLiteral("requestedProcessingFps"), data.requestedProcessingFps);
     result.insert(QStringLiteral("achievedProcessingFps"), data.achievedProcessingFps);
+    result.insert(QStringLiteral("rejectedCount"), counts.rejected);
     result.insert(QStringLiteral("predictedCounts"), predictedCountsText(data, counts));
     result.insert(QStringLiteral("decisionHit"), counts.decisionHit);
     result.insert(QStringLiteral("decisionWaste"), counts.decisionWaste);

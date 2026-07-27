@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <atomic>
+#include <chrono>
 #include <iostream>
 #include <string>
 #include <thread>
@@ -41,9 +42,18 @@ bool sameEventResult(const EventResult& lhs, const EventResult& rhs) {
 }
 
 bool sameFastResult(const FastEventResult& lhs, const FastEventResult& rhs) {
-    return lhs.detected == rhs.detected && lhs.fired == rhs.fired &&
-           lhs.lifecycleEnded == rhs.lifecycleEnded && std::abs(lhs.area - rhs.area) < 0.001 &&
-           lhs.bbox == rhs.bbox && samePoint(lhs.centroid, rhs.centroid) && sameMat(lhs.mask, rhs.mask);
+    if (lhs.detected != rhs.detected || lhs.fired != rhs.fired ||
+        lhs.lifecycleEnded != rhs.lifecycleEnded ||
+        lhs.rejectedCount != rhs.rejectedCount ||
+        std::abs(lhs.area - rhs.area) >= 0.001 ||
+        lhs.bbox != rhs.bbox || !samePoint(lhs.centroid, rhs.centroid) ||
+        !sameMat(lhs.mask, rhs.mask))
+        return false;
+    for (std::size_t index = 0; index < lhs.rejectedCount; ++index) {
+        if (std::abs(lhs.rejectedAreas[index] - rhs.rejectedAreas[index]) >= 0.001)
+            return false;
+    }
+    return true;
 }
 
 cv::Mat frame8(int value = 100) {
@@ -53,6 +63,14 @@ cv::Mat frame8(int value = 100) {
 cv::Mat droplet8(const cv::Rect& rect = kDropletRect) {
     cv::Mat frame = frame8();
     cv::rectangle(frame, rect, cv::Scalar(200), cv::FILLED);
+    return frame;
+}
+
+cv::Mat mixedCandidates8() {
+    cv::Mat frame = frame8();
+    cv::rectangle(frame, cv::Rect(8, 8, 5, 6), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, cv::Rect(35, 20, 20, 15), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, cv::Rect(75, 50, 7, 8), cv::Scalar(200), cv::FILLED);
     return frame;
 }
 
@@ -268,15 +286,52 @@ void characterizeFastDetector() {
     liveThresholdDetector.setMinimumContourArea(481);
     FastEventResult suppressed;
     expect(liveThresholdDetector.processFrame(droplet8(), suppressed)
-               && !suppressed.detected,
-           "an immediate threshold above 480 suppresses the next frame");
+               && !suppressed.detected && !suppressed.fired &&
+               suppressed.rejectedCount == 1 &&
+               suppressed.rejectedAreas != nullptr &&
+               suppressed.rejectedAreas[0] == 480.0 &&
+               suppressed.area == 0.0 && suppressed.bbox.empty() &&
+               suppressed.mask.empty(),
+           "an immediate threshold above 480 surfaces only the factual rejected candidate");
     expect(liveThresholdDetector.isReady(),
            "an immediate threshold update preserves background readiness");
     liveThresholdDetector.setMinimumContourArea(480);
     FastEventResult restored;
     expect(liveThresholdDetector.processFrame(droplet8(), restored)
-               && restored.detected,
-           "an immediate threshold of 480 accepts the next frame without reset");
+               && restored.detected && restored.fired && restored.rejectedCount == 0,
+           "a rejected candidate does not become a track before the qualified frame");
+
+    FastEventConfig mixedConfig = cfg;
+    mixedConfig.minArea = 100.0;
+    FastEventDetector mixedDetector(mixedConfig);
+    expect(!mixedDetector.addBackgroundFrame(frame8()) &&
+               mixedDetector.addBackgroundFrame(frame8()),
+           "mixed-candidate detector establishes its background");
+    FastEventResult mixed;
+    expect(mixedDetector.processFrame(mixedCandidates8(), mixed) &&
+               mixed.detected && mixed.fired && mixed.area == 300.0 &&
+               mixed.bbox == cv::Rect(35, 20, 20, 15) &&
+               mixed.rejectedCount == 2 && mixed.rejectedAreas != nullptr &&
+               mixed.rejectedAreas[0] == 30.0 && mixed.rejectedAreas[1] == 56.0,
+           "one accepted result coexists with every ordered undersized candidate");
+    const double* rejectedStorage = mixed.rejectedAreas;
+    FastEventResult mixedRepeated;
+    expect(mixedDetector.processFrame(mixedCandidates8(), mixedRepeated) &&
+               mixedRepeated.rejectedCount == 2 &&
+               mixedRepeated.rejectedAreas == rejectedStorage,
+           "the rejected-candidate buffer is reused without steady-state frame allocation");
+    const auto replayStarted = std::chrono::steady_clock::now();
+    for (int index = 0; index < 2000; ++index) {
+        FastEventResult replay;
+        expect(mixedDetector.processFrame(mixedCandidates8(), replay) &&
+                   replay.rejectedCount == 2 &&
+                   replay.rejectedAreas == rejectedStorage,
+               "bounded mixed-candidate replay preserves reusable storage");
+    }
+    const auto replayElapsed =
+        std::chrono::steady_clock::now() - replayStarted;
+    expect(replayElapsed < std::chrono::seconds(5),
+           "bounded mixed-candidate replay has no material hot-path regression");
 
     std::atomic<bool> settersDone{false};
     std::thread setter([&] {

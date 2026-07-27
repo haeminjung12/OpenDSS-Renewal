@@ -670,23 +670,49 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         if (stopRequested())
             break;
 
+        for (std::size_t index = 0; index < detection.rejectedCount; ++index) {
+            if (!detection.rejectedAreas ||
+                !std::isfinite(detection.rejectedAreas[index]) ||
+                detection.rejectedAreas[index] <= 0.0) {
+                localError = QStringLiteral("Rejected candidate area is invalid.");
+                processingOk = false;
+                break;
+            }
+            ++eventNumber;
+            run::RunEvent event;
+            event.eventId =
+                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
+            event.detectionTimestamp =
+                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+            event.sourceFrameIndex = frameIndex;
+            event.rejected = 1;
+            if (!writer->appendEvent(event, {}, &localError)) {
+                processingOk = false;
+                break;
+            }
+        }
+        if (!processingOk)
+            break;
+
         if (detection.eventEntered) {
             if (!finalizePending()) {
                 processingOk = false;
                 break;
             }
+            ++eventNumber;
+            const QString eventId =
+                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
+            const QString detectionTimestamp =
+                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
             desktop_app::DatasetCrop crop;
-            if (!desktop_app::CropService::makeDatasetCrop(frame, detection.bbox, &crop,
-                                                           &localError)) {
+            if (!desktop_app::CropService::makeDatasetCrop(
+                    frame, detection.bbox, &crop, &localError)) {
                 processingOk = false;
                 break;
             }
             pending.emplace();
-            ++eventNumber;
-            pending->event.eventId =
-                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
-            pending->event.detectionTimestamp =
-                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
+            pending->event.eventId = eventId;
+            pending->event.detectionTimestamp = detectionTimestamp;
             pending->event.sourceFrameIndex = frameIndex;
             pending->event.cropPath =
                 QStringLiteral("crops/droplet_%1.png")
@@ -701,12 +727,17 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                 inferenceTimer.start();
                 auto result = model->classify(crop.image, &localError);
                 const double inferenceMs =
-                    static_cast<double>(inferenceTimer.nsecsElapsed()) / 1'000'000.0;
-                if (!result || result->scores.size() != model->snapshot.classes.size() ||
+                    static_cast<double>(inferenceTimer.nsecsElapsed()) /
+                    1'000'000.0;
+                if (!result ||
+                    result->scores.size() != model->snapshot.classes.size() ||
                     std::any_of(result->scores.begin(), result->scores.end(),
-                                [](double score) { return !std::isfinite(score); })) {
+                                [](double score) {
+                                    return !std::isfinite(score);
+                                })) {
                     if (localError.isEmpty())
-                        localError = QStringLiteral("Model inference result is invalid.");
+                        localError =
+                            QStringLiteral("Model inference result is invalid.");
                     processingOk = false;
                     break;
                 }

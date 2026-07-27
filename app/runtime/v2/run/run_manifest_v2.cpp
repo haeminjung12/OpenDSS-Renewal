@@ -195,10 +195,17 @@ bool parseCsv(const QByteArray& bytes, QVector<QStringList>& rows, QString* erro
 
 const QStringList CsvHeader{
     "event_id",          "detection_timestamp", "source_frame_index",
-    "effective_configuration_id", "crop_path", "predicted_class_id",
-    "score_class_0",     "score_class_1",        "score_class_2",
-    "decision",          "observed_route",       "daq_pulse_status",
-    "inference_time_ms",
+    "effective_configuration_id", "rejected",    "crop_path",
+    "predicted_class_id", "score_class_0",       "score_class_1",
+    "score_class_2",     "decision",             "observed_route",
+    "daq_pulse_status",  "inference_time_ms",
+};
+const QStringList LegacyCsvHeader{
+    "event_id",          "detection_timestamp", "source_frame_index",
+    "effective_configuration_id",                "crop_path",
+    "predicted_class_id", "score_class_0",       "score_class_1",
+    "score_class_2",     "decision",             "observed_route",
+    "daq_pulse_status",  "inference_time_ms",
 };
 
 bool validateModel(const std::optional<ModelSnapshot>& model, QString* error) {
@@ -224,8 +231,17 @@ bool validateModel(const std::optional<ModelSnapshot>& model, QString* error) {
 bool validateEvent(const RunManifestData& data, const RunEvent& event, QString* error) {
     if (event.eventId.trimmed().isEmpty() ||
         !QDateTime::fromString(event.detectionTimestamp, Qt::ISODate).isValid() ||
-        event.sourceFrameIndex <= 0 || event.effectiveConfigurationId != "initial") {
+        event.sourceFrameIndex <= 0 || event.effectiveConfigurationId != "initial" ||
+        (event.rejected != 0 && event.rejected != 1)) {
         return fail(error, "Event identity, timestamp, frame index, or configuration is invalid.");
+    }
+    if (event.rejected == 1) {
+        if (!event.cropPath.isEmpty() || event.predictedClassId ||
+            !event.scores.isEmpty() || event.inferenceTimeMs ||
+            event.daqPulseStatus != DaqPulseStatus::NotRequested) {
+            return fail(error, "Rejected events cannot contain crop, inference, or DAQ facts.");
+        }
+        return true;
     }
     if (!safeRelative(event.cropPath, false, error) ||
         !(event.cropPath == "crops" || event.cropPath.startsWith("crops/"))) {
@@ -295,6 +311,10 @@ RunDerivedCounts derive(const RunManifestData& data) {
     if (data.model)
         result.predictedByClass.fill(0, data.model->classes.size());
     for (const auto& event : data.events) {
+        if (event.rejected == 1) {
+            ++result.rejected;
+            continue;
+        }
         ++result.total;
         if (event.predictedClassId && data.model) {
             for (int i = 0; i < data.model->classes.size(); ++i) {
@@ -427,10 +447,12 @@ bool validateData(const RunManifestData& data, QString* error) {
     for (const auto& event : data.events) {
         if (!validateEvent(data, event, error))
             return false;
-        if (ids.contains(event.eventId) || crops.contains(event.cropPath))
+        if (ids.contains(event.eventId) ||
+            (!event.cropPath.isEmpty() && crops.contains(event.cropPath)))
             return fail(error, "Event IDs and crop paths must be unique.");
         ids.insert(event.eventId);
-        crops.insert(event.cropPath);
+        if (!event.cropPath.isEmpty())
+            crops.insert(event.cropPath);
     }
     return true;
 }
@@ -446,6 +468,7 @@ QJsonObject derivedJson(const RunManifestData& data, const RunDerivedCounts& val
     }
     return QJsonObject{
         {"total", value.total},
+        {"rejected", value.rejected},
         {"predicted_classes", predicted},
         {"unclassified", value.unclassified},
         {"decision", QJsonObject{{"hit", value.decisionHit}, {"waste", value.decisionWaste}}},
@@ -528,11 +551,17 @@ std::optional<RunEvent> eventFromRow(const QStringList& row, QString* error) {
         return std::nullopt;
     }
     event.effectiveConfigurationId = row.at(3);
-    event.cropPath = row.at(4);
-    if (!row.at(5).isEmpty())
-        event.predictedClassId = row.at(5);
+    bool rejectedOk = false;
+    event.rejected = row.at(4).toInt(&rejectedOk);
+    if (!rejectedOk || (event.rejected != 0 && event.rejected != 1)) {
+        fail(error, "rejected must be integer 0 or 1.");
+        return std::nullopt;
+    }
+    event.cropPath = row.at(5);
+    if (!row.at(6).isEmpty())
+        event.predictedClassId = row.at(6);
     bool emptyScoreSeen = false;
-    for (int i = 6; i <= 8; ++i) {
+    for (int i = 7; i <= 9; ++i) {
         if (row.at(i).isEmpty()) {
             emptyScoreSeen = true;
             continue;
@@ -549,24 +578,32 @@ std::optional<RunEvent> eventFromRow(const QStringList& row, QString* error) {
         }
         event.scores.push_back(value);
     }
-    if (!parseEnum(row.at(9), {{"Hit", Route::Hit}, {"Waste", Route::Waste}},
-                   event.decision) ||
-        !parseEnum(row.at(10), {{"Hit", Route::Hit}, {"Waste", Route::Waste},
-                                {"Unresolved", Route::Unresolved}},
-                   event.observedRoute) ||
-        !parseEnum(row.at(11),
-                   {{"not_requested", DaqPulseStatus::NotRequested},
-                    {"requested", DaqPulseStatus::Requested},
-                    {"issued", DaqPulseStatus::Issued},
-                    {"suppressed_not_issued", DaqPulseStatus::SuppressedNotIssued},
-                    {"failed", DaqPulseStatus::Failed}},
-                   event.daqPulseStatus)) {
-        fail(error, "Droplet Log contains an unsupported enum value.");
-        return std::nullopt;
+    if (event.rejected == 1) {
+        if (!row.at(10).isEmpty() || !row.at(11).isEmpty() ||
+            !row.at(12).isEmpty()) {
+            fail(error, "Rejected rows cannot contain Decision, Observed Route, or DAQ facts.");
+            return std::nullopt;
+        }
+    } else {
+        if (!parseEnum(row.at(10), {{"Hit", Route::Hit}, {"Waste", Route::Waste}},
+                       event.decision) ||
+            !parseEnum(row.at(11), {{"Hit", Route::Hit}, {"Waste", Route::Waste},
+                                    {"Unresolved", Route::Unresolved}},
+                       event.observedRoute) ||
+            !parseEnum(row.at(12),
+                       {{"not_requested", DaqPulseStatus::NotRequested},
+                        {"requested", DaqPulseStatus::Requested},
+                        {"issued", DaqPulseStatus::Issued},
+                        {"suppressed_not_issued", DaqPulseStatus::SuppressedNotIssued},
+                        {"failed", DaqPulseStatus::Failed}},
+                       event.daqPulseStatus)) {
+            fail(error, "Droplet Log contains an unsupported enum value.");
+            return std::nullopt;
+        }
     }
-    if (!row.at(12).isEmpty()) {
+    if (!row.at(13).isEmpty()) {
         bool ok = false;
-        const double value = row.at(12).toDouble(&ok);
+        const double value = row.at(13).toDouble(&ok);
         if (!ok || !std::isfinite(value) || value < 0.0) {
             fail(error, "inference_time_ms must be finite and nonnegative.");
             return std::nullopt;
@@ -576,16 +613,28 @@ std::optional<RunEvent> eventFromRow(const QStringList& row, QString* error) {
     return event;
 }
 
-bool loadEvents(const QString& path, QVector<RunEvent>& events, QString* error) {
+bool loadEvents(const QString& path, QVector<RunEvent>& events, bool* legacy,
+                QString* error) {
     QFile file(path);
     if (!file.open(QIODevice::ReadOnly))
         return fail(error, "Could not read events.csv.");
     QVector<QStringList> rows;
-    if (!parseCsv(file.readAll(), rows, error) || rows.isEmpty() || rows.takeFirst() != CsvHeader)
+    if (!parseCsv(file.readAll(), rows, error) || rows.isEmpty())
         return error && !error->isEmpty() ? false : fail(error, "events.csv header is invalid.");
-    for (const auto& row : rows) {
+    const QStringList header = rows.takeFirst();
+    const bool legacyHeader = header == LegacyCsvHeader;
+    if (legacy)
+        *legacy = legacyHeader;
+    if (!legacyHeader && header != CsvHeader)
+        return error && !error->isEmpty() ? false : fail(error, "events.csv header is invalid.");
+    for (auto row : rows) {
         if (row.size() == 1 && row.first().isEmpty())
             continue;
+        if (legacyHeader) {
+            if (row.size() != LegacyCsvHeader.size())
+                return fail(error, "Droplet Log row has the wrong column count.");
+            row.insert(4, QStringLiteral("0"));
+        }
         auto event = eventFromRow(row, error);
         if (!event)
             return false;
@@ -826,12 +875,15 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
         QFileInfo(path).fileName() == QStringLiteral("run_summary.partial.json");
     const QString eventFile = partialSummary ? QStringLiteral("events.partial.csv")
                                              : data.files.eventsCsv;
-    if (!loadEvents(QDir(runRoot).filePath(eventFile), data.events, error) ||
+    bool legacyEvents = false;
+    if (!loadEvents(QDir(runRoot).filePath(eventFile), data.events, &legacyEvents,
+                    error) ||
         !validateData(data, error)) {
         return std::nullopt;
     }
     for (const auto& event : data.events) {
-        if (!containedExistingFile(runRoot, event.cropPath, error))
+        if (!event.cropPath.isEmpty() &&
+            !containedExistingFile(runRoot, event.cropPath, error))
             return std::nullopt;
     }
     manifest.derived_ = derive(data);
@@ -840,12 +892,22 @@ std::optional<RunManifestV2> RunManifestV2::load(const QString& path, QString* e
         fail(error, "Run derived fields must be objects.");
         return std::nullopt;
     }
-    if (!partialSummary &&
-        (!exactObject(root.value("counts").toObject(),
-                      derivedJson(data, manifest.derived_), "counts", error) ||
-         !exactObject(root.value("decision_vs_observed").toObject(),
-                      matrixJson(manifest.derived_), "decision_vs_observed", error))) {
-        return std::nullopt;
+    if (!partialSummary) {
+        const QJsonObject actualCounts = root.value("counts").toObject();
+        QJsonObject expectedCounts = derivedJson(data, manifest.derived_);
+        bool countsMatch = actualCounts == expectedCounts;
+        if (!countsMatch && legacyEvents) {
+            expectedCounts.remove(QStringLiteral("rejected"));
+            countsMatch = actualCounts == expectedCounts;
+        }
+        if (!countsMatch ||
+            !exactObject(root.value("decision_vs_observed").toObject(),
+                         matrixJson(manifest.derived_), "decision_vs_observed",
+                         error)) {
+            if (!countsMatch)
+                fail(error, "counts does not match finalized events.");
+            return std::nullopt;
+        }
     }
     return manifest;
 }
@@ -861,7 +923,8 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
     const QString eventFile = partialSummary ? QStringLiteral("events.partial.csv")
                                              : data.files.eventsCsv;
     QVector<RunEvent> persistedEvents;
-    if (!loadEvents(QDir(runRoot).filePath(eventFile), persistedEvents, error))
+    if (!loadEvents(QDir(runRoot).filePath(eventFile), persistedEvents, nullptr,
+                    error))
         return false;
     RunManifestData persisted = data;
     persisted.events = persistedEvents;
@@ -875,14 +938,16 @@ bool RunManifestV2::save(const QString& path, const RunManifestData& data, QStri
         if (a.eventId != b.eventId || a.detectionTimestamp != b.detectionTimestamp ||
             a.sourceFrameIndex != b.sourceFrameIndex ||
             a.effectiveConfigurationId != b.effectiveConfigurationId ||
-            a.cropPath != b.cropPath || a.predictedClassId != b.predictedClassId ||
+            a.rejected != b.rejected || a.cropPath != b.cropPath ||
+            a.predictedClassId != b.predictedClassId ||
             a.scores != b.scores || a.decision != b.decision ||
             a.observedRoute != b.observedRoute ||
             a.daqPulseStatus != b.daqPulseStatus ||
             a.inferenceTimeMs != b.inferenceTimeMs) {
             return fail(error, "events.csv does not match the Run event set.");
         }
-        if (!containedExistingFile(runRoot, data.events.at(i).cropPath, error))
+        if (!data.events.at(i).cropPath.isEmpty() &&
+            !containedExistingFile(runRoot, data.events.at(i).cropPath, error))
             return false;
     }
 

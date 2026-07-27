@@ -5,7 +5,9 @@ DropletDetectionFrame mapFastResult(const FastEventResult& result) {
     DropletDetectionFrame frame;
     frame.detected = result.detected;
     frame.eventEntered = result.fired;
-    frame.lifecycleEnded = result.lifecycleEnded;
+frame.lifecycleEnded = result.lifecycleEnded;
+frame.rejectedAreas = result.rejectedAreas;
+frame.rejectedCount = result.rejectedCount;
     frame.area = result.area;
     frame.bbox = result.bbox;
     frame.centroid = result.centroid;

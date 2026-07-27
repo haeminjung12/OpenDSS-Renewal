@@ -51,6 +51,7 @@ struct RunEvent {
     QString detectionTimestamp;
     qint64 sourceFrameIndex = 0;
     QString effectiveConfigurationId = QStringLiteral("initial");
+    int rejected = 0;
     QString cropPath;
     std::optional<QString> predictedClassId;
     QVector<double> scores;
@@ -112,6 +113,7 @@ struct RunManifestData {
 
 struct RunDerivedCounts {
     qint64 total = 0;
+    qint64 rejected = 0;
     QVector<qint64> predictedByClass;
     qint64 unclassified = 0;
     qint64 decisionHit = 0;

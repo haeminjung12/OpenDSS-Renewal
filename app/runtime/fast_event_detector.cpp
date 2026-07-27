@@ -35,8 +35,13 @@ cv::Mat computeMean8(const std::vector<cv::Mat>& frames) {
     return mean;
 }
 
-FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAreaByFrac, int maxArea, int margin,
-                                   int diffThresh, int minBbox, const cv::Mat& morphKernel) {
+FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAreaByFrac,
+                                   int maxArea, int margin, int diffThresh, int minBbox,
+                                   const cv::Mat& morphKernel,
+                                   std::vector<double>& rejectedAreas,
+                                   double inverseScale, double areaScale,
+                                   const cv::Size& sourceSize, int sourceMargin,
+                                   int sourceMinBbox) {
     FastEventResult det;
     if (diff8.empty())
         return det;
@@ -49,7 +54,7 @@ FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAre
     }
 
     int nonZero = cv::countNonZero(mask);
-    if (nonZero < minArea || nonZero < minAreaByFrac || nonZero > maxArea) {
+    if (nonZero < minAreaByFrac || nonZero > maxArea) {
         return det;
     }
     det.mask = mask;
@@ -63,7 +68,7 @@ FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAre
     int bestArea = 0;
     for (int i = 1; i < count; ++i) {
         int area = stats.at<int>(i, cv::CC_STAT_AREA);
-        if (area < minArea || area < minAreaByFrac || area > maxArea)
+        if (area < minAreaByFrac || area > maxArea)
             continue;
         int x = stats.at<int>(i, cv::CC_STAT_LEFT);
         int y = stats.at<int>(i, cv::CC_STAT_TOP);
@@ -74,6 +79,15 @@ FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAre
             continue;
         if (!isInsideFrame(bbox, diff8.size(), margin))
             continue;
+        if (area < minArea) {
+            const cv::Rect sourceBbox = scaleRect(bbox, inverseScale);
+            if (sourceBbox.width >= sourceMinBbox &&
+                sourceBbox.height >= sourceMinBbox &&
+                isInsideFrame(sourceBbox, sourceSize, sourceMargin)) {
+                rejectedAreas.push_back(static_cast<double>(area) / areaScale);
+            }
+            continue;
+        }
         if (area > bestArea) {
             bestArea = area;
             bestIdx = i;
@@ -81,8 +95,10 @@ FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAre
         }
     }
 
-    if (bestIdx < 0)
+    if (bestIdx < 0) {
+        det.mask.release();
         return det;
+    }
     det.detected = true;
     det.area = static_cast<double>(bestArea);
     det.centroid.x = static_cast<float>(centroids.at<double>(bestIdx, 0));
@@ -255,6 +271,7 @@ bool FastEventDetector::addBackgroundFrame(const cv::Mat& gray8In) {
 
 bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& out) {
     out = FastEventResult{};
+    rejectedAreas_.clear();
     if (gray8In.empty())
         return false;
     if (!ready_) {
@@ -284,9 +301,11 @@ bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& ou
     const int minAreaScaled = std::max(
         1, static_cast<int>(std::ceil(
                minimumContourArea_.load(std::memory_order_acquire) * areaScale_)));
-    FastEventResult det = detectFromDiffFast(diff8, minAreaScaled, minAreaByFracScaled_,
-                                             std::max(maxAreaScaled_, minAreaScaled), marginScaled_,
-                                             cfg_.diffThresh, minBboxScaled_, morphKernel_);
+    FastEventResult det = detectFromDiffFast(
+        diff8, minAreaScaled, minAreaByFracScaled_,
+        std::max(maxAreaScaled_, minAreaScaled), marginScaled_,
+        cfg_.diffThresh, minBboxScaled_, morphKernel_, rejectedAreas_,
+        1.0 / cfg_.scale, areaScale_, gray8.size(), cfg_.margin, cfg_.minBbox);
 
     if (det.detected && cfg_.scale != 1.0) {
         det.bbox = scaleRect(det.bbox, 1.0 / cfg_.scale);
@@ -335,7 +354,9 @@ bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& ou
     }
 
     det.fired = fired;
-    det.lifecycleEnded = lifecycleEnded;
+det.lifecycleEnded = lifecycleEnded;
+det.rejectedAreas = rejectedAreas_.empty() ? nullptr : rejectedAreas_.data();
+det.rejectedCount = rejectedAreas_.size();
     out = det;
     return true;
 }

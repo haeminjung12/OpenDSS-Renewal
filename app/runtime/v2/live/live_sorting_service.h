@@ -64,6 +64,7 @@ struct LiveSortingSnapshot {
     QString runFolder;
     double elapsedSeconds = 0.0;
     qint64 persistedEvents = 0;
+    qint64 rejectedEvents = 0;
     run::RunIntegrity integrity;
     QString diagnostic;
     QString stopReason;

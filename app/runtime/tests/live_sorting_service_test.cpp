@@ -311,11 +311,6 @@ void testEveryDropletPulseRouteAndStopped() {
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
     std::atomic_int pulses{0};
-    std::atomic_bool pulseBeforeTrackEnd{false};
-    detector.onProcess = [&](int index) {
-        if ((index == 1 || index == 2 || index == 3) && pulses.load() != 0)
-            pulseBeforeTrackEnd.store(true);
-    };
     live::LiveSortingService service(
         operations, detector, nullptr,
         [&](bool outputEnabled, QString*) {
@@ -337,14 +332,20 @@ void testEveryDropletPulseRouteAndStopped() {
             "Live locks held");
     offerAndWait(service, detector, 1, 1);
     offerAndWait(service, detector, 2, 2);
-    require(pulses.load() == 0, "one miss retains the pending Live track");
+    require(waitFor([&] {
+                return pulses.load() == 1 &&
+                       service.snapshot().persistedEvents == 0;
+            }),
+            "first miss preserves immediate DAQ dispatch while the observer row "
+            "remains pending");
     offerAndWait(service, detector, 3, 3);
     require(service.updateDecisionBoundary(
                 {5.0, run::HitSide::NegativeY, 8, 8}),
             "replace Live observer boundary while Running");
     offerAndWait(service, detector, 4, 4);
-    require(waitFor([&] { return pulses.load() == 1; }),
-            "Hit pulse follows track-end finalization");
+    require(waitFor([&] { return service.snapshot().persistedEvents == 1; }) &&
+                pulses.load() == 1,
+            "track end persists the observed route without a duplicate pulse");
     require(service.stop(&error), qPrintable(error));
     const auto data = loadRun(temporary.path());
     require(data.status == run::RunStatus::Stopped && data.events.size() == 1 &&
@@ -352,7 +353,7 @@ void testEveryDropletPulseRouteAndStopped() {
                 data.events.first().observedRoute == run::Route::Waste &&
                 data.events.first().daqPulseStatus ==
                     run::DaqPulseStatus::Issued &&
-                pulses.load() == 1 && !pulseBeforeTrackEnd.load(),
+                pulses.load() == 1,
             "second miss finalizes with reappeared final Y and current Live boundary");
     require(!operations.snapshot().kind, "locks released");
     require(service.start(request(temporary.path()), &error), qPrintable(error));

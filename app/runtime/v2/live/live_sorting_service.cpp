@@ -194,6 +194,8 @@ struct PendingEvent {
     run::RunEvent event;
     QByteArray cropBytes;
     std::optional<double> lastY;
+    bool decisionResolved = false;
+    bool pulseFailed = false;
 };
 
 class ConsumerFault final {};
@@ -861,8 +863,10 @@ private:
                     return;
                 }
             }
-        } else if (detection.lifecycleEnded) {
-            finalizePending();
+        } else if (!detection.detected && pending) {
+            resolvePendingDecision();
+            if (pending->pulseFailed || detection.lifecycleEnded)
+                finalizePending();
         }
         if (pending && detection.detected && std::isfinite(detection.centroid.y) &&
             detection.centroid.y >= 0.0) {
@@ -875,6 +879,7 @@ private:
     void finalizePending() {
         if (!pending)
             return;
+        resolvePendingDecision();
         run::HitBoundarySnapshot boundary;
         {
             std::lock_guard lock(boundaryMutex);
@@ -884,6 +889,20 @@ private:
         if (pending->lastY)
             route.addSample(*pending->lastY);
         pending->event.observedRoute = route.finalize();
+        const bool pulseFailed = pending->pulseFailed;
+        PersistenceItem item;
+        item.sourceIndex = pending->event.sourceFrameIndex;
+        item.event = std::move(pending->event);
+        item.cropBytes = std::move(pending->cropBytes);
+        enqueue(std::move(item));
+        pending.reset();
+        if (pulseFailed)
+            throw ConsumerFault{};
+    }
+
+    void resolvePendingDecision() {
+        if (!pending || pending->decisionResolved)
+            return;
         QString localError;
         const auto decision = decision::DecisionService::decide(
             request.triggerMode, pending->event.predictedClassId,
@@ -894,7 +913,7 @@ private:
             consumerFault(sourceFrameIndex, localError);
         }
         pending->event.decision = *decision;
-        bool pulseFailed = false;
+        pending->decisionResolved = true;
         std::unique_lock pulseLock(pulseMutex);
         if (*decision == run::Route::Waste) {
             pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
@@ -925,17 +944,9 @@ private:
                             : localError;
                 }
                 fatal.store(true, std::memory_order_release);
-                pulseFailed = true;
+                pending->pulseFailed = true;
             }
         }
-        PersistenceItem item;
-        item.sourceIndex = pending->event.sourceFrameIndex;
-        item.event = std::move(pending->event);
-        item.cropBytes = std::move(pending->cropBytes);
-        enqueue(std::move(item));
-        pending.reset();
-        if (pulseFailed)
-            throw ConsumerFault{};
     }
 
     bool enqueue(PersistenceItem item) {

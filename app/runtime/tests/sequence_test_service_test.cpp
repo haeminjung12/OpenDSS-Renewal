@@ -238,22 +238,36 @@ void lifecycleAndBoundaryReplacement() {
                         detection(true, false, 6.0f),
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
-    sequence_test::SequenceTestService service(operations, detector, nullptr);
+    int pulseCalls = 0;
+    bool pulseBeforeReappearance = false;
+    sequence_test::SequenceTestService service(
+        operations, detector, nullptr, {},
+        [&](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [](QString*) { return true; });
     bool boundaryUpdated = false;
     detector.onProcess = [&](int index) {
         if (index == 2) {
+            pulseBeforeReappearance = pulseCalls == 1;
             boundaryUpdated = service.updateDecisionBoundary(
-                {7.0, run::HitSide::NegativeY, 8, 8});
+                {5.0, run::HitSide::NegativeY, 8, 8});
         }
     };
 
     QString error;
-    require(service.run(request(manifest, output), &error), qPrintable(error));
+    auto value = request(manifest, output);
+    value.physicalDaqOutputEnabled = true;
+    require(service.run(value, &error), qPrintable(error));
     const auto data = loadRun(output);
-    require(boundaryUpdated && data.events.size() == 1 &&
-                data.events.first().observedRoute == run::Route::Hit,
-            "Sequence one-miss retention, reappeared final Y, second-miss end, "
-            "and Running boundary replacement failed.");
+    require(boundaryUpdated && pulseBeforeReappearance && pulseCalls == 1 &&
+                data.events.size() == 1 &&
+                data.events.first().decision == run::Route::Hit &&
+                data.events.first().observedRoute == run::Route::Waste &&
+                data.events.first().daqPulseStatus == run::DaqPulseStatus::Issued,
+            "Sequence first-miss DAQ timing/count or replacement of the initial "
+            "Hit mapping with the Running Waste mapping failed.");
 }
 
 void classBasedModel() {
@@ -438,10 +452,10 @@ void daqHitMissAndSuppressionStatuses() {
                               detection(false, false, 0.0f)};
     OperationCoordinator issuedOperations;
     int issuedCalls = 0;
-    bool issuedBeforeTrackEnd = false;
+    bool issuedBeforeMiss = false;
     issuedDetector.onProcess = [&](int index) {
         if (index == 1 && issuedCalls != 0)
-            issuedBeforeTrackEnd = true;
+            issuedBeforeMiss = true;
     };
     sequence_test::SequenceTestService issuedService(
         issuedOperations, issuedDetector, nullptr, {},
@@ -456,12 +470,13 @@ void daqHitMissAndSuppressionStatuses() {
     QString error;
     require(issuedService.run(issuedRequest, &error), qPrintable(error));
     const auto issuedData = loadRun(issuedOutput);
-    require(issuedCalls == 1 && !issuedBeforeTrackEnd &&
+    require(issuedCalls == 1 && !issuedBeforeMiss &&
                 issuedData.routing.physicalDaqOutputEnabled &&
                 issuedData.events.size() == 1 &&
                 issuedData.events.at(0).daqPulseStatus ==
                     run::DaqPulseStatus::Issued,
-            "A Hit did not wait for track end, issue exactly once, or persist Issued.");
+            "A Hit dispatched before the first miss, did not issue exactly once, "
+            "or did not persist Issued.");
 
     QTemporaryDir missTemporary;
     const QString missSequence = QDir(missTemporary.path()).filePath("sequence");

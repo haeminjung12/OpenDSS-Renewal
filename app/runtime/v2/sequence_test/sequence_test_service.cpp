@@ -247,6 +247,9 @@ struct PendingEvent {
     run::RunEvent event;
     QByteArray cropBytes;
     std::optional<double> lastY;
+    bool decisionResolved = false;
+    bool pulseFailed = false;
+    QString pulseError;
 };
 
 class RunningGuard final {
@@ -535,27 +538,17 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     QString failureReason = QStringLiteral("processing_failed");
     std::optional<PendingEvent> pending;
 
-    const auto finalizePending = [&]() -> bool {
-        if (!pending)
+    const auto resolvePendingDecision = [&]() -> bool {
+        if (!pending || pending->decisionResolved)
             return true;
-        run::HitBoundarySnapshot boundary;
-        {
-            std::lock_guard lock(boundaryMutex_);
-            boundary = currentBoundary_;
-        }
-        routing::ObservedRouteTracker route(std::move(boundary));
-        if (pending->lastY)
-            route.addSample(*pending->lastY);
-        pending->event.observedRoute = route.finalize();
         const auto decision = decision::DecisionService::decide(
             request.triggerMode, pending->event.predictedClassId,
             request.hitClassId, &localError);
         if (!decision)
             return false;
         pending->event.decision = *decision;
+        pending->decisionResolved = true;
 
-        bool pulseFailed = false;
-        QString pulseError;
         if (pending->event.decision == run::Route::Waste) {
             pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
         } else if (!request.physicalDaqOutputEnabled) {
@@ -612,21 +605,40 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                     qWarning().noquote()
                         << "Sequence Test DAQ Hit output suppressed:" << localError;
                 } else if (pulseStatus == run::DaqPulseStatus::Failed) {
-                    pulseError =
+                    pending->pulseError =
                         localError.isEmpty()
                             ? QStringLiteral("The Sequence Test DAQ Hit output failed.")
                             : localError;
                     failureReason = QStringLiteral("daq_pulse_failed");
-                    pulseFailed = true;
+                    pending->pulseFailed = true;
                 }
             }
         }
+        return true;
+    };
+
+    const auto finalizePending = [&]() -> bool {
+        if (!pending)
+            return true;
+        if (!resolvePendingDecision())
+            return false;
+        run::HitBoundarySnapshot boundary;
+        {
+            std::lock_guard lock(boundaryMutex_);
+            boundary = currentBoundary_;
+        }
+        routing::ObservedRouteTracker route(std::move(boundary));
+        if (pending->lastY)
+            route.addSample(*pending->lastY);
+        pending->event.observedRoute = route.finalize();
 
         if (!writer->appendEvent(pending->event, pending->cropBytes, &localError)) {
-            if (pulseFailed && localError != pulseError)
-                localError = pulseError + QStringLiteral(" ") + localError;
+            if (pending->pulseFailed && localError != pending->pulseError)
+                localError = pending->pulseError + QStringLiteral(" ") + localError;
             return false;
         }
+        const bool pulseFailed = pending->pulseFailed;
+        const QString pulseError = pending->pulseError;
         pending.reset();
         if (pulseFailed) {
             localError = pulseError;
@@ -708,9 +720,16 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                 pending->event.scores = result->scores;
                 pending->event.inferenceTimeMs = inferenceMs;
             }
-        } else if (detection.lifecycleEnded && !finalizePending()) {
-            processingOk = false;
-            break;
+        } else if (!detection.detected && pending) {
+            if (!resolvePendingDecision()) {
+                processingOk = false;
+                break;
+            }
+            if ((pending->pulseFailed || detection.lifecycleEnded) &&
+                !finalizePending()) {
+                processingOk = false;
+                break;
+            }
         }
         if (pending && detection.detected && std::isfinite(detection.centroid.y) &&
             detection.centroid.y >= 0.0) {

@@ -486,7 +486,7 @@ int main(int argc, char** argv) {
              QStringLiteral("representative"),
              provenance.createdAt,
              QRect(0, 0, 64, 64),
-             item.manifestIndex});
+             index + 1});
         fixtureData.labels.push_back(
             {QStringLiteral("label-%1").arg(index), item.recordId,
              item.classId, false});

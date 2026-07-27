@@ -1120,7 +1120,7 @@ target_link_libraries(live_sorting_controller_test PRIVATE
 add_test(
   NAME live_sorting_controller_test
   COMMAND ${CMAKE_COMMAND} -E env
-    "PATH=$<TARGET_FILE_DIR:desktop_app>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    "PATH=$<TARGET_FILE_DIR:live_sorting_controller_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:live_sorting_controller_test>
 )
 set_tests_properties(live_sorting_controller_test PROPERTIES TIMEOUT 30)

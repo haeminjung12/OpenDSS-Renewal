@@ -13,7 +13,7 @@ Item {
     property bool hitBoundaryDefined: false
     property real hitBoundaryXRatio: 0.0
     property real hitBoundaryYRatio: 0.5
-    property string hitBoundarySide: "top"
+    property string hitBoundarySide: "bottom"
     property bool hitBoundaryEditable: true
     property bool hitBoundaryPlacementArmed: false
     property bool smallDropletSelectionArmed: false
@@ -63,7 +63,7 @@ Item {
     property alias bottomIsHitControl: bottomIsHitControl
     property bool setupProfileExpanded: !setupLocked
     property bool runInformationExpanded: !setupLocked
-    property bool triggerTimingExpanded: !setupLocked
+    property bool triggerTimingExpanded: !completed
     property bool outputRecordingExpanded: !setupLocked
     property bool runningExpanded: active || completed
     property string activeModelText: qsTr("Model-042")
@@ -264,7 +264,7 @@ Item {
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Setup Profile")
                         expanded: root.setupProfileExpanded
-                        headingEnabled: !root.setupLocked
+                        headingEnabled: !root.completed
                         useIntrinsicBodyHeight: true
 
                         Item {
@@ -353,20 +353,20 @@ Item {
                                     height: Constants.appStandardControlHeight
                                     model: [qsTr("Class 0"), qsTr("Class 1"), qsTr("Class 2")]
                                     currentIndex: 1
-                                    enabled: !root.setupLocked
+                                    enabled: !root.completed
                                     Accessible.name: qsTr("Hit Class")
                                 }
                                 AppSwitch {
                                     id: triggerEveryDropletControl
                                     text: qsTr("Trigger Every Droplet")
                                     checked: false
-                                    enabled: !root.setupLocked
+                                    enabled: !root.completed
                                 }
                                 AppSwitch {
                                     id: daqOutputControl
-                                    text: qsTr("DAQ Output")
+                                    text: qsTr("Physical DAQ Output")
                                     checked: true
-                                    enabled: !root.setupLocked
+                                    enabled: !root.completed
                                 }
                                 Text { text: qsTr("Decision Boundary"); color: Constants.textColor; font: Constants.font }
                                 Row {
@@ -406,7 +406,7 @@ Item {
                                     wrapMode: Text.WordWrap
                                     width: parent.width
                                 }
-                                AppButton { id: sendTestPulseButton; text: qsTr("Send Test Sine Wave"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
+                                AppButton { id: sendTestPulseButton; text: qsTr("Send Test Pulse"); enabled: !root.setupLocked; height: Constants.appStandardControlHeight }
                             }
                         }
                     }

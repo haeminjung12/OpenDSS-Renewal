@@ -12,7 +12,7 @@ Item {
     property bool hitBoundaryDefined: false
     property real hitBoundaryXRatio: 0.0
     property real hitBoundaryYRatio: 0.5
-    property string hitBoundarySide: "top"
+    property string hitBoundarySide: "bottom"
     property bool hitBoundaryEditable: true
     property bool hitBoundaryPlacementArmed: false
     property bool smallDropletSelectionArmed: false
@@ -348,7 +348,6 @@ Item {
                                     id: triggerEveryDropletControl
                                     text: qsTr("Trigger Every Droplet")
                                     checked: false
-                                    enabled: !root.running
                                 }
                                 Text { text: qsTr("Class-Based / Hit Class"); color: Constants.textColor; font: Constants.font }
                                 AppComboBox {
@@ -356,7 +355,7 @@ Item {
                                     width: parent.width
                                     height: Constants.appStandardControlHeight
                                     model: [qsTr("Select Hit Class")]
-                                    enabled: !root.running && !triggerEveryDropletControl.checked
+                                    enabled: !triggerEveryDropletControl.checked
                                     Accessible.name: qsTr("Hit Class")
                                 }
                                 Text { text: qsTr("Decision Boundary"); color: Constants.textColor; font: Constants.font }
@@ -410,7 +409,7 @@ Item {
                                         enabled: !root.running
                                     }
                                 }
-                                AppCheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output"); enabled: !root.running }
+                                AppCheckBox { id: physicalDaqOutputControl; text: qsTr("Physical DAQ Output") }
                                 Text {
                                     visible: !root.running && root.presentation !== "ready"
                                     text: root.activeModelText === qsTr("No Active Model") ? qsTr("Start requires an Active Model.") : (root.presentation === "selected" ? qsTr("Load the selected Sequence to memory before Start.") : (root.error ? qsTr("Resolve the current Error before Start.") : qsTr("Load a Sequence before Start.")))

@@ -50,8 +50,11 @@ Rectangle {
     property string cameraResolution: ""
     property string cameraCustomWidth: ""
     property string cameraCustomHeight: ""
-    property string cameraBitDepth: ""
+    property string cameraBitDepth: "8-bit"
     property string cameraExposure: ""
+    property bool autoExposureEnabled: false
+    property bool autoExposureBusy: false
+    property string autoExposureStatusText: ""
     property string cameraReadoutMode: ""
     property string cameraLut: ""
     property string daqDevice: ""
@@ -131,6 +134,7 @@ Rectangle {
     property alias cameraPreviewImage: cameraPreviewViewer.image
     property alias cameraPreviewPlaceholder: cameraPreviewViewer.placeholder
     property alias cameraExposureField: cameraExposureField
+    property alias autoExposureButton: autoExposureButton
     property alias cameraBitDepthSelector: cameraBitDepthSelector
     property alias cameraReadoutSelector: cameraReadoutSelector
     property alias cameraLutSelector: cameraLutSelector
@@ -331,9 +335,24 @@ Rectangle {
                             AppComboBox { id: cameraBitDepthSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["8-bit", "12-bit", "16-bit"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraBitDepth === "16-bit" ? 2 : root.cameraBitDepth === "12-bit" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Exposure"); font: Constants.font }
                             AppTextField { id: cameraExposureField; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: parent.width; height: Constants.appStandardControlHeight }
+                            AppButton {
+                                id: autoExposureButton
+                                text: root.autoExposureBusy ? qsTr("Auto Exposure…") : qsTr("Auto Exposure")
+                                enabled: root.autoExposureEnabled && !root.autoExposureBusy
+                                width: parent.width
+                                height: Constants.appStandardControlHeight
+                            }
+                            Text {
+                                visible: root.autoExposureStatusText !== ""
+                                text: root.autoExposureStatusText
+                                color: Constants.mutedTextColor
+                                font: Constants.smallFont
+                                width: parent.width
+                                wrapMode: Text.WordWrap
+                            }
                             Text { text: qsTr("Readout"); font: Constants.font }
                             AppComboBox { id: cameraReadoutSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["Fast", "Slow"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraReadoutMode === "Slow" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
-                            Text { text: qsTr("Preview LUT"); font: Constants.font }
+                            Text { text: qsTr("LUT"); font: Constants.font }
                             AppComboBox { id: cameraLutSelector; visible: false; enabled: false; model: ["Linear", "High contrast"]; currentIndex: root.cameraLut === "High contrast" ? 1 : 0; width: 0; height: 0 }
                             RangeSlider {
                                 id: previewLutRangeSlider
@@ -343,11 +362,7 @@ Rectangle {
                                 to: 255
                                 first.value: 0
                                 second.value: 255
-                            }
-                            Row {
-                                width: parent.width
-                                Text { text: qsTr("Minimum: 0"); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width / 2 }
-                                Text { text: qsTr("Maximum: 255"); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width / 2; horizontalAlignment: Text.AlignRight }
+                                Accessible.name: qsTr("LUT")
                             }
                             Text { text: qsTr("Presentation LUT only"); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
                         }
@@ -415,19 +430,27 @@ Rectangle {
                                 width: parent.width
                                 spacing: Constants.spacing
                                 Text {
-                                    text: qsTr("Small-droplet rejection")
+                                    text: qsTr("Minimum Size")
                                     font: Constants.font
                                     width: parent.width
                                            - smallDropletRejectionValueText.implicitWidth
+                                           - smallDropletUnitText.implicitWidth
                                            - smallDropletSetButton.width
-                                           - parent.spacing * 2
+                                           - parent.spacing * 3
                                     height: smallDropletSetButton.height
-                                    wrapMode: Text.WordWrap
                                     verticalAlignment: Text.AlignVCenter
                                 }
                                 Text {
                                     id: smallDropletRejectionValueText
-                                    text: qsTr("%1 px²").arg(root.smallDropletRejectionArea)
+                                    text: root.smallDropletRejectionArea
+                                    font: Constants.font
+                                    width: implicitWidth
+                                    height: smallDropletSetButton.height
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                Text {
+                                    id: smallDropletUnitText
+                                    text: qsTr("px²")
                                     font: Constants.font
                                     width: implicitWidth
                                     height: smallDropletSetButton.height

@@ -7,6 +7,7 @@
 #include <QString>
 #include <QStringList>
 #include <QUrl>
+#include <QVariantMap>
 #include <QVector>
 
 class PipelineRunner;
@@ -28,6 +29,7 @@ class TrainingController final : public QObject
     Q_PROPERTY(QString modelName READ modelName NOTIFY changed)
     Q_PROPERTY(QString startingWeights READ startingWeights NOTIFY changed)
     Q_PROPERTY(QStringList libraryModelOptions READ libraryModelOptions NOTIFY changed)
+    Q_PROPERTY(QVariantMap libraryModelCompatibility READ libraryModelCompatibility NOTIFY changed)
     Q_PROPERTY(int selectedLibraryModelIndex READ selectedLibraryModelIndex NOTIFY changed)
     Q_PROPERTY(QString selectedLibraryModelId READ selectedLibraryModelId NOTIFY changed)
     Q_PROPERTY(QUrl outputDirectoryUrl READ outputDirectoryUrl WRITE setOutputDirectoryUrl NOTIFY changed)
@@ -56,6 +58,7 @@ public:
     QString modelName() const;
     QString startingWeights() const;
     QStringList libraryModelOptions() const;
+    QVariantMap libraryModelCompatibility() const;
     int selectedLibraryModelIndex() const;
     QString selectedLibraryModelId() const;
     QUrl outputDirectoryUrl() const;
@@ -93,6 +96,7 @@ private:
         QString architecture;
         QString startingWeights;
         QString packagePath;
+        QString compatibilityReason;
     };
 
     enum class RegistrationState {

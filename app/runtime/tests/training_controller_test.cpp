@@ -321,6 +321,10 @@ int main(int argc, char **argv)
             QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT))
                 .absoluteFilePath());
         if (!check(emptyController.libraryModelOptions().isEmpty()
+                       && !emptyController.libraryModelCompatibility()
+                               .value(QStringLiteral("hasCompatibleModels")).toBool()
+                       && emptyController.libraryModelCompatibility()
+                              .value(QStringLiteral("reasons")).toStringList().isEmpty()
                        && emptyController.selectedLibraryModelIndex() == -1
                        && emptyController.errorMessage()
                            == QStringLiteral("No Library models are available"),
@@ -358,6 +362,12 @@ int main(int argc, char **argv)
         if (!check(
                 incompatibleController.libraryModelOptions()
                         == QStringList{QStringLiteral("Controller model")}
+                    && !incompatibleController.libraryModelCompatibility()
+                            .value(QStringLiteral("hasCompatibleModels")).toBool()
+                    && incompatibleController.libraryModelCompatibility()
+                           .value(QStringLiteral("reasons")).toStringList()
+                        == QStringList{QStringLiteral(
+                            "Use Add Model to create a new Library identity for Training.")}
                     && incompatibleController.selectedLibraryModelIndex() == -1
                     && incompatibleController.errorMessage()
                         == QStringLiteral(
@@ -519,7 +529,8 @@ int main(int argc, char **argv)
     const int changedSignal = metaObject->indexOfSignal("changed()");
     const char *propertyNames[] = {
         "datasetManifestUrl", "architecture", "modelName", "startingWeights",
-        "libraryModelOptions", "selectedLibraryModelIndex",
+        "libraryModelOptions", "libraryModelCompatibility",
+        "selectedLibraryModelIndex",
         "selectedLibraryModelId", "outputDirectoryUrl",
         "requestedDevice", "presentation", "errorMessage", "stage", "stageEpochs",
         "epoch", "globalEpoch", "resultDirectoryUrl", "modelOnnxUrl", "metadataUrl",
@@ -558,6 +569,11 @@ int main(int argc, char **argv)
     }
     if (!check(controller.libraryModelOptions()
                    == QStringList{QStringLiteral("Controller model")}
+                   && controller.libraryModelCompatibility()
+                          .value(QStringLiteral("hasCompatibleModels")).toBool()
+                   && controller.libraryModelCompatibility()
+                          .value(QStringLiteral("reasons")).toStringList()
+                       == QStringList{QString{}}
                    && controller.selectedLibraryModelIndex() == 0
                    && !controller.selectedLibraryModelId().isEmpty()
                    && controller.modelName() == QStringLiteral("Controller model")

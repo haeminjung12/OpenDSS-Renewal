@@ -88,6 +88,20 @@ QStringList TrainingController::libraryModelOptions() const
         options.append(option.label);
     return options;
 }
+QVariantMap TrainingController::libraryModelCompatibility() const
+{
+    QStringList reasons;
+    reasons.reserve(weightOptions_.size());
+    bool hasCompatibleModels = false;
+    for (const WeightOption &option : weightOptions_) {
+        reasons.append(option.compatibilityReason);
+        hasCompatibleModels = hasCompatibleModels || option.compatibilityReason.isEmpty();
+    }
+    return {
+        {QStringLiteral("hasCompatibleModels"), hasCompatibleModels},
+        {QStringLiteral("reasons"), reasons},
+    };
+}
 int TrainingController::selectedLibraryModelIndex() const
 {
     return selectedWeightIndex_;
@@ -355,6 +369,7 @@ void TrainingController::refreshLibraryModels()
             row.value(QStringLiteral("architecture")).toString(),
             row.value(QStringLiteral("startingWeights")).toString(),
             row.value(QStringLiteral("packagePath")).toString(),
+            row.value(QStringLiteral("compatibilityReason")).toString(),
         });
     }
 

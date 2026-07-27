@@ -269,7 +269,7 @@ function Get-InstalledTrainerLayout {
 
     $entryScripts = @()
     foreach ($row in @(Import-Csv -LiteralPath $recordPath -Header Path, Hash, Size)) {
-        if ([string]$row.Path -notmatch "^(?:[.][.]/){3}Scripts/(droplet-trainer[^/]*)$") {
+        if ([string]$row.Path -notmatch "^(?:[.][.]/){2}Scripts/(droplet-trainer[^/]*)$") {
             continue
         }
         $candidate = [System.IO.Path]::GetFullPath((Join-Path $sitePackages ([string]$row.Path)))
@@ -479,69 +479,215 @@ function Assert-Inventory {
     }
 }
 
-$wheel = [System.IO.Path]::GetFullPath($WheelPath)
-$requirementsRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\..\requirements"))
-$lockPath = Join-Path $requirementsRoot "windows-py312-gpu-cu130.lock"
-$inventoryPath = Join-Path $requirementsRoot "windows-py312-gpu-cu130-inventory.json"
-foreach ($required in @($lockPath, $inventoryPath)) {
-    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
-        throw "Authoritative repository input is missing: $required"
+function Write-UpdaterDiagnostic {
+    param(
+        [object]$DiagnosticsRoot,
+        [string]$LogPath,
+        [string]$Phase,
+        [string]$Status,
+        [string]$ExceptionType,
+        [string]$ExceptionMessage,
+        [AllowNull()]
+        [Nullable[int]]$ExitCode,
+        [bool]$SnapshotCreated,
+        [bool]$InstallStarted,
+        [bool]$UpdateValidated,
+        [string]$RollbackOutcome,
+        [string]$RollbackDetail,
+        [string]$CleanupOutcome,
+        [string]$CleanupDetail
+    )
+    $canonicalRoot = Get-CanonicalItem -Path $DiagnosticsRoot.FullName `
+        -Description "Trainer updater diagnostics root"
+    $boundedException = [string]$ExceptionMessage
+    $boundedRollback = [string]$RollbackDetail
+    $boundedCleanup = [string]$CleanupDetail
+    if ($boundedException.Length -gt 2048) {
+        $boundedException = $boundedException.Substring(0, 2048) + "...[truncated]"
+    }
+    if ($boundedRollback.Length -gt 1024) {
+        $boundedRollback = $boundedRollback.Substring(0, 1024) + "...[truncated]"
+    }
+    if ($boundedCleanup.Length -gt 1024) {
+        $boundedCleanup = $boundedCleanup.Substring(0, 1024) + "...[truncated]"
+    }
+    $record = [ordered]@{
+        schema_version = "opendss-trainer-wheel-update-diagnostic-v1"
+        timestamp_utc = [DateTime]::UtcNow.ToString("o")
+        phase = $Phase
+        status = $Status
+        exception = if ([string]::IsNullOrEmpty($ExceptionType)) {
+            $null
+        } else {
+            [ordered]@{
+                type = $ExceptionType
+                message = $boundedException
+            }
+        }
+        exit_code = if ($null -eq $ExitCode) { $null } else { [int]$ExitCode }
+        snapshot_created = $SnapshotCreated
+        install_started = $InstallStarted
+        update_validated = $UpdateValidated
+        rollback = [ordered]@{
+            outcome = $RollbackOutcome
+            detail = if ([string]::IsNullOrEmpty($boundedRollback)) {
+                $null
+            } else {
+                $boundedRollback
+            }
+        }
+        cleanup = [ordered]@{
+            outcome = $CleanupOutcome
+            detail = if ([string]::IsNullOrEmpty($boundedCleanup)) {
+                $null
+            } else {
+                $boundedCleanup
+            }
+        }
+    }
+    $json = $record | ConvertTo-Json -Depth 4
+    $tempPath = Join-Path $canonicalRoot.FullName (
+        ".training-trainer-wheel-update-$([Guid]::NewGuid().ToString('N')).tmp")
+    try {
+        [System.IO.File]::WriteAllText(
+            $tempPath,
+            $json,
+            [System.Text.UTF8Encoding]::new($false))
+        $tempItem = Get-CanonicalItem -Path $tempPath `
+            -Description "Trainer updater diagnostic temporary file"
+        Assert-CanonicalDescendant -Item $tempItem -Root $canonicalRoot `
+            -Description "Trainer updater diagnostic temporary file"
+        if (Test-Path -LiteralPath $LogPath) {
+            $logItem = Get-CanonicalItem -Path $LogPath `
+                -Description "Trainer updater diagnostic log"
+            Assert-CanonicalDescendant -Item $logItem -Root $canonicalRoot `
+                -Description "Trainer updater diagnostic log"
+            if ($logItem.PSIsContainer) {
+                throw "Trainer updater diagnostic log path is a directory."
+            }
+            [System.IO.File]::Replace($tempItem.FullName, $logItem.FullName, $null, $true)
+        } else {
+            [System.IO.File]::Move($tempItem.FullName, $LogPath)
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tempPath) {
+            $tempItem = Get-CanonicalItem -Path $tempPath `
+                -Description "Trainer updater diagnostic temporary file"
+            Assert-CanonicalDescendant -Item $tempItem -Root $canonicalRoot `
+                -Description "Trainer updater diagnostic temporary file"
+            Remove-Item -LiteralPath $tempItem.FullName -Force
+        }
     }
 }
+
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
     throw "LOCALAPPDATA is required for the exact OpenDSS training environment."
 }
 $installRoot = [System.IO.Path]::GetFullPath((Join-Path $env:LOCALAPPDATA "OpenDSS"))
-$environmentRoot = Join-Path $installRoot "training-venv-gpu"
-$python = Join-Path $environmentRoot "Scripts\python.exe"
-if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
-    throw "The exact OpenDSS training Python is missing: $python"
-}
-
 $installRootItem = Get-CanonicalItem -Path $installRoot -Description "OpenDSS install root"
-$environmentRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
-Assert-CanonicalDescendant -Item $environmentRoots.Environment -Root $installRootItem `
-    -Description "Training environment"
-$pythonItem = Get-CanonicalItem -Path $python -Description "OpenDSS training Python"
-Assert-CanonicalDescendant -Item $pythonItem -Root $environmentRoots.Scripts `
-    -Description "OpenDSS training Python"
-if ($pythonItem.PSIsContainer) {
-    throw "The exact OpenDSS training Python is not a file: $($pythonItem.FullName)"
+$diagnosticsRootPath = Join-Path $installRootItem.FullName "diagnostics"
+if (-not (Test-Path -LiteralPath $diagnosticsRootPath)) {
+    New-Item -ItemType Directory -Path $diagnosticsRootPath | Out-Null
 }
-$python = $pythonItem.FullName
+$diagnosticsRootItem = Get-CanonicalItem -Path $diagnosticsRootPath `
+    -Description "Trainer updater diagnostics root"
+Assert-CanonicalDescendant -Item $diagnosticsRootItem -Root $installRootItem `
+    -Description "Trainer updater diagnostics root"
+if (-not $diagnosticsRootItem.PSIsContainer) {
+    throw "Trainer updater diagnostics path is not a directory."
+}
+$diagnosticLogPath = Join-Path $diagnosticsRootItem.FullName (
+    "training-trainer-wheel-update.json")
 
-$inventory = Assert-Authority -LockPath $lockPath -InventoryPath $inventoryPath
-Assert-Wheel -Path $wheel
-$originalArtifacts = @(Get-TrainerCandidateArtifacts -Roots $environmentRoots)
-$original = Get-InstalledTrainerLayout -EnvironmentRoot $environmentRoot
-$candidatePaths = @{}
-foreach ($artifact in $originalArtifacts) {
-    $candidatePaths[([string]$artifact.Path).ToLowerInvariant()] = $true
-}
-foreach ($requiredPath in @(
-    $original.PackagePath,
-    $original.DistInfoPath
-) + @($original.EntryScripts)) {
-    $requiredItem = Get-CanonicalItem -Path $requiredPath `
-        -Description "Installed trainer artifact"
-    if (-not $candidatePaths.ContainsKey($requiredItem.FullName.ToLowerInvariant())) {
-        throw "Installed trainer artifact was not included in the bounded candidate set: $requiredPath"
-    }
-}
-$originalManifest = @(Get-ArtifactManifest -Artifacts $originalArtifacts)
-$snapshotRoot = Join-Path $installRoot (
-    ".training-trainer-wheel-snapshot-$([Guid]::NewGuid().ToString('N'))")
+$phase = "repository-preflight"
+$commandExitCode = $null
 $snapshotRootItem = $null
 $snapshotArtifacts = @()
 $installStarted = $false
 $updateValidated = $false
+$rollbackOutcome = "not-required"
+$rollbackDetail = ""
+$cleanupOutcome = "not-required"
+$cleanupDetail = ""
+try {
+    $wheel = [System.IO.Path]::GetFullPath($WheelPath)
+    $requirementsRoot = [System.IO.Path]::GetFullPath((
+        Join-Path $PSScriptRoot "..\..\requirements"))
+    $lockPath = Join-Path $requirementsRoot "windows-py312-gpu-cu130.lock"
+    $inventoryPath = Join-Path $requirementsRoot (
+        "windows-py312-gpu-cu130-inventory.json")
+    foreach ($required in @($lockPath, $inventoryPath)) {
+        if (-not (Test-Path -LiteralPath $required -PathType Leaf)) {
+            throw "Authoritative repository input is missing: $required"
+        }
+    }
+
+    $phase = "environment-preflight"
+    $environmentRoot = Join-Path $installRoot "training-venv-gpu"
+    $python = Join-Path $environmentRoot "Scripts\python.exe"
+    if (-not (Test-Path -LiteralPath $python -PathType Leaf)) {
+        throw "The exact OpenDSS training Python is missing: $python"
+    }
+    $environmentRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
+    Assert-CanonicalDescendant -Item $environmentRoots.Environment -Root $installRootItem `
+        -Description "Training environment"
+    $pythonItem = Get-CanonicalItem -Path $python -Description "OpenDSS training Python"
+    Assert-CanonicalDescendant -Item $pythonItem -Root $environmentRoots.Scripts `
+        -Description "OpenDSS training Python"
+    if ($pythonItem.PSIsContainer) {
+        throw "The exact OpenDSS training Python is not a file: $($pythonItem.FullName)"
+    }
+    $python = $pythonItem.FullName
+
+    $phase = "authority-preflight"
+    $inventory = Assert-Authority -LockPath $lockPath -InventoryPath $inventoryPath
+    Assert-Wheel -Path $wheel
+
+    $phase = "installed-layout-preflight"
+    $originalArtifacts = @(Get-TrainerCandidateArtifacts -Roots $environmentRoots)
+    $original = Get-InstalledTrainerLayout -EnvironmentRoot $environmentRoot
+    $candidatePaths = @{}
+    foreach ($artifact in $originalArtifacts) {
+        $candidatePaths[([string]$artifact.Path).ToLowerInvariant()] = $true
+    }
+    foreach ($requiredPath in @(
+        $original.PackagePath,
+        $original.DistInfoPath
+    ) + @($original.EntryScripts)) {
+        $requiredItem = Get-CanonicalItem -Path $requiredPath `
+            -Description "Installed trainer artifact"
+        if (-not $candidatePaths.ContainsKey($requiredItem.FullName.ToLowerInvariant())) {
+            throw "Installed trainer artifact was not included in the bounded candidate set: $requiredPath"
+        }
+    }
+    $originalManifest = @(Get-ArtifactManifest -Artifacts $originalArtifacts)
+} catch {
+    $preflightError = $_
+    try {
+        Write-UpdaterDiagnostic -DiagnosticsRoot $diagnosticsRootItem `
+            -LogPath $diagnosticLogPath -Phase $phase -Status "failed" `
+            -ExceptionType $preflightError.Exception.GetType().FullName `
+            -ExceptionMessage $preflightError.Exception.Message -ExitCode $null `
+            -SnapshotCreated $false -InstallStarted $false -UpdateValidated $false `
+            -RollbackOutcome "not-required" -RollbackDetail "" `
+            -CleanupOutcome "not-required" -CleanupDetail ""
+    } catch {
+        throw "Trainer updater preflight failed: $($preflightError.Exception.Message) Diagnostic capture also failed: $($_.Exception.Message)"
+    }
+    throw "Trainer updater preflight failed: $($preflightError.Exception.Message)"
+}
+
+$snapshotRoot = Join-Path $installRoot (
+    ".training-trainer-wheel-snapshot-$([Guid]::NewGuid().ToString('N'))")
 
 $oldPythonPath = $env:PYTHONPATH
 $oldPythonHome = $env:PYTHONHOME
 $oldPythonNoUserSite = $env:PYTHONNOUSERSITE
 $oldPipNoIndex = $env:PIP_NO_INDEX
 try {
+    $phase = "snapshot-create"
     $snapshotRootItem = New-SafeSnapshotRoot -Path $snapshotRoot -InstallRoot $installRootItem
+    $phase = "snapshot-copy"
     Copy-ArtifactSet -Artifacts $originalArtifacts `
         -SourceRoot $environmentRoots.Environment -DestinationRoot $snapshotRootItem
     $snapshotRoots = Get-EnvironmentRoots -EnvironmentRoot $snapshotRootItem.FullName
@@ -554,28 +700,42 @@ try {
     $env:PYTHONNOUSERSITE = "1"
     $env:PIP_NO_INDEX = "1"
 
+    $phase = "pip-install"
+    $commandExitCode = $null
     $installStarted = $true
     & $python -I -m pip install --no-index --no-deps --force-reinstall $wheel
+    $commandExitCode = $LASTEXITCODE
     if ($LASTEXITCODE -ne 0) {
         throw "Pinned local trainer installation failed with exit code $LASTEXITCODE."
     }
 
+    $phase = "post-install-layout"
     $updatedRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
     $null = @(Get-TrainerCandidateArtifacts -Roots $updatedRoots)
     $null = Get-InstalledTrainerLayout -EnvironmentRoot $updatedRoots.Environment.FullName
+    $phase = "inventory-validation"
     Assert-Inventory -Python $python -Inventory $inventory
+    $commandExitCode = $LASTEXITCODE
+    $phase = "environment-check"
     $checkOutput = Join-Path $snapshotRoot "env-check"
     New-Item -ItemType Directory -Path $checkOutput -Force | Out-Null
     & $python -I -m droplet_trainer env-check --device auto `
         --require-training --require-onnx --check-output $checkOutput --json
+    $commandExitCode = $LASTEXITCODE
     if ($LASTEXITCODE -ne 0) {
         throw "Isolated droplet-trainer environment check failed with exit code $LASTEXITCODE."
     }
     $updateValidated = $true
 } catch {
-    $originalFailure = $_.Exception.Message
+    $updateError = $_
+    $failurePhase = $phase
+    if ($failurePhase -eq "inventory-validation") {
+        $commandExitCode = $LASTEXITCODE
+    }
+    $originalFailure = $updateError.Exception.Message
     $failureMessage = "Trainer update failed: $originalFailure"
     if ($installStarted -and $snapshotArtifacts.Count -gt 0) {
+        $rollbackOutcome = "attempting"
         try {
             $rollbackRoots = Get-EnvironmentRoots -EnvironmentRoot $environmentRoot
             Restore-ArtifactSet -SnapshotArtifacts $snapshotArtifacts `
@@ -587,16 +747,41 @@ try {
             $null = Get-InstalledTrainerLayout -EnvironmentRoot $restoredRoots.Environment.FullName
             $failureMessage =
                 "Trainer update failed and the exact original candidate artifact set was restored and verified: $originalFailure"
+            $rollbackOutcome = "restored-and-verified"
         } catch {
-            throw "$failureMessage Rollback also failed: $($_.Exception.Message) Snapshot retained at $snapshotRoot"
+            $rollbackOutcome = "failed"
+            $rollbackDetail = $_.Exception.Message
+            $failureMessage =
+                "$failureMessage Rollback also failed: $rollbackDetail Snapshot retained at $snapshotRoot"
         }
     }
-    if ($null -ne $snapshotRootItem -and (Test-Path -LiteralPath $snapshotRoot)) {
+    if ($rollbackOutcome -ne "failed" -and $null -ne $snapshotRootItem -and
+        (Test-Path -LiteralPath $snapshotRoot)) {
+        $cleanupOutcome = "attempting"
         try {
             Remove-ScopedItem -Path $snapshotRoot -AllowedRoot $installRootItem
+            $cleanupOutcome = "removed"
         } catch {
-            throw "$failureMessage Snapshot cleanup also failed: $($_.Exception.Message) Snapshot retained at $snapshotRoot"
+            $cleanupOutcome = "failed"
+            $cleanupDetail = $_.Exception.Message
+            $failureMessage =
+                "$failureMessage Snapshot cleanup also failed: $cleanupDetail Snapshot retained at $snapshotRoot"
         }
+    } elseif ($rollbackOutcome -eq "failed") {
+        $cleanupOutcome = "retained-after-rollback-failure"
+    }
+    try {
+        Write-UpdaterDiagnostic -DiagnosticsRoot $diagnosticsRootItem `
+            -LogPath $diagnosticLogPath -Phase $failurePhase -Status "failed" `
+            -ExceptionType $updateError.Exception.GetType().FullName `
+            -ExceptionMessage $originalFailure -ExitCode $commandExitCode `
+            -SnapshotCreated ($null -ne $snapshotRootItem) `
+            -InstallStarted $installStarted -UpdateValidated $updateValidated `
+            -RollbackOutcome $rollbackOutcome -RollbackDetail $rollbackDetail `
+            -CleanupOutcome $cleanupOutcome -CleanupDetail $cleanupDetail
+    } catch {
+        $failureMessage =
+            "$failureMessage Diagnostic capture also failed: $($_.Exception.Message)"
     }
     throw $failureMessage
 } finally {
@@ -609,5 +794,29 @@ try {
 if (-not $updateValidated) {
     throw "Trainer update did not reach validated success."
 }
-Remove-ScopedItem -Path $snapshotRoot -AllowedRoot $installRootItem
+$phase = "snapshot-cleanup"
+$cleanupOutcome = "attempting"
+try {
+    Remove-ScopedItem -Path $snapshotRoot -AllowedRoot $installRootItem
+    $cleanupOutcome = "removed"
+} catch {
+    $cleanupOutcome = "failed"
+    $cleanupDetail = $_.Exception.Message
+    Write-UpdaterDiagnostic -DiagnosticsRoot $diagnosticsRootItem `
+        -LogPath $diagnosticLogPath -Phase $phase -Status "failed" `
+        -ExceptionType $_.Exception.GetType().FullName `
+        -ExceptionMessage $_.Exception.Message -ExitCode $commandExitCode `
+        -SnapshotCreated $true -InstallStarted $installStarted `
+        -UpdateValidated $updateValidated -RollbackOutcome "not-required" `
+        -RollbackDetail "" -CleanupOutcome $cleanupOutcome `
+        -CleanupDetail $cleanupDetail
+    throw
+}
+$phase = "complete"
+Write-UpdaterDiagnostic -DiagnosticsRoot $diagnosticsRootItem `
+    -LogPath $diagnosticLogPath -Phase $phase -Status "succeeded" `
+    -ExceptionType "" -ExceptionMessage "" -ExitCode $commandExitCode `
+    -SnapshotCreated $true -InstallStarted $installStarted `
+    -UpdateValidated $updateValidated -RollbackOutcome "not-required" `
+    -RollbackDetail "" -CleanupOutcome $cleanupOutcome -CleanupDetail ""
 Write-Host "OpenDSS droplet-trainer updated atomically to $ExpectedHash."

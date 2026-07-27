@@ -8,7 +8,7 @@ Rectangle {
 
     width: Constants.width - Constants.navigationWidth
     height: Constants.height - Constants.shellHeaderHeight
-    color: Constants.viewerColor
+    color: "#000000"
     border.color: Constants.borderColor
     clip: true
 
@@ -34,8 +34,14 @@ Rectangle {
         contentHeight: Math.max(height, image.height)
         boundsBehavior: Flickable.StopAtBounds
 
-        ScrollBar.horizontal: ScrollBar {}
-        ScrollBar.vertical: ScrollBar {}
+        ScrollBar.horizontal: ScrollBar {
+            policy: viewport.contentWidth > viewport.width ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            interactive: true
+        }
+        ScrollBar.vertical: ScrollBar {
+            policy: viewport.contentHeight > viewport.height ? ScrollBar.AlwaysOn : ScrollBar.AlwaysOff
+            interactive: true
+        }
 
         Image {
             id: image

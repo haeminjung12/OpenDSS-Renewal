@@ -274,16 +274,17 @@ Specific qualified hardware models and driver versions are maintained separately
 
 The signed OpenDSS installer is a bootstrap installer. Installation MAY require an internet connection.
 
-The installer SHALL include OpenDSS, its Qt/application bootstrap dependencies, training scripts, bundled base model weights, required application resources, and the installer logic needed to provision the training environment. It SHALL NOT embed an offline Python runtime, wheelhouse, or complete CPU/GPU training payload.
+The installer SHALL include OpenDSS, its Qt/application bootstrap dependencies, training scripts, bundled base model weights, required application resources, the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock, and the installer logic needed to provision the training environment. It SHALL NOT embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
 
 During setup, the bootstrap SHALL:
 
 1. download exactly CPython `3.12.10`;
-2. download the authoritative training dependency set of exactly 37 pinned wheels;
-3. verify the authoritative hash for the CPython artifact and every wheel before installing any downloaded artifact;
-4. provision `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
-5. run the authoritative environment check against that provisioned environment; and
-6. publish the environment as usable only after every download, hash, provisioning, and environment-check step succeeds.
+2. verify the authoritative SHA-256 of the bundled OpenDSS `droplet_trainer` wheel before installing it;
+3. download the other 36 authoritative third-party wheels, each pinned and hash-locked;
+4. verify the authoritative hash for the CPython artifact and every downloaded third-party wheel before installing any downloaded artifact;
+5. provision the resulting exact 37-wheel environment at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
+6. run the authoritative environment check against that provisioned environment; and
+7. publish the environment as usable only after every download, hash, provisioning, and environment-check step succeeds.
 
 Any download, hash, provisioning, or environment-check failure SHALL fail installation atomically and visibly. A partial environment MUST NOT be reported or retained as usable.
 

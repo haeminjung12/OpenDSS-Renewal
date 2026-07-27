@@ -226,16 +226,17 @@ The following descriptions are task contexts, not permission-bearing roles:
 
 ### 2.1.1 Installation and network contract
 
-Installation MAY require internet access. The signed installer is a small bootstrap installer, not an embedded/offline Python and wheel payload.
+Installation MAY require internet access. The signed installer is a small bootstrap installer. It bundles only the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock; it does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
 
 On a fresh internet-connected Python-free Windows 11 computer, setup MUST:
 
 1. download exact pinned CPython `3.12.10`;
-2. download the authoritative training environment of exactly 37 pinned, hash-locked wheels;
-3. verify the authoritative hash of CPython and every wheel;
-4. provision `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
-5. run the authoritative environment check; and
-6. fail atomically and visibly if any download, verification, provisioning, or environment-check step fails.
+2. verify the locked SHA-256 of the bundled OpenDSS `droplet_trainer` wheel before installation;
+3. download the other 36 authoritative third-party wheels, each pinned and hash-locked;
+4. verify the authoritative hash of CPython and every downloaded third-party wheel;
+5. provision the resulting exact 37-wheel environment at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
+6. run the authoritative environment check; and
+7. fail atomically and visibly if any download, verification, provisioning, or environment-check step fails.
 
 A partial environment is never usable or reported as successfully installed. After successful installation, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
 

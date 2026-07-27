@@ -39,9 +39,9 @@ The July 23, 2026 UI/UX amendment is incorporated into this product model withou
 - The left navigation and workspace outer right panels are draggable. Workspace outer right panels collapse as a whole; **approximately 536 px is their default width at 100% Text Size, not a fixed width**. The exact outer-panel titles are **Capture**, **Label**, **Train**, **Model Test**, **Library**, **Live**, **Sequence Test**, and **Runs**; Settings has no outer collapsible panel. Each outer panel uses a light top strip with its title left-aligned while expanded and its existing narrow chevron toggle fixed on the panel's right edge at vertical center, with the same screen x/y position in expanded and collapsed states. The outer toggle is a fixed **28 × 36 px** icon control with a **14 px** chevron and does not grow with Text Size; when collapsed width is insufficient, only that fixed chevron may remain visible. Existing exported toggle aliases remain unchanged. Navigation and right-panel defaults scale with Text Size, reset on each application launch, and are not persisted. Inner disclosure sections retain intrinsic stacking where applicable.
 - Label is dominated by the Droplet Crop grid. Its adjustable, outer-collapsible right panel contains, in order, **Load Dataset**, **Dataset Summary**, **Label**, **Filter**, and bottom-right **Save As**. Configured Datasets may switch between two and three classes. Class 0, Class 1, and Class 2 remain visible; Class 2 is disabled while two classes are selected. Class identity uses blue, orange, and purple for Classes 0, 1, and 2; red and green are not Class identity colors.
 - **Sequence Viewer** is frame-navigation only. It has no Play, Pause, automatic playback, speed control, or playback lifecycle state.
-- Train collects Dataset, Architecture, Weights, Model Name, and Save Location before Start. Architecture presents **MobileNet** with smaller, lighter **Faster** supporting text and **EfficientNet** with smaller, lighter **More Accurate** supporting text. Weights includes ImageNet-pretrained weights and technically compatible bundled or user-added OpenDSS droplet-trained checkpoints. Successful Training automatically saves the Model Package and makes it Active. Save failure retains temporary artifacts, exposes Retry Save, and does not activate the Model. Dataset Summary remains a main white region, with a separate main white Results region below it for the two approved live plots and specified completion tables.
+- Library owns Add Model/Create Model and Import Model. Add Model requires a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and approved Starting Weights. Train selects that existing Library-defined model read-only for identity, architecture, and initialization, then selects Dataset, Compute Device, and Output Location. Successful Training atomically creates the newly named Model Package and makes it Active; failure retains temporary artifacts, exposes Retry Save, and leaves source identity/artifacts intact. Retraining always creates a new named package and never overwrites or mutates the source. Dataset Summary remains a main white region, with a separate main white Results region below it for the two approved live plots and specified completion tables.
 - Model Test and Sequence Test always use the Active Model and have no local Model selector. Their referenced Model Package cannot be replaced or mutated while in use. Live is the explicit exception for Active Model selection: an active Run may transfer to another valid effective Active Model under the timestamped effective-configuration-history contract, while every referenced package remains protected from mutation. Model Test keeps Dataset Summary in a main white region and places its approved metrics, confusion matrix, and prediction summaries in a separate main white Results region below.
-- Library selection is distinct from activation. An Active Model row has a green check plus textual or accessible meaning; Set Active remains explicit; selected Model details live in one collapsible panel.
+- Library selection is distinct from activation. An Active Model row has a green check plus textual or accessible meaning; Set Active remains explicit; selected Model details live in one collapsible panel. Remove Model is adjacent to Import Model and, after confirmation, moves the OpenDSS-owned complete package folder to the Windows Recycle Bin. Active Model, in-use, Model Registry, and package-integrity locks remain mandatory.
 - Live stays in one workspace from setup through completion. Trigger Every Droplet and DAQ Output are independent toggles. DAQ Output OFF still permits nonphysical processing, logging, and Run persistence without DAQ readiness. While Live is active, Active Model, Hit Class, Trigger Every Droplet, DAQ Output, and hit-boundary fields remain editable; valid committed changes apply immediately. The initial configuration snapshot is retained, every accepted change is appended to a timestamped effective-configuration history, and every event identifies the effective configuration used for it.
 - Hit boundary calibration uses one clicked image point, a horizontal line extending right, and `Top is Hit` or `Bottom is Hit`. It affects Observed Route only and is saved in the Setup Profile and Run Summary.
 - Sequence Test accepts OpenDSS Image Sequence folders containing `sequence.json`, uses editable Processing FPS defaulted from recorded FPS, loads through a bounded memory buffer, and keeps Physical DAQ Output off by default.
@@ -246,11 +246,13 @@ Develop a droplet-classification model
                 → Data > Label
                     → assign two or three classes and labels
                         → labeled Dataset
-                            → Models > Train
-                                → Train MobileNet or EfficientNet model with compatible Weights
-                                    → Model Package
-                                        → automatically becomes Active Model
-                                            → optional Models > Model Test
+                            → Models > Library
+                                → Add a uniquely named MobileNetV3-Small or EfficientNet-B0 identity with approved Starting Weights
+                                    → Models > Train
+                                        → select that Library model read-only and train with Dataset, Compute Device, and Output Location
+                                            → atomically create a new Model Package
+                                                → automatically becomes Active Model
+                                                    → optional Models > Model Test
 ```
 
 ### 6.2 Run the physical sorter
@@ -383,23 +385,17 @@ It requires no camera, DAQ, model, or training environment and never produces DA
 
 ## 7.4 Models > Train
 
-Training accepts one compatible labeled Dataset, one Architecture, and one Weights selection:
+Training accepts one compatible labeled Dataset and one existing Library-defined model. The selected Library model supplies these read-only facts:
 
 ```text
-MobileNet
-    Faster
-EfficientNet
-    More Accurate
-
-Weights
-    ImageNet-pretrained
-    compatible bundled OpenDSS droplet-trained checkpoint
-    compatible user-added OpenDSS droplet-trained checkpoint
+Unique Name
+Architecture
+    MobileNetV3-Small
+    EfficientNet-B0
+Approved Starting Weights
 ```
 
-**Faster** and **More Accurate** are smaller, lighter supporting labels; Architecture identity is MobileNet or EfficientNet.
-
-A droplet-trained checkpoint is selectable only when its declared architecture and required model, preprocessing, and tensor contracts are compatible with the selected Architecture. The application identifies it by its Model Package identity and checksum and rejects an incompatible, missing, unreadable, or checksum-mismatched checkpoint with a direct reason while retaining the last valid selection. This defines selection and validation only; it does not replace or modify the qualified Python trainer, export mechanics, preprocessing, or ONNX inference mechanics.
+Train does not own or edit Name, Architecture, or Starting Weights. It consumes the selected Library identity and initialization read-only. Retraining an already-trained Library model requires a new unique Name and produces a new package; the source identity, package, weights, and other artifacts remain intact and protected.
 
 There are no user-editable Advanced Training Parameters in the first public release.
 
@@ -427,7 +423,7 @@ Requested CPU
 
 The requested and effective devices are displayed and recorded. Compute Device is a normal Train selection, not a training hyperparameter. The fixed split and seed remain unchanged.
 
-Model Name and Save Location are required before Training starts. When Training completes, the application saves the Model Package automatically and then makes it the global Active Model.
+One Library-defined model, Dataset, Compute Device, and Output Location are required before Training starts. When Training completes, the application atomically writes the newly named Model Package and then makes it the global Active Model. Save failure publishes no new package and never mutates the source.
 
 Low performance does not prevent saving or activation when the required artifacts were produced.
 
@@ -464,14 +460,21 @@ Required actions remain:
 
 ```text
 Set Active
+Add Model
 Import Model
+Remove Model
 Export Model
 Duplicate Model
 Rename Model
-Delete Model
 ```
 
-Import accepts the approved v2 package contract only. It does not convert legacy packages.
+Add Model requires a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and approved Starting Weights. Library owns this model identity; Train consumes it read-only.
+
+Import accepts only a complete supported v2 Model Package selected through its `metadata.json`. Raw weights, a bare ONNX file, an incomplete package, or any other selection is not importable. Import does not convert legacy packages.
+
+Remove Model requires confirmation and then moves the OpenDSS-owned complete package folder to the Windows Recycle Bin; it never performs direct permanent deletion. The Active Model cannot be removed, packages in use cannot be removed or mutated, and Model Registry/package-integrity locks cannot be bypassed.
+
+The repository provides a documented standalone PyTorch conversion script as a development utility outside the application. It produces complete supported packages for `MobileNetV3-Small` and `EfficientNet-B0` only. Library does not expose or invoke conversion and never accepts raw weights or bare ONNX input.
 
 One global Active Model is represented through the authoritative model registry.
 
@@ -817,8 +820,8 @@ The following remain normal user selections rather than technical tuning paramet
 - Dataset;
 - a two-class or three-class Dataset schema, including switching a configured Dataset while preserving label consistency;
 - Class Names and labels;
-- Architecture: MobileNet or EfficientNet, with Faster or More Accurate supporting label;
-- Weights: ImageNet-pretrained or compatible OpenDSS droplet-trained checkpoint;
+- Library Add Model identity: nonblank unique Name, `MobileNetV3-Small` or `EfficientNet-B0`, and approved Starting Weights;
+- Train model selection: one existing Library-defined model consumed read-only for identity, architecture, and initialization;
 - Train Compute Device: GPU selected by default or CPU selected explicitly, with requested and effective device recorded and unavailable requested GPU falling back to effective CPU;
 - Model and Active Model;
 - Trigger Every Droplet;
@@ -826,7 +829,7 @@ The following remain normal user selections rather than technical tuning paramet
 - Hit boundary calibration;
 - Physical DAQ Output for Sequence Test;
 - Record Full Image Sequence;
-- names, notes, Duration, and Save Location.
+- Train Output Location; Run names, notes, Duration, and Save Location.
 - application-wide Text Size selected from exactly **Small (80%)**, **Medium (100%)**, and **Large (125%)**, default **Medium**; 200% remains validation-only.
 
 ### 11.3 Fixed qualified application configuration
@@ -1019,7 +1022,7 @@ The first release includes:
 
 - Single Image, Image Sequence, and Droplet Dataset Capture as first-class collapsible sections in one Capture workspace;
 - two-class and three-class Datasets and Models;
-- Faster and More Accurate training configurations;
+- MobileNetV3-Small and EfficientNet-B0 model architectures;
 - optional GPU acceleration for Training and Model Test;
 - Model Library and automatic activation after successful model save;
 - Class-Based Sorting and Trigger Every Droplet;

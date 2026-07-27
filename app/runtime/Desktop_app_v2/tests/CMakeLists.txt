@@ -25,6 +25,7 @@ add_test(NAME ShellSingleImage
     COMMAND tst_ShellSingleImage
         -v1
         -input ${CMAKE_CURRENT_SOURCE_DIR}/qml
+        -o ShellSingleImage-results.txt,txt
 )
 set_tests_properties(ShellSingleImage PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:tst_ShellSingleImage>"

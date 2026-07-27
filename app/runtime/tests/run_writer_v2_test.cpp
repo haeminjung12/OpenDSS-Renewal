@@ -56,8 +56,8 @@ RunEvent event() {
     value.sourceFrameIndex = 7;
     value.cropPath = "crops/crop,7.png";
     value.decision = Route::Hit;
-    value.observedRoute = Route::Unresolved;
-    value.daqPulseStatus = DaqPulseStatus::SuppressedNotIssued;
+    value.observedRoute = Route::Waste;
+    value.daqPulseStatus = DaqPulseStatus::NotRequested;
     return value;
 }
 
@@ -146,8 +146,12 @@ void testCompletedAndEscaping() {
                                       &error);
     require(loaded.has_value(), qPrintable(error));
     require(loaded->data().events.at(0).eventId == event().eventId &&
-                loaded->data().events.at(0).cropPath == event().cropPath,
-            "quoted CSV fields reopen exactly");
+                loaded->data().events.at(0).cropPath == event().cropPath &&
+                loaded->data().events.at(0).decision == Route::Hit &&
+                loaded->data().events.at(0).observedRoute == Route::Waste &&
+                loaded->data().events.at(0).daqPulseStatus ==
+                    DaqPulseStatus::NotRequested,
+            "quoted CSV fields and Decision/route mismatch reopen exactly");
 }
 
 void testInterruptedAndFailedRecovery() {

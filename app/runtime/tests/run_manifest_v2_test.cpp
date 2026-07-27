@@ -57,7 +57,9 @@ RunEvent event(QString id, qint64 frame, Route observed) {
     value.cropPath = QString("crops/%1.png").arg(frame);
     value.decision = Route::Hit;
     value.observedRoute = observed;
-    value.daqPulseStatus = DaqPulseStatus::SuppressedNotIssued;
+    value.daqPulseStatus = observed == Route::Waste
+                               ? DaqPulseStatus::NotRequested
+                               : DaqPulseStatus::SuppressedNotIssued;
     return value;
 }
 
@@ -244,20 +246,37 @@ void testValidationEdges() {
         QDir(temporary.path()).filePath("physical"), physical, &error);
     require(physicalWriter.has_value(), qPrintable(error));
     RunEvent physicalHit = event("physical-hit", 1, Route::Hit);
-    physicalHit.predictedClassId = "0";
-    physicalHit.scores = {0.9, 0.1};
+    physicalHit.decision = Route::Waste;
+    physicalHit.predictedClassId = "1";
+    physicalHit.scores = {0.1, 0.9};
     physicalHit.inferenceTimeMs = 1.0;
     physicalHit.daqPulseStatus = DaqPulseStatus::Issued;
     require(physicalWriter->appendEvent(physicalHit, "crop", &error),
-            "physical Hit accepts issued");
+            "final Hit accepts issued independently of Decision");
     RunEvent physicalWaste = event("physical-waste", 2, Route::Waste);
-    physicalWaste.decision = Route::Waste;
-    physicalWaste.predictedClassId = "1";
-    physicalWaste.scores = {0.1, 0.9};
+    physicalWaste.predictedClassId = "0";
+    physicalWaste.scores = {0.9, 0.1};
     physicalWaste.inferenceTimeMs = 1.0;
     physicalWaste.daqPulseStatus = DaqPulseStatus::NotRequested;
     require(physicalWriter->appendEvent(physicalWaste, "crop", &error),
-            "Waste remains not_requested with physical output enabled");
+            "final Waste remains not_requested independently of Decision");
+    require(physicalWriter->finalize(RunStatus::Completed,
+                                     "2026-07-24T10:00:02Z",
+                                     "duration", 19.5, &error),
+            qPrintable(error));
+    auto physicalRoundTrip = RunManifestV2::load(
+        QDir(temporary.path()).filePath("physical/run_summary.json"), &error);
+    require(physicalRoundTrip.has_value() &&
+                physicalRoundTrip->data().events.size() == 2 &&
+                physicalRoundTrip->data().events.at(0).decision == Route::Waste &&
+                physicalRoundTrip->data().events.at(0).observedRoute == Route::Hit &&
+                physicalRoundTrip->data().events.at(0).daqPulseStatus ==
+                    DaqPulseStatus::Issued &&
+                physicalRoundTrip->data().events.at(1).decision == Route::Hit &&
+                physicalRoundTrip->data().events.at(1).observedRoute == Route::Waste &&
+                physicalRoundTrip->data().events.at(1).daqPulseStatus ==
+                    DaqPulseStatus::NotRequested,
+            "Decision/route mismatches round-trip with route-keyed DAQ status");
 }
 
 void testLiveStoppedIntegrityRoundTrip() {
@@ -276,7 +295,6 @@ void testLiveStoppedIntegrityRoundTrip() {
     auto writer = RunWriterV2::start(root, data, &error);
     require(writer.has_value(), qPrintable(error));
     RunEvent value = event("live-event", 1, Route::Unresolved);
-    value.daqPulseStatus = DaqPulseStatus::Issued;
     require(writer->appendEvent(value, "crop", &error), qPrintable(error));
     require(writer->finalize(RunStatus::Stopped, "2026-07-24T10:00:02Z",
                              "user", 0.0, &error),

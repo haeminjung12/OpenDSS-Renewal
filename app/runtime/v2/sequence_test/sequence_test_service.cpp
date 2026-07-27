@@ -521,9 +521,92 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         if (!pending)
             return true;
         pending->event.observedRoute = pending->route.finalize();
-        if (!writer->appendEvent(pending->event, pending->cropBytes, &localError))
+        const auto decision = decision::DecisionService::decide(
+            request.triggerMode, pending->event.predictedClassId,
+            request.hitClassId, &localError);
+        if (!decision)
             return false;
+        pending->event.decision = *decision;
+
+        bool pulseFailed = false;
+        QString pulseError;
+        if (*decision == run::Route::Waste) {
+            pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
+        } else if (pending->event.observedRoute == run::Route::Unresolved ||
+                   !request.physicalDaqOutputEnabled) {
+            pending->event.daqPulseStatus =
+                run::DaqPulseStatus::SuppressedNotIssued;
+        } else {
+            localError.clear();
+            bool dispatchPulse = false;
+            {
+                std::lock_guard lock(controlMutex_);
+                if (!stopRequested_) {
+                    pulseInFlight_ = true;
+                    pulseThread_ = std::this_thread::get_id();
+                    dispatchPulse = true;
+                }
+            }
+            if (!dispatchPulse) {
+                localError =
+                    QStringLiteral("Stop was requested before DAQ Hit output dispatch.");
+                pending->event.daqPulseStatus =
+                    run::DaqPulseStatus::SuppressedNotIssued;
+                qWarning().noquote()
+                    << "Sequence Test DAQ Hit output suppressed:" << localError;
+            } else {
+                run::DaqPulseStatus pulseStatus = run::DaqPulseStatus::Failed;
+                try {
+                    pulseStatus = hitPulse_(true, &localError);
+                } catch (const std::exception& exception) {
+                    localError =
+                        QStringLiteral("DAQ Hit output failed: %1").arg(exception.what());
+                } catch (...) {
+                    localError = QStringLiteral("DAQ Hit output failed.");
+                }
+                {
+                    std::lock_guard lock(controlMutex_);
+                    pulseInFlight_ = false;
+                    pulseThread_ = {};
+                }
+                pulseFinished_.notify_all();
+                if (pulseStatus != run::DaqPulseStatus::Issued &&
+                    pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
+                    pulseStatus != run::DaqPulseStatus::Failed) {
+                    pulseStatus = run::DaqPulseStatus::Failed;
+                    localError =
+                        QStringLiteral("DAQ Hit output returned an invalid status.");
+                } else if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued &&
+                           localError.trimmed().isEmpty()) {
+                    pulseStatus = run::DaqPulseStatus::Failed;
+                    localError =
+                        QStringLiteral("DAQ Hit output was suppressed without a reason.");
+                }
+                pending->event.daqPulseStatus = pulseStatus;
+                if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued) {
+                    qWarning().noquote()
+                        << "Sequence Test DAQ Hit output suppressed:" << localError;
+                } else if (pulseStatus == run::DaqPulseStatus::Failed) {
+                    pulseError =
+                        localError.isEmpty()
+                            ? QStringLiteral("The Sequence Test DAQ Hit output failed.")
+                            : localError;
+                    failureReason = QStringLiteral("daq_pulse_failed");
+                    pulseFailed = true;
+                }
+            }
+        }
+
+        if (!writer->appendEvent(pending->event, pending->cropBytes, &localError)) {
+            if (pulseFailed && localError != pulseError)
+                localError = pulseError + QStringLiteral(" ") + localError;
+            return false;
+        }
         pending.reset();
+        if (pulseFailed) {
+            localError = pulseError;
+            return false;
+        }
         return true;
     };
 
@@ -599,93 +682,6 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                     model->snapshot.classes.at(bestIndex).id;
                 pending->event.scores = result->scores;
                 pending->event.inferenceTimeMs = inferenceMs;
-            }
-            const auto decision = decision::DecisionService::decide(
-                request.triggerMode, pending->event.predictedClassId,
-                request.hitClassId, &localError);
-            if (!decision) {
-                processingOk = false;
-                break;
-            }
-            pending->event.decision = *decision;
-            if (*decision == run::Route::Waste) {
-                pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
-            } else if (!request.physicalDaqOutputEnabled) {
-                pending->event.daqPulseStatus =
-                    run::DaqPulseStatus::SuppressedNotIssued;
-            } else {
-                localError.clear();
-                bool dispatchPulse = false;
-                {
-                    std::lock_guard lock(controlMutex_);
-                    if (!stopRequested_) {
-                        pulseInFlight_ = true;
-                        pulseThread_ = std::this_thread::get_id();
-                        dispatchPulse = true;
-                    }
-                }
-                if (!dispatchPulse) {
-                    localError =
-                        QStringLiteral("Stop was requested before DAQ Hit output dispatch.");
-                    pending->event.daqPulseStatus =
-                        run::DaqPulseStatus::SuppressedNotIssued;
-                    qWarning().noquote()
-                        << "Sequence Test DAQ Hit output suppressed:" << localError;
-                    if (detection.detected)
-                        pending->route.addSample(detection.centroid.y);
-                    if (!finalizePending())
-                        processingOk = false;
-                    break;
-                }
-                run::DaqPulseStatus pulseStatus = run::DaqPulseStatus::Failed;
-                try {
-                    pulseStatus = hitPulse_(true, &localError);
-                } catch (const std::exception& exception) {
-                    localError =
-                        QStringLiteral("DAQ Hit output failed: %1").arg(exception.what());
-                } catch (...) {
-                    localError = QStringLiteral("DAQ Hit output failed.");
-                }
-                {
-                    std::lock_guard lock(controlMutex_);
-                    pulseInFlight_ = false;
-                    pulseThread_ = {};
-                }
-                pulseFinished_.notify_all();
-                if (pulseStatus != run::DaqPulseStatus::Issued &&
-                    pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
-                    pulseStatus != run::DaqPulseStatus::Failed) {
-                    pulseStatus = run::DaqPulseStatus::Failed;
-                    localError =
-                        QStringLiteral("DAQ Hit output returned an invalid status.");
-                } else if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued &&
-                           localError.trimmed().isEmpty()) {
-                    pulseStatus = run::DaqPulseStatus::Failed;
-                    localError =
-                        QStringLiteral("DAQ Hit output was suppressed without a reason.");
-                }
-                pending->event.daqPulseStatus = pulseStatus;
-                if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued) {
-                    qWarning().noquote()
-                        << "Sequence Test DAQ Hit output suppressed:" << localError;
-                } else if (pulseStatus == run::DaqPulseStatus::Failed) {
-                    const QString pulseError =
-                        localError.isEmpty()
-                            ? QStringLiteral("The Sequence Test DAQ Hit output failed.")
-                            : localError;
-                    if (detection.detected)
-                        pending->route.addSample(detection.centroid.y);
-                    if (!finalizePending() && localError.isEmpty())
-                        localError =
-                            QStringLiteral("The failed DAQ event could not be persisted.");
-                    if (localError.isEmpty())
-                        localError = pulseError;
-                    else if (localError != pulseError)
-                        localError = pulseError + QStringLiteral(" ") + localError;
-                    failureReason = QStringLiteral("daq_pulse_failed");
-                    processingOk = false;
-                    break;
-                }
             }
         } else if (!detection.detected && !finalizePending()) {
             processingOk = false;

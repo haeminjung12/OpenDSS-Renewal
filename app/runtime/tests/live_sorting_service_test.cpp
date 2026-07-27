@@ -305,11 +305,16 @@ void testEveryDropletPulseRouteAndStopped() {
                         detection(true, false, 6.0f),
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
-    int pulses = 0;
+    std::atomic_int pulses{0};
+    std::atomic_bool pulseBeforeTrackEnd{false};
+    detector.onProcess = [&](int index) {
+        if ((index == 1 || index == 2) && pulses.load() != 0)
+            pulseBeforeTrackEnd.store(true);
+    };
     live::LiveSortingService service(
         operations, detector, nullptr,
         [&](bool outputEnabled, QString*) {
-            ++pulses;
+            pulses.fetch_add(1);
             return outputEnabled ? run::DaqPulseStatus::Issued
                                  : run::DaqPulseStatus::SuppressedNotIssued;
         });
@@ -325,6 +330,8 @@ void testEveryDropletPulseRouteAndStopped() {
     offerAndWait(service, detector, 1, 1);
     offerAndWait(service, detector, 2, 2);
     offerAndWait(service, detector, 3, 3);
+    require(waitFor([&] { return pulses.load() == 1; }),
+            "Hit pulse follows track-end finalization");
     require(service.stop(&error), qPrintable(error));
     const auto data = loadRun(temporary.path());
     require(data.status == run::RunStatus::Stopped && data.events.size() == 1 &&
@@ -332,14 +339,42 @@ void testEveryDropletPulseRouteAndStopped() {
                 data.events.first().observedRoute == run::Route::Hit &&
                 data.events.first().daqPulseStatus ==
                     run::DaqPulseStatus::SuppressedNotIssued &&
-                pulses == 1,
-            "Every Droplet facts persisted");
+                pulses.load() == 1 && !pulseBeforeTrackEnd.load(),
+            "Every Droplet waits for track end and persists its facts");
     require(!operations.snapshot().kind, "locks released");
     require(service.start(request(temporary.path()), &error), qPrintable(error));
     require(service.stop(&error), qPrintable(error));
     require(QFileInfo::exists(
                 QDir(temporary.path()).filePath("Live-2/run_summary.json")),
             "service starts a new Run after terminal state");
+
+    QTemporaryDir equalityTemporary;
+    FakeDetector equalityDetector;
+    equalityDetector.results = {detection(true, true, 4.0f),
+                                detection(false, false, 0.0f)};
+    OperationCoordinator equalityOperations;
+    std::atomic_int equalityPulses{0};
+    live::LiveSortingService equalityService(
+        equalityOperations, equalityDetector, nullptr,
+        [&](bool, QString*) {
+            equalityPulses.fetch_add(1);
+            return run::DaqPulseStatus::Issued;
+        },
+        {}, {}, {}, [](QString*) { return true; });
+    auto equalityRequest = request(equalityTemporary.path());
+    equalityRequest.daqOutputEnabled = true;
+    require(equalityService.start(equalityRequest, &error), qPrintable(error));
+    offerAndWait(equalityService, equalityDetector, 1, 1);
+    offerAndWait(equalityService, equalityDetector, 2, 2);
+    require(equalityService.stop(&error), qPrintable(error));
+    const auto equalityData = loadRun(equalityTemporary.path());
+    require(equalityPulses.load() == 0 && equalityData.events.size() == 1 &&
+                equalityData.events.first().decision == run::Route::Hit &&
+                equalityData.events.first().observedRoute ==
+                    run::Route::Unresolved &&
+                equalityData.events.first().daqPulseStatus ==
+                    run::DaqPulseStatus::SuppressedNotIssued,
+            "Exact final-Y equality emitted a Live Hit pulse or lost Unresolved");
 }
 
 void testClassBasedTwoAndThreeClass() {
@@ -579,7 +614,8 @@ void testExternalCallbackQuiescence() {
     {
         QTemporaryDir temporary;
         FakeDetector detector;
-        detector.results = {detection(true, true, 6.0f)};
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
         std::mutex detectorMutex;
         std::condition_variable detectorReady;
         bool detectorEntered = false;
@@ -727,6 +763,8 @@ void testExternalCallbackQuiescence() {
         require(service.start(request(temporary.path()), &error), qPrintable(error));
         require(service.offerFrame(image(), meta(1), 100.0),
                 "offer pulse-blocked frame");
+        require(service.offerFrame(image(), meta(2), 100.0),
+                "offer pulse-finalizing frame");
         {
             std::unique_lock lock(callbackMutex);
             require(callbackReady.wait_for(lock, std::chrono::seconds(2),
@@ -1084,7 +1122,8 @@ void testPersistenceAndClassificationFailures() {
     {
         QTemporaryDir temporary;
         FakeDetector detector;
-        detector.results = {detection(true, true, 2.0f)};
+        detector.results = {detection(true, true, 2.0f),
+                            detection(false, false, 0.0f)};
         OperationCoordinator operations;
         live::LiveSortingService service(
             operations, detector, nullptr,
@@ -1098,6 +1137,7 @@ void testPersistenceAndClassificationFailures() {
         value.daqOutputEnabled = true;
         require(service.start(value, &error), qPrintable(error));
         offerAndWait(service, detector, 1, 1);
+        offerAndWait(service, detector, 2, 2);
         require(waitFor([&] {
                     return service.snapshot().diagnostic.contains(
                         QStringLiteral("pulse failure"));

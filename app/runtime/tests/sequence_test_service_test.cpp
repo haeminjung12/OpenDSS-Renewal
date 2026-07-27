@@ -405,6 +405,11 @@ void daqHitMissAndSuppressionStatuses() {
                               detection(false, false, 0.0f)};
     OperationCoordinator issuedOperations;
     int issuedCalls = 0;
+    bool issuedBeforeTrackEnd = false;
+    issuedDetector.onProcess = [&](int index) {
+        if (index == 1 && issuedCalls != 0)
+            issuedBeforeTrackEnd = true;
+    };
     sequence_test::SequenceTestService issuedService(
         issuedOperations, issuedDetector, nullptr, {},
         [&](bool enabled, QString*) {
@@ -418,11 +423,12 @@ void daqHitMissAndSuppressionStatuses() {
     QString error;
     require(issuedService.run(issuedRequest, &error), qPrintable(error));
     const auto issuedData = loadRun(issuedOutput);
-    require(issuedCalls == 1 && issuedData.routing.physicalDaqOutputEnabled &&
+    require(issuedCalls == 1 && !issuedBeforeTrackEnd &&
+                issuedData.routing.physicalDaqOutputEnabled &&
                 issuedData.events.size() == 1 &&
                 issuedData.events.at(0).daqPulseStatus ==
                     run::DaqPulseStatus::Issued,
-            "A Hit did not issue exactly once or persist Issued.");
+            "A Hit did not wait for track end, issue exactly once, or persist Issued.");
 
     QTemporaryDir missTemporary;
     const QString missSequence = QDir(missTemporary.path()).filePath("sequence");
@@ -466,6 +472,38 @@ void daqHitMissAndSuppressionStatuses() {
                 missData.events.at(0).daqPulseStatus ==
                     run::DaqPulseStatus::NotRequested,
             "A Waste decision issued DAQ output or persisted the wrong status.");
+
+    QTemporaryDir equalityTemporary;
+    const QString equalitySequence =
+        QDir(equalityTemporary.path()).filePath("sequence");
+    const QString equalityOutput =
+        QDir(equalityTemporary.path()).filePath("runs");
+    require(QDir().mkpath(equalityOutput), "Could not create equality output.");
+    const QString equalityManifest =
+        makeSequence(equalitySequence, 2, {1, 2});
+    FakeDetector equalityDetector;
+    equalityDetector.results = {detection(true, true, 4.0f),
+                                detection(false, false, 0.0f)};
+    OperationCoordinator equalityOperations;
+    int equalityPulseCalls = 0;
+    sequence_test::SequenceTestService equalityService(
+        equalityOperations, equalityDetector, nullptr, {},
+        [&](bool, QString*) {
+            ++equalityPulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        [](QString*) { return true; });
+    auto equalityRequest = request(equalityManifest, equalityOutput);
+    equalityRequest.physicalDaqOutputEnabled = true;
+    require(equalityService.run(equalityRequest, &error), qPrintable(error));
+    const auto equalityData = loadRun(equalityOutput);
+    require(equalityPulseCalls == 0 && equalityData.events.size() == 1 &&
+                equalityData.events.at(0).decision == run::Route::Hit &&
+                equalityData.events.at(0).observedRoute ==
+                    run::Route::Unresolved &&
+                equalityData.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::SuppressedNotIssued,
+            "Exact final-Y equality issued a Hit pulse or lost Unresolved.");
 
     QTemporaryDir suppressedTemporary;
     const QString suppressedSequence =

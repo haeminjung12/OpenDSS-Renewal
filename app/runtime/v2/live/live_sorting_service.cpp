@@ -847,46 +847,6 @@ private:
                     return;
                 }
             }
-            const auto decision = decision::DecisionService::decide(
-                request.triggerMode, pending->event.predictedClassId,
-                request.hitClassId, &localError);
-            if (!decision) {
-                pending.reset();
-                consumerFault(frameIndex(meta), localError);
-            }
-            pending->event.decision = *decision;
-            if (*decision == run::Route::Waste) {
-                pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
-            } else {
-                if (!pulseAllowed.load(std::memory_order_acquire)) {
-                    pending.reset();
-                    return;
-                }
-                run::DaqPulseStatus pulseStatus;
-                if (!reserveExternalCallback(true)) {
-                    pending.reset();
-                    return;
-                }
-                pulseStatus = pulse(request.daqOutputEnabled, &localError);
-                if (pulseStatus != run::DaqPulseStatus::Issued &&
-                    pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
-                    pulseStatus != run::DaqPulseStatus::Failed) {
-                    pending.reset();
-                    consumerFault(frameIndex(meta),
-                                  QStringLiteral("Hit pulse callback returned an invalid status."));
-                }
-                pending->event.daqPulseStatus = pulseStatus;
-                if (pulseStatus == run::DaqPulseStatus::Failed) {
-                    {
-                        std::lock_guard lock(stateMutex);
-                        diagnostic =
-                            localError.isEmpty()
-                                ? QStringLiteral("The Live Hit pulse failed.")
-                                : localError;
-                    }
-                    fatal.store(true, std::memory_order_release);
-                }
-            }
         } else if (!detection.detected) {
             finalizePending();
         }
@@ -900,12 +860,57 @@ private:
         if (!pending)
             return;
         pending->event.observedRoute = pending->route.finalize();
+        QString localError;
+        const auto decision = decision::DecisionService::decide(
+            request.triggerMode, pending->event.predictedClassId,
+            request.hitClassId, &localError);
+        if (!decision) {
+            const qint64 sourceFrameIndex = pending->event.sourceFrameIndex;
+            pending.reset();
+            consumerFault(sourceFrameIndex, localError);
+        }
+        pending->event.decision = *decision;
+        bool pulseFailed = false;
+        if (*decision == run::Route::Waste) {
+            pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
+        } else if (pending->event.observedRoute == run::Route::Unresolved ||
+                   !pulseAllowed.load(std::memory_order_acquire) ||
+                   !reserveExternalCallback(true)) {
+            pending->event.daqPulseStatus =
+                run::DaqPulseStatus::SuppressedNotIssued;
+        } else {
+            const run::DaqPulseStatus pulseStatus =
+                pulse(request.daqOutputEnabled, &localError);
+            if (pulseStatus != run::DaqPulseStatus::Issued &&
+                pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
+                pulseStatus != run::DaqPulseStatus::Failed) {
+                const qint64 sourceFrameIndex = pending->event.sourceFrameIndex;
+                pending.reset();
+                consumerFault(
+                    sourceFrameIndex,
+                    QStringLiteral("Hit pulse callback returned an invalid status."));
+            }
+            pending->event.daqPulseStatus = pulseStatus;
+            if (pulseStatus == run::DaqPulseStatus::Failed) {
+                {
+                    std::lock_guard lock(stateMutex);
+                    diagnostic =
+                        localError.isEmpty()
+                            ? QStringLiteral("The Live Hit pulse failed.")
+                            : localError;
+                }
+                fatal.store(true, std::memory_order_release);
+                pulseFailed = true;
+            }
+        }
         PersistenceItem item;
         item.sourceIndex = pending->event.sourceFrameIndex;
         item.event = std::move(pending->event);
         item.cropBytes = std::move(pending->cropBytes);
         enqueue(std::move(item));
         pending.reset();
+        if (pulseFailed)
+            throw ConsumerFault{};
     }
 
     bool enqueue(PersistenceItem item) {

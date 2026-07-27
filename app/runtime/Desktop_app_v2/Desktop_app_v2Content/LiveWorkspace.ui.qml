@@ -26,6 +26,7 @@ Item {
     property string runArtifactPath: qsTr("C:/OpenDSS/Runs/Run-042")
     property string elapsedTimeText: qsTr("00:02:18")
     property string persistedEventCountText: qsTr("428")
+    property string rejectedCountText: qsTr("0")
     property string integrityStatusText: ""
     property string finalOutcomeText: qsTr("User stopped")
     property string outputStatusText: qsTr("Each detected event records a Droplet Crop and factual Droplet Log row.")
@@ -468,6 +469,7 @@ Item {
                                 Text { visible: root.completed; text: qsTr("Saved location: %1").arg(root.runArtifactPath); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                                 Text { text: qsTr("Elapsed time: %1").arg(root.elapsedTimeText); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Total Droplets: %1").arg(root.persistedEventCountText); color: Constants.textColor; font: Constants.smallFont }
+                                Text { text: qsTr("Rejected: %1").arg(root.rejectedCountText); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: root.runSummaryText; color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             }
                         }

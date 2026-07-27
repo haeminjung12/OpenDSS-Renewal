@@ -558,7 +558,7 @@ add_test(
     "PATH=$<TARGET_FILE_DIR:training_real_backend_probe>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:training_real_backend_probe>
 )
-set_tests_properties(training_real_backend_probe PROPERTIES TIMEOUT 240)
+set_tests_properties(training_real_backend_probe PROPERTIES TIMEOUT 150)
 opendss_configure_offscreen_test(
   training_real_backend_probe
   training_real_backend_probe

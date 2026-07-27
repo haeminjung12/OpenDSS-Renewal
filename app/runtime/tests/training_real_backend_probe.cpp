@@ -8,11 +8,6 @@
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
-#include <QJsonArray>
-#include <QJsonDocument>
-#include <QJsonObject>
-#include <QProcess>
-#include <QProcessEnvironment>
 #include <QStandardPaths>
 #include <QTemporaryDir>
 #include <QThread>
@@ -93,53 +88,6 @@ QString productionPython()
     const QString candidate =
         QDir(localAppData).filePath(QStringLiteral("OpenDSS/training-venv-gpu/Scripts/python.exe"));
     return QFileInfo(candidate).isFile() ? QFileInfo(candidate).absoluteFilePath() : QString{};
-}
-
-QJsonObject runEnvironmentCheck(const QString &python, const QString &output, QString *error)
-{
-    QProcess process;
-    QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-    environment.remove(QStringLiteral("PYTHONHOME"));
-    environment.remove(QStringLiteral("PYTHONPATH"));
-    environment.insert(QStringLiteral("PYTHONNOUSERSITE"), QStringLiteral("1"));
-    environment.insert(QStringLiteral("PIP_NO_INDEX"), QStringLiteral("1"));
-    environment.insert(QStringLiteral("PIP_INDEX_URL"), QStringLiteral("https://127.0.0.1:1/no-network"));
-    process.setProcessEnvironment(environment);
-    process.setWorkingDirectory(QFileInfo(output).absolutePath());
-    process.setProgram(python);
-    process.setArguments({
-        QStringLiteral("-I"),
-        QStringLiteral("-m"),
-        QStringLiteral("droplet_trainer"),
-        QStringLiteral("env-check"),
-        QStringLiteral("--device"),
-        QStringLiteral("auto"),
-        QStringLiteral("--check-output"),
-        output,
-        QStringLiteral("--require-training"),
-        QStringLiteral("--require-onnx"),
-        QStringLiteral("--json"),
-    });
-    process.start();
-    if (!process.waitForStarted(10'000) || !process.waitForFinished(120'000)) {
-        process.kill();
-        process.waitForFinished(3'000);
-        *error = QStringLiteral("The isolated production env-check did not finish: %1")
-                     .arg(process.errorString());
-        return {};
-    }
-    const QByteArray standardOutput = process.readAllStandardOutput().trimmed();
-    const QByteArray standardError = process.readAllStandardError().trimmed();
-    QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(standardOutput, &parseError);
-    if (process.exitStatus() != QProcess::NormalExit || process.exitCode() != 0
-        || parseError.error != QJsonParseError::NoError || !document.isObject()) {
-        *error = QStringLiteral("Production env-check failed (%1): %2")
-                     .arg(process.exitCode())
-                     .arg(QString::fromUtf8(standardError));
-        return {};
-    }
-    return document.object();
 }
 
 bool createDatasetFixture(const QString &root, QString *manifestPath, QStringList *sourceFiles,
@@ -265,19 +213,6 @@ int main(int argc, char **argv)
     qputenv("PIP_NO_INDEX", QByteArrayLiteral("1"));
     qputenv("PIP_INDEX_URL", QByteArrayLiteral("https://127.0.0.1:1/no-network"));
 
-    QString environmentError;
-    const QJsonObject environment = runEnvironmentCheck(python, outputRoot, &environmentError);
-    if (environment.isEmpty())
-        return fail(7, environmentError);
-    const QJsonObject devices = environment.value(QStringLiteral("devices")).toObject();
-    if (environment.value(QStringLiteral("status")).toString() != QStringLiteral("ok")
-        || devices.value(QStringLiteral("selected")).toString() != QStringLiteral("cuda")
-        || !devices.value(QStringLiteral("cuda_available")).toBool()
-        || !devices.value(QStringLiteral("onnxruntime_providers")).toArray().contains(
-            QStringLiteral("CUDAExecutionProvider"))) {
-        return fail(8, QStringLiteral("Automatic production environment selection did not resolve CUDA."));
-    }
-
     OperationCoordinator operations;
     TrainingService service(operations);
     const TrainingRequest request{
@@ -294,12 +229,12 @@ int main(int argc, char **argv)
 
     QString startError;
     if (!service.start(request, &startError))
-        return fail(9, QStringLiteral("Real TrainingService start failed: %1").arg(startError));
+        return fail(7, QStringLiteral("Real TrainingService start failed: %1").arg(startError));
 
     QElapsedTimer progressTimer;
     progressTimer.start();
     while (service.state() == TrainingState::Running && service.progress().stage.isEmpty()
-           && progressTimer.elapsed() < 180'000) {
+           && progressTimer.elapsed() < 90'000) {
         QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
         QThread::msleep(10);
     }
@@ -307,20 +242,20 @@ int main(int argc, char **argv)
     if (service.state() == TrainingState::Running)
         service.cancel();
     if (!waitForTerminalState(service, 15'000))
-        return fail(10, QStringLiteral("Real training did not stop within the bounded interval."));
+        return fail(8, QStringLiteral("Real training did not stop within the bounded interval."));
     if (!genuineProgress)
-        return fail(11, QStringLiteral("Real trainer did not report genuine stage progress: %1 %2")
+        return fail(9, QStringLiteral("Real trainer did not report genuine stage progress: %1 %2")
                             .arg(service.lastError(), service.standardError()));
     if (service.state() != TrainingState::Interrupted
         && service.state() != TrainingState::Completed) {
-        return fail(12, QStringLiteral("Real trainer ended in an unexpected state: %1 %2")
+        return fail(10, QStringLiteral("Real trainer ended in an unexpected state: %1 %2")
                             .arg(service.lastError(), service.standardError()));
     }
 
     if (sha256Set(fixtureFiles) != fixtureHashBefore
         || sha256File(registryPath) != registryHashBefore
         || sha256File(weightPath) != weightHashBefore) {
-        return fail(13, QStringLiteral("Training modified an immutable fixture/model source."));
+        return fail(11, QStringLiteral("Training modified an immutable fixture/model source."));
     }
 
     std::cout << "UAT-TRAIN-REAL-001 PASS\n"

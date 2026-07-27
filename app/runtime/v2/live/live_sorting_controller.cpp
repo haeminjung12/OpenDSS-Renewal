@@ -300,6 +300,33 @@ bool LiveSortingController::canSaveProfile() const {
     return !profilePath_.isEmpty() && !activeLifecycle(snapshot_.lifecycle);
 }
 
+int LiveSortingController::minimumContourArea() const {
+    return facts_.minimumContourArea;
+}
+
+bool LiveSortingController::setMinimumContourArea(int area) {
+    if (area <= 0) {
+        setActionError(QStringLiteral(
+            "Small-droplet rejection must be a positive pixel area."));
+        return false;
+    }
+    if (area == facts_.minimumContourArea)
+        return true;
+    QString error;
+    if (!facts_.applyMinimumContourArea ||
+        !facts_.applyMinimumContourArea(area, &error)) {
+        setActionError(error.isEmpty()
+                           ? QStringLiteral(
+                                 "Small-droplet rejection could not be applied.")
+                           : error);
+        return false;
+    }
+    facts_.minimumContourArea = area;
+    actionError_.clear();
+    emit changed();
+    return true;
+}
+
 bool LiveSortingController::startCamera() {
     setActionError({});
     if (!cameraController_.start()) {
@@ -481,12 +508,6 @@ void LiveSortingController::refresh() {
     } else {
         facts_.hitBoundary.boundaryY = -1.0;
     }
-    if (profileDetectorSettings_)
-        facts_.detectorSettings = *profileDetectorSettings_;
-    if (profileCropSettings_)
-        facts_.cropSettings = *profileCropSettings_;
-    if (profileTimingSettings_)
-        facts_.timingSettings = *profileTimingSettings_;
     if (saveLocation_.trimmed().isEmpty())
         saveLocation_ = QDir::cleanPath(facts_.defaultRunRoot);
     updateSnapshot();
@@ -533,29 +554,29 @@ bool LiveSortingController::openProfile(const QUrl& fileUrl) {
         run.value(QStringLiteral("record_full_image_sequence")).toBool(false);
 
     QStringList notices;
-    const auto applySettingsObject =
-        [&root, &notices](const QString& key, const QString& label,
-                          std::optional<QJsonObject>& destination,
-                          QJsonObject& effective) {
-            const QJsonValue value = root.value(key);
-            if (!value.isObject() || value.toObject().isEmpty()) {
-                notices.push_back(QStringLiteral(
-                    "%1 values not applied — values are missing or invalid.")
-                                      .arg(label));
-                return;
-            }
-            destination = value.toObject();
-            effective = *destination;
-        };
-    applySettingsObject(QStringLiteral("detector_settings"),
-                        QStringLiteral("Detector"), profileDetectorSettings_,
-                        facts_.detectorSettings);
-    applySettingsObject(QStringLiteral("crop_settings"),
-                        QStringLiteral("Crop"), profileCropSettings_,
-                        facts_.cropSettings);
-    applySettingsObject(QStringLiteral("timing_settings"),
-                        QStringLiteral("Timing"), profileTimingSettings_,
-                        facts_.timingSettings);
+    QJsonValue minimumAreaValue =
+        root.value(QStringLiteral("minimum_contour_area_px2"));
+    if (minimumAreaValue.isUndefined()) {
+        minimumAreaValue =
+            root.value(QStringLiteral("detector_settings"))
+                .toObject()
+                .value(QStringLiteral("min_area"));
+    }
+    int minimumArea = minimumAreaValue.toInt(0);
+    if (minimumArea == -1)
+        minimumArea = 100;
+    if (minimumArea > 0 && facts_.applyMinimumContourArea) {
+        QString error;
+        if (facts_.applyMinimumContourArea(minimumArea, &error))
+            facts_.minimumContourArea = minimumArea;
+        else
+            notices.push_back(
+                QStringLiteral("Small-droplet rejection not applied — %1")
+                    .arg(error));
+    } else {
+        notices.push_back(QStringLiteral(
+            "Small-droplet rejection not applied — value is missing or invalid."));
+    }
     const QJsonObject camera = root.value(QStringLiteral("camera")).toObject();
     if (!camera.isEmpty() && facts_.applyCameraProfile) {
         QString error;
@@ -617,9 +638,8 @@ QJsonObject LiveSortingController::profileDocument() const {
         {QStringLiteral("active_model_id"), facts_.activeModelId},
         {QStringLiteral("camera"), facts_.cameraSettings},
         {QStringLiteral("daq"), facts_.daqSettings},
-        {QStringLiteral("detector_settings"), facts_.detectorSettings},
-        {QStringLiteral("crop_settings"), facts_.cropSettings},
-        {QStringLiteral("timing_settings"), facts_.timingSettings},
+        {QStringLiteral("minimum_contour_area_px2"),
+         facts_.minimumContourArea},
         {QStringLiteral("run"),
          QJsonObject{
              {QStringLiteral("run_name"), runName_},

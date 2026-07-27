@@ -627,6 +627,8 @@ Item {
         property string profilePath: ""
         property string profileStatus: ""
         property bool canSaveProfile: profilePath !== ""
+        property int minimumContourArea: 100
+        property int minimumContourAreaSetCallCount: 0
         property int primaryActionCallCount: 0
         property int secondaryActionCallCount: 0
         property int saveProfileCallCount: 0
@@ -657,11 +659,18 @@ Item {
             profilePath = ""
             profileStatus = ""
             saveProfileCallCount = 0
+            minimumContourArea = 100
+            minimumContourAreaSetCallCount = 0
         }
 
         function primaryAction() { ++primaryActionCallCount; return true }
         function secondaryAction() { ++secondaryActionCallCount; return true }
         function saveProfile() { ++saveProfileCallCount; return true }
+        function setMinimumContourArea(area) {
+            ++minimumContourAreaSetCallCount
+            minimumContourArea = area
+            return true
+        }
         function setDecisionBoundary(xRatio, yRatio) {
             decisionBoundaryXRatio = xRatio
             decisionBoundaryYRatio = yRatio
@@ -695,6 +704,8 @@ Item {
         property int frameCount: 24
         property real recordedFps: 120
         property url previewUrl: ""
+        property int imageWidth: 0
+        property int imageHeight: 0
         property string sequenceValidation: "Valid"
         property real availableMemoryBytes: 8589934592
         property real bufferBytes: 25165824
@@ -734,6 +745,9 @@ Item {
             decisionBoundaryXRatio = 0.0
             decisionBoundaryYRatio = 0.0
             decisionBoundarySide = "top"
+            previewUrl = ""
+            imageWidth = 0
+            imageHeight = 0
             requestedProcessingFps = 120
             triggerEveryDroplet = false
             selectedHitClassId = "1"
@@ -962,6 +976,9 @@ Item {
         shell.sequenceHitBoundaryXRatio = 0.0
         shell.sequenceHitBoundaryYRatio = 0.5
         shell.sequenceHitBoundarySide = "top"
+        shell.smallDropletSelectionWorkspace = ""
+        shell.smallDropletSelectionVisible = false
+        shell.fallbackMinimumContourArea = 100
         modelLibraryController.reset()
         modelTestController.reset()
         singleImageCaptureController.reset()
@@ -3160,6 +3177,43 @@ Item {
         shell.form.sequenceViewerWorkspace.fitButton.clicked()
         verify(!shell.form.sequenceViewerWorkspace.actualSize)
         compare(shell.form.sequenceViewerWorkspace.zoomScale, 1)
+    }
+
+    function test_smallDropletSelectionMapsRoundedSourceArea() {
+        shell.liveSortingController = liveSortingController
+        shell.sequenceTestController = sequenceTestController
+        sequenceTestController.previewUrl = "file:///C:/Sequences/frame-0001.tif"
+        sequenceTestController.imageWidth = 101
+        sequenceTestController.imageHeight = 103
+        shell.mockState.selectWorkspace("sequenceTest")
+        tryVerify(function() {
+            return shell.form.smallDropletSetButton.enabled
+                    && shell.form.sequenceTestWorkspace.visible
+        })
+
+        shell.form.smallDropletSetButton.clicked()
+        compare(shell.smallDropletSelectionWorkspace, "sequenceTest")
+        verify(shell.form.sequenceTestWorkspace.smallDropletSelectionArmed)
+
+        const input =
+                shell.form.sequenceTestWorkspace.smallDropletSelectionInputArea
+        verify(input.width > 0 && input.height > 0)
+        const startX = input.width * 0.1
+        const startY = input.height * 0.2
+        shell.beginSmallDropletSelection(
+                    "sequenceTest", startX, startY, input.width, input.height)
+        shell.finishSmallDropletSelection(
+                    "sequenceTest",
+                    startX + input.width * (10.6 / 101),
+                    startY + input.height * (7.4 / 103),
+                    input.width, input.height)
+
+        compare(liveSortingController.minimumContourAreaSetCallCount, 1)
+        compare(liveSortingController.minimumContourArea, 77)
+        compare(shell.form.smallDropletRejectionArea, 77)
+        compare(shell.smallDropletSelectionWorkspace, "")
+        verify(!shell.form.sequenceTestWorkspace.smallDropletSelectionArmed)
+        verify(!shell.form.sequenceTestWorkspace.smallDropletSelectionVisible)
     }
 
     function findFullSizeViewers(item, result) {

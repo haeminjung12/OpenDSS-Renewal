@@ -43,6 +43,8 @@ class SequenceTestController final : public QObject {
     Q_PROPERTY(qint64 frameCount READ frameCount NOTIFY changed)
     Q_PROPERTY(double recordedFps READ recordedFps NOTIFY changed)
     Q_PROPERTY(QUrl previewUrl READ previewUrl NOTIFY changed)
+    Q_PROPERTY(int imageWidth READ imageWidth NOTIFY changed)
+    Q_PROPERTY(int imageHeight READ imageHeight NOTIFY changed)
     Q_PROPERTY(QString sequenceValidation READ sequenceValidation NOTIFY changed)
     Q_PROPERTY(qulonglong availableMemoryBytes READ availableMemoryBytes NOTIFY changed)
     Q_PROPERTY(qulonglong bufferBytes READ bufferBytes NOTIFY changed)
@@ -99,6 +101,8 @@ class SequenceTestController final : public QObject {
     qint64 frameCount() const;
     double recordedFps() const;
     QUrl previewUrl() const;
+    int imageWidth() const;
+    int imageHeight() const;
     QString sequenceValidation() const;
     qulonglong availableMemoryBytes() const;
     qulonglong bufferBytes() const;

@@ -84,7 +84,6 @@ QJsonObject provisionalFastDetectorSettings(const FastEventConfig &config)
         {QStringLiteral("bg_frames"), config.bgFrames},
         {QStringLiteral("bg_update_frames"), config.bgUpdateFrames},
         {QStringLiteral("reset_frames"), config.resetFrames},
-        {QStringLiteral("min_area"), config.minArea},
         {QStringLiteral("min_area_fraction"), config.minAreaFrac},
         {QStringLiteral("max_area_fraction"), config.maxAreaFrac},
         {QStringLiteral("minimum_bounding_box"), config.minBbox},
@@ -290,6 +289,12 @@ int main(int argc, char *argv[])
             desktop_app::v2::live::LiveControllerFacts facts;
             facts.defaultRunRoot = defaultOpenDssRunsPath();
             facts.opendssVersion = QCoreApplication::applicationVersion();
+            facts.minimumContourArea = fastDetector.minimumContourArea();
+            facts.applyMinimumContourArea =
+                [&fastDetector](int area, QString *) {
+                    fastDetector.setMinimumContourArea(area);
+                    return true;
+                };
             QString modelError;
             if (const auto model =
                     activeModelSnapshot(registryFilePath, modelLoadService,

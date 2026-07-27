@@ -2,8 +2,10 @@
 #include "../fast_event_detector.h"
 
 #include <cmath>
+#include <atomic>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include <opencv2/imgproc.hpp>
@@ -244,6 +246,50 @@ void characterizeFastDetector() {
     expect(result16.detected && result16.fired,
            "fast detector currently converts 16-bit input with the documented 1/256 scale");
     expect(result16.bbox == kDropletRect, "fast 16-bit conversion preserves detection coordinates");
+
+    FastEventConfig defaultConfig;
+    FastEventDetector defaultDetector(defaultConfig);
+    expect(defaultDetector.minimumContourArea() == 100,
+           "fast detector starts with the authoritative 100 px2 minimum contour area");
+    defaultConfig.minArea = -1.0;
+    FastEventDetector legacyDetector(defaultConfig);
+    expect(legacyDetector.minimumContourArea() == 100,
+           "legacy -1 minimum contour area converts to 100 px2");
+
+    FastEventDetector liveThresholdDetector(cfg);
+    expect(!liveThresholdDetector.addBackgroundFrame(frame8()),
+           "live-threshold detector accepts its first background frame");
+    expect(liveThresholdDetector.addBackgroundFrame(frame8()),
+           "live-threshold detector establishes its background");
+    liveThresholdDetector.setMinimumContourArea(481);
+    FastEventResult suppressed;
+    expect(liveThresholdDetector.processFrame(droplet8(), suppressed)
+               && !suppressed.detected,
+           "an immediate threshold above 480 suppresses the next frame");
+    expect(liveThresholdDetector.isReady(),
+           "an immediate threshold update preserves background readiness");
+    liveThresholdDetector.setMinimumContourArea(480);
+    FastEventResult restored;
+    expect(liveThresholdDetector.processFrame(droplet8(), restored)
+               && restored.detected,
+           "an immediate threshold of 480 accepts the next frame without reset");
+
+    std::atomic<bool> settersDone{false};
+    std::thread setter([&] {
+        for (int index = 0; index < 2000; ++index)
+            liveThresholdDetector.setMinimumContourArea(
+                index % 2 == 0 ? 100 : 1000);
+        settersDone.store(true, std::memory_order_release);
+    });
+    for (int index = 0; index < 2000; ++index) {
+        FastEventResult concurrent;
+        expect(liveThresholdDetector.processFrame(droplet8(), concurrent),
+               "concurrent threshold updates do not interrupt frame processing");
+    }
+    setter.join();
+    expect(settersDone.load(std::memory_order_acquire)
+               && liveThresholdDetector.isReady(),
+           "concurrent threshold updates complete without rebuilding background");
 }
 
 } // namespace

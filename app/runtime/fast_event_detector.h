@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <deque>
 #include <vector>
 #include <opencv2/core.hpp>
@@ -8,7 +9,7 @@ struct FastEventConfig {
     int bgFrames = 100;
     int bgUpdateFrames = 50;
     int resetFrames = 2;
-    double minArea = -1.0; // <=0 means auto
+    double minArea = 100.0;
     double minAreaFrac = 0.0;
     double maxAreaFrac = 0.10;
     int minBbox = 32;
@@ -41,6 +42,8 @@ class FastEventDetector {
 
     bool addBackgroundFrame(const cv::Mat& gray8);
     bool processFrame(const cv::Mat& gray8, FastEventResult& out);
+    int minimumContourArea() const noexcept;
+    void setMinimumContourArea(int area) noexcept;
 
   private:
     struct RollingBackground8 {
@@ -70,7 +73,7 @@ class FastEventDetector {
     cv::Point2f lastCentroid_ = {0.0f, 0.0f};
 
     double areaScale_ = 1.0;
-    int minAreaScaled_ = 1;
+    std::atomic<int> minimumContourArea_{100};
     int minAreaByFracScaled_ = 0;
     int maxAreaScaled_ = 1;
     int marginScaled_ = 1;

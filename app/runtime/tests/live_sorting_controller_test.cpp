@@ -11,6 +11,7 @@
 
 #include <QCoreApplication>
 #include <QDir>
+#include <QDirIterator>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QJsonDocument>
@@ -206,9 +207,11 @@ int main(int argc, char** argv) {
     facts.cameraSettings = {{QStringLiteral("source"), QStringLiteral("fixture")}};
     facts.daqSettings = {{QStringLiteral("source"), QStringLiteral("fixture")}};
     facts.activeModelId = QStringLiteral("model-id");
+    facts.minimumContourArea = 100;
     int cameraProfileApplies = 0;
     int daqProfileApplies = 0;
     int modelProfileApplies = 0;
+    int minimumContourAreaApplies = 0;
     facts.applyCameraProfile = [&](const QJsonObject& value, QString*) {
         ++cameraProfileApplies;
         return value.value(QStringLiteral("source")).toString() ==
@@ -223,6 +226,11 @@ int main(int argc, char** argv) {
         ++modelProfileApplies;
         facts.activeModelId = id;
         return id == QStringLiteral("model-id");
+    };
+    facts.applyMinimumContourArea = [&](int area, QString*) {
+        ++minimumContourAreaApplies;
+        facts.minimumContourArea = area;
+        return area > 0;
     };
     facts.nominalCameraFps = 25.0;
     int resultsRefreshes = 0;
@@ -266,6 +274,11 @@ int main(int argc, char** argv) {
     controller->setTriggerEveryDroplet(false);
     controller->setDaqOutputEnabled(true);
     controller->setRecordFullImageSequence(true);
+    ok &= check(controller->minimumContourArea() == 100
+                    && controller->setMinimumContourArea(143)
+                    && controller->minimumContourArea() == 143
+                    && minimumContourAreaApplies == 1,
+                "Small-droplet rejection must start at 100 px2 and apply a positive numeric update.");
     ok &= check(controller->saveProfileAs(QUrl::fromLocalFile(profilePath)) &&
                     controller->canSaveProfile() &&
                     QFileInfo::exists(profilePath),
@@ -279,17 +292,19 @@ int main(int argc, char** argv) {
     ok &= check(savedProfile.value(QStringLiteral("schema_version")).toString()
                             == QStringLiteral("opendss.setup_profile.v2")
                     && !savedProfile.contains(QStringLiteral("hit_boundary"))
-                    && savedProfile.value(QStringLiteral("detector_settings"))
-                           == facts.detectorSettings
-                    && savedProfile.value(QStringLiteral("crop_settings"))
-                           == facts.cropSettings
-                    && savedProfile.value(QStringLiteral("timing_settings"))
-                           == facts.timingSettings,
-                "Saved Setup Profile must include scientific snapshots without Decision Boundary coordinates.");
+                    && savedProfile.value(
+                           QStringLiteral("minimum_contour_area_px2")).toInt()
+                           == 143
+                    && !savedProfile.contains(QStringLiteral("detector_settings"))
+                    && !savedProfile.contains(QStringLiteral("crop_settings"))
+                    && !savedProfile.contains(QStringLiteral("timing_settings")),
+                "Saved Setup Profile must retain only the numeric threshold from detector configuration.");
     controller->setRunName(QStringLiteral("Changed"));
     controller->setTriggerEveryDroplet(true);
     controller->setDaqOutputEnabled(false);
     controller->setRecordFullImageSequence(false);
+    ok &= check(controller->setMinimumContourArea(222),
+                "The threshold must remain editable before profile load.");
     facts.activeModelId.clear();
     controller->refresh();
     ok &= check(controller->openProfile(QUrl::fromLocalFile(profilePath)) &&
@@ -298,18 +313,14 @@ int main(int argc, char** argv) {
                     controller->daqOutputEnabled() &&
                     controller->recordFullImageSequence() &&
                     cameraProfileApplies == 1 && daqProfileApplies == 1 &&
-                    modelProfileApplies == 1,
-                "Open Profile must round-trip selections and apply readable hardware/model facts.");
+                    modelProfileApplies == 1
+                    && controller->minimumContourArea() == 143,
+                "Open Profile must round-trip selections, hardware/model facts, and the numeric threshold.");
 
     QJsonObject partialProfile = savedProfile;
     partialProfile.insert(QStringLiteral("hit_boundary"),
                           QJsonObject{{QStringLiteral("boundary_y"), 3.0}});
-    partialProfile.insert(QStringLiteral("detector_settings"),
-                          QStringLiteral("invalid"));
-    partialProfile.insert(QStringLiteral("crop_settings"),
-                          QJsonObject{{QStringLiteral("size"), 96}});
-    partialProfile.insert(QStringLiteral("timing_settings"),
-                          QJsonObject{{QStringLiteral("fixed"), false}});
+    partialProfile.insert(QStringLiteral("minimum_contour_area_px2"), 0);
     const QString partialPath =
         QDir(runs.path()).filePath(QStringLiteral("partial-profile.json"));
     QString persistenceError;
@@ -317,8 +328,9 @@ int main(int argc, char** argv) {
                     partialPath, partialProfile, &persistenceError)
                     && controller->openProfile(QUrl::fromLocalFile(partialPath))
                     && controller->profileStatus().contains(
-                        QStringLiteral("Detector values not applied")),
-                "A partially invalid profile must report the skipped section and retain readable sections.");
+                        QStringLiteral("Small-droplet rejection not applied"))
+                    && controller->minimumContourArea() == 143,
+                "An invalid threshold must be reported without replacing the applied value.");
     const QString roundTripPath =
         QDir(runs.path()).filePath(QStringLiteral("partial-round-trip.json"));
     ok &= check(controller->saveProfileAs(QUrl::fromLocalFile(roundTripPath)),
@@ -330,13 +342,26 @@ int main(int argc, char** argv) {
         QJsonDocument::fromJson(roundTripFile.readAll()).object();
     roundTripFile.close();
     ok &= check(!roundTrip.contains(QStringLiteral("hit_boundary"))
-                    && roundTrip.value(QStringLiteral("detector_settings"))
-                           == facts.detectorSettings
-                    && roundTrip.value(QStringLiteral("crop_settings"))
-                           == QJsonObject{{QStringLiteral("size"), 96}}
-                    && roundTrip.value(QStringLiteral("timing_settings"))
-                           == QJsonObject{{QStringLiteral("fixed"), false}},
-                "Profile load must apply valid scientific sections without retaining Decision Boundary coordinates.");
+                    && roundTrip.value(
+                           QStringLiteral("minimum_contour_area_px2")).toInt()
+                           == 143
+                    && !roundTrip.contains(QStringLiteral("detector_settings"))
+                    && !roundTrip.contains(QStringLiteral("crop_settings"))
+                    && !roundTrip.contains(QStringLiteral("timing_settings")),
+                "Profile round trip must retain only the current numeric threshold.");
+    QJsonObject legacyProfile = savedProfile;
+    legacyProfile.remove(QStringLiteral("minimum_contour_area_px2"));
+    legacyProfile.insert(
+        QStringLiteral("detector_settings"),
+        QJsonObject{{QStringLiteral("min_area"), -1}});
+    const QString legacyPath =
+        QDir(runs.path()).filePath(QStringLiteral("legacy-profile.json"));
+    ok &= check(desktop_app::writeJsonObjectAtomically(
+                    legacyPath, legacyProfile, &persistenceError)
+                    && controller->setMinimumContourArea(222)
+                    && controller->openProfile(QUrl::fromLocalFile(legacyPath))
+                    && controller->minimumContourArea() == 100,
+                "A legacy -1 threshold must convert to the authoritative 100 px2 value.");
     controller->setDaqOutputEnabled(false);
     controller->setTriggerEveryDroplet(true);
 
@@ -374,6 +399,11 @@ int main(int argc, char** argv) {
                     controller->secondaryAction() &&
                     controller->presentation() == QStringLiteral("running"),
                 "Secondary ready action must construct and start a DAQ-OFF request.");
+    const int activeRunApplyCount = minimumContourAreaApplies;
+    ok &= check(controller->setMinimumContourArea(321)
+                    && controller->minimumContourArea() == 321
+                    && minimumContourAreaApplies == activeRunApplyCount + 1,
+                "Small-droplet rejection must apply immediately during an active Run.");
 
     controlled->pixel = 11;
     controlled->timestampNs = 1'000'000'000;
@@ -432,6 +462,21 @@ int main(int argc, char** argv) {
                     resultsRefreshes == 1 &&
                     refreshedRun == controller->runFolder(),
                 "Stop must finalize, project the result, and refresh Results once.");
+    bool thresholdProvenanceFound = false;
+    QDirIterator runArtifacts(controller->runFolder(), QDir::Files,
+                              QDirIterator::Subdirectories);
+    while (runArtifacts.hasNext()) {
+        QFile artifact(runArtifacts.next());
+        if (artifact.open(QIODevice::ReadOnly)) {
+            const QByteArray bytes = artifact.readAll();
+            thresholdProvenanceFound =
+                thresholdProvenanceFound
+                || bytes.contains("minimum_contour_area_px2")
+                || bytes.contains("\"min_area\"");
+        }
+    }
+    ok &= check(!thresholdProvenanceFound,
+                "Run artifacts must not contain Small-droplet rejection provenance.");
     const QVector<int> adaptedPixels = detector.pixels();
     const qint64 adaptedGaps =
         controller->integrity()

@@ -7,8 +7,6 @@
 #include <opencv2/imgproc.hpp>
 
 namespace {
-constexpr double kAutoMinAreaFracFast = 0.006;
-
 cv::Rect scaleRect(const cv::Rect& r, double scale) {
     return cv::Rect(static_cast<int>(std::lround(r.x * scale)), static_cast<int>(std::lround(r.y * scale)),
                     static_cast<int>(std::lround(r.width * scale)), static_cast<int>(std::lround(r.height * scale)));
@@ -94,7 +92,18 @@ FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAre
 } // namespace
 
 FastEventDetector::FastEventDetector(const FastEventConfig& cfg) : cfg_(cfg) {
+    setMinimumContourArea(
+        cfg.minArea <= 0.0 ? 100 : static_cast<int>(std::lround(cfg.minArea)));
     reset();
+}
+
+int FastEventDetector::minimumContourArea() const noexcept {
+    return minimumContourArea_.load(std::memory_order_acquire);
+}
+
+void FastEventDetector::setMinimumContourArea(int area) noexcept {
+    minimumContourArea_.store(area <= 0 ? 100 : area,
+                              std::memory_order_release);
 }
 
 void FastEventDetector::reset() {
@@ -187,23 +196,13 @@ void FastEventDetector::updateDerivedParams(const cv::Size& fullSize, const cv::
     if (fullSize.area() <= 0 || scaledSize.area() <= 0)
         return;
 
-    double minArea = cfg_.minArea;
-    if (minArea <= 0.0) {
-        minArea = kAutoMinAreaFracFast * static_cast<double>(fullSize.area());
-    }
-
     areaScale_ = cfg_.scale * cfg_.scale;
-    double minAreaScaled = std::max(1.0, minArea * areaScale_);
-    minAreaScaled_ = static_cast<int>(std::ceil(minAreaScaled));
 
     int imgAreaScaled = scaledSize.width * scaledSize.height;
     minAreaByFracScaled_ = static_cast<int>(std::lround(cfg_.minAreaFrac * static_cast<double>(imgAreaScaled)));
     maxAreaScaled_ = static_cast<int>(std::lround(cfg_.maxAreaFrac * static_cast<double>(imgAreaScaled)));
     if (minAreaByFracScaled_ < 0)
         minAreaByFracScaled_ = 0;
-    if (maxAreaScaled_ < minAreaScaled_)
-        maxAreaScaled_ = minAreaScaled_;
-
     marginScaled_ = std::max(1, static_cast<int>(std::lround(cfg_.margin * cfg_.scale)));
     minBboxScaled_ = std::max(1, static_cast<int>(std::lround(cfg_.minBbox * cfg_.scale)));
 
@@ -282,7 +281,11 @@ bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& ou
         cv::blur(diff8, diff8, cv::Size(k, k));
     }
 
-    FastEventResult det = detectFromDiffFast(diff8, minAreaScaled_, minAreaByFracScaled_, maxAreaScaled_, marginScaled_,
+    const int minAreaScaled = std::max(
+        1, static_cast<int>(std::ceil(
+               minimumContourArea_.load(std::memory_order_acquire) * areaScale_)));
+    FastEventResult det = detectFromDiffFast(diff8, minAreaScaled, minAreaByFracScaled_,
+                                             std::max(maxAreaScaled_, minAreaScaled), marginScaled_,
                                              cfg_.diffThresh, minBboxScaled_, morphKernel_);
 
     if (det.detected && cfg_.scale != 1.0) {

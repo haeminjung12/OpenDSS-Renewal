@@ -53,6 +53,13 @@ Item {
     property real sequenceHitBoundaryYRatio: 0.0
     property string sequenceHitBoundarySide: "top"
     property bool sequenceHitBoundaryPlacementArmed: false
+    property int fallbackMinimumContourArea: 100
+    property string smallDropletSelectionWorkspace: ""
+    property bool smallDropletSelectionVisible: false
+    property real smallDropletSelectionStartXRatio: 0.0
+    property real smallDropletSelectionStartYRatio: 0.0
+    property real smallDropletSelectionEndXRatio: 0.0
+    property real smallDropletSelectionEndYRatio: 0.0
     property string lastAcknowledgedPreviewSource: ""
     function acknowledgeActiveCameraPreview() {
         if (!root.cameraController
@@ -321,6 +328,119 @@ Item {
         screen.sequenceTestWorkspace.setDecisionBoundaryButton.forceActiveFocus()
     }
 
+    function smallDropletSourceSize(workspace) {
+        if (workspace === "capture" || workspace === "live")
+            return {
+                "width": Number(root.cameraController
+                                ? root.cameraController.customWidth
+                                : screen.cameraCustomWidth),
+                "height": Number(root.cameraController
+                                 ? root.cameraController.customHeight
+                                 : screen.cameraCustomHeight)
+            }
+        if (workspace === "sequenceTest")
+            return {
+                "width": Number(root.sequenceTestController
+                                ? root.sequenceTestController.imageWidth : 0),
+                "height": Number(root.sequenceTestController
+                                 ? root.sequenceTestController.imageHeight : 0)
+            }
+        if (workspace === "sequenceViewer")
+            return {
+                "width": Number(screen.sequenceViewerWorkspace.nativeImageWidth),
+                "height": Number(screen.sequenceViewerWorkspace.nativeImageHeight)
+            }
+        if (workspace === "label")
+            return {"width": 64, "height": 64}
+        return {"width": 0, "height": 0}
+    }
+
+    function smallDropletFrameSource(workspace) {
+        if (workspace === "capture")
+            return String(screen.cameraPreviewSource)
+        if (workspace === "live")
+            return String(screen.liveWorkspace.cameraPreviewSource)
+        if (workspace === "sequenceTest")
+            return String(screen.sequenceTestWorkspace.sequencePreviewImage.source)
+        if (workspace === "sequenceViewer")
+            return String(screen.sequenceViewerWorkspace.currentFrameSource)
+        if (workspace === "label")
+            return String(screen.labelWorkspace.selectedCropSource)
+        return ""
+    }
+
+    function smallDropletFrameAvailable(workspace) {
+        const size = root.smallDropletSourceSize(workspace)
+        return root.smallDropletFrameSource(workspace) !== ""
+                && size.width > 0 && size.height > 0
+    }
+
+    function armSmallDropletSelection() {
+        const workspace = screen.selectedWorkspace
+        if (!root.smallDropletFrameAvailable(workspace))
+            return
+        root.smallDropletSelectionWorkspace = workspace
+        root.smallDropletSelectionVisible = false
+    }
+
+    function cancelSmallDropletSelection() {
+        root.smallDropletSelectionWorkspace = ""
+        root.smallDropletSelectionVisible = false
+        screen.smallDropletSetButton.forceActiveFocus()
+    }
+
+    function beginSmallDropletSelection(workspace, x, y, width, height) {
+        if (root.smallDropletSelectionWorkspace !== workspace
+                || width <= 0 || height <= 0)
+            return
+        root.smallDropletSelectionStartXRatio =
+                Math.max(0, Math.min(1, x / width))
+        root.smallDropletSelectionStartYRatio =
+                Math.max(0, Math.min(1, y / height))
+        root.smallDropletSelectionEndXRatio =
+                root.smallDropletSelectionStartXRatio
+        root.smallDropletSelectionEndYRatio =
+                root.smallDropletSelectionStartYRatio
+        root.smallDropletSelectionVisible = true
+    }
+
+    function updateSmallDropletSelection(workspace, x, y, width, height) {
+        if (root.smallDropletSelectionWorkspace !== workspace
+                || !root.smallDropletSelectionVisible
+                || width <= 0 || height <= 0)
+            return
+        root.smallDropletSelectionEndXRatio =
+                Math.max(0, Math.min(1, x / width))
+        root.smallDropletSelectionEndYRatio =
+                Math.max(0, Math.min(1, y / height))
+    }
+
+    function finishSmallDropletSelection(workspace, x, y, width, height) {
+        root.updateSmallDropletSelection(workspace, x, y, width, height)
+        if (root.smallDropletSelectionWorkspace !== workspace
+                || !root.smallDropletSelectionVisible)
+            return
+        const size = root.smallDropletSourceSize(workspace)
+        const sourceWidth = Math.round(
+                    Math.abs(root.smallDropletSelectionEndXRatio
+                             - root.smallDropletSelectionStartXRatio)
+                    * size.width)
+        const sourceHeight = Math.round(
+                    Math.abs(root.smallDropletSelectionEndYRatio
+                             - root.smallDropletSelectionStartYRatio)
+                    * size.height)
+        if (sourceWidth > 0 && sourceHeight > 0) {
+            const area = sourceWidth * sourceHeight
+            if (root.liveSortingController) {
+                if (!root.liveSortingController.setMinimumContourArea(area))
+                    return
+            } else {
+                root.fallbackMinimumContourArea = area
+            }
+        }
+        root.cancelSmallDropletSelection()
+    }
+
     Component.onCompleted: {
         if (root.cameraController)
             state.cameraPromptHandled = true
@@ -467,6 +587,59 @@ Item {
         captureStartsAvailable: root.captureWorkflowController
                                 ? root.captureWorkflowController.captureStartAvailable
                                 : state.activeOperation === ""
+    }
+
+    Binding {
+        target: screen
+        property: "smallDropletRejectionArea"
+        value: root.liveSortingController
+               ? root.liveSortingController.minimumContourArea
+               : root.fallbackMinimumContourArea
+    }
+    Binding {
+        target: screen
+        property: "smallDropletSetEnabled"
+        value: root.smallDropletFrameAvailable(screen.selectedWorkspace)
+    }
+    Binding { target: screen; property: "smallDropletSelectionArmed"; value: root.smallDropletSelectionWorkspace === "capture" }
+    Binding { target: screen; property: "smallDropletSelectionVisible"; value: root.smallDropletSelectionWorkspace === "capture" && root.smallDropletSelectionVisible }
+    Binding { target: screen; property: "smallDropletSelectionStartXRatio"; value: root.smallDropletSelectionStartXRatio }
+    Binding { target: screen; property: "smallDropletSelectionStartYRatio"; value: root.smallDropletSelectionStartYRatio }
+    Binding { target: screen; property: "smallDropletSelectionEndXRatio"; value: root.smallDropletSelectionEndXRatio }
+    Binding { target: screen; property: "smallDropletSelectionEndYRatio"; value: root.smallDropletSelectionEndYRatio }
+
+    Binding { target: screen.liveWorkspace; property: "smallDropletSelectionArmed"; value: root.smallDropletSelectionWorkspace === "live" }
+    Binding { target: screen.liveWorkspace; property: "smallDropletSelectionVisible"; value: root.smallDropletSelectionWorkspace === "live" && root.smallDropletSelectionVisible }
+    Binding { target: screen.liveWorkspace; property: "smallDropletSelectionStartXRatio"; value: root.smallDropletSelectionStartXRatio }
+    Binding { target: screen.liveWorkspace; property: "smallDropletSelectionStartYRatio"; value: root.smallDropletSelectionStartYRatio }
+    Binding { target: screen.liveWorkspace; property: "smallDropletSelectionEndXRatio"; value: root.smallDropletSelectionEndXRatio }
+    Binding { target: screen.liveWorkspace; property: "smallDropletSelectionEndYRatio"; value: root.smallDropletSelectionEndYRatio }
+
+    Binding { target: screen.sequenceTestWorkspace; property: "smallDropletSelectionArmed"; value: root.smallDropletSelectionWorkspace === "sequenceTest" }
+    Binding { target: screen.sequenceTestWorkspace; property: "smallDropletSelectionVisible"; value: root.smallDropletSelectionWorkspace === "sequenceTest" && root.smallDropletSelectionVisible }
+    Binding { target: screen.sequenceTestWorkspace; property: "smallDropletSelectionStartXRatio"; value: root.smallDropletSelectionStartXRatio }
+    Binding { target: screen.sequenceTestWorkspace; property: "smallDropletSelectionStartYRatio"; value: root.smallDropletSelectionStartYRatio }
+    Binding { target: screen.sequenceTestWorkspace; property: "smallDropletSelectionEndXRatio"; value: root.smallDropletSelectionEndXRatio }
+    Binding { target: screen.sequenceTestWorkspace; property: "smallDropletSelectionEndYRatio"; value: root.smallDropletSelectionEndYRatio }
+
+    Binding { target: screen.sequenceViewerWorkspace; property: "smallDropletSelectionArmed"; value: root.smallDropletSelectionWorkspace === "sequenceViewer" }
+    Binding { target: screen.sequenceViewerWorkspace; property: "smallDropletSelectionVisible"; value: root.smallDropletSelectionWorkspace === "sequenceViewer" && root.smallDropletSelectionVisible }
+    Binding { target: screen.sequenceViewerWorkspace; property: "smallDropletSelectionStartXRatio"; value: root.smallDropletSelectionStartXRatio }
+    Binding { target: screen.sequenceViewerWorkspace; property: "smallDropletSelectionStartYRatio"; value: root.smallDropletSelectionStartYRatio }
+    Binding { target: screen.sequenceViewerWorkspace; property: "smallDropletSelectionEndXRatio"; value: root.smallDropletSelectionEndXRatio }
+    Binding { target: screen.sequenceViewerWorkspace; property: "smallDropletSelectionEndYRatio"; value: root.smallDropletSelectionEndYRatio }
+
+    Binding { target: screen.labelWorkspace; property: "smallDropletSelectionArmed"; value: root.smallDropletSelectionWorkspace === "label" }
+    Binding { target: screen.labelWorkspace; property: "smallDropletSelectionVisible"; value: root.smallDropletSelectionWorkspace === "label" && root.smallDropletSelectionVisible }
+    Binding { target: screen.labelWorkspace; property: "smallDropletSelectionStartXRatio"; value: root.smallDropletSelectionStartXRatio }
+    Binding { target: screen.labelWorkspace; property: "smallDropletSelectionStartYRatio"; value: root.smallDropletSelectionStartYRatio }
+    Binding { target: screen.labelWorkspace; property: "smallDropletSelectionEndXRatio"; value: root.smallDropletSelectionEndXRatio }
+    Binding { target: screen.labelWorkspace; property: "smallDropletSelectionEndYRatio"; value: root.smallDropletSelectionEndYRatio }
+
+    Shortcut {
+        sequence: "Escape"
+        enabled: root.smallDropletSelectionWorkspace !== ""
+        onActivated: root.cancelSmallDropletSelection()
     }
 
     Binding {
@@ -1522,6 +1695,128 @@ Item {
     Connections { target: screen.modelTestWorkspace.modelTestSetupHeadingButton; function onClicked() { state.toggleModelTestSetup() } }
     Connections { target: screen.modelTestWorkspace.modelTestStatusHeadingButton; function onClicked() { state.toggleModelTestStatus() } }
     Connections { target: screen.modelTestWorkspace.operationPanelToggleButton; function onClicked() { state.toggleModelTestOperationPanel() } }
+
+    Connections {
+        target: screen.smallDropletSetButton
+        function onClicked() { root.armSmallDropletSelection() }
+    }
+    Connections {
+        target: state
+        function onSelectedWorkspaceChanged() {
+            if (root.smallDropletSelectionWorkspace !== "")
+                root.cancelSmallDropletSelection()
+        }
+    }
+    Connections {
+        target: screen.smallDropletSelectionInputArea
+        function onPressed(mouse) {
+            root.beginSmallDropletSelection(
+                        "capture", mouse.x, mouse.y,
+                        screen.smallDropletSelectionInputArea.width,
+                        screen.smallDropletSelectionInputArea.height)
+        }
+        function onPositionChanged(mouse) {
+            root.updateSmallDropletSelection(
+                        "capture", mouse.x, mouse.y,
+                        screen.smallDropletSelectionInputArea.width,
+                        screen.smallDropletSelectionInputArea.height)
+        }
+        function onReleased(mouse) {
+            root.finishSmallDropletSelection(
+                        "capture", mouse.x, mouse.y,
+                        screen.smallDropletSelectionInputArea.width,
+                        screen.smallDropletSelectionInputArea.height)
+        }
+        function onCanceled() { root.cancelSmallDropletSelection() }
+    }
+    Connections {
+        target: screen.liveWorkspace.smallDropletSelectionInputArea
+        function onPressed(mouse) {
+            root.beginSmallDropletSelection(
+                        "live", mouse.x, mouse.y,
+                        screen.liveWorkspace.smallDropletSelectionInputArea.width,
+                        screen.liveWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onPositionChanged(mouse) {
+            root.updateSmallDropletSelection(
+                        "live", mouse.x, mouse.y,
+                        screen.liveWorkspace.smallDropletSelectionInputArea.width,
+                        screen.liveWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onReleased(mouse) {
+            root.finishSmallDropletSelection(
+                        "live", mouse.x, mouse.y,
+                        screen.liveWorkspace.smallDropletSelectionInputArea.width,
+                        screen.liveWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onCanceled() { root.cancelSmallDropletSelection() }
+    }
+    Connections {
+        target: screen.sequenceTestWorkspace.smallDropletSelectionInputArea
+        function onPressed(mouse) {
+            root.beginSmallDropletSelection(
+                        "sequenceTest", mouse.x, mouse.y,
+                        screen.sequenceTestWorkspace.smallDropletSelectionInputArea.width,
+                        screen.sequenceTestWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onPositionChanged(mouse) {
+            root.updateSmallDropletSelection(
+                        "sequenceTest", mouse.x, mouse.y,
+                        screen.sequenceTestWorkspace.smallDropletSelectionInputArea.width,
+                        screen.sequenceTestWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onReleased(mouse) {
+            root.finishSmallDropletSelection(
+                        "sequenceTest", mouse.x, mouse.y,
+                        screen.sequenceTestWorkspace.smallDropletSelectionInputArea.width,
+                        screen.sequenceTestWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onCanceled() { root.cancelSmallDropletSelection() }
+    }
+    Connections {
+        target: screen.sequenceViewerWorkspace.smallDropletSelectionInputArea
+        function onPressed(mouse) {
+            root.beginSmallDropletSelection(
+                        "sequenceViewer", mouse.x, mouse.y,
+                        screen.sequenceViewerWorkspace.smallDropletSelectionInputArea.width,
+                        screen.sequenceViewerWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onPositionChanged(mouse) {
+            root.updateSmallDropletSelection(
+                        "sequenceViewer", mouse.x, mouse.y,
+                        screen.sequenceViewerWorkspace.smallDropletSelectionInputArea.width,
+                        screen.sequenceViewerWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onReleased(mouse) {
+            root.finishSmallDropletSelection(
+                        "sequenceViewer", mouse.x, mouse.y,
+                        screen.sequenceViewerWorkspace.smallDropletSelectionInputArea.width,
+                        screen.sequenceViewerWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onCanceled() { root.cancelSmallDropletSelection() }
+    }
+    Connections {
+        target: screen.labelWorkspace.smallDropletSelectionInputArea
+        function onPressed(mouse) {
+            root.beginSmallDropletSelection(
+                        "label", mouse.x, mouse.y,
+                        screen.labelWorkspace.smallDropletSelectionInputArea.width,
+                        screen.labelWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onPositionChanged(mouse) {
+            root.updateSmallDropletSelection(
+                        "label", mouse.x, mouse.y,
+                        screen.labelWorkspace.smallDropletSelectionInputArea.width,
+                        screen.labelWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onReleased(mouse) {
+            root.finishSmallDropletSelection(
+                        "label", mouse.x, mouse.y,
+                        screen.labelWorkspace.smallDropletSelectionInputArea.width,
+                        screen.labelWorkspace.smallDropletSelectionInputArea.height)
+        }
+        function onCanceled() { root.cancelSmallDropletSelection() }
+    }
 
     Connections { target: screen.liveWorkspace.primaryActionButton; function onClicked() { if (root.liveSortingController) root.liveSortingController.primaryAction(); else state.livePrimaryAction() } }
     Connections {

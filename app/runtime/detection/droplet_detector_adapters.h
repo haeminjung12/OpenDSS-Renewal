@@ -18,6 +18,8 @@ class FastEventDetectorAdapter final : public IDropletDetector {
     bool isReady() const;
     bool addBackgroundFrame(const cv::Mat& frame);
     const cv::Mat& background() const;
+    int minimumContourArea() const noexcept;
+    void setMinimumContourArea(int area) noexcept;
 
   private:
     FastEventDetector detector_;

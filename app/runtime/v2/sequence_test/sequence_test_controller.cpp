@@ -268,6 +268,10 @@ QUrl SequenceTestController::previewUrl() const {
     return previewUrl_;
 }
 
+int SequenceTestController::imageWidth() const { return imageWidth_; }
+
+int SequenceTestController::imageHeight() const { return imageHeight_; }
+
 QString SequenceTestController::sequenceValidation() const {
     return sequenceValidation_;
 }

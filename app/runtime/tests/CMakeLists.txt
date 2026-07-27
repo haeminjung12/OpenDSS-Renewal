@@ -133,6 +133,10 @@ add_test(
   NAME opendss_detector_characterization_test
   COMMAND opendss_detector_characterization_test
 )
+opendss_configure_offscreen_test(
+  opendss_detector_characterization_test
+  opendss_detector_characterization_test
+)
 
 add_executable(opendss_detector_contract_parity_test
   detector_contract_parity_test.cpp
@@ -1120,6 +1124,10 @@ add_test(
     $<TARGET_FILE:live_sorting_controller_test>
 )
 set_tests_properties(live_sorting_controller_test PROPERTIES TIMEOUT 30)
+opendss_configure_offscreen_test(
+  live_sorting_controller_test
+  live_sorting_controller_test
+)
 
 qt_add_executable(run_repository_test
   run_repository_test.cpp

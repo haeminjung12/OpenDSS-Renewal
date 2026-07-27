@@ -41,6 +41,14 @@ const cv::Mat& FastEventDetectorAdapter::background() const {
     return detector_.background();
 }
 
+int FastEventDetectorAdapter::minimumContourArea() const noexcept {
+    return detector_.minimumContourArea();
+}
+
+void FastEventDetectorAdapter::setMinimumContourArea(int area) noexcept {
+    detector_.setMinimumContourArea(area);
+}
+
 EventDetectorAdapter::EventDetectorAdapter(const EventDetectorConfig& config, int resetFrames, double minAreaFrac,
                                            int minBbox, bool includeMask)
     : detector_(config), resetFrames_(resetFrames), minAreaFrac_(minAreaFrac), minBbox_(minBbox),

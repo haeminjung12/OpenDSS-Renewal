@@ -33,7 +33,9 @@ struct LiveControllerFacts {
     std::function<bool(const QJsonObject&, QString*)> applyCameraProfile;
     std::function<bool(const QJsonObject&, QString*)> applyDaqProfile;
     std::function<bool(const QString&, QString*)> activateModel;
+    std::function<bool(int, QString*)> applyMinimumContourArea;
     run::HitBoundarySnapshot hitBoundary;
+    int minimumContourArea = 100;
     QJsonObject detectorSettings;
     QJsonObject cropSettings;
     QJsonObject timingSettings;
@@ -82,6 +84,7 @@ class LiveSortingController final : public QObject {
     Q_PROPERTY(QString profilePath READ profilePath NOTIFY changed)
     Q_PROPERTY(QString profileStatus READ profileStatus NOTIFY changed)
     Q_PROPERTY(bool canSaveProfile READ canSaveProfile NOTIFY changed)
+    Q_PROPERTY(int minimumContourArea READ minimumContourArea NOTIFY changed)
 
 public:
     LiveSortingController(LiveSortingService& service,
@@ -131,6 +134,7 @@ public:
     QString profilePath() const;
     QString profileStatus() const;
     bool canSaveProfile() const;
+    int minimumContourArea() const;
 
     Q_INVOKABLE bool startCamera();
     Q_INVOKABLE bool stopCamera();
@@ -148,6 +152,7 @@ public:
     Q_INVOKABLE bool openProfile(const QUrl& fileUrl);
     Q_INVOKABLE bool saveProfile();
     Q_INVOKABLE bool saveProfileAs(const QUrl& fileUrl);
+    Q_INVOKABLE bool setMinimumContourArea(int area);
 
 signals:
     void changed();
@@ -194,9 +199,6 @@ private:
     double decisionBoundaryXRatio_ = 0.0;
     double decisionBoundaryYRatio_ = 0.0;
     bool decisionBoundaryDefined_ = false;
-    std::optional<QJsonObject> profileDetectorSettings_;
-    std::optional<QJsonObject> profileCropSettings_;
-    std::optional<QJsonObject> profileTimingSettings_;
     bool triggerEveryDroplet_ = true;
     bool daqOutputEnabled_ = false;
     bool recordFullImageSequence_ = false;

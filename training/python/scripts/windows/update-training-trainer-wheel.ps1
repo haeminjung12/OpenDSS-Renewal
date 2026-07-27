@@ -813,10 +813,14 @@ try {
     throw
 }
 $phase = "complete"
-Write-UpdaterDiagnostic -DiagnosticsRoot $diagnosticsRootItem `
-    -LogPath $diagnosticLogPath -Phase $phase -Status "succeeded" `
-    -ExceptionType "" -ExceptionMessage "" -ExitCode $commandExitCode `
-    -SnapshotCreated $true -InstallStarted $installStarted `
-    -UpdateValidated $updateValidated -RollbackOutcome "not-required" `
-    -RollbackDetail "" -CleanupOutcome $cleanupOutcome -CleanupDetail ""
+try {
+    Write-UpdaterDiagnostic -DiagnosticsRoot $diagnosticsRootItem `
+        -LogPath $diagnosticLogPath -Phase $phase -Status "succeeded" `
+        -ExceptionType "" -ExceptionMessage "" -ExitCode $commandExitCode `
+        -SnapshotCreated $true -InstallStarted $installStarted `
+        -UpdateValidated $updateValidated -RollbackOutcome "not-required" `
+        -RollbackDetail "" -CleanupOutcome $cleanupOutcome -CleanupDetail ""
+} catch {
+    Write-Warning "Trainer update succeeded, but its durable success diagnostic could not be written."
+}
 Write-Host "OpenDSS droplet-trainer updated atomically to $ExpectedHash."

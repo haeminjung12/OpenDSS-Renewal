@@ -831,6 +831,16 @@ void latestPreviewTransportIsBounded() {
             "reach gated third frame");
     require(waitUntil([&] { return previewFrame(controller.previewUrl()) == 2; }),
             "publish a processed frame beyond frame one");
+    require(waitUntil([&] {
+                return controller.presentation() == QStringLiteral("running");
+            }) &&
+                controller.setDecisionBoundary(0.5, 0.25),
+            "Sequence Running replacement updates X and Y.");
+    controller.setDecisionBoundarySide(QStringLiteral("top"));
+    require(controller.decisionBoundaryXRatio() == 0.5 &&
+                controller.decisionBoundaryYRatio() == 0.25 &&
+                controller.decisionBoundarySide() == QStringLiteral("top"),
+            "Sequence Running replacement updates mapping.");
     const QUrl inFlightUrl = controller.previewUrl();
     require(controller.currentPreviewImage().pixelColor(0, 0).red() == 40,
             "publish the second immutable buffered frame");

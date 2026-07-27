@@ -301,6 +301,7 @@ bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& ou
     }
 
     bool fired = false;
+    bool lifecycleEnded = false;
     if (det.detected) {
         bool gapReentry = (noDetectCount_ > 0);
         bool gapFire = false;
@@ -325,6 +326,7 @@ bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& ou
         if (noDetectCount_ >= cfg_.resetFrames) {
             triggered_ = false;
             noDetectCount_ = 0;
+            lifecycleEnded = true;
         }
     }
 
@@ -333,6 +335,7 @@ bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& ou
     }
 
     det.fired = fired;
+    det.lifecycleEnded = lifecycleEnded;
     out = det;
     return true;
 }

@@ -193,10 +193,7 @@ struct PersistenceItem {
 struct PendingEvent {
     run::RunEvent event;
     QByteArray cropBytes;
-    routing::ObservedRouteTracker route;
-
-    explicit PendingEvent(run::HitBoundarySnapshot boundary)
-        : route(std::move(boundary)) {}
+    std::optional<double> lastY;
 };
 
 class ConsumerFault final {};
@@ -483,6 +480,7 @@ public:
         }
 
         request = value;
+        currentBoundary = value.hitBoundary;
         model = std::move(prepared);
         runFolder = folder;
         detector.reset();
@@ -691,6 +689,22 @@ public:
                 diagnostic, stopReason};
     }
 
+    bool updateDecisionBoundary(const run::HitBoundarySnapshot& boundary) {
+        if (!std::isfinite(boundary.boundaryY) || boundary.boundaryY < 0.0 ||
+            boundary.imageWidth <= 0 || boundary.imageHeight <= 0 ||
+            boundary.boundaryY >= boundary.imageHeight) {
+            return false;
+        }
+        {
+            std::lock_guard lock(stateMutex);
+            if (lifecycle != OperationLifecycle::Running)
+                return false;
+        }
+        std::lock_guard lock(boundaryMutex);
+        currentBoundary = boundary;
+        return true;
+    }
+
 private:
     bool reserveExternalCallback(bool pulseCallback) {
         std::lock_guard lock(stateMutex);
@@ -793,7 +807,7 @@ private:
                     frame, detection.bbox, &crop, &localError)) {
                 consumerFault(frameIndex(meta), localError);
             }
-            pending.emplace(request.hitBoundary);
+            pending.emplace();
             ++eventNumber;
             pending->event.eventId =
                 QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
@@ -847,11 +861,13 @@ private:
                     return;
                 }
             }
-        } else if (!detection.detected) {
+        } else if (detection.lifecycleEnded) {
             finalizePending();
         }
-        if (pending && detection.detected)
-            pending->route.addSample(detection.centroid.y);
+        if (pending && detection.detected && std::isfinite(detection.centroid.y) &&
+            detection.centroid.y >= 0.0) {
+            pending->lastY = detection.centroid.y;
+        }
         if (fatal.load(std::memory_order_acquire))
             throw ConsumerFault{};
     }
@@ -859,7 +875,15 @@ private:
     void finalizePending() {
         if (!pending)
             return;
-        pending->event.observedRoute = pending->route.finalize();
+        run::HitBoundarySnapshot boundary;
+        {
+            std::lock_guard lock(boundaryMutex);
+            boundary = currentBoundary;
+        }
+        routing::ObservedRouteTracker route(std::move(boundary));
+        if (pending->lastY)
+            route.addSample(*pending->lastY);
+        pending->event.observedRoute = route.finalize();
         QString localError;
         const auto decision = decision::DecisionService::decide(
             request.triggerMode, pending->event.predictedClassId,
@@ -1308,6 +1332,8 @@ private:
     std::thread::id persistenceWorkerId;
     OperationLease lease;
     LiveSortingRequest request;
+    std::mutex boundaryMutex;
+    run::HitBoundarySnapshot currentBoundary;
     std::optional<PreparedLiveModel> model;
     QString runFolder;
     QString diagnostic;
@@ -1382,6 +1408,11 @@ bool LiveSortingService::stop(QString* error) {
 
 bool LiveSortingService::pollDuration(QString* error) {
     return impl_->pollDuration(error);
+}
+
+bool LiveSortingService::updateDecisionBoundary(
+    const run::HitBoundarySnapshot& boundary) {
+    return impl_->updateDecisionBoundary(boundary);
 }
 
 LiveSortingSnapshot LiveSortingService::snapshot() const {

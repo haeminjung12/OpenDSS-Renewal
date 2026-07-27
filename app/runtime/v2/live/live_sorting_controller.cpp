@@ -408,9 +408,15 @@ bool LiveSortingController::setDecisionBoundary(double xRatio, double yRatio) {
     const double sourceX =
         std::min(xRatio * facts_.hitBoundary.imageWidth,
                  static_cast<double>(facts_.hitBoundary.imageWidth - 1));
-    facts_.hitBoundary.boundaryY =
+    run::HitBoundarySnapshot boundary = facts_.hitBoundary;
+    boundary.boundaryY =
         std::min(yRatio * facts_.hitBoundary.imageHeight,
                  static_cast<double>(facts_.hitBoundary.imageHeight - 1));
+    if (snapshot_.lifecycle == OperationLifecycle::Running &&
+        !service_.updateDecisionBoundary(boundary)) {
+        return false;
+    }
+    facts_.hitBoundary = boundary;
     decisionBoundaryXRatio_ = sourceX / facts_.hitBoundary.imageWidth;
     decisionBoundaryYRatio_ =
         facts_.hitBoundary.boundaryY / facts_.hitBoundary.imageHeight;
@@ -435,6 +441,12 @@ void LiveSortingController::setDecisionBoundarySide(const QString& side) {
                            : run::HitSide::PositiveY;
     if (facts_.hitBoundary.hitSide == value)
         return;
+    run::HitBoundarySnapshot boundary = facts_.hitBoundary;
+    boundary.hitSide = value;
+    if (snapshot_.lifecycle == OperationLifecycle::Running &&
+        !service_.updateDecisionBoundary(boundary)) {
+        return;
+    }
     facts_.hitBoundary.hitSide = value;
     emit changed();
 }

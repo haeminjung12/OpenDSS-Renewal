@@ -404,6 +404,12 @@ int main(int argc, char** argv) {
                     && controller->minimumContourArea() == 321
                     && minimumContourAreaApplies == activeRunApplyCount + 1,
                 "Small-droplet rejection must apply immediately during an active Run.");
+    controller->setDecisionBoundarySide(QStringLiteral("top"));
+    ok &= check(controller->setDecisionBoundary(0.5, 0.25) &&
+                    controller->decisionBoundaryXRatio() == 0.5 &&
+                    controller->decisionBoundaryYRatio() == 0.25 &&
+                    controller->decisionBoundarySide() == QStringLiteral("top"),
+                "Live Running replacement must update X, Y, and mapping.");
 
     controlled->pixel = 11;
     controlled->timestampNs = 1'000'000'000;

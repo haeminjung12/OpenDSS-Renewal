@@ -41,7 +41,8 @@ bool sameEventResult(const EventResult& lhs, const EventResult& rhs) {
 }
 
 bool sameFastResult(const FastEventResult& lhs, const FastEventResult& rhs) {
-    return lhs.detected == rhs.detected && lhs.fired == rhs.fired && std::abs(lhs.area - rhs.area) < 0.001 &&
+    return lhs.detected == rhs.detected && lhs.fired == rhs.fired &&
+           lhs.lifecycleEnded == rhs.lifecycleEnded && std::abs(lhs.area - rhs.area) < 0.001 &&
            lhs.bbox == rhs.bbox && samePoint(lhs.centroid, rhs.centroid) && sameMat(lhs.mask, rhs.mask);
 }
 
@@ -201,7 +202,8 @@ void characterizeFastDetector() {
 
     FastEventResult oneGap;
     detector.processFrame(frame8(), oneGap);
-    expect(!oneGap.detected && !oneGap.fired, "fast first missing frame starts but does not complete reset hysteresis");
+    expect(!oneGap.detected && !oneGap.fired && !oneGap.lifecycleEnded,
+           "fast first missing frame retains the lifecycle");
     FastEventResult sameAfterGap;
     detector.processFrame(droplet8(), sameAfterGap);
     expect(sameAfterGap.detected && !sameAfterGap.fired,
@@ -211,6 +213,8 @@ void characterizeFastDetector() {
     FastEventResult gapTwo;
     detector.processFrame(frame8(), gapOne);
     detector.processFrame(frame8(), gapTwo);
+    expect(!gapOne.lifecycleEnded && gapTwo.lifecycleEnded,
+           "fast lifecycle ends only on resetFrames consecutive misses");
     FastEventResult afterReset;
     detector.processFrame(droplet8(), afterReset);
     expect(afterReset.detected && afterReset.fired,

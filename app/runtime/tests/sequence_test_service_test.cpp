@@ -78,10 +78,12 @@ private:
     int index_ = 0;
 };
 
-DropletDetectionFrame detection(bool detected, bool entered, float y) {
+DropletDetectionFrame detection(bool detected, bool entered, float y,
+                                 bool lifecycleEnded = true) {
     DropletDetectionFrame value;
     value.detected = detected;
     value.eventEntered = entered;
+    value.lifecycleEnded = !detected && lifecycleEnded;
     value.bbox = {1, 1, 4, 4};
     value.centroid = {3.0f, y};
     return value;
@@ -221,6 +223,37 @@ void noModelEveryDroplet() {
                 hashFile(manifest) == beforeManifest &&
                 hashFile(framePath(sequenceRoot, 1)) == beforeFrame,
             "Run crops are missing or source Sequence changed.");
+}
+
+void lifecycleAndBoundaryReplacement() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create lifecycle output.");
+    const QString manifest = makeSequence(sequenceRoot, 4, {1, 2, 3, 4});
+
+    FakeDetector detector;
+    detector.results = {detection(true, true, 2.0f),
+                        detection(false, false, 0.0f, false),
+                        detection(true, false, 6.0f),
+                        detection(false, false, 0.0f)};
+    OperationCoordinator operations;
+    sequence_test::SequenceTestService service(operations, detector, nullptr);
+    bool boundaryUpdated = false;
+    detector.onProcess = [&](int index) {
+        if (index == 2) {
+            boundaryUpdated = service.updateDecisionBoundary(
+                {7.0, run::HitSide::NegativeY, 8, 8});
+        }
+    };
+
+    QString error;
+    require(service.run(request(manifest, output), &error), qPrintable(error));
+    const auto data = loadRun(output);
+    require(boundaryUpdated && data.events.size() == 1 &&
+                data.events.first().observedRoute == run::Route::Hit,
+            "Sequence one-miss retention, reappeared final Y, second-miss end, "
+            "and Running boundary replacement failed.");
 }
 
 void classBasedModel() {
@@ -1171,6 +1204,7 @@ void exceptionRecovery() {
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
     noModelEveryDroplet();
+    lifecycleAndBoundaryReplacement();
     classBasedModel();
     productionModelPreparationRequestsCpu();
     daqOffRequiresNoReadinessOrOwnership();

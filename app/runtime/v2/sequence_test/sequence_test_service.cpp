@@ -246,10 +246,7 @@ void reportProgress(const ProgressCallback& callback,
 struct PendingEvent {
     run::RunEvent event;
     QByteArray cropBytes;
-    routing::ObservedRouteTracker route;
-
-    explicit PendingEvent(run::HitBoundarySnapshot boundary)
-        : route(std::move(boundary)) {}
+    std::optional<double> lastY;
 };
 
 class RunningGuard final {
@@ -296,6 +293,23 @@ void SequenceTestService::requestStop() noexcept {
         pulseFinished_.wait(lock, [&] { return !pulseInFlight_; });
 }
 
+bool SequenceTestService::updateDecisionBoundary(
+    const run::HitBoundarySnapshot& boundary) {
+    if (!std::isfinite(boundary.boundaryY) || boundary.boundaryY < 0.0 ||
+        boundary.imageWidth <= 0 || boundary.imageHeight <= 0 ||
+        boundary.boundaryY >= boundary.imageHeight) {
+        return false;
+    }
+    {
+        std::lock_guard lock(controlMutex_);
+        if (!running_)
+            return false;
+    }
+    std::lock_guard lock(boundaryMutex_);
+    currentBoundary_ = boundary;
+    return true;
+}
+
 bool SequenceTestService::run(const SequenceTestRequest& request, QString* error,
                               QString* completedRunFolder) {
     if (completedRunFolder)
@@ -310,6 +324,10 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         running_ = true;
         acceptingStop_ = true;
         stopRequested_ = false;
+    }
+    {
+        std::lock_guard lock(boundaryMutex_);
+        currentBoundary_ = request.hitBoundary;
     }
     RunningGuard runningGuard(controlMutex_, running_, acceptingStop_);
     const auto stopRequested = [&] {
@@ -520,7 +538,15 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     const auto finalizePending = [&]() -> bool {
         if (!pending)
             return true;
-        pending->event.observedRoute = pending->route.finalize();
+        run::HitBoundarySnapshot boundary;
+        {
+            std::lock_guard lock(boundaryMutex_);
+            boundary = currentBoundary_;
+        }
+        routing::ObservedRouteTracker route(std::move(boundary));
+        if (pending->lastY)
+            route.addSample(*pending->lastY);
+        pending->event.observedRoute = route.finalize();
         const auto decision = decision::DecisionService::decide(
             request.triggerMode, pending->event.predictedClassId,
             request.hitClassId, &localError);
@@ -643,7 +669,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                 processingOk = false;
                 break;
             }
-            pending.emplace(request.hitBoundary);
+            pending.emplace();
             ++eventNumber;
             pending->event.eventId =
                 QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
@@ -682,12 +708,14 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                 pending->event.scores = result->scores;
                 pending->event.inferenceTimeMs = inferenceMs;
             }
-        } else if (!detection.detected && !finalizePending()) {
+        } else if (detection.lifecycleEnded && !finalizePending()) {
             processingOk = false;
             break;
         }
-        if (pending && detection.detected)
-            pending->route.addSample(detection.centroid.y);
+        if (pending && detection.detected && std::isfinite(detection.centroid.y) &&
+            detection.centroid.y >= 0.0) {
+            pending->lastY = detection.centroid.y;
+        }
         ++processedFrames;
         const double progressSeconds =
             static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0;

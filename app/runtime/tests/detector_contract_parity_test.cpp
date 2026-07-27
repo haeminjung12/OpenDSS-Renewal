@@ -87,6 +87,7 @@ DropletDetectionFrame mapFast(const FastEventResult& result) {
     DropletDetectionFrame mapped;
     mapped.detected = result.detected;
     mapped.eventEntered = result.fired;
+    mapped.lifecycleEnded = result.lifecycleEnded;
     mapped.area = result.area;
     mapped.bbox = result.bbox;
     mapped.centroid = result.centroid;
@@ -96,6 +97,7 @@ DropletDetectionFrame mapFast(const FastEventResult& result) {
 
 bool sameDetection(const DropletDetectionFrame& lhs, const DropletDetectionFrame& rhs) {
     return lhs.detected == rhs.detected && lhs.eventEntered == rhs.eventEntered &&
+           lhs.lifecycleEnded == rhs.lifecycleEnded &&
            std::abs(lhs.area - rhs.area) < 0.001 && lhs.bbox == rhs.bbox && samePoint(lhs.centroid, rhs.centroid) &&
            sameMat(lhs.mask, rhs.mask);
 }
@@ -117,6 +119,7 @@ DropletDetectionFrame runPreciseDirect(EventDetector& detector, const cv::Mat& f
     }
 
     bool eventEntered = false;
+    bool lifecycleEnded = false;
     if (detected) {
         state.noDetectionFrames = 0;
         if (!state.eventActive) {
@@ -128,12 +131,14 @@ DropletDetectionFrame runPreciseDirect(EventDetector& detector, const cv::Mat& f
         if (state.noDetectionFrames >= resetFrames) {
             state.eventActive = false;
             state.noDetectionFrames = 0;
+            lifecycleEnded = true;
         }
     }
 
     DropletDetectionFrame mapped;
     mapped.detected = detected;
     mapped.eventEntered = eventEntered;
+    mapped.lifecycleEnded = lifecycleEnded;
     mapped.area = result.area;
     mapped.bbox = result.bbox;
     mapped.centroid = result.centroid;

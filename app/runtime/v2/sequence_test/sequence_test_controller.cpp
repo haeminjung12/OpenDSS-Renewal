@@ -774,8 +774,14 @@ bool SequenceTestController::setDecisionBoundary(double xRatio, double yRatio) {
     }
     const double sourceX =
         std::min(xRatio * imageWidth_, static_cast<double>(imageWidth_ - 1));
-    hitBoundary_.boundaryY =
+    run::HitBoundarySnapshot boundary = hitBoundary_;
+    boundary.boundaryY =
         std::min(yRatio * imageHeight_, static_cast<double>(imageHeight_ - 1));
+    if (presentation_ == QStringLiteral("running") &&
+        !service_.updateDecisionBoundary(boundary)) {
+        return false;
+    }
+    hitBoundary_ = boundary;
     decisionBoundaryXRatio_ = sourceX / imageWidth_;
     decisionBoundaryYRatio_ = hitBoundary_.boundaryY / imageHeight_;
     hitBoundary_.imageWidth = imageWidth_;
@@ -801,6 +807,12 @@ void SequenceTestController::setDecisionBoundarySide(const QString& side) {
                            : run::HitSide::PositiveY;
     if (hitBoundary_.hitSide == value)
         return;
+    run::HitBoundarySnapshot boundary = hitBoundary_;
+    boundary.hitSide = value;
+    if (presentation_ == QStringLiteral("running") &&
+        !service_.updateDecisionBoundary(boundary)) {
+        return;
+    }
     hitBoundary_.hitSide = value;
     emit changed();
 }

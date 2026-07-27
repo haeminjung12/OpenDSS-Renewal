@@ -5,6 +5,7 @@ DropletDetectionFrame mapFastResult(const FastEventResult& result) {
     DropletDetectionFrame frame;
     frame.detected = result.detected;
     frame.eventEntered = result.fired;
+    frame.lifecycleEnded = result.lifecycleEnded;
     frame.area = result.area;
     frame.bbox = result.bbox;
     frame.centroid = result.centroid;
@@ -75,6 +76,7 @@ DropletDetectionFrame EventDetectorAdapter::processFrame(const cv::Mat& frame) {
     }
 
     bool eventEntered = false;
+    bool lifecycleEnded = false;
     if (detected) {
         noDetectionFrames_ = 0;
         if (!eventActive_) {
@@ -86,12 +88,14 @@ DropletDetectionFrame EventDetectorAdapter::processFrame(const cv::Mat& frame) {
         if (noDetectionFrames_ >= resetFrames_) {
             eventActive_ = false;
             noDetectionFrames_ = 0;
+            lifecycleEnded = true;
         }
     }
 
     DropletDetectionFrame frameResult;
     frameResult.detected = detected;
     frameResult.eventEntered = eventEntered;
+    frameResult.lifecycleEnded = lifecycleEnded;
     frameResult.area = result.area;
     frameResult.bbox = result.bbox;
     frameResult.centroid = result.centroid;

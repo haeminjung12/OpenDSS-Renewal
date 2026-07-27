@@ -90,6 +90,7 @@ public:
     bool resume(QString* error = nullptr);
     bool stop(QString* error = nullptr);
     bool pollDuration(QString* error = nullptr);
+    bool updateDecisionBoundary(const run::HitBoundarySnapshot& boundary);
     LiveSortingSnapshot snapshot() const;
 
 private:

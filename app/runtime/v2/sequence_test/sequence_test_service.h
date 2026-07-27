@@ -92,6 +92,7 @@ public:
 
     bool run(const SequenceTestRequest& request, QString* error = nullptr,
              QString* runFolder = nullptr);
+    bool updateDecisionBoundary(const run::HitBoundarySnapshot& boundary);
     void requestStop() noexcept;
 
 private:
@@ -109,6 +110,8 @@ private:
     bool stopRequested_ = false;
     bool pulseInFlight_ = false;
     std::thread::id pulseThread_;
+    std::mutex boundaryMutex_;
+    run::HitBoundarySnapshot currentBoundary_;
 };
 
 } // namespace desktop_app::v2::sequence_test

@@ -5,6 +5,7 @@
 struct DropletDetectionFrame {
     bool detected = false;
     bool eventEntered = false;
+    bool lifecycleEnded = false;
     double area = 0.0;
     cv::Rect bbox;
     cv::Point2f centroid = {0.0f, 0.0f};

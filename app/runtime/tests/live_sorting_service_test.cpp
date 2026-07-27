@@ -64,10 +64,12 @@ private:
     int index_ = 0;
 };
 
-DropletDetectionFrame detection(bool detected, bool entered, float y) {
+DropletDetectionFrame detection(bool detected, bool entered, float y,
+                                 bool lifecycleEnded = true) {
     DropletDetectionFrame value;
     value.detected = detected;
     value.eventEntered = entered;
+    value.lifecycleEnded = !detected && lifecycleEnded;
     value.bbox = {1, 1, 4, 4};
     value.centroid = {3.0f, y};
     return value;
@@ -304,13 +306,14 @@ void testEveryDropletPulseRouteAndStopped() {
     QTemporaryDir temporary;
     FakeDetector detector;
     detector.results = {detection(true, true, 2.0f),
-                        detection(true, false, 2.0f),
+                        detection(false, false, 0.0f, false),
+                        detection(true, false, 6.0f),
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
     std::atomic_int pulses{0};
     std::atomic_bool pulseBeforeTrackEnd{false};
     detector.onProcess = [&](int index) {
-        if ((index == 1 || index == 2) && pulses.load() != 0)
+        if ((index == 1 || index == 2 || index == 3) && pulses.load() != 0)
             pulseBeforeTrackEnd.store(true);
     };
     live::LiveSortingService service(
@@ -334,7 +337,12 @@ void testEveryDropletPulseRouteAndStopped() {
             "Live locks held");
     offerAndWait(service, detector, 1, 1);
     offerAndWait(service, detector, 2, 2);
+    require(pulses.load() == 0, "one miss retains the pending Live track");
     offerAndWait(service, detector, 3, 3);
+    require(service.updateDecisionBoundary(
+                {5.0, run::HitSide::NegativeY, 8, 8}),
+            "replace Live observer boundary while Running");
+    offerAndWait(service, detector, 4, 4);
     require(waitFor([&] { return pulses.load() == 1; }),
             "Hit pulse follows track-end finalization");
     require(service.stop(&error), qPrintable(error));
@@ -345,7 +353,7 @@ void testEveryDropletPulseRouteAndStopped() {
                 data.events.first().daqPulseStatus ==
                     run::DaqPulseStatus::Issued &&
                 pulses.load() == 1 && !pulseBeforeTrackEnd.load(),
-            "Every Droplet Hit issues after track end regardless of Observed Route");
+            "second miss finalizes with reappeared final Y and current Live boundary");
     require(!operations.snapshot().kind, "locks released");
     require(service.start(request(temporary.path()), &error), qPrintable(error));
     require(service.stop(&error), qPrintable(error));
@@ -392,7 +400,7 @@ void testClassBasedTwoAndThreeClass() {
         OperationCoordinator operations;
         QVector<double> scores = classes == 2 ? QVector<double>{0.1, 0.9}
                                               : QVector<double>{0.1, 0.2, 0.9};
-        int pulses = 0;
+        std::atomic_int pulses{0};
         live::LiveSortingRequest value = request(temporary.path());
         value.triggerMode = run::TriggerMode::ClassBased;
         value.useActiveModel = true;
@@ -413,6 +421,8 @@ void testClassBasedTwoAndThreeClass() {
                 "global Model lock held");
         offerAndWait(service, detector, 1, 1);
         offerAndWait(service, detector, 2, 2);
+        require(waitFor([&] { return pulses.load() == 1; }),
+                "class Hit finalizes before Stop");
         require(service.stop(&error), qPrintable(error));
         const auto data = loadRun(temporary.path());
         require(data.events.size() == 1 &&
@@ -421,7 +431,7 @@ void testClassBasedTwoAndThreeClass() {
                     data.events.first().decision == run::Route::Hit &&
                     data.events.first().daqPulseStatus ==
                         run::DaqPulseStatus::SuppressedNotIssued &&
-                    pulses == 1,
+                    pulses.load() == 1,
                 "class argmax and no-issued pulse fact");
     }
     {
@@ -681,7 +691,8 @@ void testExternalCallbackQuiescence() {
     {
         QTemporaryDir temporary;
         FakeDetector detector;
-        detector.results = {detection(true, true, 6.0f)};
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
         std::mutex callbackMutex;
         std::condition_variable callbackReady;
         bool callbackEntered = false;
@@ -746,7 +757,8 @@ void testExternalCallbackQuiescence() {
     {
         QTemporaryDir temporary;
         FakeDetector detector;
-        detector.results = {detection(true, true, 6.0f)};
+        detector.results = {detection(true, true, 6.0f),
+                            detection(false, false, 0.0f)};
         std::mutex callbackMutex;
         std::condition_variable callbackReady;
         bool callbackEntered = false;

@@ -822,6 +822,25 @@ try {
         -UpdateValidated $updateValidated -RollbackOutcome "not-required" `
         -RollbackDetail "" -CleanupOutcome $cleanupOutcome -CleanupDetail ""
 } catch {
-    Write-Warning "Trainer update succeeded, but its durable success diagnostic could not be written." -WarningAction Continue
+    $successLogExceptionType =
+        ([string]$_.Exception.GetType().FullName -replace "[\r\n]+", " ")
+    $successLogExceptionMessage =
+        ([string]$_.Exception.Message -replace "[\r\n]+", " ")
+    if ($successLogExceptionType.Length -gt 256) {
+        $successLogExceptionType =
+            $successLogExceptionType.Substring(0, 256) + "...[truncated]"
+    }
+    if ($successLogExceptionMessage.Length -gt 1024) {
+        $successLogExceptionMessage =
+            $successLogExceptionMessage.Substring(0, 1024) + "...[truncated]"
+    }
+    try {
+        [Console]::Error.WriteLine(
+            "Trainer update succeeded, but its durable success diagnostic could not be written. {0}: {1}",
+            $successLogExceptionType,
+            $successLogExceptionMessage)
+    } catch {
+        # The replacement is already committed; stderr failure cannot change success.
+    }
 }
 Write-Host "OpenDSS droplet-trainer updated atomically to $ExpectedHash."

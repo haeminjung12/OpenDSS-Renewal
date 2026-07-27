@@ -1767,39 +1767,83 @@ Item {
     }
 
     function test_workspaceLocalHitBoundaryCalibration() {
+        const previewSource =
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
         shell.liveSortingController = liveSortingController
         shell.sequenceTestController = sequenceTestController
-
-        shell.setLiveHitBoundary(75, 25, 100, 100)
-        compare(shell.liveHitBoundaryXRatio, 0.75)
-        compare(shell.liveHitBoundaryYRatio, 0.25)
-        verify(shell.form.liveWorkspace.hitBoundaryDefined)
-        compare(shell.form.liveWorkspace.hitBoundaryXRatio, 0.75)
-        compare(shell.form.liveWorkspace.hitBoundaryYRatio, 0.25)
+        shell.daqController = daqController
+        shell.cameraController = unavailableCameraController
+        unavailableCameraController.previewSource = previewSource
+        shell.form.navLiveButton.clicked()
+        const liveInput = shell.form.liveWorkspace.hitBoundaryInputArea
+        tryCompare(shell.form.liveWorkspace.cameraPreviewImage,
+                   "status", Image.Ready)
+        verify(liveInput.width > 0)
+        verify(liveInput.height > 0)
+        const liveX = Math.floor(liveInput.width * 0.75)
+        const liveY = Math.floor(liveInput.height * 0.25)
+        mouseClick(liveInput, liveX, liveY, Qt.LeftButton)
+        tryCompare(shell.form.liveWorkspace, "hitBoundaryDefined", true)
+        const liveOverlay = liveInput.parent
+        const liveLine = liveOverlay.children[1]
+        verify(!!liveLine, "Object exists")
+        tryCompare(liveLine, "x", 0)
+        tryCompare(liveLine, "width",
+                   shell.liveHitBoundaryXRatio * liveOverlay.width)
         shell.form.liveWorkspace.bottomIsHitControl.clicked()
         compare(shell.liveHitBoundarySide, "bottom")
 
         liveSortingController.presentation = "running"
-        verify(shell.form.liveWorkspace.hitBoundaryEditable)
-        shell.setLiveHitBoundary(20, 80, 100, 100)
-        compare(shell.liveHitBoundaryXRatio, 0.2)
-        compare(shell.liveHitBoundaryYRatio, 0.8)
+        tryCompare(liveInput, "enabled", true)
+        const runningLiveX = Math.floor(liveInput.width * 0.2)
+        const runningLiveY = Math.floor(liveInput.height * 0.8)
+        const priorLiveXRatio = shell.liveHitBoundaryXRatio
+        mouseClick(liveInput, runningLiveX, runningLiveY, Qt.LeftButton)
+        tryVerify(function() {
+            return shell.liveHitBoundaryXRatio !== priorLiveXRatio
+        })
+        tryCompare(liveLine, "x", 0)
+        tryCompare(liveLine, "width",
+                   shell.liveHitBoundaryXRatio * liveOverlay.width)
+        const runningLiveXRatio = shell.liveHitBoundaryXRatio
+        const runningLiveYRatio = shell.liveHitBoundaryYRatio
         compare(liveSortingController.primaryActionCallCount, 0)
         compare(liveSortingController.secondaryActionCallCount, 0)
         compare(liveSortingController.saveProfileCallCount, 0)
 
-        shell.setSequenceHitBoundary(60, 40, 100, 100)
-        compare(shell.sequenceHitBoundaryXRatio, 0.6)
-        compare(shell.sequenceHitBoundaryYRatio, 0.4)
-        verify(shell.form.sequenceTestWorkspace.hitBoundaryDefined)
-        compare(shell.form.sequenceTestWorkspace.hitBoundaryXRatio, 0.6)
-        compare(shell.form.sequenceTestWorkspace.hitBoundaryYRatio, 0.4)
-        compare(shell.liveHitBoundaryXRatio, 0.2)
-        compare(shell.liveHitBoundaryYRatio, 0.8)
+        sequenceTestController.previewUrl = previewSource
+        shell.form.navSequenceTestButton.clicked()
+        const sequenceInput =
+                shell.form.sequenceTestWorkspace.hitBoundaryInputArea
+        tryCompare(shell.form.sequenceTestWorkspace.sequencePreviewImage,
+                   "status", Image.Ready)
+        verify(sequenceInput.width > 0)
+        verify(sequenceInput.height > 0)
+        const sequenceX = Math.floor(sequenceInput.width * 0.6)
+        const sequenceY = Math.floor(sequenceInput.height * 0.4)
+        mouseClick(sequenceInput, sequenceX, sequenceY, Qt.LeftButton)
+        tryCompare(shell.form.sequenceTestWorkspace,
+                   "hitBoundaryDefined", true)
+        const sequenceOverlay = sequenceInput.parent
+        const sequenceLine = sequenceOverlay.children[1]
+        verify(!!sequenceLine, "Object exists")
+        tryCompare(sequenceLine, "x", 0)
+        tryCompare(sequenceLine, "width",
+                   shell.sequenceHitBoundaryXRatio * sequenceOverlay.width)
+        tryCompare(shell, "liveHitBoundaryXRatio", runningLiveXRatio)
+        tryCompare(shell, "liveHitBoundaryYRatio", runningLiveYRatio)
         shell.form.sequenceTestWorkspace.bottomIsHitControl.clicked()
         compare(shell.sequenceHitBoundarySide, "bottom")
         compare(sequenceTestController.startCallCount, 0)
         compare(sequenceTestController.stopCallCount, 0)
+        compare(daqController.refreshDevicesCallCount, 0)
+        compare(daqController.applyCallCount, 0)
+        compare(daqController.sendTestSineWaveCallCount, 0)
+        compare(daqController.toggleContinuousWaveformCallCount, 0)
+
+        sequenceTestController.previewUrl = ""
+        unavailableCameraController.previewSource = ""
+        shell.cameraController = null
     }
 
     function test_trainAndModelTestDisclosures() {

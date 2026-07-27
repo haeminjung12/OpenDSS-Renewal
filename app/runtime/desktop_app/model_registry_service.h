@@ -82,7 +82,8 @@ bool saveTrainedModelArtifacts(const QString& registryFilePath, const QString& r
                                const QString& metricsJsonPath, const QString& classMetricsCsvPath,
                                const QString& confusionMatrixCsvPath, const QString& modelName,
                                const QString& destinationRoot, QString* savedPackagePath = nullptr,
-                               QString* registeredEntryId = nullptr, QString* error = nullptr);
+                               QString* registeredEntryId = nullptr, QString* error = nullptr,
+                               const QString& replaceRegistryEntryId = {});
 ActiveModelReadiness evaluateActiveModelReadiness(const QJsonObject& entry);
 ModelPackageInspection inspectModelPackage(const QJsonObject& entry);
 bool activateModelRegistryEntry(const QString& registryFilePath, const QString& registryEntryId,
@@ -101,6 +102,11 @@ bool duplicateCompleteModelPackage(const QString& registryFilePath, const QStrin
                                    const QString& displayName, const QString& destinationRoot,
                                    QString* duplicatedEntryId = nullptr, QString* duplicatedPackagePath = nullptr,
                                    QString* recoveryPath = nullptr, QString* error = nullptr);
+bool createLibraryModelIdentity(const QString& registryFilePath, const QString& sourcePackagePath,
+                                const QString& displayName, const QString& architectureId,
+                                const QString& initializationMode, QString* createdEntryId = nullptr,
+                                QString* createdPackagePath = nullptr,
+                                QString* recoveryPath = nullptr, QString* error = nullptr);
 bool deleteRegisteredModelPackage(const QString& registryFilePath, const QString& registryEntryId,
                                   bool* registryCommitted = nullptr, bool* deletedActive = nullptr,
                                   QString* recoveryPath = nullptr, QString* error = nullptr);

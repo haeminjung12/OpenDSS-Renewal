@@ -505,12 +505,14 @@ void testPackageOperations()
                 QDir(invalidPackage).filePath(QStringLiteral("checkpoint.pth"))),
             "remove invalid checkpoint");
     const QByteArray registryBeforeInvalid = bytes(registryPath);
-    require(!controller.importModel(QUrl::fromLocalFile(invalidPackage))
+    require(!controller.importModel(QUrl::fromLocalFile(
+                QDir(invalidPackage).filePath(QStringLiteral("metadata.json"))))
                 && controller.errorMessage().contains(QStringLiteral("checkpoint"))
                 && bytes(registryPath) == registryBeforeInvalid,
             "invalid incomplete import rejected without registry mutation");
 
-    const bool imported = controller.importModel(QUrl::fromLocalFile(sourcePackage));
+    const bool imported = controller.importModel(QUrl::fromLocalFile(
+        QDir(sourcePackage).filePath(QStringLiteral("metadata.json"))));
     QString sourceAfterImportError;
     const bool sourceStillComplete =
         validateCompleteV2ModelPackage(sourcePackage, &sourceAfterImportError);
@@ -530,7 +532,8 @@ void testPackageOperations()
                 && QFileInfo(QDir(importedPackage).filePath(QStringLiteral("checkpoint.pth"))).isFile(),
             "import copies and registers complete package");
     const QByteArray registryAfterImport = bytes(registryPath);
-    require(!controller.importModel(QUrl::fromLocalFile(sourcePackage))
+    require(!controller.importModel(QUrl::fromLocalFile(
+                QDir(sourcePackage).filePath(QStringLiteral("metadata.json"))))
                 && bytes(registryPath) == registryAfterImport,
             "import collision rejected without registry mutation");
     require(bytes(QDir(sourcePackage).filePath(QStringLiteral("metadata.json")))
@@ -611,12 +614,61 @@ void testPackageOperations()
             qPrintable(QStringLiteral("set active success: ")
                        + controller.errorMessage()));
     require(controller.activeId() == importedId, "imported model becomes active");
-    require(controller.deleteSelected(),
-            qPrintable(QStringLiteral("delete active success: ") +
-                       controller.errorMessage()));
-    require(controller.modelRows().isEmpty() && controller.activeId().isEmpty()
-                && activeClearCount == 1 && !QFileInfo::exists(importedPackage),
-            "active delete clears registry and downstream callback before success");
+    require(!controller.canDelete() && !controller.deleteSelected()
+                && controller.activeId() == importedId
+                && controller.modelRows().size() == 1
+                && activeClearCount == 0 && QFileInfo(importedPackage).isDir(),
+            "Active Model removal is blocked without mutation");
+}
+
+void testLibraryOwnedIdentityCreation()
+{
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "Library identity temporary directory");
+    const QString runtimeModels =
+        QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR)).filePath(
+            QStringLiteral("models"));
+    qputenv("OVDS_MODELS_ROOT_PATH", runtimeModels.toUtf8());
+
+    const QString registryPath = createSimpleRegistry(
+        QDir(temporary.path()).filePath(QStringLiteral("models")));
+    OperationCoordinator operations;
+    ModelLibraryController controller(registryPath, operations);
+    require(controller.refresh(), qPrintable(controller.errorMessage()));
+    require(controller.startingWeightOptions(0)
+                == QStringList{QStringLiteral("ImageNet")}
+                && !controller.addModel(QString(), 0, 0),
+            "Add Model requires a nonblank Name");
+    require(controller.addModel(QStringLiteral("New MobileNet Identity"), 0, 0),
+            qPrintable(controller.errorMessage()));
+    const QVariantList trainingRows = controller.trainingModelRows();
+    require(trainingRows.size() == 1
+                && trainingRows.front().toMap().value(
+                       QStringLiteral("name")).toString()
+                       == QStringLiteral("New MobileNet Identity")
+                && trainingRows.front().toMap().value(
+                       QStringLiteral("architecture")).toString()
+                       == QStringLiteral("mobilenet_v3_small")
+                && trainingRows.front().toMap().value(
+                       QStringLiteral("startingWeights")).toString()
+                       == QStringLiteral("ImageNet"),
+            "Add Model creates one trainable Library identity");
+    const QString identityPackage =
+        controller.selectedDetail().value(
+            QStringLiteral("packageLocation")).toString();
+    require(QFileInfo(identityPackage).isDir()
+                && QFileInfo(identityPackage).absoluteFilePath()
+                       .compare(QDir(runtimeModels).filePath(
+                                    QStringLiteral(
+                                        "templates/blank/mobilenet_v3_small")),
+                                Qt::CaseInsensitive) != 0,
+            "Library identity owns a distinct local package");
+    const QByteArray registryAfterCreate = bytes(registryPath);
+    require(!controller.addModel(QStringLiteral(" new mobilenet identity "), 0, 0)
+                && controller.errorMessage().contains(
+                    QStringLiteral("already uses"))
+                && bytes(registryPath) == registryAfterCreate,
+            "Add Model rejects duplicate Names without mutation");
 }
 
 void testCommittedDeleteCleanupWarning()
@@ -628,8 +680,8 @@ void testCommittedDeleteCleanupWarning()
         QStringLiteral("mobilenet_v3_small"));
     const QString registry = createSimpleRegistry(
         QDir(temporary.path()).filePath(QStringLiteral("models")),
-        QJsonArray{entry(packageEntryId(package), QStringLiteral("Active Model"),
-                         package, true)});
+        QJsonArray{entry(packageEntryId(package), QStringLiteral("Retained Model"),
+                         package, false)});
     OperationCoordinator operations;
     ModelLibraryController controller(registry, operations);
     int activeClearCount = 0;
@@ -665,14 +717,14 @@ void testCommittedDeleteCleanupWarning()
             .filePath(QStringLiteral(".opendss-model-recovery"));
     const QStringList retained =
         QDir(recoveryRoot).entryList(QDir::Dirs | QDir::NoDotAndDotDot);
-    require(deleted && controller.modelRows().isEmpty()
-                && controller.activeId().isEmpty() && activeClearCount == 1
+    require(!deleted && controller.modelRows().isEmpty()
+                && controller.activeId().isEmpty() && activeClearCount == 0
                 && !QFileInfo::exists(package)
                 && controller.errorMessage().contains(QStringLiteral("committed"))
                 && controller.errorMessage().contains(
                     QStringLiteral("retained recovery"))
                 && retained.size() == 1,
-            "committed active delete reports retained recovery as success");
+            "Recycle Bin failure reports retained recovery without false success");
 
     const QString retainedPackage = QDir(recoveryRoot).filePath(retained.first());
 #ifdef Q_OS_WIN
@@ -727,6 +779,7 @@ int main(int argc, char **argv)
     testErrorsAndEmptyPresentation();
     testPackagePathSafetyAndRegistryIntegrity();
     testPackageOperations();
+    testLibraryOwnedIdentityCreation();
     testCommittedDeleteCleanupWarning();
     testRegistryFailureRollsBackDelete();
     return 0;

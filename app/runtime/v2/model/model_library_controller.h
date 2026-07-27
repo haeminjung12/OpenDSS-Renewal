@@ -29,6 +29,7 @@ class ModelLibraryController final : public QObject
     Q_PROPERTY(bool canExport READ canExport NOTIFY changed)
     Q_PROPERTY(bool canDuplicate READ canDuplicate NOTIFY changed)
     Q_PROPERTY(bool canDelete READ canDelete NOTIFY changed)
+    Q_PROPERTY(QVariantList trainingModelRows READ trainingModelRows NOTIFY changed)
 
 public:
     ModelLibraryController(QString registryFilePath,
@@ -47,9 +48,13 @@ public:
     bool canExport() const;
     bool canDuplicate() const;
     bool canDelete() const;
+    QVariantList trainingModelRows() const;
 
     Q_INVOKABLE bool refresh();
     Q_INVOKABLE bool select(int index);
+    Q_INVOKABLE QStringList startingWeightOptions(int architectureIndex) const;
+    Q_INVOKABLE bool addModel(const QString &name, int architectureIndex,
+                              int startingWeightsIndex);
     Q_INVOKABLE bool setActive();
     Q_INVOKABLE bool renameSelected(const QString &displayName);
     Q_INVOKABLE bool importModel(const QUrl &packageUrl);

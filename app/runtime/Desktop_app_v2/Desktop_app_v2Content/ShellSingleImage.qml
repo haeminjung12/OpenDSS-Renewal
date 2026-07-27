@@ -813,7 +813,10 @@ Item {
     Binding { target: screen.trainWorkspace; property: "datasetText"; value: root.trainingController ? root.trainingController.datasetManifestUrl.toString() === "" ? qsTr("No Dataset selected") : root.localFilePath(root.trainingController.datasetManifestUrl) : state.trainPresentation === "empty" ? qsTr("No Dataset selected") : qsTr("Dataset-042") }
     Binding { target: screen.trainWorkspace; property: "deviceText"; value: root.trainingController ? root.trainingController.requestedDevice === "cpu" ? qsTr("CPU") : qsTr("GPU") : state.trainPresentation === "readyCpu" ? qsTr("CPU (automatic)") : qsTr("GPU (automatic)") }
     Binding { target: screen.trainWorkspace; property: "disabledReason"; value: root.trainingController ? root.trainingController.errorMessage : state.activeOperation !== "" ? qsTr("Another operation is active") : state.trainPresentation === "empty" ? qsTr("No dataset selected") : state.trainPresentation === "unavailable" ? qsTr("No Labeled Droplet Crops") : state.trainModelNameDraft.trim() === "" ? qsTr("Model name required") : "" }
-    Binding { target: screen.trainWorkspace; property: "modelNameText"; value: root.trainingController ? root.trainingController.modelName : state.trainModelNameDraft }
+    Binding { target: screen.trainWorkspace; property: "libraryModelOptions"; value: root.trainingController ? root.trainingController.libraryModelOptions : [] }
+    Binding { target: screen.trainWorkspace; property: "selectedLibraryModelName"; value: root.trainingController ? root.trainingController.modelName : "" }
+    Binding { target: screen.trainWorkspace; property: "selectedLibraryModelArchitecture"; value: root.trainingController ? root.trainingController.architecture : "" }
+    Binding { target: screen.trainWorkspace; property: "selectedLibraryModelStartingWeights"; value: root.trainingController ? root.trainingController.startingWeights : "" }
     Binding { target: screen.trainWorkspace; property: "saveLocationText"; value: root.trainingController ? root.localFilePath(root.trainingController.outputDirectoryUrl) : state.trainSaveLocationDraft }
     Binding { target: screen.trainWorkspace; property: "resultPath"; value: root.trainingController ? root.localFilePath(root.trainingController.registeredPackageUrl.toString() !== "" ? root.trainingController.registeredPackageUrl : root.trainingController.resultDirectoryUrl) : qsTr("C:/OpenDSS/Models/DropletNet-04.opendssmodel") }
     Binding { target: screen.trainWorkspace; property: "modelOnnxPath"; value: root.trainingController ? root.localFilePath(root.trainingController.modelOnnxUrl) : "" }
@@ -840,20 +843,15 @@ Item {
     Binding { target: screen.trainWorkspace; property: "showActiveModelConfirmation"; value: root.trainingController && root.trainingController.presentation === "completed"; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace; property: "showRetrySave"; value: root.trainingController && root.trainingController.retrySaveAvailable; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace; property: "serviceFactsOnly"; value: true; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.architectureSelector; property: "currentIndex"; value: root.trainingController && root.trainingController.architecture === "efficientnet" ? 1 : 0; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.weightsSelector; property: "model"; value: root.trainingController ? root.trainingController.weightOptions : []; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.weightsSelector; property: "currentIndex"; value: root.trainingController ? root.trainingController.selectedWeightIndex : -1; when: !!root.trainingController }
+    Binding { target: screen.trainWorkspace.libraryModelSelector; property: "currentIndex"; value: root.trainingController ? root.trainingController.selectedLibraryModelIndex : -1; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.trainingDeviceSelector; property: "currentIndex"; value: root.trainingController && root.trainingController.requestedDevice === "cpu" ? 1 : 0; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.selectDatasetButton; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running"; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.architectureSelector; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running"; when: !!root.trainingController }
+    Binding { target: screen.trainWorkspace.libraryModelSelector; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running" && root.trainingController.libraryModelOptions.length > 0; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.trainingDeviceSelector; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running"; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.modelNameField; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running"; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.saveLocationField; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running"; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.saveLocationField; property: "readOnly"; value: true; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.browseButton; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running"; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.stopButton; property: "enabled"; value: root.trainingController && root.trainingController.presentation === "running"; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.weightsSelector; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running" && root.trainingController.weightOptions.length > 0; when: !!root.trainingController }
-    Binding { target: screen.trainWorkspace.loadWeightsButton; property: "enabled"; value: root.trainingController && root.trainingController.presentation !== "running" && screen.trainWorkspace.weightsSelector.currentIndex >= 0; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.retrySaveButton; property: "enabled"; value: root.trainingController && root.trainingController.retrySaveAvailable; when: !!root.trainingController }
     Binding { target: screen.trainWorkspace.openInModelTestButton; property: "enabled"; value: root.trainingController && root.trainingController.presentation === "completed"; when: !!root.trainingController }
     Binding { target: screen.fileNameField; property: "enabled"; value: !root.singleImageCapturing }
@@ -883,6 +881,9 @@ Item {
     Binding { target: screen.modelLibraryWorkspace.exportButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canExport; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace.duplicateButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canDuplicate; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace.deleteButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.canDelete; when: !!root.modelLibraryController }
+    Binding { target: screen.modelLibraryWorkspace; property: "addModelStartingWeightsOptions"; value: root.modelLibraryController && typeof root.modelLibraryController.startingWeightOptions === "function" ? root.modelLibraryController.startingWeightOptions(screen.modelLibraryWorkspace.addModelArchitectureSelector.currentIndex) : [] }
+    Binding { target: screen.modelLibraryWorkspace; property: "addModelValidationMessage"; value: root.modelLibraryController && screen.modelLibraryWorkspace.addModelPopup.opened ? root.modelLibraryController.errorMessage : "" }
+    Binding { target: screen.modelLibraryWorkspace; property: "addModelConfirmEnabled"; value: root.modelLibraryController && screen.modelLibraryWorkspace.addModelNameField.text.trim() !== "" && screen.modelLibraryWorkspace.addModelStartingWeightsSelector.currentIndex >= 0 && !root.modelLibraryController.operationInProgress }
     Binding { target: screen.modelLibraryWorkspace.openInModelTestButton; property: "enabled"; value: root.modelLibraryController && root.modelLibraryController.selectedId !== "" && root.modelLibraryController.selectedId === root.modelLibraryController.activeId; when: !!root.modelLibraryController }
     Binding { target: screen.modelLibraryWorkspace; property: "selectedModelExpanded"; value: state.selectedModelExpanded }
     Binding { target: screen.modelLibraryWorkspace; property: "rightPanelExpanded"; value: state.modelLibraryRightPanelExpanded }
@@ -911,13 +912,15 @@ Item {
         }
     }
 
-    FolderDialog {
+    FileDialog {
         id: modelImportFolderDialog
         title: qsTr("Import OpenDSS v2 Model Package")
+        fileMode: FileDialog.OpenFile
+        nameFilters: [qsTr("OpenDSS Model Package Metadata (metadata.json)")]
         currentFolder: root.settingsController ? root.settingsController.storageRoot : ""
         onAccepted: {
-            if (selectedFolder.toString() !== "")
-                root.importModelPackage(selectedFolder)
+            if (selectedFile.toString() !== "")
+                root.importModelPackage(selectedFile)
         }
     }
 
@@ -969,7 +972,7 @@ Item {
         anchors.centerIn: parent
         width: Math.round(440 * Constants.textScale)
         modal: true
-        title: qsTr("Delete Model")
+        title: qsTr("Remove Model")
         standardButtons: Dialog.Yes | Dialog.No
         onAccepted: {
             if (root.modelLibraryController)
@@ -977,7 +980,7 @@ Item {
         }
 
         Label {
-            text: qsTr("Delete Model Package “%1”?").arg(
+            text: qsTr("Remove Model Package “%1” and move its complete folder to the Recycle Bin?").arg(
                       root.modelLibraryController
                       ? root.modelLibraryController.selectedDetail.name || "" : "")
             wrapMode: Text.WordWrap
@@ -1627,11 +1630,9 @@ Item {
     }
 
     Connections { target: screen.trainWorkspace.selectDatasetButton; function onClicked() { if (root.trainingController) trainingDatasetFileDialog.open(); else state.selectTrainDataset() } }
-    Connections { target: screen.trainWorkspace.modelNameField; function onTextEdited() { if (root.trainingController) root.trainingController.modelName = screen.trainWorkspace.modelNameField.text; else state.trainModelNameDraft = screen.trainWorkspace.modelNameField.text } }
     Connections { target: screen.trainWorkspace.saveLocationField; function onTextEdited() { if (!root.trainingController) state.trainSaveLocationDraft = screen.trainWorkspace.saveLocationField.text } }
     Connections { target: screen.trainWorkspace.browseButton; function onClicked() { if (root.trainingController) trainingOutputDirectoryDialog.open(); else state.browseTrainSaveLocation() } }
-    Connections { target: screen.trainWorkspace.architectureSelector; function onActivated(index) { if (root.trainingController) root.trainingController.architecture = index === 1 ? "efficientnet" : "mobilenet" } }
-    Connections { target: screen.trainWorkspace.loadWeightsButton; function onClicked() { if (root.trainingController) root.trainingController.loadWeights(screen.trainWorkspace.weightsSelector.currentIndex) } }
+    Connections { target: screen.trainWorkspace.libraryModelSelector; function onActivated(index) { if (root.trainingController) root.trainingController.selectLibraryModel(index) } }
     Connections { target: screen.trainWorkspace.trainingDeviceSelector; function onActivated(index) { if (root.trainingController) root.trainingController.requestedDevice = index === 1 ? "cpu" : "gpu" } }
     Connections { target: screen.trainWorkspace.startButton; function onClicked() { if (root.trainingController) root.trainingController.start(); else state.startTraining() } }
     Connections { target: screen.trainWorkspace.stopButton; function onClicked() { if (root.trainingController) root.trainingController.stop(); else state.stopTraining() } }
@@ -1680,6 +1681,31 @@ Item {
         }
     }
     Connections { target: screen.modelLibraryWorkspace.importButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canImport) modelImportFolderDialog.open() } }
+    Connections {
+        target: screen.modelLibraryWorkspace.addModelButton
+        function onClicked() {
+            if (!root.modelLibraryController)
+                return
+            screen.modelLibraryWorkspace.addModelNameField.clear()
+            screen.modelLibraryWorkspace.addModelArchitectureSelector.currentIndex = 0
+            screen.modelLibraryWorkspace.addModelStartingWeightsSelector.currentIndex = 0
+            screen.modelLibraryWorkspace.addModelPopup.open()
+            screen.modelLibraryWorkspace.addModelNameField.forceActiveFocus()
+        }
+    }
+    Connections {
+        target: screen.modelLibraryWorkspace.addModelConfirmButton
+        function onClicked() {
+            if (root.modelLibraryController
+                    && root.modelLibraryController.addModel(
+                        screen.modelLibraryWorkspace.addModelNameField.text,
+                        screen.modelLibraryWorkspace.addModelArchitectureSelector.currentIndex,
+                        screen.modelLibraryWorkspace.addModelStartingWeightsSelector.currentIndex)) {
+                screen.modelLibraryWorkspace.addModelPopup.close()
+            }
+        }
+    }
+    Connections { target: screen.modelLibraryWorkspace.addModelCancelButton; function onClicked() { screen.modelLibraryWorkspace.addModelPopup.close() } }
     Connections { target: screen.modelLibraryWorkspace.exportButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canExport) modelExportFolderDialog.open() } }
     Connections { target: screen.modelLibraryWorkspace.duplicateButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canDuplicate) modelDuplicateDialog.open() } }
     Connections { target: screen.modelLibraryWorkspace.deleteButton; function onClicked() { if (root.modelLibraryController && root.modelLibraryController.canDelete) modelDeleteDialog.open() } }

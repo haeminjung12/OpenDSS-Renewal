@@ -640,7 +640,8 @@ bool ModelLoadService::saveAndActivateTrainedModel(
     PipelineRunner& pipeline,
     QString* registeredEntryId,
     QString* warning,
-    QString* error) const {
+    QString* error,
+    const QString& libraryEntryId) const {
     if (registeredEntryId)
         registeredEntryId->clear();
     if (warning)
@@ -662,7 +663,7 @@ bool ModelLoadService::saveAndActivateTrainedModel(
     if (!saveTrainedModelArtifacts(
             registryFilePath_, runDir, modelOnnxPath, metadataJsonPath, QString(), QString(),
             QString(), QString(), QString(), modelName, destinationRoot, &packagePath, &entryId,
-            &saveError)) {
+            &saveError, libraryEntryId)) {
         if (error)
             *error = saveError;
         return false;
@@ -672,6 +673,29 @@ bool ModelLoadService::saveAndActivateTrainedModel(
     QString completionError;
     auto candidate = prepare(entryId, requestedDevice, &prepareWarning, &completionError);
     if (candidate && activateAndInstall(std::move(candidate), pipeline, &completionError)) {
+        QString identityPackagePath;
+        if (!libraryEntryId.trimmed().isEmpty()) {
+            const QJsonDocument priorDocument =
+                QJsonDocument::fromJson(priorRegistry.bytes);
+            for (const QJsonValue& value :
+                 priorDocument.object().value("entries").toArray()) {
+                const QJsonObject entry = value.toObject();
+                if (registryString(entry, "registry_entry_id").trimmed().compare(
+                        libraryEntryId.trimmed(), Qt::CaseInsensitive) == 0) {
+                    identityPackagePath = inspectModelPackage(entry).packagePath;
+                    break;
+                }
+            }
+        }
+        if (!identityPackagePath.isEmpty()
+            && QFileInfo(identityPackagePath).absoluteFilePath().compare(
+                   QFileInfo(packagePath).absoluteFilePath(),
+                   Qt::CaseInsensitive) != 0
+            && !QFile::moveToTrash(identityPackagePath)) {
+            prepareWarning += prepareWarning.isEmpty() ? QString{} : QStringLiteral(" ");
+            prepareWarning += QStringLiteral(
+                "The replaced Library identity package could not be moved to the Recycle Bin.");
+        }
         if (registeredEntryId)
             *registeredEntryId = entryId;
         if (warning)

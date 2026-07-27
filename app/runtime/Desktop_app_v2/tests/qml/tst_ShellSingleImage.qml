@@ -159,11 +159,15 @@ Item {
         property int exportCallCount: 0
         property int duplicateCallCount: 0
         property int deleteCallCount: 0
+        property int addModelCallCount: 0
         property url importArgument
         property url exportArgument
         property url duplicateDestinationArgument
         property string duplicateNameArgument: ""
         property string renamedTo: ""
+        property string addedModelName: ""
+        property int addedArchitectureIndex: -1
+        property int addedStartingWeightsIndex: -1
 
         function reset() {
             modelRows = [
@@ -190,11 +194,15 @@ Item {
             exportCallCount = 0
             duplicateCallCount = 0
             deleteCallCount = 0
+            addModelCallCount = 0
             importArgument = ""
             exportArgument = ""
             duplicateDestinationArgument = ""
             duplicateNameArgument = ""
             renamedTo = ""
+            addedModelName = ""
+            addedArchitectureIndex = -1
+            addedStartingWeightsIndex = -1
         }
 
         function refresh() {
@@ -246,6 +254,20 @@ Item {
             return true
         }
 
+        function startingWeightOptions(architectureIndex) {
+            return architectureIndex === 0
+                    ? ["ImageNet", "Candidate Model"]
+                    : ["ImageNet", "Active Model"]
+        }
+
+        function addModel(name, architectureIndex, startingWeightsIndex) {
+            ++addModelCallCount
+            addedModelName = name
+            addedArchitectureIndex = architectureIndex
+            addedStartingWeightsIndex = startingWeightsIndex
+            return true
+        }
+
         function exportSelected(url) {
             ++exportCallCount
             exportArgument = url
@@ -268,8 +290,9 @@ Item {
     QtObject {
         id: trainingController
         property url datasetManifestUrl: "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
-        property string architecture: "mobilenet"
+        property string architecture: "MobileNetV3-Small"
         property string modelName: "DropletNet-Test"
+        property string startingWeights: "ImageNet"
         property url outputDirectoryUrl: "file:///C:/OpenDSS/Training%20Output"
         property string requestedDevice: "gpu"
         property string presentation: "ready"
@@ -283,18 +306,19 @@ Item {
         property url metadataUrl: ""
         property url registeredPackageUrl: ""
         property bool retrySaveAvailable: false
-        property var weightOptions: ["ImageNet-pretrained", "Fixture checkpoint — OpenDSS checkpoint"]
-        property int selectedWeightIndex: 0
+        property var libraryModelOptions: ["DropletNet-Test", "EfficientNet-Retrain"]
+        property int selectedLibraryModelIndex: 0
+        property string selectedLibraryModelId: "trained-dropletnet-test"
         property int startCallCount: 0
         property int stopCallCount: 0
         property int retrySaveCallCount: 0
-        property int loadWeightsCallCount: 0
-        property int loadedWeightIndex: -1
+        property int selectLibraryModelCallCount: 0
 
         function reset() {
             datasetManifestUrl = "file:///C:/OpenDSS/Datasets/fixture/dataset.json"
-            architecture = "mobilenet"
+            architecture = "MobileNetV3-Small"
             modelName = "DropletNet-Test"
+            startingWeights = "ImageNet"
             outputDirectoryUrl = "file:///C:/OpenDSS/Training%20Output"
             requestedDevice = "gpu"
             presentation = "ready"
@@ -311,9 +335,9 @@ Item {
             startCallCount = 0
             stopCallCount = 0
             retrySaveCallCount = 0
-            selectedWeightIndex = 0
-            loadWeightsCallCount = 0
-            loadedWeightIndex = -1
+            selectedLibraryModelIndex = 0
+            selectedLibraryModelId = "trained-dropletnet-test"
+            selectLibraryModelCallCount = 0
         }
 
         function start() {
@@ -330,10 +354,14 @@ Item {
             return true
         }
 
-        function loadWeights(index) {
-            ++loadWeightsCallCount
-            loadedWeightIndex = index
-            selectedWeightIndex = index
+        function selectLibraryModel(index) {
+            ++selectLibraryModelCallCount
+            selectedLibraryModelIndex = index
+            selectedLibraryModelId = index === 1
+                    ? "trained-efficientnet-retrain" : "trained-dropletnet-test"
+            modelName = libraryModelOptions[index]
+            architecture = index === 1 ? "EfficientNet-B0" : "MobileNetV3-Small"
+            startingWeights = index === 1 ? "Active Model" : "ImageNet"
             return true
         }
     }
@@ -1443,10 +1471,26 @@ Item {
         shell.form.modelLibraryWorkspace.importButton.clicked()
         tryVerify(function() { return shell.modelImportFolderDialog.visible })
         shell.modelImportFolderDialog.close()
-        shell.importModelPackage("file:///C:/Packages/imported-model")
+        shell.importModelPackage("file:///C:/Packages/imported-model/metadata.json")
         compare(modelLibraryController.importCallCount, 1)
         compare(modelLibraryController.importArgument.toString(),
-                "file:///C:/Packages/imported-model")
+                "file:///C:/Packages/imported-model/metadata.json")
+
+        shell.form.modelLibraryWorkspace.addModelButton.clicked()
+        tryVerify(function() {
+            return shell.form.modelLibraryWorkspace.addModelPopup.opened
+        })
+        compare(shell.form.modelLibraryWorkspace.addModelStartingWeightsSelector.model.length,
+                2)
+        shell.form.modelLibraryWorkspace.addModelNameField.text = "Training Destination"
+        shell.form.modelLibraryWorkspace.addModelStartingWeightsSelector.currentIndex = 1
+        verify(shell.form.modelLibraryWorkspace.addModelConfirmButton.enabled)
+        shell.form.modelLibraryWorkspace.addModelConfirmButton.clicked()
+        compare(modelLibraryController.addModelCallCount, 1)
+        compare(modelLibraryController.addedModelName, "Training Destination")
+        compare(modelLibraryController.addedArchitectureIndex, 0)
+        compare(modelLibraryController.addedStartingWeightsIndex, 1)
+        verify(!shell.form.modelLibraryWorkspace.addModelPopup.opened)
 
         shell.mockState.selectedWorkspace = "library"
         shell.form.modelLibraryWorkspace.openInModelTestButton.clicked()
@@ -2607,7 +2651,10 @@ Item {
         compare(shell.form.trainWorkspace.presentation, "readyGpu")
         compare(shell.form.trainWorkspace.datasetText,
                 "C:/OpenDSS/Datasets/fixture/dataset.json")
-        compare(shell.form.trainWorkspace.modelNameText, "DropletNet-Test")
+        compare(shell.form.trainWorkspace.selectedLibraryModelName, "DropletNet-Test")
+        compare(shell.form.trainWorkspace.selectedLibraryModelArchitecture,
+                "MobileNetV3-Small")
+        compare(shell.form.trainWorkspace.selectedLibraryModelStartingWeights, "ImageNet")
         compare(shell.form.trainWorkspace.saveLocationText,
                 "C:/OpenDSS/Training Output")
         compare(shell.form.trainWorkspace.requestedDeviceText, "GPU")
@@ -2617,10 +2664,8 @@ Item {
         compare(shell.form.trainWorkspace.totalEpochs, 20)
         compare(shell.form.trainWorkspace.overallProgress, 0.25)
         verify(shell.form.trainWorkspace.startEnabled)
-        verify(shell.form.trainWorkspace.weightsSelector.enabled)
-        verify(shell.form.trainWorkspace.weightsSelector.visible)
-        verify(shell.form.trainWorkspace.loadWeightsButton.enabled)
-        verify(shell.form.trainWorkspace.loadWeightsButton.visible)
+        verify(shell.form.trainWorkspace.libraryModelSelector.enabled)
+        compare(shell.form.trainWorkspace.libraryModelSelector.model.length, 2)
         verify(!shell.form.trainWorkspace.showMetrics)
         verify(!shell.form.trainWorkspace.showTiming)
         verify(!shell.form.trainWorkspace.showActiveModelConfirmation)
@@ -2628,22 +2673,24 @@ Item {
         verify(!shell.form.trainWorkspace.datasetClassesPlaceholder.visible)
         verify(!shell.form.trainWorkspace.eligibleCropsPlaceholder.visible)
 
-        shell.form.trainWorkspace.architectureSelector.activated(1)
-        compare(trainingController.architecture, "efficientnet")
+        shell.form.trainWorkspace.libraryModelSelector.activated(1)
+        compare(trainingController.selectLibraryModelCallCount, 1)
+        compare(trainingController.selectedLibraryModelIndex, 1)
+        compare(shell.form.trainWorkspace.selectedLibraryModelName, "EfficientNet-Retrain")
+        compare(shell.form.trainWorkspace.selectedLibraryModelArchitecture,
+                "EfficientNet-B0")
+        compare(shell.form.trainWorkspace.selectedLibraryModelStartingWeights,
+                "Active Model")
         shell.form.trainWorkspace.trainingDeviceSelector.activated(1)
         compare(trainingController.requestedDevice, "cpu")
-        shell.form.trainWorkspace.modelNameField.text = "Renamed Model"
-        shell.form.trainWorkspace.modelNameField.textEdited()
-        compare(trainingController.modelName, "Renamed Model")
         shell.form.trainWorkspace.startButton.clicked()
         compare(trainingController.startCallCount, 1)
 
         trainingController.presentation = "running"
         verify(shell.form.trainWorkspace.showRunning)
         verify(!shell.form.trainWorkspace.selectDatasetButton.enabled)
-        verify(!shell.form.trainWorkspace.architectureSelector.enabled)
+        verify(!shell.form.trainWorkspace.libraryModelSelector.enabled)
         verify(!shell.form.trainWorkspace.trainingDeviceSelector.enabled)
-        verify(!shell.form.trainWorkspace.modelNameField.enabled)
         verify(!shell.form.trainWorkspace.saveLocationField.enabled)
         verify(!shell.form.trainWorkspace.browseButton.enabled)
         verify(shell.form.trainWorkspace.stopButton.enabled)
@@ -3214,11 +3261,10 @@ Item {
 
     function test_trainingWeightsAndSequenceViewerViewActions() {
         shell.trainingController = trainingController
-        compare(shell.form.trainWorkspace.weightsSelector.model.length, 2)
-        shell.form.trainWorkspace.weightsSelector.currentIndex = 1
-        shell.form.trainWorkspace.loadWeightsButton.clicked()
-        compare(trainingController.loadWeightsCallCount, 1)
-        compare(trainingController.loadedWeightIndex, 1)
+        compare(shell.form.trainWorkspace.libraryModelSelector.model.length, 2)
+        shell.form.trainWorkspace.libraryModelSelector.activated(1)
+        compare(trainingController.selectLibraryModelCallCount, 1)
+        compare(trainingController.selectedLibraryModelIndex, 1)
 
         shell.mockState.sequenceViewerPresentation = "middleFrame"
         const initialScale = shell.form.sequenceViewerWorkspace.zoomScale

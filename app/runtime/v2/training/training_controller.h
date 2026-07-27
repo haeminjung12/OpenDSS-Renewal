@@ -23,8 +23,12 @@ class TrainingController final : public QObject
 {
     Q_OBJECT
     Q_PROPERTY(QUrl datasetManifestUrl READ datasetManifestUrl WRITE setDatasetManifestUrl NOTIFY changed)
-    Q_PROPERTY(QString architecture READ architecture WRITE setArchitecture NOTIFY changed)
-    Q_PROPERTY(QString modelName READ modelName WRITE setModelName NOTIFY changed)
+    Q_PROPERTY(QString architecture READ architecture NOTIFY changed)
+    Q_PROPERTY(QString modelName READ modelName NOTIFY changed)
+    Q_PROPERTY(QString startingWeights READ startingWeights NOTIFY changed)
+    Q_PROPERTY(QStringList libraryModelOptions READ libraryModelOptions NOTIFY changed)
+    Q_PROPERTY(int selectedLibraryModelIndex READ selectedLibraryModelIndex NOTIFY changed)
+    Q_PROPERTY(QString selectedLibraryModelId READ selectedLibraryModelId NOTIFY changed)
     Q_PROPERTY(QUrl outputDirectoryUrl READ outputDirectoryUrl WRITE setOutputDirectoryUrl NOTIFY changed)
     Q_PROPERTY(QString requestedDevice READ requestedDevice WRITE setRequestedDevice NOTIFY changed)
     Q_PROPERTY(QString presentation READ presentation NOTIFY changed)
@@ -38,21 +42,21 @@ class TrainingController final : public QObject
     Q_PROPERTY(QUrl metadataUrl READ metadataUrl NOTIFY changed)
     Q_PROPERTY(QUrl registeredPackageUrl READ registeredPackageUrl NOTIFY changed)
     Q_PROPERTY(bool retrySaveAvailable READ retrySaveAvailable NOTIFY changed)
-    Q_PROPERTY(QStringList weightOptions READ weightOptions NOTIFY changed)
-    Q_PROPERTY(int selectedWeightIndex READ selectedWeightIndex NOTIFY changed)
-    Q_PROPERTY(QString selectedWeightPath READ selectedWeightPath NOTIFY changed)
 
 public:
     TrainingController(OperationCoordinator &operations, ApplicationStateStore &stateStore,
                        ModelLoadService &modelLoadService, PipelineRunner &pipeline,
                        ModelLibraryController &modelLibraryController,
                        QString pythonExecutable, QString workingDirectory,
-                       QString modelsRoot,
                        QObject *parent = nullptr);
 
     QUrl datasetManifestUrl() const;
     QString architecture() const;
     QString modelName() const;
+    QString startingWeights() const;
+    QStringList libraryModelOptions() const;
+    int selectedLibraryModelIndex() const;
+    QString selectedLibraryModelId() const;
     QUrl outputDirectoryUrl() const;
     QString requestedDevice() const;
     QString presentation() const;
@@ -66,20 +70,15 @@ public:
     QUrl metadataUrl() const;
     QUrl registeredPackageUrl() const;
     bool retrySaveAvailable() const;
-    QStringList weightOptions() const;
-    int selectedWeightIndex() const;
-    QString selectedWeightPath() const;
 
     void setDatasetManifestUrl(const QUrl &url);
-    void setArchitecture(const QString &architecture);
-    void setModelName(const QString &name);
     void setOutputDirectoryUrl(const QUrl &url);
     void setRequestedDevice(const QString &device);
 
     Q_INVOKABLE bool start();
     Q_INVOKABLE void stop();
     Q_INVOKABLE bool retrySave();
-    Q_INVOKABLE bool loadWeights(int index);
+    Q_INVOKABLE bool selectLibraryModel(int index);
 
 signals:
     void changed();
@@ -89,6 +88,9 @@ private:
         QString label;
         QString path;
         QString initializationMode;
+        QString id;
+        QString architecture;
+        QString startingWeights;
     };
 
     enum class RegistrationState {
@@ -103,7 +105,8 @@ private:
     bool saveCompletedTraining();
     void handleServiceChanged();
     void publishTrainingState();
-    void refreshWeightOptions();
+    void refreshLibraryModels();
+    QString selectedWeightPath() const;
 
     TrainingService service_;
     ApplicationStateStore &stateStore_;
@@ -112,7 +115,6 @@ private:
     ModelLibraryController &modelLibraryController_;
     QString pythonExecutable_;
     QString workingDirectory_;
-    QString modelsRoot_;
     QVector<WeightOption> weightOptions_;
     int selectedWeightIndex_ = -1;
     QUrl datasetManifestUrl_;

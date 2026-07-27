@@ -288,6 +288,29 @@ int main(int argc, char **argv)
     ModelLoadService modelLoadService(registryPath);
     PipelineRunner pipeline;
     ModelLibraryController modelLibraryController(registryPath, operations);
+    if (!check(
+            QDir().mkpath(QFileInfo(registryPath).absolutePath())
+                && writeJson(
+                    registryPath,
+                    QJsonObject{
+                        {QStringLiteral("schema_version"),
+                         QStringLiteral("model-registry-v3-simple")},
+                        {QStringLiteral("entries"), QJsonArray{}},
+                    }),
+            QStringLiteral("Could not create the Library registry fixture."))) {
+        return 28;
+    }
+    qputenv(
+        "OVDS_MODELS_ROOT_PATH",
+        QDir(QStringLiteral(OPENDSS_TEST_RUNTIME_DIR))
+            .filePath(QStringLiteral("models")).toUtf8());
+    if (!check(
+            modelLibraryController.refresh()
+                && modelLibraryController.addModel(
+                    QStringLiteral("Controller model"), 0, 0),
+            modelLibraryController.errorMessage())) {
+        return 29;
+    }
     const QString modelsRoot =
         QDir(temporary.path()).filePath(QStringLiteral("models"));
     const QString imagenetRoot =
@@ -419,17 +442,17 @@ int main(int argc, char **argv)
     TrainingController controller(
         operations, stateStore, modelLoadService, pipeline, modelLibraryController,
         QCoreApplication::applicationFilePath(),
-        QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT)).absoluteFilePath(),
-        modelsRoot);
+        QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT)).absoluteFilePath());
 
     const QMetaObject *metaObject = controller.metaObject();
     const int changedSignal = metaObject->indexOfSignal("changed()");
     const char *propertyNames[] = {
-        "datasetManifestUrl", "architecture", "modelName", "outputDirectoryUrl",
+        "datasetManifestUrl", "architecture", "modelName", "startingWeights",
+        "libraryModelOptions", "selectedLibraryModelIndex",
+        "selectedLibraryModelId", "outputDirectoryUrl",
         "requestedDevice", "presentation", "errorMessage", "stage", "stageEpochs",
         "epoch", "globalEpoch", "resultDirectoryUrl", "modelOnnxUrl", "metadataUrl",
-        "registeredPackageUrl", "retrySaveAvailable", "weightOptions",
-        "selectedWeightIndex", "selectedWeightPath",
+        "registeredPackageUrl", "retrySaveAvailable",
     };
     bool propertiesUseChangedSignal = changedSignal >= 0;
     for (const char *propertyName : propertyNames) {
@@ -450,7 +473,7 @@ int main(int argc, char **argv)
         !check(metaObject->indexOfMethod("start()") >= 0
                    && metaObject->indexOfMethod("stop()") >= 0
                    && metaObject->indexOfMethod("retrySave()") >= 0
-                   && metaObject->indexOfMethod("loadWeights(int)") >= 0,
+                   && metaObject->indexOfMethod("selectLibraryModel(int)") >= 0,
                QStringLiteral("Training action invokables are missing.")) ||
         !check(metaObject->indexOfProperty("effectiveDevice") < 0
                    && metaObject->indexOfProperty("elapsedMilliseconds") < 0
@@ -462,13 +485,15 @@ int main(int argc, char **argv)
                QStringLiteral("Initial Training presentation is incorrect."))) {
         return 5;
     }
-    if (!check(!controller.weightOptions().isEmpty()
-                   && controller.weightOptions().front().startsWith(
-                       QStringLiteral("ImageNet-pretrained"))
-                   && controller.loadWeights(0)
-                   && controller.selectedWeightPath()
-                       == QFileInfo(mobilenetImageNetPath).absoluteFilePath(),
-               QStringLiteral("Local MobileNet ImageNet weights are not available as a real initialization choice."))) {
+    if (!check(controller.libraryModelOptions()
+                   == QStringList{QStringLiteral("Controller model")}
+                   && controller.selectedLibraryModelIndex() == 0
+                   && !controller.selectedLibraryModelId().isEmpty()
+                   && controller.modelName() == QStringLiteral("Controller model")
+                   && controller.architecture()
+                       == QStringLiteral("MobileNetV3-Small")
+                   && controller.startingWeights() == QStringLiteral("ImageNet"),
+               QStringLiteral("Training does not consume the Library identity read-only."))) {
         return 23;
     }
 
@@ -489,45 +514,6 @@ int main(int argc, char **argv)
     }
 
     controller.setDatasetManifestUrl(QUrl::fromLocalFile(datasetPath));
-    controller.setArchitecture(QStringLiteral("unsupported"));
-    if (!check(controller.architecture() == QStringLiteral("mobilenet")
-                   && !controller.errorMessage().isEmpty(),
-               QStringLiteral("Unsupported Architecture replaced the valid selection."))) {
-        return 7;
-    }
-    controller.setArchitecture(QStringLiteral("efficientnet"));
-    const QStringList efficientnetWeights = controller.weightOptions();
-    const int userCheckpointIndex =
-        efficientnetWeights.indexOf(
-            QStringLiteral("User checkpoint — OpenDSS checkpoint"));
-    if (!check(
-            efficientnetWeights.front().startsWith(
-                QStringLiteral("ImageNet-pretrained"))
-                && efficientnetWeights.contains(
-                    QStringLiteral(
-                        "EfficientNet true final — OpenDSS checkpoint"))
-                && userCheckpointIndex >= 0
-                && !efficientnetWeights.contains(
-                    QStringLiteral(
-                        "Incompatible checkpoint — OpenDSS checkpoint"))
-                && !efficientnetWeights.contains(
-                    QStringLiteral(
-                        "Unrelated metadata — OpenDSS checkpoint"))
-                && !efficientnetWeights.contains(
-                    QStringLiteral(
-                        "Unknown classes checkpoint — OpenDSS checkpoint"))
-                && efficientnetWeights.size() == 3
-                && controller.selectedWeightPath()
-                    == QFileInfo(efficientnetImageNetPath).absoluteFilePath()
-                && controller.loadWeights(userCheckpointIndex)
-                && controller.selectedWeightPath()
-                    == QFileInfo(efficientnetUserCheckpointPath)
-                           .canonicalFilePath()
-                && controller.loadWeights(0),
-            QStringLiteral(
-                "Architecture-compatible local ImageNet and user checkpoint discovery is incorrect."))) {
-        return 25;
-    }
     controller.setRequestedDevice(QStringLiteral("other"));
     if (!check(controller.requestedDevice() == QStringLiteral("gpu")
                    && !controller.errorMessage().isEmpty(),
@@ -538,8 +524,10 @@ int main(int argc, char **argv)
     const QString successOutput =
         QDir(temporary.path()).filePath(QStringLiteral("success"));
     controller.setRequestedDevice(QStringLiteral("cpu"));
-    controller.setModelName(QStringLiteral("Controller model"));
     controller.setOutputDirectoryUrl(QUrl::fromLocalFile(successOutput));
+    const QString initialIdentityWeightPath =
+        modelLibraryController.trainingModelRows().front().toMap()
+            .value(QStringLiteral("weightPath")).toString();
     if (!check(controller.presentation() == QStringLiteral("ready")
                    && controller.errorMessage().isEmpty(),
                QStringLiteral("Valid Training inputs are not Ready."))) {
@@ -562,7 +550,8 @@ int main(int argc, char **argv)
                   QStringLiteral("Training did not reach a terminal state."))
         || !check(controller.presentation() == QStringLiteral("completed")
                       && controller.errorMessage().isEmpty(),
-                  QStringLiteral("Successful Training did not complete."))
+                  QStringLiteral("Successful Training did not complete: %1 (%2)")
+                      .arg(controller.presentation(), controller.errorMessage()))
         || !check(sawRunning && sawEpochFacts,
                   QStringLiteral("Running or epoch facts were not projected."))
         || !check(controller.resultDirectoryUrl().isLocalFile()
@@ -582,8 +571,8 @@ int main(int argc, char **argv)
     const QJsonObject config =
         readJson(QDir(successOutput).filePath(QStringLiteral("training_config.json")));
     const auto trainingState = stateStore.snapshot().training;
-    if (!check(config.value(QStringLiteral("architecture")).toString()
-                   == QStringLiteral("efficientnet_b0")
+        if (!check(config.value(QStringLiteral("architecture")).toString()
+                   == QStringLiteral("mobilenet_v3_small")
                    && config.value(QStringLiteral("device_request")).toString()
                        == QStringLiteral("cpu")
                    && config.value(QStringLiteral("initialization"))
@@ -595,8 +584,7 @@ int main(int argc, char **argv)
                               .toObject()
                               .value(QStringLiteral("weight_path"))
                               .toString()
-                       == QFileInfo(efficientnetImageNetPath)
-                              .absoluteFilePath(),
+                       == initialIdentityWeightPath,
                QStringLiteral("Architecture, device, or local ImageNet weight path was not forwarded.")) ||
         !check(trainingState.status == TrainingStatus::Completed
                    && trainingState.executionId.isEmpty()
@@ -620,8 +608,14 @@ int main(int argc, char **argv)
                QStringLiteral("Could not create retry collision fixture."))) {
         return 13;
     }
+    if (!check(modelLibraryController.addModel(
+                   QStringLiteral("Retry model"), 0, 1),
+               modelLibraryController.errorMessage())) {
+        return 30;
+    }
+    const int modelCountBeforeRetry =
+        modelLibraryController.modelRows().size();
     controller.setOutputDirectoryUrl(QUrl::fromLocalFile(retryOutput));
-    controller.setModelName(QStringLiteral("Retry model"));
     if (!check(controller.start(), controller.errorMessage())
         || !check(waitForTerminalState(controller, 5000),
                   QStringLiteral("Retry fixture Training did not finish."))
@@ -633,13 +627,13 @@ int main(int argc, char **argv)
                       && QFileInfo(controller.metadataUrl().toLocalFile()).isFile()
                       && QFileInfo(QDir(controller.resultDirectoryUrl().toLocalFile())
                                        .filePath(QStringLiteral("checkpoint.pth"))).isFile()
-                      && modelLibraryController.modelRows().size() == modelCountAfterSuccess,
+                      && modelLibraryController.modelRows().size() == modelCountBeforeRetry,
                   QStringLiteral("Save failure did not retain retryable Training artifacts."))) {
         return 14;
     }
     if (!check(!controller.retrySave()
                    && controller.presentation() == QStringLiteral("saveFailed")
-                   && modelLibraryController.modelRows().size() == modelCountAfterSuccess,
+                   && modelLibraryController.modelRows().size() == modelCountBeforeRetry,
                QStringLiteral("Repeated failed save corrupted registration state."))) {
         return 15;
     }
@@ -657,17 +651,21 @@ int main(int argc, char **argv)
 
     const QString cancelOutput =
         QDir(temporary.path()).filePath(QStringLiteral("cancel"));
+    if (!check(modelLibraryController.addModel(
+                   QStringLiteral("Cancelled model"), 0, 1),
+               modelLibraryController.errorMessage())) {
+        return 31;
+    }
     controller.setOutputDirectoryUrl(QUrl::fromLocalFile(cancelOutput));
-    controller.setModelName(QStringLiteral("Cancelled model"));
     if (!check(controller.start(), controller.errorMessage())
         || !check(waitForFile(
                       QDir(cancelOutput).filePath(QStringLiteral("trainer_started")), 3000),
                   QStringLiteral("Cancellation trainer did not start."))) {
         return 17;
     }
-    controller.setModelName(QStringLiteral("Ignored while running"));
-    if (!check(controller.modelName() == QStringLiteral("Cancelled model"),
-               QStringLiteral("Running Training selections were mutable."))) {
+    if (!check(!controller.selectLibraryModel(0)
+                   && controller.modelName() == QStringLiteral("Cancelled model"),
+               QStringLiteral("Running Library selection was mutable."))) {
         return 18;
     }
     controller.stop();

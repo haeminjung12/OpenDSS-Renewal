@@ -264,8 +264,7 @@ int main(int argc, char *argv[])
     });
     desktop_app::v2::training::TrainingController trainingController(
         operationCoordinator, applicationStateStore, modelLoadService, pipeline,
-        modelLibraryController, trainingPythonExecutable(), trainingWorkingDirectory(),
-        defaultOpenDssModelsPath());
+        modelLibraryController, trainingPythonExecutable(), trainingWorkingDirectory());
     desktop_app::v2::model_test::ModelTestController modelTestController(
         operationCoordinator, modelLoadService, QCoreApplication::applicationVersion(),
         trainingPythonExecutable(), trainingWorkingDirectory());

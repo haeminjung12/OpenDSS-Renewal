@@ -125,6 +125,23 @@ QString localPath(const QUrl &url)
                              : QString{};
 }
 
+QJsonObject packageMetadata(const QString &packagePath)
+{
+    QFile file(QDir(packagePath).filePath(QStringLiteral("metadata.json")));
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return QJsonDocument::fromJson(file.readAll()).object();
+}
+
+QString architectureIdForIndex(int index)
+{
+    if (index == 0)
+        return QStringLiteral("mobilenet_v3_small");
+    if (index == 1)
+        return QStringLiteral("efficientnet_b0");
+    return {};
+}
+
 } // namespace
 
 ModelLibraryController::ModelLibraryController(QString registryFilePath,
@@ -234,10 +251,49 @@ bool ModelLibraryController::canDelete() const
 {
     if (operationInProgress_ || selectedPackagePath().isEmpty())
         return false;
-    if (selectedId().compare(activeId(), Qt::CaseInsensitive) == 0
-        && !activeModelCleared_)
+    if (selectedId().compare(activeId(), Qt::CaseInsensitive) == 0)
         return false;
     return selectedPackageAvailable(ModelAccess::Write);
+}
+
+QVariantList ModelLibraryController::trainingModelRows() const
+{
+    QVariantList rows;
+    for (const QJsonValue &value : entries_) {
+        const QJsonObject entry = value.toObject();
+        const ModelPackageInspection inspection = inspectModelPackage(entry);
+        const QJsonObject metadata = packageMetadata(inspection.packagePath);
+        const QJsonObject initialization =
+            metadata.value(QStringLiteral("initialization")).toObject();
+        const QString mode =
+            initialization.value(QStringLiteral("mode")).toString();
+        const QString weightFile =
+            initialization.value(QStringLiteral("weight_file")).toString();
+        const QFileInfo weight(QDir(inspection.packagePath).filePath(weightFile));
+        if (!inspection.canTrain
+            || (inspection.architectureId != QStringLiteral("mobilenet_v3_small")
+                && inspection.architectureId != QStringLiteral("efficientnet_b0"))
+            || (mode != QStringLiteral("imagenet")
+                && mode != QStringLiteral("checkpoint"))
+            || weightFile.isEmpty() || QFileInfo(weightFile).isAbsolute()
+            || weight.fileName() != weightFile || !weight.isFile()
+            || !weight.isReadable()) {
+            continue;
+        }
+        rows.append(QVariantMap{
+            {QStringLiteral("id"), entryId(entry)},
+            {QStringLiteral("name"), entryName(entry)},
+            {QStringLiteral("architecture"), inspection.architectureId},
+            {QStringLiteral("startingWeights"),
+             mode == QStringLiteral("imagenet")
+                 ? QStringLiteral("ImageNet")
+                 : initialization.value(QStringLiteral("source_model_name"))
+                       .toString(QStringLiteral("Library checkpoint"))},
+            {QStringLiteral("weightPath"), weight.absoluteFilePath()},
+            {QStringLiteral("initializationMode"), mode},
+        });
+    }
+    return rows;
 }
 
 bool ModelLibraryController::refresh()
@@ -269,6 +325,89 @@ bool ModelLibraryController::select(int index)
     errorMessage_.clear();
     emit changed();
     return true;
+}
+
+QStringList ModelLibraryController::startingWeightOptions(int architectureIndex) const
+{
+    const QString architecture = architectureIdForIndex(architectureIndex);
+    if (architecture.isEmpty())
+        return {};
+
+    QStringList options{QStringLiteral("ImageNet")};
+    for (const QJsonValue &value : entries_) {
+        const QJsonObject entry = value.toObject();
+        const ModelPackageInspection inspection = inspectModelPackage(entry);
+        QString validationError;
+        if (inspection.architectureId == architecture
+            && validateCompleteV2ModelPackage(inspection.packagePath,
+                                              &validationError)) {
+            options.append(entryName(entry));
+        }
+    }
+    return options;
+}
+
+bool ModelLibraryController::addModel(const QString &name, int architectureIndex,
+                                      int startingWeightsIndex)
+{
+    if (operationInProgress_)
+        return fail(QStringLiteral("A Model Library operation is already in progress."));
+    const QString architecture = architectureIdForIndex(architectureIndex);
+    if (architecture.isEmpty())
+        return fail(QStringLiteral(
+            "Architecture must be MobileNetV3-Small or EfficientNet-B0."));
+    if (name.trimmed().isEmpty())
+        return fail(QStringLiteral("Model name is required."));
+
+    QString sourcePackagePath;
+    QString initializationMode;
+    if (startingWeightsIndex == 0) {
+        sourcePackagePath = inspectModelPackage(
+            packagedModernModelRegistryEntry(architecture,
+                                             QStringLiteral("blank"))).packagePath;
+        initializationMode = QStringLiteral("imagenet");
+    } else {
+        int matchingIndex = 0;
+        for (const QJsonValue &value : entries_) {
+            const QJsonObject entry = value.toObject();
+            const ModelPackageInspection inspection = inspectModelPackage(entry);
+            QString validationError;
+            if (inspection.architectureId != architecture
+                || !validateCompleteV2ModelPackage(inspection.packagePath,
+                                                   &validationError)) {
+                continue;
+            }
+            ++matchingIndex;
+            if (matchingIndex == startingWeightsIndex) {
+                sourcePackagePath = inspection.packagePath;
+                initializationMode = QStringLiteral("checkpoint");
+                break;
+            }
+        }
+    }
+    if (sourcePackagePath.isEmpty())
+        return fail(QStringLiteral("Select approved Starting Weights."));
+
+    setOperationInProgress(true);
+    auto sourceLock = operations_.acquireModel(sourcePackagePath, ModelAccess::Read);
+    if (!sourceLock.acquired()) {
+        setOperationInProgress(false);
+        return fail(sourceLock.fault
+                        ? sourceLock.fault->reason
+                        : QStringLiteral("The Starting Weights package is in use."));
+    }
+
+    QString createdId;
+    QString createdPath;
+    QString recoveryPath;
+    QString error;
+    const bool created = createLibraryModelIdentity(
+        registryFilePath_, sourcePackagePath, name, architecture,
+        initializationMode, &createdId, &createdPath, &recoveryPath, &error);
+    setOperationInProgress(false);
+    if (!created)
+        return fail(QStringLiteral("Add Model failed: ") + error);
+    return refreshAndSelect(createdId);
 }
 
 bool ModelLibraryController::setActive()
@@ -333,9 +472,15 @@ bool ModelLibraryController::importModel(const QUrl &packageUrl)
 {
     if (operationInProgress_)
         return fail(QStringLiteral("A Model Library operation is already in progress."));
-    const QString packagePath = localPath(packageUrl);
-    if (packagePath.isEmpty())
-        return fail(QStringLiteral("Choose a local OpenDSS v2 Model Package folder."));
+    const QString metadataPath = localPath(packageUrl);
+    if (metadataPath.isEmpty()
+        || QFileInfo(metadataPath).fileName().compare(
+               QStringLiteral("metadata.json"), Qt::CaseInsensitive) != 0
+        || !QFileInfo(metadataPath).isFile()) {
+        return fail(QStringLiteral(
+            "Choose metadata.json inside a complete OpenDSS v2 Model Package."));
+    }
+    const QString packagePath = QFileInfo(metadataPath).absolutePath();
 
     setOperationInProgress(true);
     QString error;
@@ -432,9 +577,9 @@ bool ModelLibraryController::deleteSelected()
     const QString packagePath = selectedPackagePath();
     if (id.isEmpty() || packagePath.isEmpty())
         return fail(QStringLiteral("No model is selected."));
-    const bool active = id.compare(activeId(), Qt::CaseInsensitive) == 0;
-    if (active && !activeModelCleared_)
-        return fail(QStringLiteral("Active Model clearing is unavailable."));
+    if (id.compare(activeId(), Qt::CaseInsensitive) == 0)
+        return fail(QStringLiteral(
+            "The Active Model cannot be removed. Set another model Active first."));
 
     setOperationInProgress(true);
     auto lock = operations_.acquireModel(packagePath, ModelAccess::Write);
@@ -449,13 +594,11 @@ bool ModelLibraryController::deleteSelected()
     QString error;
     const bool deleted = deleteRegisteredModelPackage(
         registryFilePath_, id, &registryCommitted, &deletedActive, &recoveryPath, &error);
-    if (registryCommitted && deletedActive)
-        activeModelCleared_();
     setOperationInProgress(false);
     if (registryCommitted)
         refresh();
     if (!deleted)
-        return fail(QStringLiteral("Delete failed: ") + error);
+        return fail(QStringLiteral("Remove Model failed: ") + error);
     errorMessage_ = error;
     emit changed();
     return true;

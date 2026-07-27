@@ -67,7 +67,8 @@ public:
                                     PipelineRunner& pipeline,
                                     QString* registeredEntryId = nullptr,
                                     QString* warning = nullptr,
-                                    QString* error = nullptr) const;
+                                    QString* error = nullptr,
+                                    const QString& libraryEntryId = {}) const;
     void installPersisted(std::unique_ptr<OnnxInferenceAdapter> candidate,
                           PipelineRunner& pipeline) const noexcept;
 

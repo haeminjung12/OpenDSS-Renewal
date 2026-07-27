@@ -1357,6 +1357,9 @@ Item {
         unavailableCameraShell.form.navLiveButton.clicked()
         tryCompare(unavailableCameraShell.form, "selectedWorkspace", "live")
         unavailableCameraController.previewSource = secondSource
+        unavailableCameraShell.acknowledgeCameraPreview(
+                    unavailableCameraShell.form.cameraPreviewImage, "capture")
+        compare(unavailableCameraController.previewReadyCallCount, 1)
         tryCompare(unavailableCameraShell.form.liveWorkspace.cameraPreviewImage,
                    "status", Image.Ready)
         tryCompare(unavailableCameraController, "previewReadyCallCount", 2)

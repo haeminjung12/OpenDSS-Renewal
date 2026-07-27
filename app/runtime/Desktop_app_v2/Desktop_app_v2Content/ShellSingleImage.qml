@@ -61,25 +61,36 @@ Item {
     property real smallDropletSelectionEndXRatio: 0.0
     property real smallDropletSelectionEndYRatio: 0.0
     property string lastAcknowledgedPreviewSource: ""
-    function acknowledgeActiveCameraPreview() {
+    function acknowledgeCameraPreview(image, workspace) {
         if (!root.cameraController
                 || typeof root.cameraController.acknowledgePreviewReady !== "function")
             return
-        const useLivePreview = screen.selectedWorkspace === "live"
-                && screen.liveWorkspace.visible
-        const image = useLivePreview
-                ? screen.liveWorkspace.cameraPreviewImage
-                : screen.cameraPreviewImage
+        const active = (workspace === "live"
+                        && screen.selectedWorkspace === "live"
+                        && screen.liveWorkspace.visible)
+                || (workspace === "capture"
+                    && screen.selectedWorkspace === "capture")
+        if (!active)
+            return
         const source = image.source.toString()
         if (source === "") {
             root.lastAcknowledgedPreviewSource = ""
             return
         }
+        if (source !== String(root.cameraController.previewSource))
+            return
         if (source === root.lastAcknowledgedPreviewSource
                 || image.status !== Image.Ready)
             return
-        root.lastAcknowledgedPreviewSource = source
         root.cameraController.acknowledgePreviewReady(source)
+        root.lastAcknowledgedPreviewSource = source
+    }
+    function acknowledgeActiveCameraPreview() {
+        if (screen.selectedWorkspace === "live")
+            acknowledgeCameraPreview(screen.liveWorkspace.cameraPreviewImage,
+                                     "live")
+        else if (screen.selectedWorkspace === "capture")
+            acknowledgeCameraPreview(screen.cameraPreviewImage, "capture")
     }
     readonly property bool realSequenceDaqOwnsOperation:
         !!root.sequenceTestController
@@ -1077,11 +1088,16 @@ Item {
 
     Connections {
         target: screen.cameraPreviewImage
-        function onStatusChanged() { root.acknowledgeActiveCameraPreview() }
+        function onStatusChanged() {
+            root.acknowledgeCameraPreview(screen.cameraPreviewImage, "capture")
+        }
     }
     Connections {
         target: screen.liveWorkspace.cameraPreviewImage
-        function onStatusChanged() { root.acknowledgeActiveCameraPreview() }
+        function onStatusChanged() {
+            root.acknowledgeCameraPreview(
+                        screen.liveWorkspace.cameraPreviewImage, "live")
+        }
     }
     Connections {
         target: screen.sequenceTestWorkspace.sequencePreviewImage

@@ -16,14 +16,8 @@ Window {
     property var sequenceTestController: null
     property var captureWorkflowController: null
 
-    width: Constants.width
-    height: Constants.height
-    minimumWidth: Constants.width
-    minimumHeight: Constants.height
-
     title: qsTr("OpenDSS")
-
-    Component.onCompleted: window.showMaximized()
+    visibility: Window.Maximized
 
     ShellSingleImage {
         anchors.fill: parent

@@ -2207,25 +2207,18 @@ Item {
         verify(!workspace.cameraPreviewImage.visible)
     }
 
-    function test_authorizedFormsAtSupportedWindowSizes() {
-        compare(shell.width, 1600)
-        compare(shell.height, 900)
-        verify(shell.form.labelWorkspace.width > 0)
-        verify(shell.form.sequenceViewerWorkspace.width > 0)
-        verify(shell.form.liveWorkspace.width > 0)
+    function test_appStartsMaximized() {
+        const component = Qt.createComponent(
+                "qrc:/qt/qml/Desktop_app_v2Content/App.qml")
+        tryCompare(component, "status", Component.Ready)
+        verify(component.status === Component.Ready, component.errorString())
 
-        testRoot.width = 1920
-        testRoot.height = 1080
-        wait(0)
-        compare(shell.width, 1920)
-        compare(shell.height, 1080)
-        verify(shell.form.labelWorkspace.width > 0)
-        verify(shell.form.sequenceViewerWorkspace.width > 0)
-        verify(shell.form.liveWorkspace.width > 0)
+        const appWindow = component.createObject(null)
+        verify(appWindow !== null)
+        tryCompare(appWindow, "visibility", Window.Maximized)
 
-        testRoot.width = 1600
-        testRoot.height = 900
-        wait(0)
+        appWindow.destroy()
+        component.destroy()
     }
 
     function test_sequenceViewerLocalFilePaths() {

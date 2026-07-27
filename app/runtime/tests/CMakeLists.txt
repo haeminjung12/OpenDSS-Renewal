@@ -1306,6 +1306,18 @@ opendss_configure_offscreen_test(
   qt_offscreen_platform_smoke_test
 )
 
+add_test(
+  NAME convert_pytorch_model_package_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    --unset=PYTHONPATH
+    --unset=PYTHONHOME
+    "PYTHONNOUSERSITE=1"
+    "PIP_NO_INDEX=1"
+    "${OPENDSS_TEST_INSTALLER_PYTHON}" -I
+    "${CMAKE_CURRENT_SOURCE_DIR}/test_convert_pytorch_model_package.py"
+)
+set_tests_properties(convert_pytorch_model_package_test PROPERTIES TIMEOUT 120)
+
 qt_add_executable(model_test_production_model_probe
   model_test_production_model_probe.cpp
   ../desktop_app/app_utils.cpp

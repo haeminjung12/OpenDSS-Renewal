@@ -854,6 +854,65 @@ void testRegistryFailureRollsBackDelete()
             "registry write failure restores staged package and registry");
 }
 
+void testStagedPublicationFailureIsRetrySafe()
+{
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "staged publication temporary directory");
+    const QString sourcePackage =
+        createPackage(QDir(temporary.path()).filePath(QStringLiteral("source")),
+                      QStringLiteral("mobilenet_v3_small"));
+    const QJsonObject sourceMetadata = QJsonDocument::fromJson(
+        bytes(QDir(sourcePackage).filePath(QStringLiteral("metadata.json")))).object();
+    const QString modelName =
+        sourceMetadata.value(QStringLiteral("model_name")).toString();
+    const QString replacementId = packageEntryId(sourcePackage);
+    const QString registry = createSimpleRegistry(
+        QDir(temporary.path()).filePath(QStringLiteral("registry")),
+        QJsonArray{entry(replacementId, modelName, sourcePackage, false)});
+    const QByteArray validRegistry = bytes(registry);
+    QFile invalidRegistry(registry);
+    require(invalidRegistry.open(QIODevice::WriteOnly | QIODevice::Truncate)
+                && invalidRegistry.write("{invalid") == 8,
+            "write deterministic late publication registry failure");
+    invalidRegistry.close();
+
+    const QString destination =
+        QDir(temporary.path()).filePath(QStringLiteral("destination"));
+    QString savedPackage;
+    QString registeredId;
+    QString error;
+    require(!saveTrainedModelArtifacts(
+                registry, sourcePackage,
+                QDir(sourcePackage).filePath(QStringLiteral("model.onnx")),
+                QDir(sourcePackage).filePath(QStringLiteral("metadata.json")),
+                {}, {}, {}, {}, {}, modelName, destination, &savedPackage,
+                &registeredId, &error, replacementId)
+                && error.contains(QStringLiteral("parse"))
+                && QFileInfo(destination).isDir()
+                && QDir(destination).entryList(
+                       QDir::AllEntries | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+            "late publication failure removes staging and exposes no incomplete final");
+
+    QFile restoredRegistry(registry);
+    require(restoredRegistry.open(QIODevice::WriteOnly | QIODevice::Truncate)
+                && restoredRegistry.write(validRegistry) == validRegistry.size(),
+            "restore registry for publication retry");
+    restoredRegistry.close();
+    error.clear();
+    require(saveTrainedModelArtifacts(
+                registry, sourcePackage,
+                QDir(sourcePackage).filePath(QStringLiteral("model.onnx")),
+                QDir(sourcePackage).filePath(QStringLiteral("metadata.json")),
+                {}, {}, {}, {}, {}, modelName, destination, &savedPackage,
+                &registeredId, &error, replacementId)
+                && QFileInfo(savedPackage).isDir()
+                && validateCompleteV2ModelPackage(savedPackage, &error)
+                && QDir(destination).entryList(
+                       {QStringLiteral(".*.staging-*")},
+                       QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty(),
+            "publication retry atomically exposes one complete final package");
+}
+
 } // namespace
 
 int main(int argc, char **argv)
@@ -866,5 +925,6 @@ int main(int argc, char **argv)
     testLibraryOwnedIdentityCreation();
     testCommittedDeleteCleanupWarning();
     testRegistryFailureRollsBackDelete();
+    testStagedPublicationFailureIsRetrySafe();
     return 0;
 }

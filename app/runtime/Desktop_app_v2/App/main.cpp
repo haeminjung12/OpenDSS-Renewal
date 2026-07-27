@@ -76,10 +76,18 @@ public:
         if (!nativeMessage || nativeMessage->hwnd != window_)
             return false;
 
+        const UINT dpi = qMax(GetDpiForWindow(window_),
+                              UINT(USER_DEFAULT_SCREEN_DPI));
+        const LONG minimumWidth =
+            MulDiv(1600, dpi, USER_DEFAULT_SCREEN_DPI);
+        const LONG minimumHeight =
+            MulDiv(900, dpi, USER_DEFAULT_SCREEN_DPI);
         if (nativeMessage->message == WM_GETMINMAXINFO) {
             auto *limits = reinterpret_cast<MINMAXINFO *>(nativeMessage->lParam);
-            limits->ptMinTrackSize.x = qMax<LONG>(limits->ptMinTrackSize.x, 1600);
-            limits->ptMinTrackSize.y = qMax<LONG>(limits->ptMinTrackSize.y, 900);
+            limits->ptMinTrackSize.x =
+                qMax(limits->ptMinTrackSize.x, minimumWidth);
+            limits->ptMinTrackSize.y =
+                qMax(limits->ptMinTrackSize.y, minimumHeight);
         } else if (nativeMessage->message == WM_WINDOWPOSCHANGING) {
             auto *position = reinterpret_cast<WINDOWPOS *>(nativeMessage->lParam);
             WINDOWPLACEMENT placement{};
@@ -91,8 +99,8 @@ public:
                   placement.showCmd == SW_SHOWMINNOACTIVE ||
                   placement.showCmd == SW_FORCEMINIMIZE));
             if (!(position->flags & SWP_NOSIZE) && !minimizing) {
-                position->cx = qMax(position->cx, 1600);
-                position->cy = qMax(position->cy, 900);
+                position->cx = qMax(position->cx, minimumWidth);
+                position->cy = qMax(position->cy, minimumHeight);
             }
         }
         return false;

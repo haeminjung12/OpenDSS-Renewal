@@ -1349,8 +1349,8 @@ No recommendation, preselection, or quality language should imply which class co
 - A missing crop uses a factual missing-file tile with crop ID/path context and must not be visually confused with Removed.
 - The default grid cell MUST be exactly 185 × 185 logical px and square. A visual-density control MAY offer other sizes, but initial/default presentation remains 185 × 185 logical px and crop order/state must not change.
 - Selection count remains visible in the inspector.
-- Standard click selects one; Ctrl-click toggles; Shift-click extends a contiguous range according to the current filtered order.
-- Filtering changes the visible collection but does not silently clear Labels or crop states. Selection outside the filter should be cleared or summarized explicitly rather than becoming invisible while actions remain enabled.
+- Standard click selects one and establishes the Shift anchor; Ctrl-click toggles an individual crop; Shift-click selects the contiguous range from the current anchor to the clicked crop in the current visible filtered order only.
+- On every active-filter change, selected crops that become hidden are cleared from selection and excluded from any batch assignment, and the Shift anchor is reset. Filtering never changes persisted Labels or crop states.
 
 ## 10.6 Thumbnail visual anatomy
 
@@ -1362,7 +1362,7 @@ Each Dataset thumbnail MUST reserve separate layers:
 4. selection fill/indicator;
 5. keyboard-focus ring;
 
-After a successful persisted assignment through `Empty`, `Single`, `MoreThanOne`, or `Exclude`, Label advances in the current active filtered order. `Exclude` assigns the retained `Skipped` state; it never deletes or removes the crop. A multi-selection advances to the item after the highest selected item in that filtered order. If the assignment includes the final filtered item, that final item remains selected and the selection never wraps. A failed persistence operation does not advance.
+An assignment through `Empty`, `Single`, `MoreThanOne`, or `Exclude` applies atomically to the full current selection. `Exclude` assigns the retained `Skipped` state; it never deletes or removes a crop. Only after the complete selection is persisted successfully does Label advance to the first item after the highest selected item in the current visible filtered order. If the assignment includes the final filtered item, that final item remains selected and the selection never wraps. A failed atomic persistence operation changes none of the selected crops and does not advance.
 6. optional multi-selection check indicator.
 
 The 6 logical-px crop border is its own visual layer. Selection and keyboard focus are separate orthogonal layers and MUST NOT replace, resize, merge into, or be represented solely by the crop border.

@@ -14,7 +14,7 @@ Rectangle {
     property int currentFrame: 0
     property int totalFrames: 0
     property url currentFrameSource: ""
-    property real zoomScale: 1.0
+    property alias zoomScale: currentFrameViewer.zoomScale
     property bool actualSize: false
     property int nativeImageWidth: 0
     property int nativeImageHeight: 0
@@ -53,33 +53,16 @@ Rectangle {
             border.color: Constants.borderColor
             focus: true
             clip: true
-            Flickable {
-                id: viewerViewport
-                anchors.fill: parent
-                clip: true
-                contentWidth: Math.max(width, currentFrameImage.width)
-                contentHeight: Math.max(height, currentFrameImage.height)
-                boundsBehavior: Flickable.StopAtBounds
 
-                Image {
-                    id: currentFrameImage
-                    x: Math.max(0, (viewerViewport.width - width) / 2)
-                    y: Math.max(0, (viewerViewport.height - height) / 2)
-                    width: (root.actualSize && root.nativeImageWidth > 0
-                            ? root.nativeImageWidth : viewerViewport.width)
-                           * root.zoomScale
-                    height: (root.actualSize && root.nativeImageHeight > 0
-                             ? root.nativeImageHeight : viewerViewport.height)
-                            * root.zoomScale
-                    source: root.currentFrameSource
-                    sourceSize.width: root.nativeImageWidth
-                    sourceSize.height: root.nativeImageHeight
-                    fillMode: root.actualSize ? Image.Pad : Image.PreserveAspectFit
-                    asynchronous: true
-                    cache: false
-                    visible: root.currentFrameSource !== ""
-                }
+            FullSizeImageViewer {
+                id: currentFrameViewer
+                anchors.fill: parent
+                source: root.currentFrameSource
+                actualPixels: root.actualSize
+                nativeImageWidth: root.nativeImageWidth
+                nativeImageHeight: root.nativeImageHeight
             }
+
             Text {
                 text: root.presentation === "empty" ? qsTr("No Image Sequence selected") : qsTr("CURRENT FRAME")
                 color: Constants.surfaceColor

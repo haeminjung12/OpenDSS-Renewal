@@ -47,7 +47,7 @@ Item {
     property alias triggerEveryDropletControl: triggerEveryDropletControl
     property alias daqOutputControl: daqOutputControl
     property alias recordFullImageSequenceControl: recordFullImageSequenceControl
-    property alias cameraPreviewImage: cameraPreviewImage
+    property alias cameraPreviewImage: cameraPreviewViewer.image
     property alias hitBoundaryInputArea: hitBoundaryInputArea
     property alias setDecisionBoundaryButton: setDecisionBoundaryButton
     property alias resetDecisionBoundaryButton: resetDecisionBoundaryButton
@@ -96,72 +96,63 @@ Item {
                 color: Constants.viewerColor
                 border.color: Constants.borderColor
 
-                Image {
-                    id: cameraPreviewImage
+                FullSizeImageViewer {
+                    id: cameraPreviewViewer
                     anchors.fill: parent
                     source: root.cameraPreviewSource
-                    sourceSize: Qt.size(Math.round(width), Math.round(height))
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    cache: false
-                    visible: root.cameraPreviewSource.toString() !== "" && !root.unavailable
-                }
+                    placeholderText: root.unavailable
+                                     ? qsTr("Camera unavailable")
+                                     : qsTr("Camera preview")
+                    image.visible: root.cameraPreviewSource.toString() !== ""
+                                   && !root.unavailable
+                    placeholder.visible: !cameraPreviewViewer.image.visible
 
-                Item {
-                    id: hitBoundaryOverlay
-                    x: cameraPreviewImage.x + (cameraPreviewImage.width - cameraPreviewImage.paintedWidth) / 2
-                    y: cameraPreviewImage.y + (cameraPreviewImage.height - cameraPreviewImage.paintedHeight) / 2
-                    width: cameraPreviewImage.paintedWidth
-                    height: cameraPreviewImage.paintedHeight
-                    visible: cameraPreviewImage.visible
-                    clip: true
-                    readonly property real boundaryX: Math.max(0, Math.min(1, root.hitBoundaryXRatio)) * width
-                    readonly property real boundaryY: Math.max(0, Math.min(1, root.hitBoundaryYRatio)) * height
-
-                    MouseArea {
-                        id: hitBoundaryInputArea
+                    Item {
+                        id: hitBoundaryOverlay
                         anchors.fill: parent
-                        enabled: root.hitBoundaryEditable && root.hitBoundaryPlacementArmed && cameraPreviewImage.visible
-                    }
+                        visible: cameraPreviewViewer.image.visible
+                        readonly property real boundaryX: Math.max(0, Math.min(1, root.hitBoundaryXRatio)) * width
+                        readonly property real boundaryY: Math.max(0, Math.min(1, root.hitBoundaryYRatio)) * height
 
-                    Rectangle {
-                        visible: root.hitBoundaryDefined
-                        x: hitBoundaryOverlay.boundaryX
-                        y: hitBoundaryOverlay.boundaryY - height / 2
-                        width: hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX
-                        height: 4
-                        color: Constants.textColor
-                        Accessible.ignored: true
+                        MouseArea {
+                            id: hitBoundaryInputArea
+                            anchors.fill: parent
+                            enabled: root.hitBoundaryEditable
+                                     && root.hitBoundaryPlacementArmed
+                                     && cameraPreviewViewer.image.visible
+                        }
 
                         Rectangle {
-                            anchors.verticalCenter: parent.verticalCenter
-                            width: parent.width
-                            height: 2
+                            visible: root.hitBoundaryDefined
+                            x: hitBoundaryOverlay.boundaryX
+                            y: hitBoundaryOverlay.boundaryY - height / 2
+                            width: hitBoundaryOverlay.width - hitBoundaryOverlay.boundaryX
+                            height: 4
+                            color: Constants.textColor
+                            Accessible.ignored: true
+
+                            Rectangle {
+                                anchors.verticalCenter: parent.verticalCenter
+                                width: parent.width
+                                height: 2
+                                color: Constants.surfaceColor
+                                Accessible.ignored: true
+                            }
+                        }
+
+                        Rectangle {
+                            visible: root.hitBoundaryDefined
+                            x: hitBoundaryOverlay.boundaryX - width / 2
+                            y: hitBoundaryOverlay.boundaryY - height / 2
+                            width: 12
+                            height: 12
+                            radius: width / 2
                             color: Constants.surfaceColor
+                            border.color: Constants.textColor
+                            border.width: 2
                             Accessible.ignored: true
                         }
                     }
-
-                    Rectangle {
-                        visible: root.hitBoundaryDefined
-                        x: hitBoundaryOverlay.boundaryX - width / 2
-                        y: hitBoundaryOverlay.boundaryY - height / 2
-                        width: 12
-                        height: 12
-                        radius: width / 2
-                        color: Constants.surfaceColor
-                        border.color: Constants.textColor
-                        border.width: 2
-                        Accessible.ignored: true
-                    }
-                }
-
-                Text {
-                    anchors.centerIn: parent
-                    text: root.unavailable ? qsTr("Camera unavailable") : qsTr("Camera preview")
-                    color: "#ffffff"
-                    font: Constants.largeFont
-                    visible: !cameraPreviewImage.visible
                 }
 
                 Rectangle {

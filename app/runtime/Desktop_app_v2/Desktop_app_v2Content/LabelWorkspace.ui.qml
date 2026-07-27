@@ -259,29 +259,12 @@ Rectangle {
                                 SplitView.minimumHeight: Math.min(Math.round(120 * Constants.textScale), labelSplitView.width)
                                 SplitView.maximumHeight: Math.max(labelSplitView.width, Math.min(Math.round(520 * Constants.textScale), labelSplitView.width * 2))
                                 SplitView.fillHeight: true
-                                Rectangle {
+                                FullSizeImageViewer {
+                                    id: selectedCropImage
                                     width: Math.min(parent.width, parent.height)
                                     height: width
                                     anchors.centerIn: parent
-                                    color: Constants.viewerColor
-                                    border.color: Constants.borderColor
-                                    Image {
-                                        id: selectedCropImage
-                                        anchors.fill: parent
-                                        anchors.margins: Constants.spacing
-                                        fillMode: Image.PreserveAspectFit
-                                        sourceSize: Qt.size(Math.round(width), Math.round(height))
-                                        asynchronous: true
-                                        cache: false
-                                    }
-                                    Text {
-                                        visible: selectedCropImage.source.toString() === ""
-                                        anchors.centerIn: parent
-                                        text: qsTr("Selected Crop\n64 × 64")
-                                        horizontalAlignment: Text.AlignHCenter
-                                        color: Constants.surfaceColor
-                                        font: Constants.headingFont
-                                    }
+                                    placeholderText: qsTr("Selected Crop\n64 × 64")
                                 }
                             }
 

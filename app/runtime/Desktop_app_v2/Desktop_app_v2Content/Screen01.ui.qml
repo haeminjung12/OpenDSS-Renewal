@@ -114,8 +114,8 @@ Rectangle {
     property alias cameraResolutionSelector: cameraResolutionSelector
     property alias cameraCustomWidthField: cameraCustomWidthField
     property alias cameraCustomHeightField: cameraCustomHeightField
-    property alias cameraPreviewImage: cameraPreviewImage
-    property alias cameraPreviewPlaceholder: cameraPreviewPlaceholder
+    property alias cameraPreviewImage: cameraPreviewViewer.image
+    property alias cameraPreviewPlaceholder: cameraPreviewViewer.placeholder
     property alias cameraExposureField: cameraExposureField
     property alias cameraBitDepthSelector: cameraBitDepthSelector
     property alias cameraReadoutSelector: cameraReadoutSelector
@@ -410,30 +410,13 @@ Rectangle {
                 anchors.left: parent.left
                 anchors.right: parent.right
 
-            Rectangle {
-                id: cameraPreview
+            FullSizeImageViewer {
+                id: cameraPreviewViewer
                 SplitView.fillWidth: true
-                color: Constants.viewerColor
-                border.color: Constants.borderColor
-                Image {
-                    id: cameraPreviewImage
-                    anchors.fill: parent
-                    source: root.cameraPreviewSource
-                    sourceSize.width: width
-                    sourceSize.height: height
-                    fillMode: Image.PreserveAspectFit
-                    asynchronous: true
-                    cache: false
-                    visible: root.cameraPreviewSource !== ""
-                }
-                Text {
-                    id: cameraPreviewPlaceholder
-                    text: root.cameraStatus === qsTr("Unavailable") ? qsTr("Camera unavailable") : qsTr("Camera preview")
-                    color: Constants.surfaceColor
-                    font: Constants.largeFont
-                    anchors.centerIn: parent
-                    visible: root.cameraPreviewSource === ""
-                }
+                source: root.cameraPreviewSource
+                placeholderText: root.cameraStatus === qsTr("Unavailable")
+                                 ? qsTr("Camera unavailable")
+                                 : qsTr("Camera preview")
             }
             Rectangle {
                 id: capturePanel

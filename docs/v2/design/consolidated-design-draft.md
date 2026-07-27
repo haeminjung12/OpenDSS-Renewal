@@ -38,9 +38,9 @@ Sequence Viewer is a still-frame inspection surface. It shows current and total 
 
 ### Train, Library, and Active Model
 
-Train collects Dataset, Faster or More Accurate, Model Name, and Save Location before Start. While Training it shows progress, timing, automatic device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. After automatic save it shows overall results, per-class results, optional confusion matrix, saved path, and Active Model confirmation. Save failure shows `Error` and Retry Save without an Active success state.
+Library owns Add Model and Import Model. Add Model uses one popup requiring a nonblank unique Name, one supported Architecture, and approved Starting Weights. Train selects that Library-defined model read-only for identity, architecture, and initialization, then selects Dataset, Compute Device, and Output Location before Start. While Training it shows progress, timing, effective device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. Successful completion atomically creates the newly named package and makes it Active; failure leaves source identity/artifacts intact and shows `Error` and Retry Save without an Active success state.
 
-`ModelListRow` shows only a green Active check when applicable, bold Model Name, and smaller lighter Model Type. The Active check has textual or accessible meaning. A selected row has a darker background and selection never activates it. `SelectedModelSection` is collapsible and contains name, Active state, trained date, source Dataset, Model Type, classes, Training results, package location, and actions.
+`ModelListRow` shows only a green Active check when applicable, bold Model Name, and smaller lighter Architecture. The Active check has textual or accessible meaning. A selected row has a darker background and selection never activates it. `SelectedModelSection` is collapsible and contains name, Active state, architecture, Starting Weights, trained date, source Dataset, classes, Training results, package location, and actions.
 
 Model Test and Sequence Test display the Active Model as read-only context and contain no local Model selector.
 
@@ -50,13 +50,13 @@ Live keeps one workspace. Its right panel contains Setup Profile, Run Informatio
 
 Trigger & Timing contains Active Model, Hit Class, independent Trigger Every Droplet and DAQ Output toggles, Send Test Pulse, and `Decision Boundary`. `Set Decision Boundary` arms exactly one placement click in the owning Camera frame; ordinary frame clicks do nothing. The clicked source-image X/Y point begins a horizontal observer/comparison segment that extends to the right edge only. `Top is Hit` or `Bottom is Hit` selects the Observed Route mapping, and `Reset` clears the boundary. Decision Boundary affects only Observed Route; it never changes Predicted Class, Decision, or DAQ output.
 
-Running contains status, elapsed time, Total Droplets, Predicted Class counts, Decision Hit/Waste, Observed Hit/Waste/Unresolved, Camera FPS, Inference Time, Pause/Resume, and Stop.
+Running contains status, elapsed time, Total Droplets, Rejected, Predicted Class counts, Decision Hit/Waste, Observed Hit/Waste/Unresolved, Camera FPS, Inference Time, Pause/Resume, and Stop.
 
 ### Sequence Test, Results, Settings, and Configuration
 
 Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, its own editable Decision Boundary, Start, and Stop. It does not reuse or modify Live Decision Boundary state. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default, and Sequence Test inference defaults to CPU.
 
-Results keeps the loaded Run in the center. `RunListSection` on the right is internally scrollable and contains the selectable Run list plus bottom Load and Remove Run actions. Remove Run deletes only the selected Run files/folder and only after explicit confirmation. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
+Results keeps the loaded Run in the center. `RunListSection` on the right is internally scrollable and contains the selectable Run list plus bottom Load and Remove Run actions. After explicit confirmation, Remove Run moves the complete selected Run folder to the Windows Recycle Bin; it never performs direct permanent deletion. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
 
 Settings uses a centered column with Storage, Application Information, and Diagnostics only.
 
@@ -221,7 +221,7 @@ The following descriptions are task contexts, not permission-bearing roles:
 |---|---|---|
 | Laboratory operator | Connect available hardware, capture data, configure a Run, sort droplets, monitor operations, stop or recover | Hardware and operation state must be factual, prominent, and internally consistent. Primary actions must expose one direct blocker when unavailable. |
 | Dataset reviewer | Define two or three classes, label or relabel Droplet Crops, Skip, Remove from Dataset, restore, and inspect Image Counts | Repeated work must be keyboard-efficient; large collections must be virtualized; selection, label, Skip, and Removed states must remain visually distinct. |
-| Model developer | Train Faster or More Accurate models, inspect factual metrics, run Model Test, and manage local Model Packages | Fixed configuration and automatic compute selection must be clear without exposing tuning controls or scientific approval states. |
+| Model developer | Define MobileNetV3-Small or EfficientNet-B0 identities in Library, train them from approved Starting Weights, inspect factual metrics, run Model Test, and manage local Model Packages | Library-owned identity and Train's read-only consumption must be clear without exposing tuning controls or scientific approval states. |
 | Troubleshooter | Inspect runtime, driver, file, and diagnostic facts and recover from technical faults | Plain-language operational messages must provide direct recovery while technical detail remains available through Diagnostics and ordinary files. |
 
 ### 2.1.1 Installation and network contract
@@ -343,7 +343,7 @@ Live pre-run, Starting, Running, Paused, Stopping, Completed, Interrupted, and F
 | **Data > Label** | Define two or three classes and assign Labels to Droplet Crops in one Dataset. |
 | **Data > Sequence Viewer** | Step, seek, zoom, pan, Fit, and inspect a recorded Image Sequence at 1:1 without hardware output. |
 | **Models** | Create, test, and manage local two-class or three-class Model Packages. |
-| **Models > Train** | Train a Faster or More Accurate model from eligible Labeled Droplet Crops. |
+| **Models > Train** | Train one existing Library-defined MobileNetV3-Small or EfficientNet-B0 model identity from eligible Labeled Droplet Crops without mutating source packages. |
 | **Models > Model Test** | Measure classification behavior of one model on one compatible labeled Dataset without changing Active Model. |
 | **Models > Library** | Inspect and manage valid v2 Model Packages and the one global Active Model. |
 | **Sort** | Run live physical sorting or reprocess a recorded Image Sequence through sorting logic. |
@@ -747,10 +747,12 @@ All shared full-size image viewers use the same presentation-only navigation con
 - `Ctrl`+wheel zooms around the pointer position.
 - Scale `1.0` is the viewer's current fit-to-window presentation.
 - Zoom is clamped to `0.3` through `10`.
-- Normal scrolling and panning navigate an enlarged image.
+- When zoomed content exceeds the viewport, normal wheel input scrolls vertically and `Shift`+wheel scrolls horizontally.
+- Vertical and horizontal scrollbars become visible as applicable and support pointer thumb dragging and pointer click scrolling.
+- Existing pan remains available alongside scrolling.
 - Dataset grids, thumbnail grids, and other thumbnail presentations are excluded.
 - Zoom and navigation never change source-image coordinates, persisted artifacts, detector values, or operational geometry.
-- Reuse one production viewer component across applicable workspaces only when that is the materially simplest implementation. Do not duplicate hot-path JavaScript across viewers.
+- Exactly one shared production `FullSizeImageViewer` implementation serves the five full-size consumers: Capture, Live, Sequence Test, Sequence Viewer, and Label selected crop. Per-workspace viewer or hot-path JavaScript duplication is prohibited.
 
 ## 6.6 Component state requirements
 
@@ -969,6 +971,27 @@ At the minimum supported window:
 Each following workspace section cites PM, IA, LF, and applicable WF sections. PDS v0.1 is cited only where compatible visual or component evidence is adopted or adapted. Repository evidence is cited only for design-handoff feasibility and is never used to alter behavior.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §§4–14; *OpenDSS v2 Information Architecture and Screen Inventory* §§1–6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §§1–20; *OpenDSS Detailed User Workflow Specification* §§7–23 and §§31–43; *OpenDSS Product Design Specification*, Draft v0.1 §§4, 6, 8–12 as supporting design evidence only.
+
+## 8.6 Output-path defaults and persistence
+
+This contract applies only to the output selectors already present in this specification. It does not add output selectors to input, Dataset, sequence, package-import, or other artifact-selection workflows.
+
+| Existing output selector or action | Nonblank standard root |
+|---|---|
+| Capture > Single Image — Save Location | `%USERPROFILE%\Documents\OpenDropletSortingSuite\datasets` |
+| Capture > Image Sequence — Save Location | `%USERPROFILE%\Documents\OpenDropletSortingSuite\datasets` |
+| Capture > Droplet Dataset Capture — Save Location | `%USERPROFILE%\Documents\OpenDropletSortingSuite\datasets` |
+| Models > Train — Output Location | `%USERPROFILE%\Documents\OpenDropletSortingSuite\models` |
+| Library Add Model package destination and Export Model destination | `%USERPROFILE%\Documents\OpenDropletSortingSuite\models` |
+| Models > Model Test — Output Location | `%USERPROFILE%\Documents\OpenDropletSortingSuite\reports` |
+| Sort > Live — Save Location | `%USERPROFILE%\Documents\OpenDropletSortingSuite\runs` |
+| Sort > Sequence Test — Save Location | `%USERPROFILE%\Documents\OpenDropletSortingSuite\runs` |
+
+- Every listed field or action destination is nonblank by default.
+- Each operation Start retains its existing unique timestamped/name subfolder and never overwrites an existing output.
+- After a valid user selection is accepted and persisted, that location becomes the next default for that same workspace output selector or action.
+- If a persisted location is invalid or unavailable, the field visibly falls back to its corresponding standard root before the next operation; it never remains blank or silently retains the invalid path.
+- These per-output defaults do not redesign Settings storage, migrate existing artifacts, add a schema, or change any input selector.
 
 ---
 # 9. Data > Capture design
@@ -1525,7 +1548,7 @@ The timeline thumb must be keyboard operable and expose current frame, total fra
 
 ## 12.1 Design purpose and user goal
 
-Train presents one qualified, fixed-configuration model-training workflow. Its purpose is to make Dataset eligibility, two-class or three-class structure, Faster versus More Accurate choice, pre-start Model Name/Save Location, automatic compute selection, progress, factual metrics, automatic saving, and activation clear without exposing training hyperparameters or scientific quality gates.
+Train presents one qualified, fixed-configuration model-training workflow. Library owns model creation and import; Train consumes one selected Library-defined model read-only for identity, architecture, and initialization. Train's purpose is to make Dataset eligibility, two-class or three-class structure, selected model identity, requested/effective compute device, Output Location, progress, factual metrics, atomic package creation, and activation clear without exposing training hyperparameters or scientific quality gates.
 
 ## 12.2 Layout by phase
 
@@ -1536,17 +1559,17 @@ Models > Train
 
 ┌──────────────────────────────────────────────┬────────────────────────────┐
 │ DATASET SUMMARY                              │ TRAINING SETUP             │
-│ Dataset: <name> [ Select Dataset ]           │ Model Type                │
-│ Classes: 2 or 3                              │ ( ) Faster                │
-│ Class 0 — <name>: <eligible count>           │ ( ) More Accurate         │
+│ Dataset: <name> [ Select Dataset ]           │ LIBRARY MODEL             │
+│ Classes: 2 or 3                              │ Library Model [ Select ]  │
+│ Class 0 — <name>: <eligible count>           │ Name <read-only>          │
 │ Class 1 — <name>: <eligible count>           │                           │
-│ Class 2 — <name>: <eligible count>           │ Compute Device            │
-│                                              │ <GPU or CPU, automatic>   │
+│ Class 2 — <name>: <eligible count>           │ Architecture <read-only>  │
+│                                              │ Starting Weights <read-only>│
+│                                              │ Compute Device [ GPU/CPU ]│
 │                                              │                           │
 │                                              │ Split 70 / 15 / 15        │
 │                                              │ Seed 1729                 │
-│                                              │ Model Name [________]     │
-│                                              │ Save Location [____] [...]│
+│                                              │ Output Location [___] […] │
 │                                              │                           │
 │                                              │ [ Start Training ]        │
 └──────────────────────────────────────────────┴────────────────────────────┘
@@ -1583,15 +1606,15 @@ Active Model: <name>
 
 | Contract field | Specification |
 |---|---|
-| **Main user goal** | Train and save one technically completed two-class or three-class Model Package. |
-| **Major regions** | Dataset summary; pre-start Model Type/Name/Save Location; Training status; plots/progress; completion results; minimal Error/Retry Save. |
-| **Dominant hierarchy** | Before Start: Dataset, Model Type, Model Name, and Save Location. During Training: progress and two live plots. After completion: saved results and Active Model confirmation. |
-| **Operation-side panel** | Dataset selector/summary, Model Type, automatic device, fixed split/seed facts, Model Name, Save Location, Start/Stop, and status. |
+| **Main user goal** | Train one Library-defined model identity into a new technically completed two-class or three-class Model Package without mutating any source package. |
+| **Major regions** | Dataset summary; selected Library model identity; requested/effective device; Output Location; Training status; plots/progress; completion results; minimal Error/Retry Save. |
+| **Dominant hierarchy** | Before Start: Dataset, read-only Library model identity/architecture/initialization, Compute Device, and Output Location. During Training: progress and two live plots. After completion: atomically saved results and Active Model confirmation. |
+| **Operation-side panel** | Dataset selector/summary, Library model selector with read-only identity facts, Compute Device, fixed split/seed facts, Output Location, Start/Stop, and status. |
 | **Primary action** | Start Training in Ready; Stop Training in Running; Retry Save only after automatic-save failure. |
-| **Secondary actions** | Select Dataset; choose Faster/More Accurate; browse Save Location; Open in Model Test; Open in Library; Diagnostics after technical failure. |
-| **Required artifact/hardware** | Compatible labeled Dataset with readable Labeled crops; training runtime; writable temporary/final locations; global operation slot. No Camera or DAQ. GPU optional; CPU fallback. |
-| **Output** | Model Package containing `metadata.json`, `checkpoint.pth`, and `model.onnx`. Successful save registers it and makes it Active Model. |
-| **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Model Type selected** → **No Model Name entered** → **Save location is not writable** → **Training environment unavailable**. |
+| **Secondary actions** | Select Dataset; select an existing Library-defined model; select Compute Device; browse Output Location; Open in Model Test; Open in Library; Diagnostics after technical failure. |
+| **Required artifact/hardware** | Compatible labeled Dataset with readable Labeled crops; one Library-defined unique model identity with supported architecture and approved Starting Weights; training runtime; writable temporary/final locations; global operation slot. No Camera or DAQ. |
+| **Output** | A new Model Package containing `metadata.json`, `checkpoint.pth`, and `model.onnx`. Successful atomic save registers the new package and makes it Active Model; it never overwrites or mutates a source package. |
+| **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Library model selected** → **Compute Device unavailable** → **Output location is not writable** → **Training environment unavailable**. |
 | **Fault banner** | Below workspace heading, above setup/metrics. It identifies input, runtime, process, or write failure and available Diagnostics/output. |
 | **Applicable presentations** | Empty, Unavailable, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. |
 | **Next likely action** | Open in Model Test after successful save. |
@@ -1603,31 +1626,33 @@ Active Model: <name>
 - No class-balance warning, suitability score, or minimum-per-class recommendation appears.
 - A missing required Droplet Crop is a technical file error, not a Dataset quality judgment.
 
-## 12.5 Model Type and fixed configuration
+## 12.5 Library model identity and fixed configuration
 
-The only user-facing Model Type choices are:
+Train has no Architecture, Starting Weights, or Model Name editor. Those values come read-only from the selected Library-defined model identity. The only supported architectures are:
 
 ```text
-Faster
-More Accurate
+MobileNetV3-Small
+EfficientNet-B0
 ```
 
-Technical architecture names may appear as secondary explanatory text if they are accurate and stable, but must not become additional choices.
+Library Add Model requires a nonblank unique Name, one of those two architectures, and approved Starting Weights. Train must not infer, substitute, or edit any of them.
+
+Retraining an already-trained Library model always begins with a new unique Name defined through Add Model and produces a new Library entry/package. The prior package is read-only initialization evidence and remains intact and protected; retraining never overwrites or mutates it.
 
 The panel MUST include a concise fixed-configuration explanation such as:
 
-> Training uses a qualified configuration. Split: 70% Training, 15% Validation, 15% Internal Test. Seed: 1729. Compute device is selected automatically.
+> Training uses a qualified configuration. Split: 70% Training, 15% Validation, 15% Internal Test. Seed: 1729.
 
 There is no Advanced Training Parameters heading, disclosure, button, tab, dialog, or placeholder.
 
-## 12.6 Automatic compute-device display
+## 12.6 Compute-device selection and display
 
-Before Start, the planned device is shown factually:
+Before Start, the user selects the requested device:
 
-- `GPU — automatic` when a compatible bundled GPU environment is available;
-- `CPU — automatic fallback` otherwise.
+- `GPU`;
+- `CPU`.
 
-During and after Training, the actual execution device is shown and recorded. The device presentation is status, not a selector. GPU absence must not use warning/error styling when CPU training is available.
+During and after Training, the requested and effective execution device are shown and recorded. Existing qualified GPU-to-CPU fallback behavior remains factual; the selected Library model identity, architecture, and Starting Weights remain unchanged.
 
 ## 12.7 Metrics presentation
 
@@ -1643,17 +1668,17 @@ During and after Training, the actual execution device is shown and recorded. Th
 - Stopping states that processing is ending and temporary output is being finalized.
 - User-stopped or failed Training does not show normal Model Package completion.
 - Low accuracy, model collapse, or one dominant Predicted Class does not block automatic save when the technical artifact contract is satisfied.
-- Automatic save begins after Training completes and uses the pre-start Model Name and Save Location.
-- Save failure shows `Error`, retains completed temporary artifacts, exposes Retry Save, and does not activate the Model.
-- Successful save immediately updates the global Active Model header and Library. The selected Dataset remains unchanged.
+- Automatic save begins after Training completes and uses the Library-defined unique Name and the pre-start Output Location.
+- Save failure shows `Error`, retains completed temporary artifacts, exposes Retry Save, does not publish or activate the new package, and leaves every source identity/package intact.
+- Successful save atomically writes the newly named package, then updates Library and the global Active Model header. The selected Dataset and every source package remain unchanged.
 
 ## 12.9 Keyboard, resizing, and mock states
 
-- Tab order follows Dataset → Model Type → Start; while Running it begins at status/progress and reaches Stop.
-- Radio options use arrow-key navigation.
+- Tab order follows Dataset → Library Model → Compute Device → Output Location → Start; while Running it begins at status/progress and reaches Stop.
+- Compute Device options use arrow-key navigation.
 - Metrics must remain readable by screen readers in a stable label/value order and should not announce every high-frequency update; summarized progress announcements are sufficient.
 - At minimum width, metrics may form one scrollable column while the status panel remains visible. The Automatic Save region must not appear below an unbounded metric canvas.
-- Required mocks: no Dataset; no Labeled crops; two-class Ready/CPU; three-class Ready/GPU; runtime unavailable; Starting; Running early/mid/late; Stopping; Completed with low metrics; Completed awaiting name; save write failure; saved Active Model; Interrupted; Failed with Diagnostics action.
+- Required mocks: no Dataset; no Labeled crops; no Library model; MobileNetV3-Small Ready/CPU; EfficientNet-B0 Ready/GPU; retraining into a distinct new Name with source protected; runtime unavailable; Starting; Running early/mid/late; Stopping; Completed with low metrics; save write failure; atomically saved Active Model; Interrupted; Failed with Diagnostics action.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.4, §§8, 11–13 and D-003, D-012, D-015; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1 and 4.7; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §9, §16, and §17; *OpenDSS Detailed User Workflow Specification* §15 and §§31–34 as amended to remove all Advanced Training Parameters; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §§9–12 as adapted metrics, QDS, and accessibility evidence.
 
@@ -1819,17 +1844,18 @@ Models > Library
 │                                              │                            │
 │ ● <Active Model>                             │ Name                       │
 │   <Model 2>                                  │ Active: Yes / No           │
-│   <Model 3>                                  │ Model Type                 │
+│   <Model 3>                                  │ Architecture               │
+│                                              │ Starting Weights           │
 │                                              │ Classes and Class Names    │
 │                                              │ Source Dataset             │
 │                                              │ Creation Date              │
 │                                              │ Package Location           │
-│ [ Import Model ]                             │ Training metadata/metrics  │
+│ [ Add Model ] [ Import Model ] [ Remove Model ]│ Training metadata/metrics │
 │                                              │                            │
 │                                              │ [ Set Active ]             │
 │                                              │ [ Open in Model Test ]     │
 │                                              │ [ Export ] [ Duplicate ]   │
-│                                              │ [ Rename ] [ Delete ]      │
+│                                              │ [ Rename ]                 │
 └──────────────────────────────────────────────┴────────────────────────────┘
 ```
 
@@ -1841,12 +1867,12 @@ Models > Library
 | **Major regions** | Model list/master; selected-model detail; metadata/metrics; package location; action region; contextual fault banner. |
 | **Dominant hierarchy** | Model list selection and explicit selected-vs-Active distinction. |
 | **Operation-side panel** | Selected-model details and actions; may serve as the master-detail inspector. |
-| **Primary action** | Import Model when Empty; Set Active for a valid nonactive selected model. |
-| **Secondary actions** | Import Model; Export Model; Duplicate Model; Rename Model; Delete Model; Open in Model Test. |
+| **Primary action** | Add Model or Import Model when Empty; Set Active for a valid nonactive selected model. |
+| **Secondary actions** | Add Model; Import Model; Remove Model; Export Model; Duplicate Model; Rename Model; Open in Model Test. |
 | **Required artifact/hardware** | Valid v2 Model Package for package actions. No hardware. Package and registry locks apply. |
-| **Output** | Model Registry changes and file copies/renames/deletions as requested. |
-| **Direct disabled reasons** | **No Active Model** → **Selected model is already Active** → **Model is in use by <operation>**. File-action failures use direct package/path reasons. |
-| **Fault banner** | Below workspace heading; spans master-detail region for parse, copy, rename, delete, registry, or permission failures. |
+| **Output** | Model Registry changes and file copies/renames/removals as requested. |
+| **Direct disabled reasons** | **No Active Model** → **Selected model is already Active** for Set Active; **Selected model is Active** for Remove Model; **Model is in use by <operation>** for locked mutation/replacement. File-action failures use direct package/path reasons. |
+| **Fault banner** | Below workspace heading; spans master-detail region for validation, parse, copy, rename, remove, registry, or permission failures. |
 | **Applicable presentations** | Empty, Ready, Unavailable for a locked action, Failed. |
 | **Next likely action** | Open selected model in Model Test or navigate to Live after explicitly setting Active. |
 
@@ -1864,7 +1890,7 @@ Selecting a row must not activate it. Set Active must be explicit. The detail pa
 Each row SHOULD show:
 
 - Model Name;
-- Model Type (`Faster` or `More Accurate` where known);
+- Architecture (`MobileNetV3-Small` or `EfficientNet-B0`);
 - two-class or three-class count;
 - creation date;
 - Active marker when applicable;
@@ -1878,7 +1904,7 @@ The detail pane includes factual package information:
 
 - Model Name and ID;
 - Active state;
-- Model Type and technical architecture as secondary metadata;
+- Architecture and approved Starting Weights;
 - Class IDs and stored Class Name snapshot;
 - source Dataset identity when recorded;
 - creation date;
@@ -1893,30 +1919,37 @@ Metrics use neutral presentation. No status badge derives from metric values.
 | Action | Design and behavior |
 |---|---|
 | **Set Active** | Primary when a valid nonactive package is selected and replacement is not locked. Successful activation updates header immediately. |
-| **Import Model** | Opens a supported v2 package location and performs technical checks. It does not convert legacy artifacts or assign scientific state. |
+| **Add Model** | Opens one popup requiring a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and approved Starting Weights. Library owns this identity. No additional architecture, option, or package schema is added. |
+| **Import Model** | Selects `metadata.json` inside one complete supported v2 Model Package and performs the existing technical and package-integrity checks. Raw weights, a bare ONNX file, an incomplete package, or any selection other than the package's `metadata.json` is not importable. Import does not perform conversion or assign scientific state. |
+| **Remove Model** | Adjacent to Import Model. It retains the existing direct confirmation naming the Model Package and consequence. After confirmation, it moves the OpenDSS-owned complete package folder to the Windows Recycle Bin. It never performs direct permanent deletion and cannot bypass Active Model, in-use, or package-integrity locks. |
 | **Export Model** | Writes the complete package to a user-selected location. |
 | **Duplicate Model** | Creates an independent package copy with a new Model ID and user-provided name/location. |
 | **Rename Model** | Changes the user-facing Model Name without altering weights, Class IDs, or scientific metadata. |
-| **Delete Model** | Requires one direct confirmation naming the Model Package and consequence. Deleting the Active Model clears Active Model state. |
 | **Open in Model Test** | Opens Models > Model Test with the selected package preselected without changing Active Model. |
 
-Secondary package actions SHOULD be grouped below Set Active/Open in Model Test. Delete is visually separated and destructive.
+Import Model and Remove Model are adjacent in the Model-list action region. Other secondary package actions SHOULD be grouped below Set Active/Open in Model Test. This placement and terminology do not add or alter destructive behavior beyond the existing confirmed package-removal contract.
+
+The repository ships a documented standalone PyTorch conversion script as a development utility outside the OpenDSS application and Library UI. It produces a complete valid Model Package that is then subject to the same `metadata.json` import and integrity checks. It supports only MobileNetV3-Small and EfficientNet-B0. Library does not invoke the script, expose conversion options, accept raw weights or bare ONNX files, or bypass the v2 package contract.
+
+Library owns model identity and creation. Train consumes the Library-defined Name, Architecture, and Starting Weights read-only. Retraining an already-trained package requires Add Model to define a different nonblank unique Name and always produces a new Library entry/package; the source identity and artifacts remain intact, read-only, and protected. Train publishes the newly named package atomically only after successful completion.
 
 ## 14.8 Lock treatment
 
-- A package used by Model Test, Live, or Sequence Test cannot be renamed, deleted, replaced, or otherwise mutated.
+- A package used by Model Test, Live, or Sequence Test cannot be renamed, removed, replaced, or otherwise mutated.
+- The current Active Model cannot be removed. The user must first make another valid package Active.
 - When an operation uses the current Active Model, Set Active cannot replace it until the operation ends.
 - Unrelated packages remain manageable.
 - The locked row/detail displays the owning operation in text, for example `In use by Live Sorting`.
 - Lock styling must not resemble invalid, failed, or scientifically rejected state.
+- Import Model and Remove Model preserve the Active Model, in-use, Model Registry, and package-integrity locks; neither action provides a bypass.
 
 ## 14.9 Keyboard, resizing, and mock states
 
 - Up/Down moves row focus; selection updates on platform-consistent activation without triggering Set Active.
 - `Enter` MAY open details or perform the documented row open behavior, but never implicitly activate.
-- Delete key must not delete a package without the named confirmation.
+- Delete key must not remove a package without the named confirmation.
 - Master/detail splitter is resizable. At minimum width, the list remains visible and details may open as a full-height inspector; switching presentation does not change selection.
-- Required mocks: empty library; one Active model; multiple models; selected nonactive model; selected Active model; two-class and three-class packages; package in use by Model Test; Active Model in use by Live; unreadable package; import failure; rename failure; delete confirmation; no Active Model after deleting active package.
+- Required mocks: empty library; Add Model popup empty/duplicate Name; MobileNetV3-Small and EfficientNet-B0 identities; one Active model; multiple models; selected nonactive model; selected Active model with Remove Model unavailable; two-class and three-class packages; package in use by Model Test; Active Model in use by Live; unreadable package; import failure; rename failure; remove confirmation; retraining source protected while a distinct new Name is created.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.6, §8, §13, §16, and D-010; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1, 4.9, and §6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §11, §16, §17, and §18; *OpenDSS Detailed User Workflow Specification* §17 as amended to v2-only import and no scientific states; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §8 master-detail evidence as adapted.
 
@@ -2169,6 +2202,7 @@ Visual requirements:
 │                                              │                              │
 │                                              │ Total Droplets               │
 │                                              │ <large metric>               │
+│                                              │ Rejected <count>              │
 │                                              │                              │
 │                                              │ Predicted Class counts       │
 │                                              │ Decision Hit / Waste         │
@@ -2186,13 +2220,14 @@ The metric hierarchy is:
 
 1. Run status and elapsed time;
 2. Total Droplets;
-3. Decision Hit and Decision Waste;
-4. Observed Hit, Waste, and Unresolved;
-5. Predicted Class counts when a model exists;
-6. Inference Time and camera FPS;
-7. immutable routing/model context.
+3. Rejected;
+4. Decision Hit and Decision Waste;
+5. Observed Hit, Waste, and Unresolved;
+6. Predicted Class counts when a model exists;
+7. Inference Time and camera FPS;
+8. immutable routing/model context.
 
-Predicted Class, Decision, and Observed Route must use separate titled groups. Observed Route must always provide the Unresolved value. Counts use tabular figures and must update from finalized event state, not by repeatedly rereading the CSV.
+Rejected, Predicted Class, Decision, and Observed Route must use separate titled groups. Observed Route must always provide the Unresolved value. Counts use tabular figures and must update from finalized event state, not by repeatedly rereading the CSV.
 
 When no model is used, Predicted Class and Inference Time groups are absent or display `Not recorded — no model`, while Decision and Observed Route remain present.
 
@@ -2202,7 +2237,9 @@ When no model is used, Predicted Class and Inference Time groups are absent or d
 - Decision Boundary placement and mapping remain editable after Start. `Set Decision Boundary` arms exactly one replacement click; ordinary frame clicks remain inert.
 - The replacement segment begins at the new clicked source-image X/Y point and extends horizontally to the right edge only. It applies immediately to subsequent Observed Route calculations and never rewrites a prior event.
 - No timestamped boundary history or boundary-version association is created, and no clicked X or Y value is written to a Run, event, Result, log, profile, or exported artifact.
-- Every Live or Sequence Test detection writes one Droplet Log row whose integer `rejected` field is exactly `0` or `1`. An undersized detection writes `rejected=1` and produces no crop image; no `rejection_reason` field or column exists.
+- Every Live or Sequence Test detection writes one Droplet Log row whose integer `rejected` field is exactly `0` or `1`. A normal accepted row writes `rejected=0`.
+- An undersized detection writes `rejected=1` and produces no crop image, inference, Decision, Observed Route, or DAQ output, including when Trigger Every Droplet is ON. No `rejection_reason` field or column exists.
+- Rejected is a separate count. Rejected rows are excluded from Total Droplets and from all Predicted Class, Decision, and Observed Route counts.
 - Every non-rejected finalized event saves one Droplet Crop. Record Full Image Sequence controls only full-frame retention.
 - Optional nonpersistent detection/trajectory overlays MAY appear on the live preview when they add no controls, do not alter source images, and do not obscure the factual feed.
 - The Configuration action remains available during Live. Camera and DAQ sections are read-only with **Camera and DAQ settings are locked while sorting is active**; Detector Configuration remains editable.
@@ -2411,7 +2448,7 @@ The checkbox is not a software arming state and does not create an Emergency Sto
 │ SEQUENCE PROCESSING                          │ SEQUENCE TEST STATUS         │
 │ Frames processed: <n> of <total>             │ Status: Running              │
 │ Progress: <determinate bar>                  │ Trigger Every Droplet: <value>        │
-│ Events finalized: <count>                    │ Physical DAQ: On / Off       │
+│ Total Droplets / Rejected: <counts>          │ Physical DAQ: On / Off       │
 │                                              │ Model: <name/none>           │
 │ Predicted Class counts when model exists     │ Hit Class: <value>           │
 │ Decision Hit / Waste                         │ Decision Boundary: <value>   │
@@ -2420,7 +2457,7 @@ The checkbox is not a software arming state and does not create an Emergency Sto
 └──────────────────────────────────────────────┴──────────────────────────────┘
 ```
 
-Progress is based on sequence frames processed and may additionally show events finalized. Predicted Class, Decision, and Observed Route remain separate. Observed Route includes Unresolved.
+Progress is based on sequence frames processed and may additionally show events finalized. Rejected, Predicted Class, Decision, and Observed Route remain separate. Rejected is excluded from Total Droplets; Observed Route includes Unresolved.
 
 ## 16.8 Stop, completion, and failure
 
@@ -2500,7 +2537,7 @@ Status values use factual semantic badges. A Failed Run is not removed from the 
 
 Rows must remain identifiable when optional metadata is missing. An unreadable entry may retain path/name facts and expose a direct file reason.
 
-Remove Run deletes only the selected Run's files and folder. It performs no deletion until the user explicitly confirms; cancelling the confirmation changes nothing.
+Remove Run performs no action until the user explicitly confirms. After confirmation it moves the complete selected Run folder, including all contained files, to the Windows Recycle Bin. It does not directly or permanently delete the Run; cancelling the confirmation changes nothing.
 
 ## 17.3 Selected Run layout
 
@@ -2520,6 +2557,7 @@ Remove Run deletes only the selected Run's files and folder. It performs no dele
 │ Hardware/fixed processing provenance         │                              │
 │                                              │                              │
 │ Total Droplets                               │                              │
+│ Rejected                                     │                              │
 │ Predicted Class counts                       │                              │
 │ Decision Hit / Waste                         │                              │
 │ Observed Hit / Waste / Unresolved            │                              │
@@ -2537,7 +2575,7 @@ Remove Run deletes only the selected Run's files and folder. It performs no dele
 |---|---|
 | **Main user goal** | Review factual Run outcome, provenance, and files without changing historical events. |
 | **Major regions** | Run identity/status; experiment and timing; model/routing snapshot; hardware/fixed-processing provenance; counts; Decision-versus-Observed Route matrix; files; Notes. |
-| **Dominant hierarchy** | Status and identity, Total Droplets, separate Predicted Class/Decision/Observed Route counts, matrix, direct file actions. |
+| **Dominant hierarchy** | Status and identity, Total Droplets, separate Rejected/Predicted Class/Decision/Observed Route counts, matrix, direct file actions. |
 | **Operation-side panel** | Files and Notes inspector. |
 | **Primary action** | Open Droplet Log when available. |
 | **Secondary actions** | Open Run Folder; Open Droplet Crop; Open Saved Sequence when present; Edit/Save/Cancel Notes. |
@@ -2567,12 +2605,15 @@ Provenance may use grouped disclosures to reduce initial density, but it must re
 Counts are grouped and labeled exactly:
 
 - Total Droplets;
+- Rejected;
 - Predicted Class count for each recorded class;
 - Decision Hit;
 - Decision Waste;
 - Observed Hit;
 - Observed Waste;
 - Unresolved.
+
+Rejected is excluded from Total Droplets and from the Predicted Class, Decision, Observed Route, and Decision-versus-Observed Route matrix counts.
 
 The matrix title is `Decision vs. Observed Route` or `Decision-versus-Observed Route`. It includes the Unresolved column:
 
@@ -3023,7 +3064,7 @@ They MUST NOT start the destination operation, create a project, lock the user i
 | Source | Link label | Destination | Preselection and presentation |
 |---|---|---|---|
 | Droplet Dataset Capture Completed or recoverable Interrupted | **Open in Label** | Data > Label | Selects the completed/recoverable `dataset.json`; Label derives Empty/Unavailable/Ready from the authoritative Dataset loader. |
-| Label | **Use in Train** | Models > Train | Selects the current Dataset. Faster/More Accurate remains an explicit user choice. |
+| Label | **Use in Train** | Models > Train | Selects the current Dataset. The user must separately select an existing Library-defined model identity in Train. |
 | Train after successful Model Package save | **Open in Model Test** | Models > Model Test | Selects the new Model Package; the source Dataset may remain selected when still available. Does not make Model Test mandatory. |
 | Model Library | **Open in Model Test** | Models > Model Test | Selects the current Model Package without changing Active Model. |
 | Image Sequence Completed | **Open in Sequence Viewer** | Data > Sequence Viewer | Selects `sequence.json` and displays the first readable frame. |
@@ -3511,7 +3552,7 @@ At minimum, the design system MUST provide these global fixtures:
 | `hardware.daqActive` | DAQ Active and owned by Live or physical-output Sequence Test. |
 | `hardware.invalidEdit` | Last valid applied value plus rejected draft and direct reason. |
 | `model.noneActive` | No Active Model. |
-| `model.twoClassActive` | Active two-class Faster or More Accurate package with Class IDs/Names. |
+| `model.twoClassActive` | Active two-class MobileNetV3-Small or EfficientNet-B0 package with Class IDs/Names. |
 | `model.threeClassActive` | Active three-class package with Class IDs/Names. |
 | `model.longName` | Valid package with a long user-facing name and long path. |
 | `dataset.empty` | Dataset with class definition and zero crops where technically representable for visual review. |
@@ -3590,7 +3631,7 @@ The following combined states MUST be previewable because isolated component sta
 | **Sequence Viewer** | No sequence; Ready at first/middle/final frame; unreadable sequence; silently skipped missing frame; Dataset/Run sequence source. |
 | **Train** | No Dataset; no Labeled crops; CPU fallback; GPU; Starting; Running; Stopping; Completed low metrics; Automatic Save; save failure; Active Model update; Interrupted/Failed. |
 | **Model Test** | Missing selections; class mismatch; GPU; CPU fallback; Running; Completed 2-class; Completed 3-class; Interrupted; failed output; Active Model unchanged. |
-| **Library** | Empty; one Active model; selected nonactive; selected Active; locked package; long list; import/rename/delete failure; delete confirmation. |
+| **Library** | Empty; Add Model empty/duplicate Name; one Active model; selected nonactive; selected Active with Remove unavailable; locked package; long list; import/rename/remove failure; remove confirmation; retraining source protected/new Name. |
 | **Live** | Every state and condition listed in §15.19, including no model Trigger Every Droplet, two/three-class Class-Based, both Hit directions, panel lock, counters, Unresolved, and preservation outcomes. |
 | **Sequence Test** | DAQ enabled/disabled; DAQ unavailable; no Camera; with/without model; two/three classes; Running; Completed/Interrupted/Failed. |
 | **Runs list** | Empty; mixed statuses and operation types; unreadable entry; no model; long names. |
@@ -3893,7 +3934,7 @@ The appendix is not an alternative-design menu. Rejected ideas do not remain ava
 | **`Validate` terminology for Model Test** | **Not carried forward** | The approved workspace and scientific term is Model Test. `Validate` can imply approval and conflicts with current terminology. |
 | **Camera and DAQ under System** | **Not carried forward** | PM D-016 requires a shared shell-level Camera/DAQ panel. Settings contains Storage, Application Information, and Diagnostics only. |
 | **Editable detector controls** | **Not carried forward** | Conflicts with PM §11 and approved constraints. Detection is fixed qualified application configuration and recorded in provenance. |
-| **Advanced Training Parameters** | **Not carried forward** | Explicitly removed by PM D-015. Training exposes Faster/More Accurate and fixed configuration facts only. |
+| **Advanced Training Parameters** | **Not carried forward** | Training consumes Library-owned identity, Architecture, and Starting Weights read-only and exposes only the approved Dataset, Compute Device, Output Location, and fixed configuration facts. |
 | **Old decision-register identifiers D-001, D-002, etc.** | **Not carried forward** | Those identifiers now belong exclusively to the Approved Product Model. This specification does not reuse them or create a new product decision register. |
 | **One generic System-status panel containing all settings** | **Not carried forward** | Configuration contains Camera, DAQ, and only the approved Small-droplet rejection threshold; Storage/Application Information/Diagnostics remain in Settings. |
 | **`Armed` as a product-level operational state** | **Not carried forward** | PM D-002 adds no separate software arming state. DAQ readiness and explicit Physical DAQ Output provide factual technical status. |

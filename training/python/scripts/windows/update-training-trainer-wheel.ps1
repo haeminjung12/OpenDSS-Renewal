@@ -459,7 +459,8 @@ function Assert-Inventory {
         throw "Could not inventory the updated training environment."
     }
     $actual = @{}
-    foreach ($entry in @($actualJson | ConvertFrom-Json)) {
+    $parsedActual = $actualJson | ConvertFrom-Json
+    foreach ($entry in @($parsedActual)) {
         $actual[([string]$entry.name).ToLowerInvariant()] = [string]$entry.version
     }
     $expected = @{}

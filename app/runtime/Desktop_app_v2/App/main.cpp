@@ -14,6 +14,7 @@
 #include <QThread>
 #include <QTimer>
 #include <QVariant>
+#include <QWindow>
 
 #include <memory>
 #include <chrono>
@@ -494,6 +495,13 @@ int main(int argc, char *argv[])
                                   {QStringLiteral("liveSortingController"), QVariant::fromValue(&liveSortingController)},
                                   {QStringLiteral("sequenceTestController"), QVariant::fromValue(&sequenceTestController)}});
     engine.load(url);
+
+    if (!engine.rootObjects().isEmpty()) {
+        if (auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst())) {
+            window->setMinimumSize(QSize(1600, 900));
+            QTimer::singleShot(0, window, &QWindow::showMaximized);
+        }
+    }
 
     const int exitCode = engine.rootObjects().isEmpty() ? -1 : app.exec();
 

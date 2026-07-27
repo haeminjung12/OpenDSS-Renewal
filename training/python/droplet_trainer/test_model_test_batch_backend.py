@@ -177,6 +177,55 @@ class ModelTestBatchBackendTest(unittest.TestCase):
             [0, 1, 2, 3, 4],
         )
 
+    def test_prepare_host_runtime_oom_halves_and_retries(self) -> None:
+        class FakeImage:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def convert(self, _mode):
+                return object()
+
+        class FakeCuda:
+            class OutOfMemoryError(RuntimeError):
+                pass
+
+            @staticmethod
+            def empty_cache():
+                return None
+
+        prepare_sizes = []
+
+        class FakeBatch(list):
+            def to(self, _device):
+                return self
+
+        def stack(tensors):
+            prepare_sizes.append(len(tensors))
+            if len(tensors) > 2:
+                raise RuntimeError("DefaultCPUAllocator: not enough memory")
+            return FakeBatch(tensors)
+
+        backend = TorchBatchBackend.__new__(TorchBatchBackend)
+        backend._torch = SimpleNamespace(cuda=FakeCuda(), stack=stack)
+        backend._device = "cpu"
+        backend._transform = lambda _image: object()
+        backend.infer = lambda prepared: [[0.8, 0.2] for _ in prepared]
+        with patch("PIL.Image.open", return_value=FakeImage()):
+            processed = evaluate_ordered_batches(
+                items(5),
+                ["0", "1"],
+                backend,
+                lambda _index, _facts: None,
+                lambda _event: None,
+                lambda: False,
+                qualified_batch_ceiling=5,
+            )
+        self.assertEqual(processed, 5)
+        self.assertEqual(prepare_sizes, [5, 2, 2, 1])
+
     def test_failed_commit_publishes_no_image_or_progress_facts(self) -> None:
         events = []
 

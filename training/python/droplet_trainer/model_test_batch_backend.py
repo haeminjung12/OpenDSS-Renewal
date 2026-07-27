@@ -108,18 +108,18 @@ class TorchBatchBackend:
             if self._device == "cuda":
                 self._torch.cuda.empty_cache()
             raise BatchAllocationError(str(exc)) from exc
+        except RuntimeError as exc:
+            if not _is_allocation_runtime_error(exc):
+                raise
+            if self._device == "cuda":
+                self._torch.cuda.empty_cache()
+            raise BatchAllocationError(str(exc)) from exc
 
     def infer(self, prepared_batch: Any) -> Sequence[Sequence[float]]:
         try:
             with self._torch.inference_mode():
                 output = self._model(prepared_batch)
         except (self._torch.cuda.OutOfMemoryError, MemoryError) as exc:
-            if self._device == "cuda":
-                self._torch.cuda.empty_cache()
-            raise BatchAllocationError(str(exc)) from exc
-        except RuntimeError as exc:
-            if not _is_allocation_runtime_error(exc):
-                raise
             if self._device == "cuda":
                 self._torch.cuda.empty_cache()
             raise BatchAllocationError(str(exc)) from exc

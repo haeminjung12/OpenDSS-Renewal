@@ -3,6 +3,7 @@
 #include "../run/run_manifest_v2.h"
 
 #include <QString>
+#include <QStringList>
 #include <QVector>
 
 #include <optional>
@@ -46,8 +47,10 @@ class RunRepository {
     explicit RunRepository(ApplicationStateStore& stateStore);
 
     bool refresh(const QString& dataRoot, QString* error = nullptr);
+    bool refreshRoots(const QStringList& runRoots, QString* error = nullptr);
     bool selectRun(const QString& id);
     bool loadSelected(QString* error = nullptr);
+    bool removeSelected(QString* error = nullptr);
     bool updateLoadedNotes(const QString& notes, QString* error = nullptr);
 
     QVector<RunEntry> entries() const;
@@ -59,6 +62,7 @@ class RunRepository {
 
     ApplicationStateStore& stateStore_;
     QVector<RunEntry> entries_;
+    QStringList runRoots_;
     QString selectedRunId_;
     std::optional<LoadedRun> loadedRun_;
 };

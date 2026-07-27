@@ -25,9 +25,12 @@ class RunsResultsController final : public QObject
 
 public:
     using ArtifactOpener = std::function<bool(const QUrl &)>;
+    using StandardRunsRootProvider = std::function<QString()>;
 
     RunsResultsController(RunRepository &repository, ApplicationStateStore &stateStore,
-                          ArtifactOpener artifactOpener = {}, QObject *parent = nullptr);
+                          ArtifactOpener artifactOpener = {},
+                          StandardRunsRootProvider standardRunsRootProvider = {},
+                          QObject *parent = nullptr);
 
     QVariantList runs() const;
     QString selectedRunId() const;
@@ -35,8 +38,11 @@ public:
     QString errorMessage() const;
 
     Q_INVOKABLE bool refresh();
+    Q_INVOKABLE bool refreshRoots(const QString &liveRunRoot,
+                                  const QUrl &sequenceRunRoot);
     Q_INVOKABLE bool selectRun(const QString &id);
     Q_INVOKABLE bool loadSelected();
+    Q_INVOKABLE bool removeSelected();
     Q_INVOKABLE bool updateLoadedNotes(const QString &notes);
     Q_INVOKABLE bool openDropletLog();
     Q_INVOKABLE bool openRunFolder();
@@ -53,12 +59,16 @@ signals:
 
 private:
     void publishError(const QString &message);
+    QString effectiveRoot(const QString &requestedRoot) const;
     bool openExistingPath(const QString &path, bool requireDirectory,
                           const QString &unavailableMessage);
 
     RunRepository &repository_;
     ApplicationStateStore &stateStore_;
     ArtifactOpener artifactOpener_;
+    StandardRunsRootProvider standardRunsRootProvider_;
+    QString liveRunRoot_;
+    QString sequenceRunRoot_;
 };
 
 } // namespace results

@@ -129,7 +129,9 @@ void testRefreshSelectLoadAndNotes()
 {
     QTemporaryDir temporary;
     require(temporary.isValid(), "temporary root");
-    createRun(QDir(temporary.path()).filePath(QStringLiteral("Runs/run-001")));
+    const QString runFolder =
+        QDir(temporary.path()).filePath(QStringLiteral("Runs/run-001"));
+    createRun(runFolder);
 
     ApplicationStateStore store;
     store.publishPreferences({temporary.path(), 100});
@@ -227,6 +229,44 @@ void testRefreshSelectLoadAndNotes()
     require(controller.loadedRun().value(QStringLiteral("notes")).toString() ==
                 QStringLiteral("updated notes"),
             "Notes update reloads authoritative detail");
+    require(controller.removeSelected(),
+            qPrintable(controller.errorMessage().isEmpty()
+                           ? QStringLiteral("remove selected Run")
+                           : controller.errorMessage()));
+    require(!QFileInfo::exists(runFolder) && controller.runs().isEmpty() &&
+                controller.selectedRunId().isEmpty() &&
+                controller.loadedRun().isEmpty(),
+            "controller refreshes truthful state after Recycle Bin removal");
+}
+
+void testEffectiveRootAggregationAndFallback()
+{
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "temporary aggregate controller root");
+    const QString liveRoot = QDir(temporary.path()).filePath(QStringLiteral("live"));
+    const QString sequenceRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("sequence"));
+    const QString fallbackRoot =
+        QDir(temporary.path()).filePath(QStringLiteral("fallback"));
+    createRun(QDir(liveRoot).filePath(QStringLiteral("live-run")));
+    createRun(QDir(sequenceRoot).filePath(QStringLiteral("sequence-run")));
+    createRun(QDir(fallbackRoot).filePath(QStringLiteral("fallback-run")));
+
+    ApplicationStateStore store;
+    RunRepository repository(store);
+    RunsResultsController controller(
+        repository, store, {}, [fallbackRoot] { return fallbackRoot; });
+    require(controller.refreshRoots(liveRoot, QUrl::fromLocalFile(sequenceRoot)),
+            qPrintable(controller.errorMessage()));
+    require(controller.runs().size() == 2,
+            "current Live and Sequence Test roots are aggregated");
+
+    const QString missing =
+        QDir(temporary.path()).filePath(QStringLiteral("missing"));
+    require(controller.refreshRoots(missing, QUrl::fromLocalFile(missing)),
+            qPrintable(controller.errorMessage()));
+    require(controller.runs().size() == 1,
+            "invalid roots use the standard fallback and identical roots scan once");
 }
 
 void testInvalidEntriesExposeNoFabricatedFacts()
@@ -357,7 +397,13 @@ void testErrorsArePublished()
 int main(int argc, char **argv)
 {
     QCoreApplication application(argc, argv);
+    if (application.arguments().contains(QStringLiteral("--runs-removal"))) {
+        testRefreshSelectLoadAndNotes();
+        testEffectiveRootAggregationAndFallback();
+        return 0;
+    }
     testRefreshSelectLoadAndNotes();
+    testEffectiveRootAggregationAndFallback();
     testInvalidEntriesExposeNoFabricatedFacts();
     testErrorsArePublished();
     testRootControllerBootstrapContract();

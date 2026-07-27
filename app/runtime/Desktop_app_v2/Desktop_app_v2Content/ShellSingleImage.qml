@@ -108,6 +108,7 @@ Item {
     property alias modelDuplicateNameField: modelDuplicateNameField
     property alias modelDuplicateFolderDialog: modelDuplicateFolderDialog
     property alias modelDeleteDialog: modelDeleteDialog
+    property alias runRemoveDialog: runRemoveDialog
     property alias sequenceTestFileDialog: sequenceTestFileDialog
     property alias sequenceTestOutputFolderDialog: sequenceTestOutputFolderDialog
     signal closeRequested()
@@ -172,6 +173,16 @@ Item {
         } catch (error) {
             return ""
         }
+    }
+
+    function refreshRuns() {
+        if (!root.runsResultsController)
+            return
+        root.runsResultsController.refreshRoots(
+                    root.liveSortingController
+                    ? root.liveSortingController.saveLocation : "",
+                    root.sequenceTestController
+                    ? root.sequenceTestController.outputFolderUrl : "")
     }
 
     function importModelPackage(packageUrl) {
@@ -454,8 +465,7 @@ Item {
         if (root.cameraController)
             state.cameraPromptHandled = true
         focusCameraPrompt()
-        if (root.runsResultsController)
-            root.runsResultsController.refresh()
+        root.refreshRuns()
         if (root.modelLibraryController)
             root.modelLibraryController.refresh()
     }
@@ -1139,6 +1149,25 @@ Item {
     Binding { target: screen.runsWorkspace; property: "loadedRunStatusText"; value: state.loadedRunStatusText; when: !root.runsResultsController }
     Binding { target: screen.runsWorkspace; property: "loadedRunStopReasonText"; value: state.loadedRunStopReasonText; when: !root.runsResultsController }
     Binding { target: screen.runsWorkspace; property: "run042RowStatusText"; value: state.run042RowStatusText; when: !root.runsResultsController }
+
+    Dialog {
+        id: runRemoveDialog
+        anchors.centerIn: parent
+        width: Math.round(440 * Constants.textScale)
+        modal: true
+        title: qsTr("Remove Run")
+        standardButtons: Dialog.Yes | Dialog.No
+        onAccepted: {
+            if (root.runsResultsController)
+                root.runsResultsController.removeSelected()
+        }
+
+        Label {
+            width: Math.round(360 * Constants.textScale)
+            wrapMode: Text.WordWrap
+            text: qsTr("Move the selected Run and all contained files to the Windows Recycle Bin?")
+        }
+    }
 
     Binding { target: screen.settingsWorkspace; property: "settingsPresentation"; value: root.settingsController ? (root.settingsActionError === "" ? "ready" : "error") : (state.settingsPresentation === "settingsError" ? "error" : "ready") }
     Binding { target: screen.settingsWorkspace; property: "defaultDataRoot"; value: root.settingsController ? root.localFilePath(String(root.settingsController.storageRoot)) : ""; when: !!root.settingsController }
@@ -1989,6 +2018,7 @@ Item {
     Connections { target: screen.runsWorkspace.runsPanelToggleButton; function onClicked() { state.toggleRunsPanel() } }
     Connections { target: screen.runsWorkspace.rightPanelToggleButton; function onClicked() { state.toggleRunsRightPanel() } }
     Connections { target: screen.runsWorkspace.loadSelectedRunButton; function onClicked() { if (root.runsResultsController) root.runsResultsController.loadSelected(); else state.loadSelectedRun() } }
+    Connections { target: screen.runsWorkspace.removeSelectedRunButton; function onClicked() { if (root.runsResultsController) runRemoveDialog.open() } }
     Connections {
         target: screen.runsWorkspace.editNotesButton
         function onClicked() {
@@ -2126,7 +2156,7 @@ Item {
     Connections { target: screen.navLibraryButton; function onClicked() { state.selectWorkspace("library") } }
     Connections { target: screen.navLiveButton; function onClicked() { state.selectWorkspace("live") } }
     Connections { target: screen.navSequenceTestButton; function onClicked() { state.selectWorkspace("sequenceTest") } }
-    Connections { target: screen.navRunsButton; function onClicked() { state.selectWorkspace("runs") } }
+    Connections { target: screen.navRunsButton; function onClicked() { root.refreshRuns(); state.selectWorkspace("runs") } }
     Connections { target: screen.navSettingsButton; function onClicked() { state.selectWorkspace("settings") } }
 
     Connections {

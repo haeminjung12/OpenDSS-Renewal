@@ -813,7 +813,21 @@ Item {
         property int updateNotesCallCount: 0
         property string updatedNotes: ""
         property int openSummaryCallCount: 0
+        property int refreshRootsCallCount: 0
+        property string liveRootArgument: ""
+        property url sequenceRootArgument: ""
+        property int removeSelectedCallCount: 0
         signal savedSequenceRequested(string manifestPath)
+        function refreshRoots(liveRoot, sequenceRoot) {
+            ++refreshRootsCallCount
+            liveRootArgument = liveRoot
+            sequenceRootArgument = sequenceRoot
+            return true
+        }
+        function removeSelected() {
+            ++removeSelectedCallCount
+            return true
+        }
         function updateLoadedNotes(notes) {
             ++updateNotesCallCount
             updatedNotes = notes
@@ -3135,6 +3149,35 @@ Item {
         shell.form.sequenceTestWorkspace.startAnotherTestButton.clicked()
         compare(sequenceTestController.startAnotherCallCount, 1)
         compare(sequenceTestController.presentation, "ready")
+    }
+
+    function test_runRemovalConfirmationAndRootRefresh() {
+        shell.runsResultsController = runsControllerMock
+        shell.liveSortingController = liveSortingController
+        shell.sequenceTestController = sequenceTestController
+        runsControllerMock.runs = [{ id: "run-001", runName: "Run 001",
+                                     loadable: true }]
+        runsControllerMock.selectedRunId = "run-001"
+        runsControllerMock.errorMessage = ""
+        runsControllerMock.refreshRootsCallCount = 0
+        runsControllerMock.removeSelectedCallCount = 0
+
+        shell.form.navRunsButton.clicked()
+        compare(runsControllerMock.refreshRootsCallCount, 1)
+        compare(runsControllerMock.liveRootArgument,
+                liveSortingController.saveLocation)
+        compare(runsControllerMock.sequenceRootArgument.toString(),
+                sequenceTestController.outputFolderUrl.toString())
+
+        shell.form.runsWorkspace.removeSelectedRunButton.clicked()
+        tryVerify(function() { return shell.runRemoveDialog.opened })
+        shell.runRemoveDialog.reject()
+        compare(runsControllerMock.removeSelectedCallCount, 0)
+
+        shell.form.runsWorkspace.removeSelectedRunButton.clicked()
+        tryVerify(function() { return shell.runRemoveDialog.opened })
+        shell.runRemoveDialog.accept()
+        compare(runsControllerMock.removeSelectedCallCount, 1)
     }
 
     function test_productionCaptureControllerActions() {

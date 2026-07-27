@@ -6,6 +6,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QStandardPaths>
 #include <QUrl>
 
 #include <algorithm>
@@ -127,12 +128,21 @@ QString existingPathReason(const QString &path, bool requireDirectory,
 RunsResultsController::RunsResultsController(RunRepository &repository,
                                              ApplicationStateStore &stateStore,
                                              ArtifactOpener artifactOpener,
+                                             StandardRunsRootProvider standardRunsRootProvider,
                                              QObject *parent)
     : QObject(parent)
     , repository_(repository)
     , stateStore_(stateStore)
     , artifactOpener_(std::move(artifactOpener))
+    , standardRunsRootProvider_(std::move(standardRunsRootProvider))
 {
+    if (!standardRunsRootProvider_) {
+        standardRunsRootProvider_ = [] {
+            return QDir(QStandardPaths::writableLocation(
+                            QStandardPaths::DocumentsLocation))
+                .filePath(QStringLiteral("OpenDropletSortingSuite/runs"));
+        };
+    }
     connect(&stateStore_, &ApplicationStateStore::changed, this, [this] {
         emit selectedRunIdChanged();
         emit loadedRunChanged();
@@ -250,12 +260,26 @@ QString RunsResultsController::errorMessage() const
 bool RunsResultsController::refresh()
 {
     QString error;
-    if (!repository_.refresh(stateStore_.snapshot().preferences.storageRoot, &error)) {
+    const bool refreshed =
+        liveRunRoot_.isEmpty() && sequenceRunRoot_.isEmpty()
+        ? repository_.refresh(stateStore_.snapshot().preferences.storageRoot, &error)
+        : repository_.refreshRoots({liveRunRoot_, sequenceRunRoot_}, &error);
+    if (!refreshed) {
         publishError(error);
         return false;
     }
     emit runsChanged();
     return true;
+}
+
+bool RunsResultsController::refreshRoots(const QString &liveRunRoot,
+                                         const QUrl &sequenceRunRoot)
+{
+    liveRunRoot_ = effectiveRoot(liveRunRoot);
+    sequenceRunRoot_ = effectiveRoot(
+        sequenceRunRoot.isLocalFile() ? sequenceRunRoot.toLocalFile()
+                                      : sequenceRunRoot.toString());
+    return refresh();
 }
 
 bool RunsResultsController::selectRun(const QString &id)
@@ -272,6 +296,17 @@ bool RunsResultsController::loadSelected()
     QString error;
     if (!repository_.loadSelected(&error))
         return false;
+    return true;
+}
+
+bool RunsResultsController::removeSelected()
+{
+    QString error;
+    if (!repository_.removeSelected(&error)) {
+        publishError(error);
+        return false;
+    }
+    emit runsChanged();
     return true;
 }
 
@@ -395,6 +430,18 @@ bool RunsResultsController::openRunSummary(const QUrl &summaryUrl)
     }
     publishError(QStringLiteral("Run Summary is outside the configured Runs location."));
     return false;
+}
+
+QString RunsResultsController::effectiveRoot(const QString &requestedRoot) const
+{
+    const QFileInfo requested(QDir::cleanPath(requestedRoot.trimmed()));
+    if (requested.exists() && requested.isDir() && !requested.isSymLink() &&
+        !requested.isJunction()) {
+        const QString canonical = requested.canonicalFilePath();
+        if (!canonical.isEmpty())
+            return canonical;
+    }
+    return QDir::cleanPath(standardRunsRootProvider_());
 }
 
 bool RunsResultsController::openExistingPath(const QString &path, bool requireDirectory,

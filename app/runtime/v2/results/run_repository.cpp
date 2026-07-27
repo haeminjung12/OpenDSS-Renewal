@@ -5,8 +5,10 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QLockFile>
+#include <QSet>
 
 #include <algorithm>
 
@@ -227,6 +229,15 @@ bool samePath(const QString& left, const QString& right) {
            leftCanonical.compare(rightCanonical, pathSensitivity()) == 0;
 }
 
+QString pathIdentity(const QString& path) {
+    const QString normalized = QDir::fromNativeSeparators(path);
+#ifdef Q_OS_WIN
+    return normalized.toCaseFolded();
+#else
+    return normalized;
+#endif
+}
+
 } // namespace
 
 RunRepository::RunRepository(ApplicationStateStore& stateStore)
@@ -253,35 +264,69 @@ bool RunRepository::refresh(const QString& dataRoot, QString* error) {
         container = defaultRuns.absoluteFilePath();
     }
 
-    QVector<RunEntry> refreshed;
-    const QFileInfoList children =
-        QDir(container).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot,
-                                      QDir::Name);
-    for (const QFileInfo& child : children) {
-        if (isLinkOrJunction(child) || !canonicalMatchesAbsolute(child)) {
-            refreshed.push_back(makeInvalidEntry(
-                child, {}, QStringLiteral("Run folder is linked or unreadable.")));
-            continue;
-        }
-        const QString finalPath =
-            QDir(child.absoluteFilePath()).filePath(FinalSummaryName);
-        const QString partialPath =
-            QDir(child.absoluteFilePath()).filePath(PartialSummaryName);
-        const QString candidate = QFileInfo::exists(finalPath) ? finalPath : partialPath;
-        if (!QFileInfo::exists(candidate)) {
-            refreshed.push_back(makeInvalidEntry(
-                child, {}, QStringLiteral("Run Summary is missing.")));
-            continue;
-        }
+    return refreshRoots({container}, error);
+}
 
-        RunEntry seed = makeInvalidEntry(child, candidate, {});
-        QString loadError;
-        auto loaded = loadEntry(seed, &loadError);
-        if (loaded) {
-            refreshed.push_back(std::move(loaded->entry));
-        } else {
-            seed.reason = loadError;
-            refreshed.push_back(std::move(seed));
+bool RunRepository::refreshRoots(const QStringList& runRoots, QString* error) {
+    if (error)
+        error->clear();
+    QStringList canonicalRoots;
+    QSet<QString> seenRoots;
+    for (const QString& runRoot : runRoots) {
+        const QFileInfo supplied(runRoot);
+        if (!supplied.exists() || !supplied.isDir() ||
+            isLinkOrJunction(supplied) || !canonicalMatchesAbsolute(supplied)) {
+            return fail(error, "Run discovery root is not a regular directory.");
+        }
+        const QString canonical =
+            QDir::fromNativeSeparators(supplied.canonicalFilePath());
+        const QString identity = pathIdentity(canonical);
+        if (!seenRoots.contains(identity)) {
+            seenRoots.insert(identity);
+            canonicalRoots.push_back(canonical);
+        }
+    }
+    if (canonicalRoots.isEmpty())
+        return fail(error, "No Run discovery root is available.");
+
+    QVector<RunEntry> refreshed;
+    QSet<QString> seenRunFolders;
+    for (const QString& root : canonicalRoots) {
+        const QFileInfoList children =
+            QDir(root).entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot,
+                                     QDir::Name);
+        for (const QFileInfo& child : children) {
+            const QString folderIdentity = pathIdentity(stableFolderId(child));
+            if (seenRunFolders.contains(folderIdentity))
+                continue;
+            seenRunFolders.insert(folderIdentity);
+            if (isLinkOrJunction(child) || !canonicalMatchesAbsolute(child)) {
+                refreshed.push_back(makeInvalidEntry(
+                    child, {},
+                    QStringLiteral("Run folder is linked or unreadable.")));
+                continue;
+            }
+            const QString finalPath =
+                QDir(child.absoluteFilePath()).filePath(FinalSummaryName);
+            const QString partialPath =
+                QDir(child.absoluteFilePath()).filePath(PartialSummaryName);
+            const QString candidate =
+                QFileInfo::exists(finalPath) ? finalPath : partialPath;
+            if (!QFileInfo::exists(candidate)) {
+                refreshed.push_back(makeInvalidEntry(
+                    child, {}, QStringLiteral("Run Summary is missing.")));
+                continue;
+            }
+
+            RunEntry seed = makeInvalidEntry(child, candidate, {});
+            QString loadError;
+            auto loaded = loadEntry(seed, &loadError);
+            if (loaded) {
+                refreshed.push_back(std::move(loaded->entry));
+            } else {
+                seed.reason = loadError;
+                refreshed.push_back(std::move(seed));
+            }
         }
     }
 
@@ -294,8 +339,9 @@ bool RunRepository::refresh(const QString& dataRoot, QString* error) {
                   if (leftStarted != rightStarted)
                       return leftStarted > rightStarted;
                   return left.id < right.id;
-              });
+    });
     entries_ = std::move(refreshed);
+    runRoots_ = std::move(canonicalRoots);
     if (std::none_of(entries_.cbegin(), entries_.cend(),
                      [this](const RunEntry& entry) {
                          return entry.id == selectedRunId_;
@@ -342,6 +388,58 @@ bool RunRepository::loadSelected(QString* error) {
     loadedRun_ = std::move(loaded);
     publish();
     return true;
+}
+
+bool RunRepository::removeSelected(QString* error) {
+    if (error)
+        error->clear();
+    const auto selected = std::find_if(
+        entries_.cbegin(), entries_.cend(),
+        [this](const RunEntry& entry) { return entry.id == selectedRunId_; });
+    if (selected == entries_.cend())
+        return fail(error, "No Run is selected.");
+    if (!selected->loadable)
+        return fail(error, "Selected Run is not a complete OpenDSS Run folder.");
+
+    const QFileInfo runFolder(selected->runFolderPath);
+    const QString canonicalRunFolder =
+        QDir::fromNativeSeparators(runFolder.canonicalFilePath());
+    const QString canonicalParent =
+        QDir::fromNativeSeparators(runFolder.absoluteDir().canonicalPath());
+    const bool contained = std::any_of(
+        runRoots_.cbegin(), runRoots_.cend(),
+        [&canonicalParent](const QString& root) {
+            return canonicalParent.compare(root, pathSensitivity()) == 0;
+        });
+    if (canonicalRunFolder.isEmpty() || canonicalParent.isEmpty() ||
+        !runFolder.isDir() || isLinkOrJunction(runFolder) ||
+        !canonicalMatchesAbsolute(runFolder) || !contained) {
+        return fail(error,
+                    "Selected Run is outside the configured Runs location.");
+    }
+
+    QString summaryPath;
+    if (!canonicalManifestPath(selected->summaryPath, true, summaryPath, error) ||
+        QFileInfo(summaryPath).absolutePath().compare(
+            canonicalRunFolder, pathSensitivity()) != 0) {
+        return fail(error, "Selected Run is not a complete OpenDSS Run folder.");
+    }
+
+    const auto application = stateStore_.snapshot();
+    if (application.run.status == RunStatus::Open &&
+        (application.run.runId == selected->id ||
+         samePath(application.run.path, canonicalRunFolder))) {
+        return fail(error, "Run cannot be removed while it is active.");
+    }
+
+    const QString removedId = selected->id;
+    if (!QFile::moveToTrash(canonicalRunFolder))
+        return fail(error, "Unable to move the selected Run to the Recycle Bin.");
+
+    if (loadedRun_ && loadedRun_->entry.id == removedId)
+        loadedRun_.reset();
+    selectedRunId_.clear();
+    return refreshRoots(runRoots_, error);
 }
 
 bool RunRepository::updateLoadedNotes(const QString& notes, QString* error) {

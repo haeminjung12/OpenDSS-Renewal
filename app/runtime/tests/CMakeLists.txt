@@ -1178,6 +1178,14 @@ add_test(
     $<TARGET_FILE:runs_results_controller_test>
 )
 set_tests_properties(runs_results_controller_test PROPERTIES TIMEOUT 30)
+add_test(
+  NAME runs_results_controller_removal_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{PATH}"
+    $<TARGET_FILE:runs_results_controller_test>
+    --runs-removal
+)
+set_tests_properties(runs_results_controller_removal_test PROPERTIES TIMEOUT 30)
 
 qt_add_executable(model_test_summary_v2_test
   model_test_summary_v2_test.cpp

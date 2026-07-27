@@ -592,6 +592,68 @@ void testJunctionRunIsRetainedButNotTraversed() {
 #endif
 }
 
+void testAggregatedRootsAreDeduplicated() {
+    stage = "aggregated roots";
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "temporary aggregate root");
+    const QString liveRoot = QDir(temporary.path()).filePath("live");
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    createRun(QDir(liveRoot).filePath("live-run"), "live-run",
+              "2026-07-24T10:00:00Z");
+    createRun(QDir(sequenceRoot).filePath("sequence-run"), "sequence-run",
+              "2026-07-24T11:00:00Z");
+
+    ApplicationStateStore stateStore;
+    RunRepository repository(stateStore);
+    QString error;
+    require(repository.refreshRoots(
+                {liveRoot, sequenceRoot, QDir(liveRoot).absolutePath()}, &error),
+            qPrintable(error));
+    require(repository.entries().size() == 2,
+            "distinct effective roots aggregate and identical roots scan once");
+}
+
+void testRemovalUsesRecycleBinAndPreservesFailures() {
+    stage = "remove Run";
+    require(QFile::supportsMoveToTrash(), "platform supports Recycle Bin");
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "temporary removal root");
+    const QString runs = QDir(temporary.path()).filePath("Runs");
+    const QString protectedFolder = QDir(runs).filePath("protected");
+    const QString removableFolder = QDir(runs).filePath("removable");
+    createRun(protectedFolder, "protected", "2026-07-24T10:00:00Z");
+    createRun(removableFolder, "removable", "2026-07-24T11:00:00Z");
+
+    ApplicationStateStore stateStore;
+    RunRepository repository(stateStore);
+    QString error;
+    require(repository.refresh(temporary.path(), &error) &&
+                repository.selectRun("protected") &&
+                repository.loadSelected(&error),
+            qPrintable(error));
+    stateStore.publishRun(
+        {"protected", protectedFolder, desktop_app::v2::RunStatus::Open, {}});
+    require(!repository.removeSelected(&error) && error.contains("active") &&
+                QFileInfo::exists(protectedFolder) &&
+                repository.loadedRun()->entry.id == "protected",
+            "active removal failure leaves the complete Run and loaded state");
+
+    stateStore.publishRun(
+        {"protected", protectedFolder, desktop_app::v2::RunStatus::Finalized, {}});
+    require(repository.selectRun("removable") &&
+                repository.loadSelected(&error) &&
+                repository.removeSelected(&error),
+            qPrintable(error));
+    require(!QFileInfo::exists(removableFolder) &&
+                QFileInfo::exists(protectedFolder),
+            "confirmed repository action trashes only the complete selected folder");
+    require(repository.entries().size() == 1 &&
+                repository.entries().first().id == "protected" &&
+                repository.selectedRunId().isEmpty() &&
+                !repository.loadedRun(),
+            "successful trash refreshes entries and clears removed selection/detail");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -604,5 +666,7 @@ int main(int argc, char** argv) {
     testConcurrentNotesUpdatesSerializeOrDeny();
     testLinkedRunIsRetainedButNotTraversed();
     testJunctionRunIsRetainedButNotTraversed();
+    testAggregatedRootsAreDeduplicated();
+    testRemovalUsesRecycleBinAndPreservesFailures();
     return 0;
 }

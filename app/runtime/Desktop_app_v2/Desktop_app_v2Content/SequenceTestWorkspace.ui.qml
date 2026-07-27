@@ -15,6 +15,12 @@ Item {
     property string hitBoundarySide: "top"
     property bool hitBoundaryEditable: true
     property bool hitBoundaryPlacementArmed: false
+    property bool smallDropletSelectionArmed: false
+    property bool smallDropletSelectionVisible: false
+    property real smallDropletSelectionStartXRatio: 0.0
+    property real smallDropletSelectionStartYRatio: 0.0
+    property real smallDropletSelectionEndXRatio: 0.0
+    property real smallDropletSelectionEndYRatio: 0.0
     property alias loadSequenceButton: loadSequenceButton
     property alias loadToMemoryButton: loadToMemoryButton
     property alias startStopButton: startStopButton
@@ -23,6 +29,7 @@ Item {
     property alias sequencePreviewImage: sequencePreviewViewer.image
     property alias sequencePreviewPlaceholder: sequencePreviewViewer.placeholder
     property alias hitBoundaryInputArea: hitBoundaryInputArea
+    property alias smallDropletSelectionInputArea: smallDropletSelectionInputArea
     property alias setDecisionBoundaryButton: setDecisionBoundaryButton
     property alias resetDecisionBoundaryButton: resetDecisionBoundaryButton
     property alias topIsHitControl: topIsHitControl
@@ -115,6 +122,7 @@ Item {
                                 anchors.fill: parent
                                 enabled: root.hitBoundaryEditable
                                          && root.hitBoundaryPlacementArmed
+                                         && !root.smallDropletSelectionArmed
                                          && sequencePreviewViewer.image.visible
                             }
 
@@ -147,6 +155,36 @@ Item {
                                 border.color: Constants.textColor
                                 border.width: 2
                                 Accessible.ignored: true
+                            }
+                        }
+
+                        Item {
+                            id: smallDropletSelectionOverlay
+                            anchors.fill: parent
+                            visible: sequencePreviewViewer.image.visible
+
+                            Rectangle {
+                                visible: root.smallDropletSelectionVisible
+                                x: Math.min(root.smallDropletSelectionStartXRatio,
+                                            root.smallDropletSelectionEndXRatio) * parent.width
+                                y: Math.min(root.smallDropletSelectionStartYRatio,
+                                            root.smallDropletSelectionEndYRatio) * parent.height
+                                width: Math.abs(root.smallDropletSelectionEndXRatio
+                                                - root.smallDropletSelectionStartXRatio) * parent.width
+                                height: Math.abs(root.smallDropletSelectionEndYRatio
+                                                 - root.smallDropletSelectionStartYRatio) * parent.height
+                                color: "transparent"
+                                border.color: Constants.accentColor
+                                border.width: 2
+                                Accessible.ignored: true
+                            }
+
+                            MouseArea {
+                                id: smallDropletSelectionInputArea
+                                anchors.fill: parent
+                                enabled: root.smallDropletSelectionArmed
+                                         && sequencePreviewViewer.image.visible
+                                cursorShape: Qt.CrossCursor
                             }
                         }
                     }

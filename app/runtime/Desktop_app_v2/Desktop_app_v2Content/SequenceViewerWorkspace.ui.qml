@@ -18,8 +18,15 @@ Rectangle {
     property bool actualSize: false
     property int nativeImageWidth: 0
     property int nativeImageHeight: 0
+    property bool smallDropletSelectionArmed: false
+    property bool smallDropletSelectionVisible: false
+    property real smallDropletSelectionStartXRatio: 0.0
+    property real smallDropletSelectionStartYRatio: 0.0
+    property real smallDropletSelectionEndXRatio: 0.0
+    property real smallDropletSelectionEndYRatio: 0.0
 
     property alias openSequenceButton: openSequenceButton
+    property alias smallDropletSelectionInputArea: smallDropletSelectionInputArea
     property alias jumpBack50Button: jumpBack50Button
     property alias jumpBack10Button: jumpBack10Button
     property alias previousButton: previousButton
@@ -61,6 +68,36 @@ Rectangle {
                 actualPixels: root.actualSize
                 nativeImageWidth: root.nativeImageWidth
                 nativeImageHeight: root.nativeImageHeight
+
+                Item {
+                    id: smallDropletSelectionOverlay
+                    anchors.fill: parent
+                    visible: currentFrameViewer.image.visible
+
+                    Rectangle {
+                        visible: root.smallDropletSelectionVisible
+                        x: Math.min(root.smallDropletSelectionStartXRatio,
+                                    root.smallDropletSelectionEndXRatio) * parent.width
+                        y: Math.min(root.smallDropletSelectionStartYRatio,
+                                    root.smallDropletSelectionEndYRatio) * parent.height
+                        width: Math.abs(root.smallDropletSelectionEndXRatio
+                                        - root.smallDropletSelectionStartXRatio) * parent.width
+                        height: Math.abs(root.smallDropletSelectionEndYRatio
+                                         - root.smallDropletSelectionStartYRatio) * parent.height
+                        color: "transparent"
+                        border.color: Constants.accentColor
+                        border.width: 2
+                        Accessible.ignored: true
+                    }
+
+                    MouseArea {
+                        id: smallDropletSelectionInputArea
+                        anchors.fill: parent
+                        enabled: root.smallDropletSelectionArmed
+                                 && currentFrameViewer.image.visible
+                        cursorShape: Qt.CrossCursor
+                    }
+                }
             }
 
             Text {

@@ -62,6 +62,15 @@ Rectangle {
     property string datasetHandoffText: ""
     property bool hardwareActionEnabled: true
     property bool captureStartsAvailable: true
+    property int smallDropletRejectionArea: 100
+    property bool smallDropletSetEnabled: false
+    property string smallDropletSetDisabledReason: qsTr("No frame is available")
+    property bool smallDropletSelectionArmed: false
+    property bool smallDropletSelectionVisible: false
+    property real smallDropletSelectionStartXRatio: 0.0
+    property real smallDropletSelectionStartYRatio: 0.0
+    property real smallDropletSelectionEndXRatio: 0.0
+    property real smallDropletSelectionEndYRatio: 0.0
     property alias hardwareButton: hardwareButton
     property alias capturePanelToggleButton: capturePanelToggleButton
     property alias fileNameField: fileNameField
@@ -86,6 +95,11 @@ Rectangle {
     property alias cameraSectionExpanded: cameraSection.expanded
     property alias daqSectionHeadingButton: daqSection.headingButton
     property alias daqSectionExpanded: daqSection.expanded
+    property alias detectorSectionHeadingButton: detectorSection.headingButton
+    property alias detectorSectionExpanded: detectorSection.expanded
+    property alias smallDropletRejectionValueText: smallDropletRejectionValueText
+    property alias smallDropletSetButton: smallDropletSetButton
+    property alias smallDropletSelectionInputArea: smallDropletSelectionInputArea
     property alias cameraPromptYesButton: cameraPromptYesButton
     property alias cameraPromptNoButton: cameraPromptNoButton
     property alias restoreCameraButton: restoreCameraButton
@@ -235,13 +249,13 @@ Rectangle {
             SplitView.maximumHeight: root.drawerOpen ? navigationPanel.height * 0.75 : hardwareButton.height
             AppButton {
                 id: hardwareButton
-                text: qsTr("Hardware Configuration")
+                text: qsTr("Configuration")
                 enabled: root.hardwareActionEnabled
                 width: parent.width
                 height: 42 * Constants.textScale
                 anchors.bottom: parent.bottom
                 focusPolicy: Qt.StrongFocus
-                Accessible.name: qsTr("Open or close Hardware panel")
+                Accessible.name: qsTr("Open or close Configuration panel")
                 background: Rectangle {
                     color: root.hardwareActionEnabled ? Constants.backgroundColor : "#e6e8eb"
                     border.color: hardwareButton.activeFocus ? Constants.accentColor : Constants.borderColor
@@ -290,7 +304,7 @@ Rectangle {
                 anchors.bottom: hardwareButton.top
                 ScrollView { anchors.fill: parent; anchors.margins: Constants.spacing; clip: true; contentWidth: availableWidth
                 Column { width: parent.width; spacing: Constants.spacing
-                    Text { text: qsTr("Hardware Configuration"); font: Constants.headingFont; width: parent.width; wrapMode: Text.WordWrap }
+                    Text { text: qsTr("Configuration"); font: Constants.headingFont; width: parent.width; wrapMode: Text.WordWrap }
                     AppButton { id: drawerCloseButton; visible: false; enabled: false; text: qsTr("Close"); width: 0; height: 0 }
                     AppAccordion {
                         id: cameraSection
@@ -387,6 +401,56 @@ Rectangle {
                             }
                         }
                     }
+                    AppAccordion {
+                        id: detectorSection
+                        sectionTitle: qsTr("Detector Configuration")
+                        expanded: true
+                        useIntrinsicBodyHeight: true
+                        width: parent.width
+                        Column {
+                            width: parent.width
+                            height: implicitHeight
+                            spacing: Constants.spacing
+                            Row {
+                                width: parent.width
+                                spacing: Constants.spacing
+                                Text {
+                                    text: qsTr("Small-droplet rejection")
+                                    font: Constants.font
+                                    width: parent.width
+                                           - smallDropletRejectionValueText.implicitWidth
+                                           - smallDropletSetButton.width
+                                           - parent.spacing * 2
+                                    height: smallDropletSetButton.height
+                                    wrapMode: Text.WordWrap
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                Text {
+                                    id: smallDropletRejectionValueText
+                                    text: qsTr("%1 px²").arg(root.smallDropletRejectionArea)
+                                    font: Constants.font
+                                    width: implicitWidth
+                                    height: smallDropletSetButton.height
+                                    verticalAlignment: Text.AlignVCenter
+                                }
+                                AppButton {
+                                    id: smallDropletSetButton
+                                    text: qsTr("Set")
+                                    enabled: root.smallDropletSetEnabled
+                                    width: Math.max(72, implicitWidth)
+                                    height: Constants.appStandardControlHeight
+                                }
+                            }
+                            Text {
+                                visible: !root.smallDropletSetEnabled
+                                text: root.smallDropletSetDisabledReason
+                                color: Constants.mutedTextColor
+                                font: Constants.smallFont
+                                width: parent.width
+                                wrapMode: Text.WordWrap
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -417,6 +481,36 @@ Rectangle {
                 placeholderText: root.cameraStatus === qsTr("Unavailable")
                                  ? qsTr("Camera unavailable")
                                  : qsTr("Camera preview")
+
+                Item {
+                    id: smallDropletSelectionOverlay
+                    anchors.fill: parent
+                    visible: cameraPreviewViewer.image.visible
+
+                    Rectangle {
+                        visible: root.smallDropletSelectionVisible
+                        x: Math.min(root.smallDropletSelectionStartXRatio,
+                                    root.smallDropletSelectionEndXRatio) * parent.width
+                        y: Math.min(root.smallDropletSelectionStartYRatio,
+                                    root.smallDropletSelectionEndYRatio) * parent.height
+                        width: Math.abs(root.smallDropletSelectionEndXRatio
+                                        - root.smallDropletSelectionStartXRatio) * parent.width
+                        height: Math.abs(root.smallDropletSelectionEndYRatio
+                                         - root.smallDropletSelectionStartYRatio) * parent.height
+                        color: "transparent"
+                        border.color: Constants.accentColor
+                        border.width: 2
+                        Accessible.ignored: true
+                    }
+
+                    MouseArea {
+                        id: smallDropletSelectionInputArea
+                        anchors.fill: parent
+                        enabled: root.smallDropletSelectionArmed
+                                 && cameraPreviewViewer.image.visible
+                        cursorShape: Qt.CrossCursor
+                    }
+                }
             }
             Rectangle {
                 id: capturePanel

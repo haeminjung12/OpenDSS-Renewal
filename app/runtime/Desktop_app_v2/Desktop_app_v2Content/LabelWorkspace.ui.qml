@@ -37,7 +37,14 @@ Rectangle {
     property bool datasetSummaryExpanded: true
     property bool labelExpanded: true
     property bool filterExpanded: true
+    property bool smallDropletSelectionArmed: false
+    property bool smallDropletSelectionVisible: false
+    property real smallDropletSelectionStartXRatio: 0.0
+    property real smallDropletSelectionStartYRatio: 0.0
+    property real smallDropletSelectionEndXRatio: 0.0
+    property real smallDropletSelectionEndYRatio: 0.0
     property alias rightPanelToggleButton: rightPanelToggleButton
+    property alias smallDropletSelectionInputArea: smallDropletSelectionInputArea
     property alias openDatasetButton: openDatasetButton
     property alias twoClassChoice: twoClassChoice
     property alias threeClassChoice: threeClassChoice
@@ -265,6 +272,36 @@ Rectangle {
                                     height: width
                                     anchors.centerIn: parent
                                     placeholderText: qsTr("Selected Crop\n64 × 64")
+
+                                    Item {
+                                        id: smallDropletSelectionOverlay
+                                        anchors.fill: parent
+                                        visible: selectedCropImage.image.visible
+
+                                        Rectangle {
+                                            visible: root.smallDropletSelectionVisible
+                                            x: Math.min(root.smallDropletSelectionStartXRatio,
+                                                        root.smallDropletSelectionEndXRatio) * parent.width
+                                            y: Math.min(root.smallDropletSelectionStartYRatio,
+                                                        root.smallDropletSelectionEndYRatio) * parent.height
+                                            width: Math.abs(root.smallDropletSelectionEndXRatio
+                                                            - root.smallDropletSelectionStartXRatio) * parent.width
+                                            height: Math.abs(root.smallDropletSelectionEndYRatio
+                                                             - root.smallDropletSelectionStartYRatio) * parent.height
+                                            color: "transparent"
+                                            border.color: Constants.accentColor
+                                            border.width: 2
+                                            Accessible.ignored: true
+                                        }
+
+                                        MouseArea {
+                                            id: smallDropletSelectionInputArea
+                                            anchors.fill: parent
+                                            enabled: root.smallDropletSelectionArmed
+                                                     && selectedCropImage.image.visible
+                                            cursorShape: Qt.CrossCursor
+                                        }
+                                    }
                                 }
                             }
 

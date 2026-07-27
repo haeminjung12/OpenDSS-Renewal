@@ -16,6 +16,12 @@ Item {
     property string hitBoundarySide: "top"
     property bool hitBoundaryEditable: true
     property bool hitBoundaryPlacementArmed: false
+    property bool smallDropletSelectionArmed: false
+    property bool smallDropletSelectionVisible: false
+    property real smallDropletSelectionStartXRatio: 0.0
+    property real smallDropletSelectionStartYRatio: 0.0
+    property real smallDropletSelectionEndXRatio: 0.0
+    property real smallDropletSelectionEndYRatio: 0.0
     property string serviceDiagnosticText: qsTr("Resolve the current error before continuing.")
     property string runArtifactPath: qsTr("C:/OpenDSS/Runs/Run-042")
     property string elapsedTimeText: qsTr("00:02:18")
@@ -43,6 +49,7 @@ Item {
     property alias durationField: durationField
     property alias saveLocationField: saveLocationField
     property alias sendTestPulseButton: sendTestPulseButton
+    property alias smallDropletSelectionInputArea: smallDropletSelectionInputArea
     property alias hitClassControl: hitClassControl
     property alias triggerEveryDropletControl: triggerEveryDropletControl
     property alias daqOutputControl: daqOutputControl
@@ -119,6 +126,7 @@ Item {
                             anchors.fill: parent
                             enabled: root.hitBoundaryEditable
                                      && root.hitBoundaryPlacementArmed
+                                     && !root.smallDropletSelectionArmed
                                      && cameraPreviewViewer.image.visible
                         }
 
@@ -151,6 +159,36 @@ Item {
                             border.color: Constants.textColor
                             border.width: 2
                             Accessible.ignored: true
+                        }
+                    }
+
+                    Item {
+                        id: smallDropletSelectionOverlay
+                        anchors.fill: parent
+                        visible: cameraPreviewViewer.image.visible
+
+                        Rectangle {
+                            visible: root.smallDropletSelectionVisible
+                            x: Math.min(root.smallDropletSelectionStartXRatio,
+                                        root.smallDropletSelectionEndXRatio) * parent.width
+                            y: Math.min(root.smallDropletSelectionStartYRatio,
+                                        root.smallDropletSelectionEndYRatio) * parent.height
+                            width: Math.abs(root.smallDropletSelectionEndXRatio
+                                            - root.smallDropletSelectionStartXRatio) * parent.width
+                            height: Math.abs(root.smallDropletSelectionEndYRatio
+                                             - root.smallDropletSelectionStartYRatio) * parent.height
+                            color: "transparent"
+                            border.color: Constants.accentColor
+                            border.width: 2
+                            Accessible.ignored: true
+                        }
+
+                        MouseArea {
+                            id: smallDropletSelectionInputArea
+                            anchors.fill: parent
+                            enabled: root.smallDropletSelectionArmed
+                                     && cameraPreviewViewer.image.visible
+                            cursorShape: Qt.CrossCursor
                         }
                     }
                 }

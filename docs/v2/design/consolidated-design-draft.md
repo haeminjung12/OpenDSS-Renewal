@@ -2029,17 +2029,6 @@ Decision Boundary remains editable during an active Live or Sequence Test Run. A
 
 The selected Top-is-Hit/Bottom-is-Hit mapping may follow the applicable profile and Run configuration contracts, but the boundary coordinate is explicitly excluded from all persistence and provenance.
 
-### 15.7.1 Channel Reference Line
-
-`Channel Reference Line` appears directly beneath Decision Boundary in each applicable frame-bearing sorting workspace.
-
-- `Set` enters a click-selection mode in the currently visible frame. The user clicks one vertical position and the workspace renders a horizontal line across that frame at the selected position.
-- `Reset` clears the line.
-- `Set` is disabled when the current workspace has no visible frame, with the direct explanation **No frame is available**.
-- The line selection must respect the displayed-frame transform so its rendered position remains aligned with the source frame.
-
-**UAT-CONFIG-BLK-001:** whether Channel Reference Line is display-only or affects detector/routing decisions remains an explicit user decision. Until resolved, no implementation, persistence, Run provenance, detector input, routing input, test expectation, or fallback behavior may infer either interpretation.
-
 ## 15.8 Active Model presentation
 
 - The Active Model row includes the model name, two-class/three-class fact, and a link to Library or model detail only when doing so does not disrupt pre-run state.

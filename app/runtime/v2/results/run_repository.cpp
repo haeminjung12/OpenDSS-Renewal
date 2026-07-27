@@ -433,6 +433,14 @@ bool RunRepository::removeSelected(QString* error) {
     }
 
     const QString removedId = selected->id;
+    RunEntry currentSeed = *selected;
+    currentSeed.summaryPath = summaryPath;
+    QString reloadError;
+    const auto current = loadEntry(currentSeed, &reloadError);
+    if (!current || current->entry.id != removedId ||
+        !samePath(current->entry.runFolderPath, canonicalRunFolder)) {
+        return fail(error, "Selected Run changed since it was selected.");
+    }
     if (!QFile::moveToTrash(canonicalRunFolder))
         return fail(error, "Unable to move the selected Run to the Recycle Bin.");
 

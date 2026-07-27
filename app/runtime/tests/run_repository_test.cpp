@@ -615,7 +615,6 @@ void testAggregatedRootsAreDeduplicated() {
 
 void testRemovalUsesRecycleBinAndPreservesFailures() {
     stage = "remove Run";
-    require(QFile::supportsMoveToTrash(), "platform supports Recycle Bin");
     QTemporaryDir temporary;
     require(temporary.isValid(), "temporary removal root");
     const QString runs = QDir(temporary.path()).filePath("Runs");
@@ -654,6 +653,32 @@ void testRemovalUsesRecycleBinAndPreservesFailures() {
             "successful trash refreshes entries and clears removed selection/detail");
 }
 
+void testReplacementBetweenRefreshAndRemoveIsPreserved() {
+    stage = "replacement before remove";
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "temporary replacement root");
+    const QString runs = QDir(temporary.path()).filePath("Runs");
+    const QString selectedFolder = QDir(runs).filePath("selected");
+    const QString movedOriginal = QDir(temporary.path()).filePath("moved-original");
+    createRun(selectedFolder, "original", "2026-07-24T10:00:00Z");
+
+    ApplicationStateStore stateStore;
+    RunRepository repository(stateStore);
+    QString error;
+    require(repository.refresh(temporary.path(), &error) &&
+                repository.selectRun("original"),
+            qPrintable(error));
+    require(QDir().rename(selectedFolder, movedOriginal),
+            "move selected Run after refresh");
+    createRun(selectedFolder, "replacement", "2026-07-24T11:00:00Z");
+
+    require(!repository.removeSelected(&error) &&
+                error.contains("changed") &&
+                QFileInfo::exists(selectedFolder) &&
+                QFileInfo::exists(movedOriginal),
+            "identity mismatch preserves replacement and original Run folders");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -668,5 +693,6 @@ int main(int argc, char** argv) {
     testJunctionRunIsRetainedButNotTraversed();
     testAggregatedRootsAreDeduplicated();
     testRemovalUsesRecycleBinAndPreservesFailures();
+    testReplacementBetweenRefreshAndRemoveIsPreserved();
     return 0;
 }

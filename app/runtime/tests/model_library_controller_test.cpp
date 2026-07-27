@@ -298,6 +298,45 @@ void testErrorsAndEmptyPresentation()
     require(!empty.select(0)
                 && empty.errorMessage() == QStringLiteral("Selected model is unavailable."),
             "invalid selection reason");
+
+    const QString missingPackage =
+        QDir(temporary.path()).filePath(QStringLiteral("missing-metadata"));
+    const QString malformedPackage =
+        QDir(temporary.path()).filePath(QStringLiteral("malformed-metadata"));
+    require(QDir().mkpath(missingPackage) && QDir().mkpath(malformedPackage),
+            "create invalid metadata packages");
+    QFile malformedFile(
+        QDir(malformedPackage).filePath(QStringLiteral("metadata.json")));
+    require(malformedFile.open(QIODevice::WriteOnly | QIODevice::Truncate)
+                && malformedFile.write("{not-json") > 0,
+            "write malformed metadata");
+    malformedFile.close();
+    const QString invalidRegistry = createSimpleRegistry(
+        QDir(temporary.path()).filePath(QStringLiteral("invalid-models")),
+        QJsonArray{
+            entry(QStringLiteral("missing-metadata"), QStringLiteral("Missing"),
+                  missingPackage, false),
+            entry(QStringLiteral("malformed-metadata"), QStringLiteral("Malformed"),
+                  malformedPackage, false),
+        });
+    ModelLibraryController invalid(invalidRegistry, operations);
+    require(invalid.refresh(), qPrintable(invalid.errorMessage()));
+    const QVariantList invalidTrainingRows = invalid.trainingModelRows();
+    const QVariantList invalidLibraryRows = invalid.modelRows();
+    for (const QString &id : {QStringLiteral("missing-metadata"),
+                              QStringLiteral("malformed-metadata")}) {
+        const QString reason =
+            rowById(invalidTrainingRows, id)
+                .value(QStringLiteral("compatibilityReason")).toString();
+        require(!reason.isEmpty()
+                    && reason
+                        == rowById(invalidLibraryRows, id)
+                               .value(QStringLiteral("message")).toString()
+                    && reason
+                        != QStringLiteral(
+                            "Architecture is not supported for Training."),
+                "Training preserves the authoritative package inspection error");
+    }
 }
 
 void testPackagePathSafetyAndRegistryIntegrity()

@@ -345,7 +345,9 @@ QVariantList ModelLibraryController::trainingModelRows() const
             initialization.value(QStringLiteral("mode")).toString();
         QString weightPath;
         QString compatibilityReason;
-        if (inspection.architectureId != QStringLiteral("mobilenet_v3_small")
+        if (metadata.isEmpty() && !inspection.message.isEmpty()) {
+            compatibilityReason = inspection.message;
+        } else if (inspection.architectureId != QStringLiteral("mobilenet_v3_small")
             && inspection.architectureId != QStringLiteral("efficientnet_b0")) {
             compatibilityReason =
                 QStringLiteral("Architecture is not supported for Training.");

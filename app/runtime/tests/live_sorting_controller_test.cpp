@@ -378,13 +378,23 @@ int main(int argc, char** argv) {
     controlled->pixel = 11;
     controlled->timestampNs = 1'000'000'000;
     controlled->delivery = 1;
-    ok &= check(waitFor([&] { return detector.processed.load() == 1; }),
+    ok &= check(waitFor([&] {
+                    return detector.processed.load() == 1 &&
+                           camera.latestDeliveryId() == 1 &&
+                           !camera.previewSource().isEmpty();
+                }),
                 "First CameraFrame must reach the Live service.");
+    camera.acknowledgePreviewReady(camera.previewSource());
     controlled->pixel = 22;
     controlled->timestampNs = 1'040'000'000;
     controlled->delivery = 2;
-    ok &= check(waitFor([&] { return detector.processed.load() == 2; }),
+    ok &= check(waitFor([&] {
+                    return detector.processed.load() == 2 &&
+                           camera.latestDeliveryId() == 2 &&
+                           !camera.previewSource().isEmpty();
+                }),
                 "Second CameraFrame must preserve queued delivery order.");
+    camera.acknowledgePreviewReady(camera.previewSource());
     ok &= check(controller->primaryAction() &&
                     waitFor([&] {
                         return controller->presentation() ==

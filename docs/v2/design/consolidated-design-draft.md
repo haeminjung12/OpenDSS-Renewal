@@ -228,6 +228,16 @@ The following descriptions are task contexts, not permission-bearing roles:
 
 Installation MAY require internet access. The signed installer is a small bootstrap installer. It bundles only the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock; it does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
 
+The installer presents exactly this ordered flow:
+
+1. **Welcome**;
+2. **Prerequisite Check**;
+3. **OpenDSS installation**;
+4. automatic **Training Environment setup**; and
+5. **Final Verification**.
+
+Prerequisite Check reports the factual state of Hamamatsu DCAM, NI-DAQmx, a compatible NVIDIA GPU/driver, internet connectivity, and required Windows runtimes. Missing DCAM or NI-DAQmx does not block OpenDSS installation: the affected prerequisite is shown as **Driver Required**, with an action opening the official vendor download page and a **Check Again** action. The installer never silently installs DCAM or NI-DAQmx. Python is never presented as a manual prerequisite.
+
 On a fresh internet-connected Python-free Windows 11 computer, setup MUST:
 
 1. download exact pinned CPython `3.12.10`;
@@ -236,9 +246,11 @@ On a fresh internet-connected Python-free Windows 11 computer, setup MUST:
 4. verify the authoritative hash of CPython and every downloaded third-party wheel;
 5. provision the resulting exact 37-wheel environment at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
 6. run the authoritative environment check; and
-7. fail atomically and visibly if any download, verification, provisioning, or environment-check step fails.
+7. fail Training Environment setup atomically and visibly if any download, verification, provisioning, or environment-check step fails.
 
-A partial environment is never usable or reported as successfully installed. After successful installation, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
+A failed Training Environment setup does not roll back the already-installed OpenDSS application. OpenDSS remains installed, Training is truthfully unavailable, and **Repair Training Environment** is offered. A partial environment is never usable or reported as successfully installed. After successful setup, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
+
+Final Verification reports the factual status of OpenDSS, DCAM, NI-DAQ, Training, and the effective Training compute path: CUDA when qualified and available, otherwise CPU fallback. It never reports an unavailable driver, environment, or accelerator as ready.
 
 ## 2.2 Experience principles
 

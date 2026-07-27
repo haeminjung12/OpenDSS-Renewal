@@ -276,6 +276,10 @@ The signed OpenDSS installer is a bootstrap installer. Installation MAY require 
 
 The installer SHALL include OpenDSS, its Qt/application bootstrap dependencies, training scripts, bundled base model weights, required application resources, the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock, and the installer logic needed to provision the training environment. It SHALL NOT embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
 
+The visible installer sequence SHALL be **Welcome** → **Prerequisite Check** → **OpenDSS installation** → automatic **Training Environment setup** → **Final Verification**.
+
+Prerequisite Check SHALL truthfully report Hamamatsu DCAM, NI-DAQmx, compatible NVIDIA GPU/driver, internet connectivity, and required Windows runtime status. Missing DCAM or NI-DAQmx SHALL be nonblocking for OpenDSS installation and shown as **Driver Required**, with an official vendor download-page action and **Check Again**. Setup SHALL NOT silently install either vendor driver. Python SHALL NOT be presented as a manual prerequisite.
+
 During setup, the bootstrap SHALL:
 
 1. download exactly CPython `3.12.10`;
@@ -286,7 +290,9 @@ During setup, the bootstrap SHALL:
 6. run the authoritative environment check against that provisioned environment; and
 7. publish the environment as usable only after every download, hash, provisioning, and environment-check step succeeds.
 
-Any download, hash, provisioning, or environment-check failure SHALL fail installation atomically and visibly. A partial environment MUST NOT be reported or retained as usable.
+Any download, hash, provisioning, or environment-check failure SHALL fail Training Environment setup atomically and visibly without rolling back the already-installed OpenDSS application. Training SHALL remain unavailable, **Repair Training Environment** SHALL be offered, and a partial environment MUST NOT be reported or retained as usable.
+
+Final Verification SHALL report OpenDSS, DCAM, NI-DAQ, Training, and the effective Training compute path truthfully: CUDA when qualified and available, otherwise CPU fallback.
 
 The installer SHALL NOT bundle:
 

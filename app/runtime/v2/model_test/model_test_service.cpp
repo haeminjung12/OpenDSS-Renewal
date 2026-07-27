@@ -476,6 +476,7 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
 
             qint64 expectedBatch = 0;
             bool processFinished = false;
+            bool processTerminatedForStop = false;
             while (!processFinished) {
                 processReadCancelled = false;
                 const auto message =
@@ -485,6 +486,7 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                     if (processReadCancelled) {
                         stopped = true;
                         stopProcessBounded(process);
+                        processTerminatedForStop = true;
                         break;
                     }
                     return failProcessAfterStart(
@@ -570,8 +572,9 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                     QStringLiteral("Model Test Python process did not exit."),
                     QStringLiteral("process_protocol_failed"));
             }
-            if (process.exitStatus() != QProcess::NormalExit ||
-                process.exitCode() != 0) {
+            if (!processTerminatedForStop &&
+                (process.exitStatus() != QProcess::NormalExit ||
+                 process.exitCode() != 0)) {
                 return failProcessAfterStart(
                     QStringLiteral("Model Test Python process failed: ") +
                         QString::fromUtf8(process.readAllStandardError()).trimmed(),

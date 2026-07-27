@@ -235,22 +235,19 @@ bool validateEventForAppend(const RunManifestData& data, const RunEvent& event,
     }
     if (event.daqPulseStatus == DaqPulseStatus::Requested)
         return fail(error, "Finalized events cannot retain requested DAQ status.");
-    if (event.observedRoute == Route::Waste &&
+    if (event.decision == Route::Waste &&
         event.daqPulseStatus != DaqPulseStatus::NotRequested)
-        return fail(error, "Waste routes must use not_requested DAQ status.");
-    if (event.observedRoute == Route::Unresolved &&
-        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
-        return fail(error, "Unresolved routes must use suppressed_not_issued.");
-    if (event.observedRoute == Route::Hit &&
+        return fail(error, "Waste decisions must use not_requested DAQ status.");
+    if (event.decision == Route::Hit &&
         !data.routing.physicalDaqOutputEnabled &&
         event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
-        return fail(error, "DAQ-disabled Hit routes must use suppressed_not_issued.");
-    if (event.observedRoute == Route::Hit &&
+        return fail(error, "DAQ-disabled Hit decisions must use suppressed_not_issued.");
+    if (event.decision == Route::Hit &&
         data.routing.physicalDaqOutputEnabled &&
         event.daqPulseStatus != DaqPulseStatus::Issued &&
         event.daqPulseStatus != DaqPulseStatus::Failed &&
         event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
-        return fail(error, "DAQ-enabled Hit routes require a final factual pulse status.");
+        return fail(error, "DAQ-enabled Hit decisions require a final factual pulse status.");
     return true;
 }
 

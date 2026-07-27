@@ -467,12 +467,12 @@ void daqHitMissAndSuppressionStatuses() {
     missRequest.physicalDaqOutputEnabled = true;
     require(missService.run(missRequest, &error), qPrintable(error));
     const auto missData = loadRun(missOutput);
-    require(missPulseCalls == 1 && missData.events.size() == 1 &&
+    require(missPulseCalls == 0 && missData.events.size() == 1 &&
                 missData.events.at(0).decision == run::Route::Waste &&
                 missData.events.at(0).observedRoute == run::Route::Hit &&
                 missData.events.at(0).daqPulseStatus ==
-                    run::DaqPulseStatus::Issued,
-            "A finalized Hit route did not issue output independently of Decision.");
+                    run::DaqPulseStatus::NotRequested,
+            "A Waste Decision requested output because Observed Route was Hit.");
 
     QTemporaryDir wasteTemporary;
     const QString wasteSequence =
@@ -498,12 +498,12 @@ void daqHitMissAndSuppressionStatuses() {
     wasteRequest.physicalDaqOutputEnabled = true;
     require(wasteService.run(wasteRequest, &error), qPrintable(error));
     const auto wasteData = loadRun(wasteOutput);
-    require(wastePulseCalls == 0 && wasteData.events.size() == 1 &&
+    require(wastePulseCalls == 1 && wasteData.events.size() == 1 &&
                 wasteData.events.at(0).decision == run::Route::Hit &&
                 wasteData.events.at(0).observedRoute == run::Route::Waste &&
                 wasteData.events.at(0).daqPulseStatus ==
-                    run::DaqPulseStatus::NotRequested,
-            "A finalized Waste route requested output or lost Decision facts.");
+                    run::DaqPulseStatus::Issued,
+            "A Hit Decision was suppressed because Observed Route was Waste.");
 
     QTemporaryDir equalityTemporary;
     const QString equalitySequence =
@@ -529,13 +529,13 @@ void daqHitMissAndSuppressionStatuses() {
     equalityRequest.physicalDaqOutputEnabled = true;
     require(equalityService.run(equalityRequest, &error), qPrintable(error));
     const auto equalityData = loadRun(equalityOutput);
-    require(equalityPulseCalls == 0 && equalityData.events.size() == 1 &&
+    require(equalityPulseCalls == 1 && equalityData.events.size() == 1 &&
                 equalityData.events.at(0).decision == run::Route::Hit &&
                 equalityData.events.at(0).observedRoute ==
                     run::Route::Unresolved &&
                 equalityData.events.at(0).daqPulseStatus ==
-                    run::DaqPulseStatus::SuppressedNotIssued,
-            "Exact final-Y equality issued a Hit pulse or lost Unresolved.");
+                    run::DaqPulseStatus::Issued,
+            "A Hit Decision was suppressed because Observed Route was Unresolved.");
 
     QTemporaryDir suppressedTemporary;
     const QString suppressedSequence =

@@ -57,9 +57,7 @@ RunEvent event(QString id, qint64 frame, Route observed) {
     value.cropPath = QString("crops/%1.png").arg(frame);
     value.decision = Route::Hit;
     value.observedRoute = observed;
-    value.daqPulseStatus = observed == Route::Waste
-                               ? DaqPulseStatus::NotRequested
-                               : DaqPulseStatus::SuppressedNotIssued;
+    value.daqPulseStatus = DaqPulseStatus::SuppressedNotIssued;
     return value;
 }
 
@@ -250,16 +248,16 @@ void testValidationEdges() {
     physicalHit.predictedClassId = "1";
     physicalHit.scores = {0.1, 0.9};
     physicalHit.inferenceTimeMs = 1.0;
-    physicalHit.daqPulseStatus = DaqPulseStatus::Issued;
+    physicalHit.daqPulseStatus = DaqPulseStatus::NotRequested;
     require(physicalWriter->appendEvent(physicalHit, "crop", &error),
-            "final Hit accepts issued independently of Decision");
+            "Waste Decision accepts not_requested with Observed Route Hit");
     RunEvent physicalWaste = event("physical-waste", 2, Route::Waste);
     physicalWaste.predictedClassId = "0";
     physicalWaste.scores = {0.9, 0.1};
     physicalWaste.inferenceTimeMs = 1.0;
-    physicalWaste.daqPulseStatus = DaqPulseStatus::NotRequested;
+    physicalWaste.daqPulseStatus = DaqPulseStatus::Issued;
     require(physicalWriter->appendEvent(physicalWaste, "crop", &error),
-            "final Waste remains not_requested independently of Decision");
+            "Hit Decision accepts issued with Observed Route Waste");
     require(physicalWriter->finalize(RunStatus::Completed,
                                      "2026-07-24T10:00:02Z",
                                      "duration", 19.5, &error),
@@ -271,12 +269,12 @@ void testValidationEdges() {
                 physicalRoundTrip->data().events.at(0).decision == Route::Waste &&
                 physicalRoundTrip->data().events.at(0).observedRoute == Route::Hit &&
                 physicalRoundTrip->data().events.at(0).daqPulseStatus ==
-                    DaqPulseStatus::Issued &&
+                    DaqPulseStatus::NotRequested &&
                 physicalRoundTrip->data().events.at(1).decision == Route::Hit &&
                 physicalRoundTrip->data().events.at(1).observedRoute == Route::Waste &&
                 physicalRoundTrip->data().events.at(1).daqPulseStatus ==
-                    DaqPulseStatus::NotRequested,
-            "Decision/route mismatches round-trip with route-keyed DAQ status");
+                    DaqPulseStatus::Issued,
+            "Decision/route mismatches round-trip with Decision-keyed DAQ status");
 }
 
 void testLiveStoppedIntegrityRoundTrip() {

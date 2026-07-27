@@ -304,7 +304,7 @@ void testEveryDropletPulseRouteAndStopped() {
     QTemporaryDir temporary;
     FakeDetector detector;
     detector.results = {detection(true, true, 2.0f),
-                        detection(true, false, 6.0f),
+                        detection(true, false, 2.0f),
                         detection(false, false, 0.0f)};
     OperationCoordinator operations;
     std::atomic_int pulses{0};
@@ -321,8 +321,10 @@ void testEveryDropletPulseRouteAndStopped() {
                                  : run::DaqPulseStatus::SuppressedNotIssued;
         });
     QString error;
-    require(service.start(request(temporary.path()), &error), qPrintable(error));
-    require(!service.start(request(temporary.path()), &error), "duplicate start blocked");
+    auto everyDropletRequest = request(temporary.path());
+    everyDropletRequest.daqOutputEnabled = true;
+    require(service.start(everyDropletRequest, &error), qPrintable(error));
+    require(!service.start(everyDropletRequest, &error), "duplicate start blocked");
     require(operations.snapshot().kind == OperationKind::LiveSorting &&
                 operations.snapshot().locks.testFlag(ResourceLock::Camera) &&
                 !operations.snapshot().locks.testFlag(ResourceLock::Daq) &&
@@ -338,11 +340,11 @@ void testEveryDropletPulseRouteAndStopped() {
     const auto data = loadRun(temporary.path());
     require(data.status == run::RunStatus::Stopped && data.events.size() == 1 &&
                 data.events.first().decision == run::Route::Hit &&
-                data.events.first().observedRoute == run::Route::Hit &&
+                data.events.first().observedRoute == run::Route::Waste &&
                 data.events.first().daqPulseStatus ==
-                    run::DaqPulseStatus::SuppressedNotIssued &&
+                    run::DaqPulseStatus::Issued &&
                 pulses.load() == 1 && !pulseBeforeTrackEnd.load(),
-            "Every Droplet waits for track end and persists its facts");
+            "Every Droplet Hit issues after track end regardless of Observed Route");
     require(!operations.snapshot().kind, "locks released");
     require(service.start(request(temporary.path()), &error), qPrintable(error));
     require(service.stop(&error), qPrintable(error));
@@ -370,13 +372,13 @@ void testEveryDropletPulseRouteAndStopped() {
     offerAndWait(equalityService, equalityDetector, 2, 2);
     require(equalityService.stop(&error), qPrintable(error));
     const auto equalityData = loadRun(equalityTemporary.path());
-    require(equalityPulses.load() == 0 && equalityData.events.size() == 1 &&
+    require(equalityPulses.load() == 1 && equalityData.events.size() == 1 &&
                 equalityData.events.first().decision == run::Route::Hit &&
                 equalityData.events.first().observedRoute ==
                     run::Route::Unresolved &&
                 equalityData.events.first().daqPulseStatus ==
-                    run::DaqPulseStatus::SuppressedNotIssued,
-            "Exact final-Y equality emitted a Live Hit pulse or lost Unresolved");
+                    run::DaqPulseStatus::Issued,
+            "Observed Route Unresolved suppressed a Live Hit Decision");
 }
 
 void testClassBasedTwoAndThreeClass() {
@@ -424,7 +426,7 @@ void testClassBasedTwoAndThreeClass() {
     {
         QTemporaryDir temporary;
         FakeDetector detector;
-        detector.results = {detection(true, true, 4.0f),
+        detector.results = {detection(true, true, 6.0f),
                             detection(false, false, 0.0f)};
         OperationCoordinator operations;
         int pulses = 0;
@@ -449,11 +451,11 @@ void testClassBasedTwoAndThreeClass() {
         require(service.stop(&error), qPrintable(error));
         const auto data = loadRun(temporary.path());
         require(data.events.first().decision == run::Route::Waste &&
-                    data.events.first().observedRoute == run::Route::Unresolved &&
+                    data.events.first().observedRoute == run::Route::Hit &&
                     data.events.first().daqPulseStatus ==
                         run::DaqPulseStatus::NotRequested &&
                     pulses == 0,
-                "Waste decision emits no pulse and preserves Unresolved route");
+                "Waste Decision emits no pulse regardless of Observed Route Hit");
     }
 }
 

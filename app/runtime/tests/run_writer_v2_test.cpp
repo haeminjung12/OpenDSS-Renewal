@@ -57,7 +57,7 @@ RunEvent event() {
     value.cropPath = "crops/crop,7.png";
     value.decision = Route::Hit;
     value.observedRoute = Route::Waste;
-    value.daqPulseStatus = DaqPulseStatus::NotRequested;
+    value.daqPulseStatus = DaqPulseStatus::SuppressedNotIssued;
     return value;
 }
 
@@ -150,7 +150,7 @@ void testCompletedAndEscaping() {
                 loaded->data().events.at(0).decision == Route::Hit &&
                 loaded->data().events.at(0).observedRoute == Route::Waste &&
                 loaded->data().events.at(0).daqPulseStatus ==
-                    DaqPulseStatus::NotRequested,
+                    DaqPulseStatus::SuppressedNotIssued,
             "quoted CSV fields and Decision/route mismatch reopen exactly");
 }
 

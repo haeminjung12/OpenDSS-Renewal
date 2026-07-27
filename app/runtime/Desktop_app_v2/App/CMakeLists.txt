@@ -134,6 +134,8 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "../../v2/sequence/sequence_viewer_model.h"
     "../../v2/sequence_test/sequence_test_controller.cpp"
     "../../v2/sequence_test/sequence_test_controller.h"
+    "../../v2/sequence_test/sequence_test_image_provider.cpp"
+    "../../v2/sequence_test/sequence_test_image_provider.h"
     "../../v2/sequence_test/sequence_test_service.cpp"
     "../../v2/sequence_test/sequence_test_service.h"
     "../../v2/state/application_state_store.cpp"

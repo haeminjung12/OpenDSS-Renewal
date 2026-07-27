@@ -52,6 +52,7 @@
 #include "../../v2/sequence/sequence_viewer_image_provider.h"
 #include "../../v2/sequence/capture_workflow_controller.h"
 #include "../../v2/sequence_test/sequence_test_controller.h"
+#include "../../v2/sequence_test/sequence_test_image_provider.h"
 #include "../../v2/sequence_test/sequence_test_service.h"
 #include "../../v2/state/application_state_store.h"
 #include "../../v2/training/training_controller.h"
@@ -473,6 +474,10 @@ int main(int argc, char *argv[])
     engine.addImageProvider(QStringLiteral("camera-preview"), cameraPreviewProvider);
     engine.addImageProvider(QStringLiteral("sequence-frame"),
                             new desktop_app::v2::sequence::SequenceViewerImageProvider(sequenceViewerController));
+    engine.addImageProvider(
+        QStringLiteral("sequence-test-preview"),
+        new desktop_app::v2::sequence_test::SequenceTestImageProvider(
+            sequenceTestController));
     engine.rootContext()->setContextProperty(QStringLiteral("cameraRuntimeController"),
                                              &cameraController);
     engine.rootContext()->setContextProperty(QStringLiteral("singleImageRuntimeController"),

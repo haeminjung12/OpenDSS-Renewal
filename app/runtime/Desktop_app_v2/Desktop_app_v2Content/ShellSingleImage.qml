@@ -851,6 +851,7 @@ Item {
     Binding { target: screen.sequenceTestWorkspace; property: "hitBoundarySide"; value: root.sequenceHitBoundarySide }
     Binding { target: screen.sequenceTestWorkspace; property: "hitBoundaryEditable"; value: true }
     Binding { target: screen.sequenceTestWorkspace.sequencePreviewImage; property: "source"; value: root.sequenceTestController ? root.sequenceTestController.previewUrl : ""; when: !!root.sequenceTestController }
+    Binding { target: screen.sequenceTestWorkspace.sequencePreviewImage; property: "retainWhileLoading"; value: true }
     Binding { target: screen.sequenceTestWorkspace.sequenceNameField; property: "text"; value: root.sequenceTestController ? (root.sequenceTestController.sequenceName || qsTr("No sequence selected")) : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.sequencePathField; property: "text"; value: root.sequenceTestController ? root.sequenceTestController.sequencePath : ""; when: !!root.sequenceTestController }
     Binding { target: screen.sequenceTestWorkspace.frameCountText; property: "text"; value: root.sequenceTestController ? qsTr("Frames: %1").arg(root.sequenceTestController.frameCount || "—") : ""; when: !!root.sequenceTestController }
@@ -883,6 +884,18 @@ Item {
     Connections {
         target: screen.liveWorkspace.cameraPreviewImage
         function onStatusChanged() { root.acknowledgeActiveCameraPreview() }
+    }
+    Connections {
+        target: screen.sequenceTestWorkspace.sequencePreviewImage
+        function onStatusChanged() {
+            const image = screen.sequenceTestWorkspace.sequencePreviewImage
+            if (root.sequenceTestController
+                    && image.source.toString() !== ""
+                    && (image.status === Image.Ready
+                        || image.status === Image.Error)) {
+                root.sequenceTestController.acknowledgePreviewReady(image.source)
+            }
+        }
     }
     Connections {
         target: screen

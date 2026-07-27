@@ -3,6 +3,8 @@
 #include "sequence_test_service.h"
 
 #include <QByteArray>
+#include <QImage>
+#include <QMutex>
 #include <QObject>
 #include <QJsonObject>
 #include <QUrl>
@@ -112,11 +114,13 @@ class SequenceTestController final : public QObject {
     void setOutputFolderUrl(const QUrl& value);
     QUrl runFolderUrl() const;
     QUrl runSummaryUrl() const;
+    QImage currentPreviewImage() const;
 
     Q_INVOKABLE bool selectSequence(const QUrl& sequenceJson);
     Q_INVOKABLE bool loadToMemory();
     Q_INVOKABLE bool start();
     Q_INVOKABLE bool stop();
+    Q_INVOKABLE void acknowledgePreviewReady(const QUrl& previewUrl);
     Q_INVOKABLE void startAnotherTest();
     Q_INVOKABLE bool openRunFolder();
 
@@ -137,6 +141,10 @@ class SequenceTestController final : public QObject {
     void refreshActiveModel();
     void updatePreflight(bool preserveFailure = false);
     void postProgress(quint64 generation, const SequenceTestProgress& progress);
+    void deliverPendingProgress();
+    void offerPreviewFrame(qint64 frameIndex);
+    void publishPreviewFrame(qint64 frameIndex);
+    void resetProgressTransport();
     void finishLoad(quint64 generation,
                     std::shared_ptr<const LoadedSequence> loaded,
                     qulonglong actualBytes,
@@ -199,6 +207,15 @@ class SequenceTestController final : public QObject {
     QUrl runFolderUrl_;
     QUrl runSummaryUrl_;
     std::shared_ptr<const LoadedSequence> loadedSequence_;
+    mutable QMutex progressMutex_;
+    std::optional<SequenceTestProgress> pendingProgress_;
+    quint64 pendingProgressGeneration_ = 0;
+    bool progressDeliveryScheduled_ = false;
+    mutable QMutex previewImageMutex_;
+    QImage currentPreviewImage_;
+    qint64 pendingPreviewFrame_ = 0;
+    qint64 previewFrameInFlight_ = 0;
+    quint64 previewRevision_ = 0;
 
     std::atomic_bool shuttingDown_{false};
     std::atomic_bool cancelLoad_{false};

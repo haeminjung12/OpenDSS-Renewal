@@ -671,6 +671,8 @@ Item {
         property int stopCallCount: 0
         property int startAnotherCallCount: 0
         property int openRunFolderCallCount: 0
+        property int previewReadyAckCount: 0
+        property url acknowledgedPreviewUrl: ""
 
         function reset() {
             presentation = "selected"
@@ -686,6 +688,9 @@ Item {
             stopCallCount = 0
             startAnotherCallCount = 0
             openRunFolderCallCount = 0
+            previewReadyAckCount = 0
+            acknowledgedPreviewUrl = ""
+            previewUrl = ""
             runFolderUrl = ""
             runSummaryUrl = ""
         }
@@ -694,6 +699,10 @@ Item {
         function loadToMemory() { ++loadToMemoryCallCount; return true }
         function start() { ++startCallCount; return true }
         function stop() { ++stopCallCount; return true }
+        function acknowledgePreviewReady(url) {
+            ++previewReadyAckCount
+            acknowledgedPreviewUrl = url
+        }
         function startAnotherTest() {
             ++startAnotherCallCount
             presentation = "ready"
@@ -2720,6 +2729,29 @@ Item {
         wait(0)
         verify(shell.form.sequenceTestWorkspace.loadSequenceButton.enabled)
         shell.form.sequenceTestWorkspace.loadSequenceButton.clicked()
+    }
+
+    function test_sequenceTestPreviewAcknowledgesReadyAndError() {
+        shell.sequenceTestController = sequenceTestController
+        shell.form.navSequenceTestButton.clicked()
+        wait(0)
+
+        verify(shell.form.sequenceTestWorkspace.sequencePreviewImage.retainWhileLoading)
+        sequenceTestController.previewUrl =
+            "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        tryCompare(shell.form.sequenceTestWorkspace.sequencePreviewImage,
+                   "status", Image.Ready)
+        tryCompare(sequenceTestController, "previewReadyAckCount", 1)
+        compare(sequenceTestController.acknowledgedPreviewUrl,
+                sequenceTestController.previewUrl)
+
+        sequenceTestController.previewUrl =
+            "file:///C:/OpenDSS/missing-sequence-preview-frame.tif"
+        tryCompare(shell.form.sequenceTestWorkspace.sequencePreviewImage,
+                   "status", Image.Error)
+        tryCompare(sequenceTestController, "previewReadyAckCount", 2)
+        compare(sequenceTestController.acknowledgedPreviewUrl,
+                sequenceTestController.previewUrl)
     }
 
     function test_sequenceTestPhysicalDaqRequirement() {

@@ -7,6 +7,7 @@
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMetaObject>
+#include <QMutexLocker>
 #include <QRegularExpression>
 #include <QSet>
 #include <QTemporaryFile>
@@ -363,6 +364,11 @@ QUrl SequenceTestController::runFolderUrl() const { return runFolderUrl_; }
 
 QUrl SequenceTestController::runSummaryUrl() const { return runSummaryUrl_; }
 
+QImage SequenceTestController::currentPreviewImage() const {
+    QMutexLocker locker(&previewImageMutex_);
+    return currentPreviewImage_;
+}
+
 bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     if (inputLocked())
         return false;
@@ -706,6 +712,7 @@ bool SequenceTestController::start() {
     errorMessage_.clear();
     canStart_ = false;
     stopRequested_.store(false, std::memory_order_release);
+    resetProgressTransport();
     emit changed();
 
     try {
@@ -769,6 +776,19 @@ bool SequenceTestController::stop() {
         return false;
     }
     return true;
+}
+
+void SequenceTestController::acknowledgePreviewReady(const QUrl& previewUrl) {
+    if (previewUrl != previewUrl_ || previewFrameInFlight_ == 0)
+        return;
+
+    previewFrameInFlight_ = 0;
+    if (pendingPreviewFrame_ <= 0)
+        return;
+    const qint64 frameIndex = pendingPreviewFrame_;
+    pendingPreviewFrame_ = 0;
+    publishPreviewFrame(frameIndex);
+    emit changed();
 }
 
 void SequenceTestController::refreshPreflight() {
@@ -838,6 +858,7 @@ void SequenceTestController::clearSelectedSequence() {
     requestedProcessingFps_ = 0.0;
     cameraSettings_ = {};
     previewUrl_.clear();
+    resetProgressTransport();
     sequenceValidation_ = QStringLiteral("Not selected");
     bufferBytes_ = 0;
     loadStatus_ = QStringLiteral("Not loaded");
@@ -1011,23 +1032,96 @@ void SequenceTestController::updatePreflight(bool preserveFailure) {
 void SequenceTestController::postProgress(
     quint64 generation,
     const SequenceTestProgress& value) {
+    bool scheduleDelivery = false;
+    {
+        QMutexLocker locker(&progressMutex_);
+        pendingProgress_ = value;
+        pendingProgressGeneration_ = generation;
+        if (!progressDeliveryScheduled_) {
+            progressDeliveryScheduled_ = true;
+            scheduleDelivery = true;
+        }
+    }
+    if (!scheduleDelivery)
+        return;
+
     QMetaObject::invokeMethod(
         this,
-        [this, generation, value] {
-            if (generation != runGeneration_ ||
-                shuttingDown_.load(std::memory_order_acquire)) {
-                return;
-            }
-            processedFrames_ = value.processedFrames;
-            totalFrames_ = value.totalFrames;
-            achievedProcessingFps_ = value.achievedProcessingFps;
-            if (presentation_ == QStringLiteral("starting")) {
-                presentation_ = QStringLiteral("running");
-                outputStatus_ = QStringLiteral("Running");
-            }
-            emit changed();
-        },
+        [this] { deliverPendingProgress(); },
         Qt::QueuedConnection);
+}
+
+void SequenceTestController::deliverPendingProgress() {
+    std::optional<SequenceTestProgress> value;
+    quint64 generation = 0;
+    {
+        QMutexLocker locker(&progressMutex_);
+        value = std::move(pendingProgress_);
+        generation = pendingProgressGeneration_;
+        pendingProgress_.reset();
+        pendingProgressGeneration_ = 0;
+        progressDeliveryScheduled_ = false;
+    }
+    if (!value || generation != runGeneration_ ||
+        shuttingDown_.load(std::memory_order_acquire)) {
+        return;
+    }
+
+    processedFrames_ = value->processedFrames;
+    totalFrames_ = value->totalFrames;
+    achievedProcessingFps_ = value->achievedProcessingFps;
+    offerPreviewFrame(value->processedFrames);
+    if (presentation_ == QStringLiteral("starting")) {
+        presentation_ = QStringLiteral("running");
+        outputStatus_ = QStringLiteral("Running");
+    }
+    emit changed();
+}
+
+void SequenceTestController::offerPreviewFrame(qint64 frameIndex) {
+    if (!loadedSequence_ || frameIndex <= 0 ||
+        frameIndex > loadedSequence_->frames.size()) {
+        return;
+    }
+    if (previewFrameInFlight_ != 0) {
+        pendingPreviewFrame_ = frameIndex;
+        return;
+    }
+    publishPreviewFrame(frameIndex);
+}
+
+void SequenceTestController::publishPreviewFrame(qint64 frameIndex) {
+    if (!loadedSequence_ || frameIndex <= 0 ||
+        frameIndex > loadedSequence_->frames.size()) {
+        return;
+    }
+    {
+        QMutexLocker locker(&previewImageMutex_);
+        currentPreviewImage_ =
+            loadedSequence_->frames.at(frameIndex - 1).image;
+    }
+    previewFrameInFlight_ = frameIndex;
+    ++previewRevision_;
+    previewUrl_ = QUrl(QStringLiteral(
+                           "image://sequence-test-preview/frame"
+                           "?revision=%1&frame=%2")
+                           .arg(previewRevision_)
+                           .arg(frameIndex));
+}
+
+void SequenceTestController::resetProgressTransport() {
+    {
+        QMutexLocker locker(&progressMutex_);
+        pendingProgress_.reset();
+        pendingProgressGeneration_ = 0;
+        progressDeliveryScheduled_ = false;
+    }
+    {
+        QMutexLocker locker(&previewImageMutex_);
+        currentPreviewImage_ = {};
+    }
+    pendingPreviewFrame_ = 0;
+    previewFrameInFlight_ = 0;
 }
 
 void SequenceTestController::finishLoad(

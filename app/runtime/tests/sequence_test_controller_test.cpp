@@ -14,6 +14,7 @@
 #include <QImage>
 #include <QTemporaryDir>
 #include <QThread>
+#include <QUrlQuery>
 
 #include <atomic>
 #include <chrono>
@@ -754,6 +755,100 @@ void asynchronousStopAndTeardown() {
     releaser.join();
 }
 
+qint64 previewFrame(const QUrl& url) {
+    return QUrlQuery(url).queryItemValue(QStringLiteral("frame")).toLongLong();
+}
+
+void latestPreviewTransportIsBounded() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create preview transport temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create preview transport output");
+    constexpr qint64 frameCount = 50;
+    const QString manifest =
+        makeSequence(QDir(temporary.path()).filePath("sequence"), frameCount);
+
+    std::mutex detectorMutex;
+    std::condition_variable detectorChanged;
+    bool thirdFrameEntered = false;
+    bool releaseBurst = false;
+    std::atomic_bool burstFinished{false};
+    FakeDetector detector;
+    detector.onProcess = [&](int index) {
+        if (index == 2) {
+            std::unique_lock lock(detectorMutex);
+            thirdFrameEntered = true;
+            detectorChanged.notify_all();
+            detectorChanged.wait(lock, [&] { return releaseBurst; });
+        }
+        if (index == frameCount - 1)
+            burstFinished.store(true, std::memory_order_release);
+    };
+
+    OperationCoordinator operations;
+    SequenceTestService service(operations, detector, nullptr);
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller =
+        makeController(service, output, availableMemory, resultsRefreshes);
+    int changedCount = 0;
+    QObject::connect(&controller, &SequenceTestController::changed,
+                     [&] { ++changedCount; });
+
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load preview transport Sequence");
+    controller.setTriggerEveryDroplet(true);
+    controller.setRequestedProcessingFps(1000.0);
+    require(controller.start(), "start preview transport Sequence");
+    require(waitUntil([&] {
+                std::lock_guard lock(detectorMutex);
+                return thirdFrameEntered;
+            }),
+            "reach gated third frame");
+    require(waitUntil([&] { return previewFrame(controller.previewUrl()) == 2; }),
+            "publish a processed frame beyond frame one");
+    const QUrl inFlightUrl = controller.previewUrl();
+    require(controller.currentPreviewImage().pixelColor(0, 0).red() == 40,
+            "publish the second immutable buffered frame");
+    const int notificationsBeforeBurst = changedCount;
+
+    {
+        std::lock_guard lock(detectorMutex);
+        releaseBurst = true;
+    }
+    detectorChanged.notify_all();
+    QElapsedTimer burstTimer;
+    burstTimer.start();
+    while (!burstFinished.load(std::memory_order_acquire) &&
+           burstTimer.elapsed() < 5000) {
+        QThread::msleep(1);
+    }
+    require(burstFinished.load(std::memory_order_acquire),
+            "complete burst producer without pumping the GUI queue");
+    QThread::msleep(20);
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+    require(waitUntil([&] {
+                return controller.presentation() == QStringLiteral("completed");
+            }) &&
+                controller.processedFrames() == frameCount &&
+                controller.previewUrl() == inFlightUrl &&
+                changedCount - notificationsBeforeBurst <= 3,
+            "coalesce burst progress while one preview revision is in flight");
+
+    controller.acknowledgePreviewReady(inFlightUrl);
+    require(previewFrame(controller.previewUrl()) == frameCount &&
+                controller.currentPreviewImage().pixelColor(0, 0).red() ==
+                    static_cast<uchar>(frameCount * 20) &&
+                controller.previewUrl() != inFlightUrl,
+            "acknowledgement immediately publishes the newest pending frame");
+    const QUrl finalUrl = controller.previewUrl();
+    controller.acknowledgePreviewReady(finalUrl);
+    require(controller.previewUrl() == finalUrl,
+            "final acknowledgement leaves the rendered final frame stable");
+}
+
 } // namespace
 
 int main(int argc, char** argv) {
@@ -763,5 +858,6 @@ int main(int argc, char** argv) {
     modelRoutingAndDaqFacts();
     failedRunReasonSurvivesAutomaticPreflightRefresh();
     asynchronousStopAndTeardown();
+    latestPreviewTransportIsBounded();
     return 0;
 }

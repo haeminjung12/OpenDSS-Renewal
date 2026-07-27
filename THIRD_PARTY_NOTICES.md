@@ -66,25 +66,30 @@ The top-level license for first-party project code in this repository is Apache-
 - Public redistribution note:
   - The repository owner approved public redistribution of the bundled model files for this release on 2026-07-10.
 
-### Packaged trainer source and dependency manifests
+### Installer-owned Python training runtime
 
 - Evidence in repo:
   - `app/runtime/scripts/package_portable.ps1` copies `training/python/` content into the package.
   - `app/runtime/scripts/check_package.ps1` requires trainer scripts and requirements files in the packaged layout.
-- What is bundled:
-  - `training/python/pyproject.toml`
-  - `training/python/README-windows-training.md`
-  - `training/python/droplet_trainer/`
-  - `training/python/scripts/windows/`
-  - `training/python/requirements/`
-- What is not bundled by the current package flow:
-  - Python itself
-  - user virtual environments
-  - PyTorch wheels
-  - CUDA toolkits/runtime
-  - datasets
-  - checkpoints
-  - generated outputs
+- The release payload bundles only the first-party droplet-trainer 0.2.0 wheel.
+  During installation it downloads the official Python 3.12.10 x64 installer
+  and 36 exact third-party wheels directly from pinned official HTTPS sources.
+  Every download is verified against the repository's single authoritative
+  hash lock before a new local environment is published.
+- CPython is distributed under the Python Software Foundation License:
+  https://docs.python.org/3/license.html
+- PyTorch and torchvision are BSD-style licensed:
+  https://github.com/pytorch/pytorch/blob/main/LICENSE
+  https://github.com/pytorch/vision/blob/main/LICENSE
+- NVIDIA CUDA/cuDNN runtime components delivered inside the qualified PyTorch
+  Windows wheel remain subject to NVIDIA redistribution terms:
+  https://docs.nvidia.com/cuda/eula/
+  https://docs.nvidia.com/deeplearning/cudnn/backend/latest/reference/eula.html
+- ONNX Runtime is MIT licensed:
+  https://github.com/microsoft/onnxruntime/blob/main/LICENSE
+- The remaining Python distributions and exact versions are listed in
+  `training/python/requirements/windows-py312-gpu-cu130-inventory.json`; their
+  license metadata is delivered by their official wheel distributions.
 
 ## Required But Installed Separately By The User
 
@@ -128,28 +133,6 @@ The top-level license for first-party project code in this repository is Apache-
   - https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170
   - https://learn.microsoft.com/en-us/cpp/windows/redistributing-visual-cpp-files?view=msvc-170
 
-## Referenced By Bundled Trainer Manifests But Not Bundled By Current Package Flow
-
-These packages appear in `training/python/pyproject.toml` and `training/python/requirements/*.txt`, but the current package flow copies requirement manifests and helper scripts only. Users install these separately into their own Python environment.
-
-- Python `>=3.10,<3.13`
-- `torch`
-- `torchvision`
-- `numpy`
-- `pillow`
-- `scikit-learn`
-- `pandas`
-- `onnx`
-- `onnxruntime`
-- `onnxscript`
-
-Representative official pages:
-
-- https://pytorch.org/
-- https://numpy.org/
-- https://scikit-learn.org/
-- https://onnxruntime.ai/
-
 ## Components Requiring Redistribution Confirmation Before Public Bundling
 
 - Hamamatsu DCAM SDK/runtime
@@ -158,6 +141,10 @@ Representative official pages:
   - Reason: public installer flow is prerequisite-only, and the repo contains no redistribution confirmation for bundling NI artifacts.
 - Microsoft Visual C++ Redistributable installer payloads
   - Reason: public installer flow is prerequisite-only, and the repo contains no checked-in redistribution terms for bundling the installer payload.
+- NVIDIA CUDA/cuDNN components inside the PyTorch CUDA wheel
+  - Reason: the technical payload and upstream terms are identified, but public
+    release must retain the applicable NVIDIA notices and obtain the project's
+    normal legal/release approval.
 ## Repository Evidence Checked
 
 - `README.md`

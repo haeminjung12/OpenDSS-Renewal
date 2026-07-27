@@ -290,10 +290,10 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
         return false;
     }
 
-    const QFileInfo repositoryInfo(request.repositoryRoot);
-    const QString repositoryRoot = repositoryInfo.absoluteFilePath();
-    if (request.pythonExecutable.trimmed().isEmpty() || !repositoryInfo.isDir()) {
-        lastError_ = QStringLiteral("Python executable and repository root are required.");
+    const QFileInfo workingDirectoryInfo(request.workingDirectory);
+    const QString workingDirectory = workingDirectoryInfo.absoluteFilePath();
+    if (request.pythonExecutable.trimmed().isEmpty() || !workingDirectoryInfo.isDir()) {
+        lastError_ = QStringLiteral("Python executable and working directory are required.");
         operationLease_.transition(OperationLifecycle::Failed);
         operationLease_.release();
         setState(TrainingState::Failed);
@@ -351,13 +351,14 @@ bool TrainingService::start(const TrainingRequest &request, QString *error)
     }
 
     QProcessEnvironment environment = QProcessEnvironment::systemEnvironment();
-    environment.insert(
-        QStringLiteral("PYTHONPATH"),
-        QDir(repositoryRoot).filePath(QStringLiteral("training/python")));
+    environment.remove(QStringLiteral("PYTHONPATH"));
+    environment.remove(QStringLiteral("PYTHONHOME"));
+    environment.insert(QStringLiteral("PYTHONNOUSERSITE"), QStringLiteral("1"));
     process_.setProcessEnvironment(environment);
-    process_.setWorkingDirectory(repositoryRoot);
+    process_.setWorkingDirectory(workingDirectory);
     process_.setProgram(request.pythonExecutable);
     process_.setArguments({
+        QStringLiteral("-I"),
         QStringLiteral("-m"),
         QStringLiteral("droplet_trainer"),
         QStringLiteral("train"),

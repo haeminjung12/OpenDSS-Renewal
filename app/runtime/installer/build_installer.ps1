@@ -7,6 +7,7 @@ param(
     [string]$OnnxDir = "C:\onnxruntime-gpu",
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
     [string]$ModelsDir = "",
+    [string]$TrainerWheelPath = $env:OPENDSS_TRAINER_WHEEL,
     [string]$OutputDir = "",
     [string]$NiInstaller = "",
     [string]$VcRedist = "",
@@ -80,6 +81,7 @@ $packageDir = & $packageScript `
     -OnnxDir $OnnxDir `
     -VcpkgBin $VcpkgBin `
     -ModelsDir $ModelsDir `
+    -TrainerWheelPath $TrainerWheelPath `
     -OutputDir (Join-Path $RepoParent "artifacts\internal-release\portable") `
     -CopyNidaq:$CopyNidaq
 
@@ -125,6 +127,14 @@ $evidence = [ordered]@{
     schema_version = "opendss-installer-evidence-v1"
     installer = [ordered]@{ path = $installerPath; size = $installerFile.Length; product_version = $installerFile.VersionInfo.ProductVersion; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath).Hash }
     vc_redist = [ordered]@{ path = $VcRedist; size = $vcFile.Length; product_version = $vcVersion; sha256 = $vcSha256; signature_status = [string]$vcSignature.Status; signer = $vcSignature.SignerCertificate.Subject }
+    training_bootstrap = [ordered]@{
+        catalog_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
+            Join-Path $packageDir "training\bootstrap\windows-py312-gpu-cu130-downloads.json")).Hash
+        lock_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
+            Join-Path $packageDir "training\bootstrap\windows-py312-gpu-cu130.lock")).Hash
+        embedded_trainer_wheel_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
+            Join-Path $packageDir "training\bootstrap\droplet_trainer-0.2.0-py3-none-any.whl")).Hash
+    }
 }
 $evidence | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $OutputDir "installer_evidence.json") -Encoding UTF8
 Write-Host "Installer created in: $OutputDir"

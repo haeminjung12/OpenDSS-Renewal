@@ -10,7 +10,7 @@ param(
     [switch]$WriteManifest,
     [string]$ManifestPath = "",
     [string]$ExpectedOnnxDir = "C:\onnxruntime-gpu",
-    [string]$ExpectedCudaRuntimeDir = "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu\Lib\site-packages\torch\lib",
+    [string]$ExpectedCudaRuntimeDir = "$env:LOCALAPPDATA\OpenDSS\training-venv-gpu\Lib\site-packages\torch\lib",
     [string]$MinimumOnnxRuntimeMajorMinor = "1.25"
 )
 
@@ -263,6 +263,7 @@ function Test-SimpleModelPackageContract {
 
 $PackageDir = (Resolve-Path -LiteralPath $PackageDir).Path
 $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
+$RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot "..\..")).Path
 if (-not $ManifestPath) {
     $ManifestPath = Join-Path $PackageDir "package_manifest.json"
 }
@@ -307,19 +308,11 @@ foreach ($relativePath in @(
     "training\python\README-windows-training.md",
     "training\python\droplet_trainer\__main__.py",
     "training\python\droplet_trainer\cli.py",
-    "training\python\scripts\windows\create-training-venv.ps1",
-    "training\python\scripts\windows\install-training-cpu.ps1",
-    "training\python\scripts\windows\install-training-gpu-cu128.ps1",
-    "training\python\scripts\windows\install-training-gpu-cu130.ps1",
-    "training\python\scripts\windows\inspect-dataset.ps1",
-    "training\python\scripts\windows\train-model.ps1",
-    "training\python\scripts\windows\validate-dataset.ps1",
-    "training\python\scripts\windows\validate-images.ps1",
-    "training\python\scripts\windows\verify-training-env.ps1",
-    "training\python\requirements\windows-py312-common-constraints.txt",
-    "training\python\requirements\windows-py312-cpu.txt",
-    "training\python\requirements\windows-py312-gpu-cu128.txt",
-    "training\python\requirements\windows-py312-gpu-cu130.txt"
+    "training\python\scripts\windows\provision-training-runtime.ps1",
+    "training\bootstrap\windows-py312-gpu-cu130-downloads.json",
+    "training\bootstrap\windows-py312-gpu-cu130.lock",
+    "training\bootstrap\windows-py312-gpu-cu130-inventory.json",
+    "training\bootstrap\droplet_trainer-0.2.0-py3-none-any.whl"
 )) {
     $requiredPackageFiles.Add($relativePath)
 }
@@ -344,9 +337,141 @@ foreach ($relativePath in @(
     "training\python\build",
     "training\python\outputs",
     "training\python\droplet_trainer.egg-info",
-    "training\python\droplet_trainer\__pycache__"
+    "training\python\droplet_trainer\__pycache__",
+    "training\python\scripts\windows\build-offline-training-payload.ps1",
+    "training\python\scripts\windows\create-training-venv.ps1",
+    "training\python\scripts\windows\inspect-dataset.ps1",
+    "training\python\scripts\windows\install-training-gpu-cu130.ps1",
+    "training\python\scripts\windows\install-training-cpu.ps1",
+    "training\python\scripts\windows\install-training-gpu-cu128.ps1",
+    "training\python\scripts\windows\set-app-trainer-python.ps1",
+    "training\python\scripts\windows\train-model.ps1",
+    "training\python\scripts\windows\validate-dataset.ps1",
+    "training\python\scripts\windows\validate-images.ps1",
+    "training\python\scripts\windows\verify-training-env.ps1",
+    "training\python\requirements\windows-py312-cpu.txt",
+    "training\python\requirements\windows-py312-gpu-cu128.txt",
+    "training\python\requirements\windows-py312-common-constraints.txt",
+    "training\python\requirements\windows-py312-gpu-cu130-downloads.json",
+    "training\python\requirements\windows-py312-gpu-cu130-inventory.json",
+    "training\python\requirements\windows-py312-gpu-cu130.lock",
+    "training\python\requirements\windows-py312-gpu-cu130.txt"
 )) {
     Test-ExcludedPath -List $checks -Errors $errors -Name ("excluded: " + $relativePath) -Path (Join-Path $PackageDir $relativePath) | Out-Null
+}
+
+$trainingBootstrapRoot = Join-Path $PackageDir "training\bootstrap"
+try {
+    $authoritativeRoot = Join-Path $RepoRoot "training\python"
+    foreach ($comparison in @(
+        @{
+            source = Join-Path $authoritativeRoot "requirements\windows-py312-gpu-cu130-downloads.json"
+            packaged = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130-downloads.json"
+            label = "download catalog"
+        },
+        @{
+            source = Join-Path $authoritativeRoot "requirements\windows-py312-gpu-cu130.lock"
+            packaged = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130.lock"
+            label = "lock"
+        },
+        @{
+            source = Join-Path $authoritativeRoot "requirements\windows-py312-gpu-cu130-inventory.json"
+            packaged = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130-inventory.json"
+            label = "inventory"
+        },
+        @{
+            source = Join-Path $authoritativeRoot "scripts\windows\provision-training-runtime.ps1"
+            packaged = Join-Path $PackageDir "training\python\scripts\windows\provision-training-runtime.ps1"
+            label = "provisioner"
+        }
+    )) {
+        $sourceHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $comparison.source).Hash
+        $packagedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $comparison.packaged).Hash
+        if ($sourceHash -ne $packagedHash) {
+            throw "Packaged training bootstrap $($comparison.label) differs from repository authority."
+        }
+    }
+
+    $catalogPath = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130-downloads.json"
+    $lockPath = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130.lock"
+    $inventoryPath = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130-inventory.json"
+    $catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json
+    $inventory = Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json
+    if ([string]$catalog.schema_version -ne "opendss-training-bootstrap-downloads-v1" -or
+        @($catalog.wheels).Count -ne 36) {
+        throw "Training bootstrap download catalog is not accepted."
+    }
+    if ([string]$catalog.python.filename -ne [string]$inventory.python.installer_file -or
+        [string]$catalog.python.url -notmatch "^https://www[.]python[.]org/") {
+        throw "CPython bootstrap source differs from the accepted inventory/source."
+    }
+    $catalogText = Get-Content -LiteralPath $catalogPath -Raw
+    if ($catalogText -match '"sha256"\s*:') {
+        throw "Download catalog must not duplicate authoritative wheel hashes."
+    }
+
+    $filenames = @($catalog.wheels | ForEach-Object { [string]$_.filename })
+    $filenames += [string]$catalog.embedded_wheel
+    if (($filenames | Select-Object -Unique).Count -ne 37) {
+        throw "Training bootstrap filenames must be 37 unique lock targets."
+    }
+    $allowedHosts = @("files.pythonhosted.org", "download.pytorch.org", "download-r2.pytorch.org")
+    foreach ($entry in @($catalog.wheels)) {
+        $uri = [Uri]([string]$entry.url)
+        if ($uri.Scheme -ne "https" -or $allowedHosts -notcontains $uri.DnsSafeHost.ToLowerInvariant() -or
+            [Uri]::UnescapeDataString($uri.Segments[-1]) -ne [string]$entry.filename) {
+            throw "Unapproved training bootstrap URL: $($entry.url)"
+        }
+    }
+
+    $lockEntries = @()
+    foreach ($line in Get-Content -LiteralPath $lockPath) {
+        if ($line -notmatch "==") {
+            continue
+        }
+        if ($line -match
+            "^\s*([A-Za-z0-9_.-]+)==([^\s]+)\s+--hash=sha256:([0-9a-fA-F]{64})\s*$") {
+            $lockEntries += [pscustomobject]@{
+                name = $Matches[1]
+                version = $Matches[2]
+                sha256 = $Matches[3].ToLowerInvariant()
+            }
+        } else {
+            throw "Unsupported authoritative lock line: $line"
+        }
+    }
+    if ($lockEntries.Count -ne 37) {
+        throw "Training lock must contain exactly 37 entries."
+    }
+    foreach ($entry in $lockEntries) {
+        $normalizedName = ([string]$entry.name).ToLowerInvariant() -replace "[-.]+", "_"
+        $prefix = "$normalizedName-$(([string]$entry.version).ToLowerInvariant())-"
+        $matches = @($filenames | Where-Object {
+            $_.ToLowerInvariant().StartsWith($prefix, [System.StringComparison]::Ordinal)
+        })
+        if ($matches.Count -ne 1) {
+            throw "Lock entry $($entry.name)==$($entry.version) resolves to $($matches.Count) bootstrap files."
+        }
+        if ($matches[0] -eq [string]$catalog.embedded_wheel) {
+            $trainerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath (
+                Join-Path $trainingBootstrapRoot $matches[0])).Hash.ToLowerInvariant()
+            if ($trainerHash -ne [string]$entry.sha256) {
+                throw "Embedded OpenDSS trainer wheel differs from the authoritative lock."
+            }
+        }
+    }
+    if ((Test-Path -LiteralPath (Join-Path $PackageDir "training\offline")) -or
+        (Test-Path -LiteralPath (Join-Path $trainingBootstrapRoot "wheelhouse"))) {
+        throw "Embedded offline training payload is prohibited in the bootstrap installer."
+    }
+    Add-CheckResult -List $checks -Name "installer-owned training bootstrap" `
+        -Status "pass" -Path $trainingBootstrapRoot `
+        -Detail "Pinned official HTTPS catalog; hashes remain solely in the exact 37-entry lock."
+} catch {
+    $message = "Training bootstrap validation failed: $($_.Exception.Message)"
+    Add-CheckResult -List $checks -Name "installer-owned training bootstrap" `
+        -Status "fail" -Path $trainingBootstrapRoot -Detail $message
+    [void]$errors.Add($message)
 }
 
 foreach ($datasetDir in $requiredDatasetDirs) {

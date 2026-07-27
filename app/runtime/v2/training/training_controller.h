@@ -46,7 +46,7 @@ public:
     TrainingController(OperationCoordinator &operations, ApplicationStateStore &stateStore,
                        ModelLoadService &modelLoadService, PipelineRunner &pipeline,
                        ModelLibraryController &modelLibraryController,
-                       QString pythonExecutable, QString repositoryRoot,
+                       QString pythonExecutable, QString workingDirectory,
                        QString modelsRoot,
                        QObject *parent = nullptr);
 
@@ -111,7 +111,7 @@ private:
     PipelineRunner &pipeline_;
     ModelLibraryController &modelLibraryController_;
     QString pythonExecutable_;
-    QString repositoryRoot_;
+    QString workingDirectory_;
     QString modelsRoot_;
     QVector<WeightOption> weightOptions_;
     int selectedWeightIndex_ = -1;

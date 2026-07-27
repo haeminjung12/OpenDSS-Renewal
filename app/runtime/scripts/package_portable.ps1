@@ -5,9 +5,10 @@ param(
     [string]$Config = "Release",
     [string]$QtDir = "C:\Qt\6.10.1\msvc2022_64",
     [string]$OnnxDir = "C:\onnxruntime-gpu",
-    [string]$CudaRuntimeDir = "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu\Lib\site-packages\torch\lib",
+    [string]$CudaRuntimeDir = "$env:LOCALAPPDATA\OpenDSS\training-venv-gpu\Lib\site-packages\torch\lib",
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
     [string]$ModelsDir = "",
+    [string]$TrainerWheelPath = $env:OPENDSS_TRAINER_WHEEL,
     [string]$OutputDir = "",
     [switch]$CopyNidaq = $true,
     [switch]$SkipPackageCheck,
@@ -72,12 +73,10 @@ $requiredTrainerFiles = @(
     "README-windows-training.md",
     "droplet_trainer\__main__.py",
     "droplet_trainer\cli.py",
-    "scripts\windows\create-training-venv.ps1",
-    "scripts\windows\install-training-cpu.ps1",
-    "scripts\windows\verify-training-env.ps1",
-    "scripts\windows\train-model.ps1",
-    "requirements\windows-py312-common-constraints.txt",
-    "requirements\windows-py312-cpu.txt"
+    "scripts\windows\provision-training-runtime.ps1",
+    "requirements\windows-py312-gpu-cu130-downloads.json",
+    "requirements\windows-py312-gpu-cu130.lock",
+    "requirements\windows-py312-gpu-cu130-inventory.json"
 )
 
 $BuildDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BuildDir)
@@ -111,6 +110,27 @@ foreach ($relativeTrainerFile in $requiredTrainerFiles) {
     if (-not (Test-Path -LiteralPath $trainerPath)) {
         throw "Required trainer asset not found: $trainerPath"
     }
+}
+if (-not $TrainerWheelPath -or -not (Test-Path -LiteralPath $TrainerWheelPath -PathType Leaf)) {
+    throw "TrainerWheelPath must name the deterministic droplet-trainer 0.2.0 wheel."
+}
+$TrainerWheelPath = (Resolve-Path -LiteralPath $TrainerWheelPath).Path
+$downloadCatalog =
+    Get-Content -LiteralPath (Join-Path $trainerSourceRoot "requirements\windows-py312-gpu-cu130-downloads.json") -Raw |
+        ConvertFrom-Json
+if ((Split-Path -Leaf $TrainerWheelPath) -ne [string]$downloadCatalog.embedded_wheel) {
+    throw "TrainerWheelPath filename differs from the repository-authoritative bootstrap catalog."
+}
+$trainerLockLine = Get-Content -LiteralPath (
+    Join-Path $trainerSourceRoot "requirements\windows-py312-gpu-cu130.lock") |
+        Where-Object { $_ -match "^droplet-trainer==" }
+if (@($trainerLockLine).Count -ne 1 -or
+    $trainerLockLine -notmatch "--hash=sha256:([0-9a-fA-F]{64})$") {
+    throw "Authoritative droplet-trainer lock entry is missing or invalid."
+}
+$trainerWheelHash = (Get-FileHash -LiteralPath $TrainerWheelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($trainerWheelHash -ne $Matches[1].ToLowerInvariant()) {
+    throw "TrainerWheelPath hash differs from the authoritative lock."
 }
 
 $registryPath = Join-Path $ModelsDir "model_registry.json"
@@ -263,6 +283,43 @@ foreach ($trainerFile in @("pyproject.toml", "README-windows-training.md")) {
 Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "droplet_trainer") -DestinationDir (Join-Path $trainerOut "droplet_trainer")
 Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "requirements") -DestinationDir (Join-Path $trainerOut "requirements")
 Copy-FilteredTree -SourceDir (Join-Path $trainerSourceRoot "scripts\windows") -DestinationDir (Join-Path $trainerOut "scripts\windows")
+foreach ($onlineSetupFile in @(
+    "scripts\windows\build-offline-training-payload.ps1",
+    "scripts\windows\create-training-venv.ps1",
+    "scripts\windows\inspect-dataset.ps1",
+    "scripts\windows\install-training-gpu-cu130.ps1",
+    "scripts\windows\install-training-cpu.ps1",
+    "scripts\windows\install-training-gpu-cu128.ps1",
+    "scripts\windows\set-app-trainer-python.ps1",
+    "scripts\windows\train-model.ps1",
+    "scripts\windows\validate-dataset.ps1",
+    "scripts\windows\validate-images.ps1",
+    "scripts\windows\verify-training-env.ps1",
+    "requirements\windows-py312-cpu.txt",
+    "requirements\windows-py312-gpu-cu128.txt",
+    "requirements\windows-py312-common-constraints.txt",
+    "requirements\windows-py312-gpu-cu130-downloads.json",
+    "requirements\windows-py312-gpu-cu130-inventory.json",
+    "requirements\windows-py312-gpu-cu130.lock",
+    "requirements\windows-py312-gpu-cu130.txt"
+)) {
+    $packagedPath = Join-Path $trainerOut $onlineSetupFile
+    if (Test-Path -LiteralPath $packagedPath) {
+        Remove-Item -LiteralPath $packagedPath -Force
+    }
+}
+$bootstrapOut = Join-Path $packageDir "training\bootstrap"
+New-Item -ItemType Directory -Path $bootstrapOut -Force | Out-Null
+foreach ($bootstrapFile in @(
+    "windows-py312-gpu-cu130-downloads.json",
+    "windows-py312-gpu-cu130.lock",
+    "windows-py312-gpu-cu130-inventory.json"
+)) {
+    Copy-Item -LiteralPath (Join-Path $trainerSourceRoot "requirements\$bootstrapFile") `
+        -Destination (Join-Path $bootstrapOut $bootstrapFile) -Force
+}
+Copy-Item -LiteralPath $TrainerWheelPath -Destination (
+    Join-Path $bootstrapOut ([string]$downloadCatalog.embedded_wheel)) -Force
 
 # Deploy Qt runtime and plugins next to the exe.
 & $windeployqt (Join-Path $packageDir $exeName) | Out-Host

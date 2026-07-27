@@ -30,7 +30,7 @@ struct TrainingRequest {
     QString outputDirectory;
     QString pythonExecutable;
     QString device;
-    QString repositoryRoot;
+    QString workingDirectory;
     QString initializationMode;
     QString initializationPath;
 };

@@ -85,6 +85,10 @@ int runFakeTrainer(const QStringList &arguments)
             {QStringLiteral("working_directory"), QDir::currentPath()},
             {QStringLiteral("pythonpath"),
              QProcessEnvironment::systemEnvironment().value(QStringLiteral("PYTHONPATH"))},
+            {QStringLiteral("pythonhome"),
+             QProcessEnvironment::systemEnvironment().value(QStringLiteral("PYTHONHOME"))},
+            {QStringLiteral("python_no_user_site"),
+             QProcessEnvironment::systemEnvironment().value(QStringLiteral("PYTHONNOUSERSITE"))},
         });
 
     if (device == QStringLiteral("fake-cancel")) {
@@ -326,6 +330,8 @@ int main(int argc, char **argv)
     }
     OperationCoordinator operations;
     TrainingService service(operations);
+    qputenv("PYTHONPATH", QByteArrayLiteral("C:\\poisoned-source-tree"));
+    qputenv("PYTHONHOME", QByteArrayLiteral("C:\\poisoned-system-python"));
     QString error;
     bool sawFirstStageEpoch = false;
     bool sawSecondStageEpoch = false;
@@ -416,9 +422,10 @@ int main(int argc, char **argv)
     QStringList observedArgumentList;
     for (const auto &value : observedArguments)
         observedArgumentList.append(value.toString());
-    if (observedArgumentList.value(0) != QStringLiteral("-m")
-        || observedArgumentList.value(1) != QStringLiteral("droplet_trainer")
-        || observedArgumentList.value(2) != QStringLiteral("train")
+    if (observedArgumentList.value(0) != QStringLiteral("-I")
+        || observedArgumentList.value(1) != QStringLiteral("-m")
+        || observedArgumentList.value(2) != QStringLiteral("droplet_trainer")
+        || observedArgumentList.value(3) != QStringLiteral("train")
         || argumentValue(observedArgumentList, QStringLiteral("--dataset"))
             != service.preparedManifestPath()
         || argumentValue(observedArgumentList, QStringLiteral("--output")) != fasterOutput
@@ -427,8 +434,10 @@ int main(int argc, char **argv)
         || argumentValue(observedArgumentList, QStringLiteral("--device"))
             != QStringLiteral("fake-success")
         || observation.value(QStringLiteral("working_directory")).toString() != repositoryRoot
-        || observation.value(QStringLiteral("pythonpath")).toString()
-            != QDir(repositoryRoot).filePath(QStringLiteral("training/python"))) {
+        || !observation.value(QStringLiteral("pythonpath")).toString().isEmpty()
+        || !observation.value(QStringLiteral("pythonhome")).toString().isEmpty()
+        || observation.value(QStringLiteral("python_no_user_site")).toString()
+            != QStringLiteral("1")) {
         return fail(8, QStringLiteral("Trainer process command or environment mismatch."));
     }
 

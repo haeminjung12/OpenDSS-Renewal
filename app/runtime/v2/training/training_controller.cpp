@@ -64,7 +64,7 @@ TrainingController::TrainingController(OperationCoordinator &operations,
                                        PipelineRunner &pipeline,
                                        ModelLibraryController &modelLibraryController,
                                        QString pythonExecutable,
-                                       QString repositoryRoot,
+                                       QString workingDirectory,
                                        QString modelsRoot,
                                        QObject *parent)
     : QObject(parent)
@@ -74,7 +74,7 @@ TrainingController::TrainingController(OperationCoordinator &operations,
     , pipeline_(pipeline)
     , modelLibraryController_(modelLibraryController)
     , pythonExecutable_(std::move(pythonExecutable))
-    , repositoryRoot_(std::move(repositoryRoot))
+    , workingDirectory_(std::move(workingDirectory))
     , modelsRoot_(
           modelsRoot.trimmed().isEmpty()
               ? QDir(QStandardPaths::writableLocation(
@@ -181,7 +181,7 @@ QString TrainingController::inputError() const
     if (!outputDirectoryUrl_.isValid() || !outputDirectoryUrl_.isLocalFile())
         return QStringLiteral("Output directory must be a local file URL.");
     if (pythonExecutable_.trimmed().isEmpty()
-        || !QFileInfo(repositoryRoot_).isDir()) {
+        || !QFileInfo(workingDirectory_).isDir()) {
         return QStringLiteral("Training environment unavailable.");
     }
     return {};
@@ -294,7 +294,7 @@ bool TrainingController::start()
         pythonExecutable_,
         requestedDevice_ == QStringLiteral("gpu") ? QStringLiteral("cuda")
                                                    : QStringLiteral("cpu"),
-        repositoryRoot_,
+        workingDirectory_,
         weights.initializationMode,
         weights.path,
     };

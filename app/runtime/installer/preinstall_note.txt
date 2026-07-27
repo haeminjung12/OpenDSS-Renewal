@@ -1,13 +1,9 @@
 Pre-install requirements
 
-- A supported Hamamatsu camera and the official DCAM runtime/driver are prerequisites for the complete OpenDSS laboratory workflow. The installer does not bundle DCAM.
+- Internet access is required during installation. The installer downloads Python 3.12.10 x64 and the exact PyTorch 2.10.0 CUDA 13.0 / ONNX Runtime GPU 1.25.1 dependency set from pinned official HTTPS sources, then verifies every file against the OpenDSS hash lock. No network fallback is used after installation.
+- The runtime is provisioned transactionally at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`. A compatible NVIDIA GPU is used automatically. The same environment falls back factually to CPU when a compatible GPU is unavailable.
+- A current NVIDIA driver is an external prerequisite for GPU acceleration. Its absence does not prevent CPU training.
+- A supported Hamamatsu camera and the official DCAM runtime/driver are external prerequisites for the complete laboratory workflow. The installer does not bundle DCAM.
+- Supported National Instruments DAQ hardware and NI-DAQmx are external prerequisites for sorting/trigger output. The installer does not bundle NI-DAQmx.
 - The installer includes the required Microsoft Visual C++ x64 runtime and installs or updates it automatically when needed.
-- This installer layers on the validated portable package output. It copies the packaged application, models, and bundled `training\python` source/scripts/docs, but it does not bundle Python, virtual environments, datasets, checkpoints, smoke outputs, or generated training/model outputs.
-- Training and trainer-side model testing require Python 3.12 x64. Install it from https://www.python.org/downloads/windows/ with the Python Launcher selected; Add Python to PATH is not required.
-- After installation, open PowerShell in `%ProgramFiles%\OpenDSS\training\python`. Run `create-training-venv.ps1`, then either `install-training-cpu.ps1` for CPU or `install-training-gpu-cu130.ps1` for a compatible NVIDIA GPU with a current driver. Full commands and verification steps are in `training\python\README-windows-training.md` and the GitHub README.
-- Expected managed environments are `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv` (CPU) and `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv-gpu` (GPU). Verify them with `verify-training-env.ps1`. Packaged ONNX inference uses the qualified CPU provider.
-- Supported National Instruments DAQ hardware and NI-DAQmx are prerequisites for the complete sorting/trigger workflow. The installer does not bundle or run NI-DAQmx installer payloads.
-  Installer: https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html?srsltid=AfmBOoripP8sW1nXF0W7AAqlBqDBFPvAkvA-Otli6j6Q3Jcj7YSqsefx#590033
-  How to install: https://download.ni.com/support/manuals/373235aa.pdf
-- Packaging validation does not exercise live DAQ output. Verify DAQ behavior separately on approved hardware after NI-DAQmx is installed.
-- OpenDSS may be launched without hardware for diagnostics and packaged-model inspection. This diagnostic mode does not make the camera or DAQ prerequisites optional for laboratory operation.
+- OpenDSS may be launched without Camera or DAQ hardware for training, diagnostics, and packaged-model inspection.

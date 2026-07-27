@@ -59,19 +59,9 @@
 
 namespace {
 
-QString repositoryRoot()
+QString trainingWorkingDirectory()
 {
-    QDir directory(QCoreApplication::applicationDirPath());
-    for (int level = 0; level < 10; ++level) {
-        if (QFileInfo(directory.filePath(
-                          QStringLiteral("training/python/droplet_trainer/__main__.py")))
-                .isFile()) {
-            return directory.absolutePath();
-        }
-        if (!directory.cdUp())
-            break;
-    }
-    return {};
+    return QCoreApplication::applicationDirPath();
 }
 
 QString trainingPythonExecutable()
@@ -80,15 +70,9 @@ QString trainingPythonExecutable()
     if (localAppData.isEmpty())
         return {};
 
-    const QDir root(localAppData);
-    const QString gpuPython = root.filePath(
-        QStringLiteral("OpenVisualDropletSorter/training-venv-gpu/Scripts/python.exe"));
-    if (QFileInfo(gpuPython).isFile())
-        return gpuPython;
-
-    const QString cpuPython = root.filePath(
-        QStringLiteral("OpenVisualDropletSorter/training-venv/Scripts/python.exe"));
-    return QFileInfo(cpuPython).isFile() ? cpuPython : QString{};
+    const QString installerOwned =
+        QDir(localAppData).filePath(QStringLiteral("OpenDSS/training-venv-gpu/Scripts/python.exe"));
+    return QFileInfo(installerOwned).isFile() ? installerOwned : QString();
 }
 
 QJsonObject provisionalFastDetectorSettings(const FastEventConfig &config)
@@ -229,7 +213,7 @@ int main(int argc, char *argv[])
     });
     desktop_app::v2::training::TrainingController trainingController(
         operationCoordinator, applicationStateStore, modelLoadService, pipeline,
-        modelLibraryController, trainingPythonExecutable(), repositoryRoot(),
+        modelLibraryController, trainingPythonExecutable(), trainingWorkingDirectory(),
         defaultOpenDssModelsPath());
     desktop_app::v2::model_test::ModelTestController modelTestController(
         operationCoordinator, modelLoadService, QCoreApplication::applicationVersion());

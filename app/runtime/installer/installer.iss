@@ -88,6 +88,22 @@ begin
   end
   else if CurStep = ssPostInstall then
     Log('Microsoft VC++ x64 runtime already satisfies the required version; bundled installer skipped.');
+
+  if CurStep = ssPostInstall then
+  begin
+    WizardForm.StatusLabel.Caption := 'Downloading and verifying the OpenDSS training runtime...';
+    if not Exec(
+      ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      '-NoLogo -NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+        ExpandConstant('{app}\training\python\scripts\windows\provision-training-runtime.ps1') +
+        '" -BootstrapRoot "' + ExpandConstant('{app}\training\bootstrap') +
+        '" -InstallRoot "' + ExpandConstant('{localappdata}\OpenDSS') +
+        '" -CheckOutput "' + ExpandConstant('{localappdata}\OpenDSS\training-runtime-check') + '"',
+      '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+      RaiseException('The OpenDSS training bootstrap could not be started.');
+    if ExitCode <> 0 then
+      RaiseException(Format('The OpenDSS training runtime download or verification failed (exit code %d). The previous accepted runtime, if any, was preserved.', [ExitCode]));
+  end;
 end;
 
 function NeedRestart: Boolean;

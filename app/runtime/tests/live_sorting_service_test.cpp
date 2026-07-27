@@ -319,7 +319,8 @@ void testEveryDropletPulseRouteAndStopped() {
             pulses.fetch_add(1);
             return outputEnabled ? run::DaqPulseStatus::Issued
                                  : run::DaqPulseStatus::SuppressedNotIssued;
-        });
+        },
+        {}, {}, {}, [](QString*) { return true; });
     QString error;
     auto everyDropletRequest = request(temporary.path());
     everyDropletRequest.daqOutputEnabled = true;

@@ -498,6 +498,20 @@ int main(int argc, char *argv[])
 
     if (!engine.rootObjects().isEmpty()) {
         if (auto *window = qobject_cast<QWindow *>(engine.rootObjects().constFirst())) {
+            const auto enforceRestoredMinimum = [window]() {
+                if (window->visibility() != QWindow::Windowed)
+                    return;
+                const QSize clampedSize(qMax(window->width(), 1600),
+                                        qMax(window->height(), 900));
+                if (window->size() != clampedSize)
+                    window->resize(clampedSize);
+            };
+            QObject::connect(window, &QWindow::widthChanged, window,
+                             enforceRestoredMinimum);
+            QObject::connect(window, &QWindow::heightChanged, window,
+                             enforceRestoredMinimum);
+            QObject::connect(window, &QWindow::visibilityChanged, window,
+                             enforceRestoredMinimum);
             window->setMinimumSize(QSize(1600, 900));
             QTimer::singleShot(0, window, &QWindow::showMaximized);
         }

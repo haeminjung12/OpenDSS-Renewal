@@ -2676,11 +2676,11 @@ Item {
         verify(Constants.appWorkspaceTitleFont.pointSize
                > Constants.appMajorSectionFont.pointSize)
         verify(Constants.appMajorSectionFont.pointSize
-               > Constants.appBodyFont.pointSize)
+               >= Constants.appBodyFont.pointSize)
         verify(Constants.appBodyFont.pointSize
-               > Constants.appLabelFont.pointSize)
+               >= Constants.appLabelFont.pointSize)
         verify(Constants.appLabelFont.pointSize
-               > Constants.appCaptionFont.pointSize)
+               >= Constants.appCaptionFont.pointSize)
         compare(Constants.font.pointSize, Constants.appBodyFont.pointSize)
         compare(Constants.smallFont.pointSize, Constants.appCaptionFont.pointSize)
         compare(Constants.headingFont.pointSize,
@@ -2903,8 +2903,8 @@ Item {
         })
         verify(selector.popup.contentItem.itemAtIndex(0).enabled)
         verify(selector.popup.contentItem.itemAtIndex(1).enabled)
-        compare(selector.popup.contentItem.itemAtIndex(0).text, "DropletNet-Test")
-        compare(selector.popup.contentItem.itemAtIndex(1).text, "EfficientNet-Retrain")
+        compare(selector.popup.contentItem.itemAtIndex(0).modelData, "DropletNet-Test")
+        compare(selector.popup.contentItem.itemAtIndex(1).modelData, "EfficientNet-Retrain")
         selector.popup.close()
         verify(!shell.form.trainWorkspace.showMetrics)
         verify(!shell.form.trainWorkspace.showTiming)

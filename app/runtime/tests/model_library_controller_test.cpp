@@ -725,11 +725,11 @@ void testPackageOperations()
             qPrintable(QStringLiteral("set active success: ")
                        + controller.errorMessage()));
     require(controller.activeId() == importedId, "imported model becomes active");
-    require(!controller.canDelete() && !controller.deleteSelected()
-                && controller.activeId() == importedId
-                && controller.modelRows().size() == 1
-                && activeClearCount == 0 && QFileInfo(importedPackage).isDir(),
-            "Active Model removal is blocked without mutation");
+    require(controller.canDelete() && controller.deleteSelected()
+                && controller.activeId().isEmpty()
+                && controller.modelRows().isEmpty()
+                && activeClearCount == 1 && !QFileInfo::exists(importedPackage),
+            "idle Active Model removal clears Active state without selecting a fallback");
 }
 
 void testLibraryOwnedIdentityCreation()

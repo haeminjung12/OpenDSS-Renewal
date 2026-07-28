@@ -328,8 +328,6 @@ bool ModelLibraryController::canDelete() const
 {
     if (operationInProgress_ || selectedPackagePath().isEmpty())
         return false;
-    if (selectedId().compare(activeId(), Qt::CaseInsensitive) == 0)
-        return false;
     return selectedPackageAvailable(ModelAccess::Write);
 }
 
@@ -682,9 +680,6 @@ bool ModelLibraryController::deleteSelected()
     const QString packagePath = selectedPackagePath();
     if (id.isEmpty() || packagePath.isEmpty())
         return fail(QStringLiteral("No model is selected."));
-    if (id.compare(activeId(), Qt::CaseInsensitive) == 0)
-        return fail(QStringLiteral(
-            "The Active Model cannot be removed. Set another model Active first."));
 
     setOperationInProgress(true);
     auto lock = operations_.acquireModel(packagePath, ModelAccess::Write);
@@ -700,8 +695,11 @@ bool ModelLibraryController::deleteSelected()
     const bool deleted = deleteRegisteredModelPackage(
         registryFilePath_, id, &registryCommitted, &deletedActive, &recoveryPath, &error);
     setOperationInProgress(false);
-    if (registryCommitted)
+    if (registryCommitted) {
         refresh();
+        if (deletedActive && activeModelCleared_)
+            activeModelCleared_();
+    }
     if (!deleted)
         return fail(QStringLiteral("Remove Model failed: ") + error);
     errorMessage_ = error;

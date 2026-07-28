@@ -2813,11 +2813,7 @@ bool deleteRegisteredModelPackage(const QString& registryFilePath, const QString
             *error = "The selected Model registry record does not satisfy the current registry schema.";
         return false;
     }
-    if (selectedEntry.value("active").toBool()) {
-        if (error)
-            *error = "The Active Model cannot be removed. Set another model Active first.";
-        return false;
-    }
+    const bool wasActive = selectedEntry.value("active").toBool();
 
     const QString registryPackagePath = absoluteCleanPath(resolvePackagedPathFromRegistryPath(
         registryString(selectedEntry, "package_path")));
@@ -2904,6 +2900,8 @@ bool deleteRegisteredModelPackage(const QString& registryFilePath, const QString
     }
     if (registryCommitted)
         *registryCommitted = true;
+    if (deletedActive)
+        *deletedActive = wasActive;
 
     QString pathInTrash;
     if (!QFile::moveToTrash(stagedRecoveryPath, &pathInTrash)) {

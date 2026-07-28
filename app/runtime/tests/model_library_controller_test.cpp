@@ -736,9 +736,12 @@ void testLibraryOwnedIdentityCreation()
 {
     QTemporaryDir temporary;
     require(temporary.isValid(), "Library identity temporary directory");
-    const QString runtimeModels =
-        QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR)).filePath(
-            QStringLiteral("models"));
+    const QByteArray deployedModelsRoot =
+        qgetenv("OPENDSS_TEST_DEPLOYED_MODELS_ROOT").trimmed();
+    const QString runtimeModels = deployedModelsRoot.isEmpty()
+        ? QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR)).filePath(
+              QStringLiteral("models"))
+        : QDir(QString::fromUtf8(deployedModelsRoot)).absolutePath();
     qputenv("OVDS_MODELS_ROOT_PATH", runtimeModels.toUtf8());
 
     const QString registryPath = createSimpleRegistry(
@@ -789,10 +792,8 @@ void testLibraryOwnedIdentityCreation()
         QDir(identityPackage).filePath(QStringLiteral("metadata.json"));
     const QString identityOnnx =
         QDir(identityPackage).filePath(QStringLiteral("model.onnx"));
-    const QString pretrainedOnnx =
-        QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR))
-            .filePath(QStringLiteral(
-                "models/templates/pretrained/mobilenet_v3_small/model.onnx"));
+    const QString pretrainedOnnx = QDir(runtimeModels).filePath(
+        QStringLiteral("templates/pretrained/mobilenet_v3_small/model.onnx"));
     require(QFileInfo(identityOnnx).isFile()
                 || QFile::copy(pretrainedOnnx, identityOnnx),
             "create trained Library ONNX fixture");

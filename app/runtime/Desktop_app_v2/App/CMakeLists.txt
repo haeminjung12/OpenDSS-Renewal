@@ -199,8 +199,11 @@ add_custom_target(opendss_deploy_qualified_cuda ALL
     COMMAND ${CMAKE_COMMAND} -E copy_if_different
         "${CMAKE_CURRENT_SOURCE_DIR}/../../models/cuda_inference_readiness.json"
         "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../models"
+        "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>/models"
     DEPENDS ${CMAKE_PROJECT_NAME}
-    COMMENT "Deploying qualified ONNX Runtime CUDA 13 provider and readiness evidence"
+    COMMENT "Deploying qualified runtime and bundled model payload"
 )
 
 if (ENABLE_NIDAQMX)

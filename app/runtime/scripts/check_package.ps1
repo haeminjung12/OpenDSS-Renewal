@@ -11,6 +11,7 @@ param(
     [string]$ManifestPath = "",
     [ValidatePattern("^$|^[0-9A-Fa-f]{64}$")]
     [string]$ExpectedOpenDssSha256 = "",
+    [string]$ExpectedDeployedRuntimeRoot = "",
     [string]$ExpectedOnnxDir = "C:\onnxruntime-gpu",
     [string]$ExpectedCudaRuntimeDir = "$env:LOCALAPPDATA\OpenDSS\training-venv-gpu\Lib\site-packages\torch\lib",
     [string]$MinimumOnnxRuntimeMajorMinor = "1.25"
@@ -305,6 +306,14 @@ foreach ($relativePath in @(
     "opencv_imgproc4.dll",
     "opencv_imgcodecs4.dll",
     "platforms\qwindows.dll",
+    "platforminputcontexts\qtvirtualkeyboardplugin.dll",
+    "imageformats\qpdf.dll",
+    "qml\QML\qmldir",
+    "qml\QtQml\qmlplugin.dll",
+    "qml\QtQuick\qtquick2plugin.dll",
+    "qml\QtQuick\Controls\qtquickcontrols2plugin.dll",
+    "qml\QtQuick\Layouts\qquicklayoutsplugin.dll",
+    "qml\QtQuick\Dialogs\qtquickdialogsplugin.dll",
     "models\model_registry.json",
     "training\python\pyproject.toml",
     "training\python\README-windows-training.md",
@@ -338,6 +347,14 @@ Test-Hash -List $checks -Errors $errors -Name "accepted v2 executable identity" 
     -Path (Join-Path $PackageDir "OpenDSS.exe") -Expected $ExpectedOpenDssSha256
 
 foreach ($relativePath in @(
+    "Desktop_app_v2App.exe",
+    "Desktop_app_v2App.exp",
+    "Desktop_app_v2App.lib",
+    "ShellSingleImage-results.txt",
+    "tst_ShellSingleImage.exe",
+    "Qt6Test.dll",
+    "Qt6QuickTest.dll",
+    "qml\QtTest",
     "training\python\build",
     "training\python\outputs",
     "training\python\droplet_trainer.egg-info",
@@ -362,6 +379,62 @@ foreach ($relativePath in @(
     "training\python\requirements\windows-py312-gpu-cu130.txt"
 )) {
     Test-ExcludedPath -List $checks -Errors $errors -Name ("excluded: " + $relativePath) -Path (Join-Path $PackageDir $relativePath) | Out-Null
+}
+
+if ($ExpectedDeployedRuntimeRoot) {
+    try {
+        $expectedRuntimeRoot =
+            (Resolve-Path -LiteralPath $ExpectedDeployedRuntimeRoot).Path
+        $expectedRuntimeAssets = @(
+            Get-ChildItem -LiteralPath (Join-Path $expectedRuntimeRoot "qml") `
+                -Recurse -File |
+                Where-Object {
+                    -not $_.FullName.StartsWith(
+                        (Join-Path $expectedRuntimeRoot "qml\QtTest") + "\",
+                        [System.StringComparison]::OrdinalIgnoreCase)
+                } |
+                ForEach-Object {
+                    $_.FullName.Substring($expectedRuntimeRoot.Length + 1)
+                }
+        )
+        $expectedRuntimeAssets += @(
+            "platforminputcontexts\qtvirtualkeyboardplugin.dll",
+            "imageformats\qpdf.dll"
+        )
+        $runtimeAssetErrors =
+            New-Object System.Collections.Generic.List[string]
+        foreach ($relativePath in $expectedRuntimeAssets) {
+            $sourceAsset = Join-Path $expectedRuntimeRoot $relativePath
+            $packageAsset = Join-Path $PackageDir $relativePath
+            if (-not (Test-Path -LiteralPath $packageAsset -PathType Leaf)) {
+                [void]$runtimeAssetErrors.Add("missing $relativePath")
+                continue
+            }
+            $sourceHash =
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $sourceAsset).Hash
+            $packageHash =
+                (Get-FileHash -Algorithm SHA256 -LiteralPath $packageAsset).Hash
+            if ($sourceHash -ne $packageHash) {
+                [void]$runtimeAssetErrors.Add("changed $relativePath")
+            }
+        }
+        if ($runtimeAssetErrors.Count) {
+            $message = "Accepted deployed runtime closure differs: " +
+                (($runtimeAssetErrors | Select-Object -First 10) -join "; ")
+            Add-CheckResult -List $checks -Name "accepted deployed QML/plugin closure" `
+                -Status "fail" -Path $ExpectedDeployedRuntimeRoot -Detail $message
+            [void]$errors.Add($message)
+        } else {
+            Add-CheckResult -List $checks -Name "accepted deployed QML/plugin closure" `
+                -Status "pass" -Path $ExpectedDeployedRuntimeRoot `
+                -Detail "$($expectedRuntimeAssets.Count) accepted runtime files matched by SHA-256; QtTest excluded."
+        }
+    } catch {
+        $message = "Accepted deployed runtime closure check failed: $($_.Exception.Message)"
+        Add-CheckResult -List $checks -Name "accepted deployed QML/plugin closure" `
+            -Status "fail" -Path $ExpectedDeployedRuntimeRoot -Detail $message
+        [void]$errors.Add($message)
+    }
 }
 
 $trainingBootstrapRoot = Join-Path $PackageDir "training\bootstrap"

@@ -26,7 +26,8 @@ function Copy-FilteredTree {
         [Parameter(Mandatory = $true)]
         [string]$SourceDir,
         [Parameter(Mandatory = $true)]
-        [string]$DestinationDir
+        [string]$DestinationDir,
+        [string[]]$ExcludedRelativeRoots = @()
     )
 
     $sourceRoot = (Resolve-Path -LiteralPath $SourceDir).Path
@@ -36,6 +37,17 @@ function Copy-FilteredTree {
         $relativePath = $_.FullName.Substring($sourceRoot.Length).TrimStart('\')
         if (-not $relativePath) {
             return
+        }
+        foreach ($excludedRoot in $ExcludedRelativeRoots) {
+            $normalizedRoot = $excludedRoot.Trim("\")
+            if ($relativePath.Equals(
+                    $normalizedRoot,
+                    [System.StringComparison]::OrdinalIgnoreCase) -or
+                $relativePath.StartsWith(
+                    $normalizedRoot + "\",
+                    [System.StringComparison]::OrdinalIgnoreCase)) {
+                return
+            }
         }
         if ($relativePath -match '(^|\\)__pycache__(\\|$)' -or
             $relativePath -like '*.pyc' -or
@@ -94,6 +106,17 @@ if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
 $acceptedExecutableHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exePath).Hash
 if ($acceptedExecutableHash -ne $AcceptedExecutableSha256.ToUpperInvariant()) {
     throw "Accepted v2 executable SHA-256 mismatch. Expected $($AcceptedExecutableSha256.ToUpperInvariant()), got $acceptedExecutableHash."
+}
+$acceptedRuntimeRoot = Split-Path -Parent $exePath
+$acceptedQmlRoot = Join-Path $acceptedRuntimeRoot "qml"
+foreach ($acceptedRuntimeAsset in @(
+    $acceptedQmlRoot,
+    (Join-Path $acceptedRuntimeRoot "platforminputcontexts\qtvirtualkeyboardplugin.dll"),
+    (Join-Path $acceptedRuntimeRoot "imageformats\qpdf.dll")
+)) {
+    if (-not (Test-Path -LiteralPath $acceptedRuntimeAsset)) {
+        throw "Accepted deployed runtime asset not found: $acceptedRuntimeAsset"
+    }
 }
 
 $windeployqt = Join-Path $QtDir "bin\windeployqt.exe"
@@ -218,7 +241,9 @@ foreach ($noticeFile in @("LICENSE", "THIRD_PARTY_NOTICES.md")) {
 # Copy any DLLs that the build already produced beside the executable.
 $buildDllDir = Split-Path $exePath -Parent
 Get-ChildItem -Path $buildDllDir -Filter "*.dll" | ForEach-Object {
-    Copy-Item -Path $_.FullName -Destination $packageDir -Force
+    if (@("Qt6Test.dll", "Qt6QuickTest.dll") -notcontains $_.Name) {
+        Copy-Item -Path $_.FullName -Destination $packageDir -Force
+    }
 }
 
 # Add the selected ONNX Runtime DLLs. The main DLL is required so packages do
@@ -342,6 +367,22 @@ Copy-Item -LiteralPath $TrainerWheelPath -Destination (
 # Deploy Qt runtime and plugins next to the exe.
 & $windeployqt (Join-Path $packageDir $exeName) | Out-Host
 
+# Preserve the accepted deployed QML/runtime plugin closure that windeployqt
+# cannot infer from the resource-embedded application QML root.
+$packagedQmlRoot = Join-Path $packageDir "qml"
+Copy-FilteredTree -SourceDir $acceptedQmlRoot -DestinationDir $packagedQmlRoot `
+    -ExcludedRelativeRoots @("QtTest")
+foreach ($relativeRuntimeAsset in @(
+    "platforminputcontexts\qtvirtualkeyboardplugin.dll",
+    "imageformats\qpdf.dll"
+)) {
+    $sourceRuntimeAsset = Join-Path $acceptedRuntimeRoot $relativeRuntimeAsset
+    $destinationRuntimeAsset = Join-Path $packageDir $relativeRuntimeAsset
+    New-Item -ItemType Directory -Path (Split-Path -Parent $destinationRuntimeAsset) `
+        -Force | Out-Null
+    Copy-Item -LiteralPath $sourceRuntimeAsset -Destination $destinationRuntimeAsset -Force
+}
+
 if (-not $SkipPackageCheck) {
     $checkScript = Join-Path $PSScriptRoot "check_package.ps1"
     if (-not (Test-Path $checkScript)) {
@@ -350,6 +391,7 @@ if (-not $SkipPackageCheck) {
 
     & $checkScript -PackageDir $packageDir -SourceRoot $SourceRoot `
         -ExpectedOpenDssSha256 $acceptedExecutableHash `
+        -ExpectedDeployedRuntimeRoot $acceptedRuntimeRoot `
         -ExpectedOnnxDir $OnnxDir -ExpectedCudaRuntimeDir $CudaRuntimeDir `
         -WriteManifest:(!$NoManifest)
     if ($LASTEXITCODE -ne 0) {

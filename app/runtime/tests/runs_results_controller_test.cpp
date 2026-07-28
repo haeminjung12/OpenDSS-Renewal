@@ -8,6 +8,8 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 
 #include <cstdlib>
@@ -189,7 +191,10 @@ void testRefreshSelectLoadAndNotes()
                     QStringLiteral("class-1")) &&
                 facts.value(QStringLiteral("physicalDaqOutput")).toString() ==
                     QStringLiteral("On") &&
-                !facts.contains(QStringLiteral("hitBoundary")) &&
+                facts.value(QStringLiteral("hitBoundary")).toString() ==
+                    QStringLiteral("Sequence Test — Bottom is Hit") &&
+                !facts.contains(QStringLiteral("hitBoundaryX")) &&
+                !facts.contains(QStringLiteral("hitBoundaryY")) &&
                 facts.value(QStringLiteral("cameraSettings")).toString().contains(
                     QStringLiteral("exposure_us")) &&
                 facts.value(QStringLiteral("decisionHit")).toLongLong() == 1 &&
@@ -252,6 +257,37 @@ void testRefreshSelectLoadAndNotes()
                 controller.selectedRunId().isEmpty() &&
                 controller.loadedRun().isEmpty(),
             "controller refreshes truthful state after Recycle Bin removal");
+}
+
+void testLegacyRunWithoutBoundaryProvenance()
+{
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "temporary legacy boundary root");
+    const QString runFolder = QDir(temporary.path()).filePath(QStringLiteral("Run"));
+    createRun(runFolder);
+
+    const QString summaryPath = QDir(runFolder).filePath(QStringLiteral("run_summary.json"));
+    QFile summary(summaryPath);
+    require(summary.open(QIODevice::ReadOnly), "read legacy Run summary");
+    QJsonObject document = QJsonDocument::fromJson(summary.readAll()).object();
+    summary.close();
+    document.remove(QStringLiteral("hit_boundary"));
+    require(summary.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "rewrite legacy Run summary");
+    require(summary.write(QJsonDocument(document).toJson()) > 0,
+            "write legacy Run summary");
+    summary.close();
+
+    ApplicationStateStore store;
+    store.publishPreferences({temporary.path(), 100});
+    RunRepository repository(store);
+    RunsResultsController controller(repository, store);
+    require(controller.refresh() && controller.selectRun(QStringLiteral("run-001"))
+                && controller.loadSelected(),
+            "load legacy Run without boundary provenance");
+    require(controller.loadedRun().value(QStringLiteral("hitBoundary")).toString()
+                == QStringLiteral("Not recorded"),
+            "legacy Run does not invent boundary provenance");
 }
 
 void testEffectiveRootAggregationAndFallback()
@@ -419,6 +455,7 @@ int main(int argc, char **argv)
         return 0;
     }
     testRefreshSelectLoadAndNotes();
+    testLegacyRunWithoutBoundaryProvenance();
     testEffectiveRootAggregationAndFallback();
     testInvalidEntriesExposeNoFabricatedFacts();
     testErrorsArePublished();

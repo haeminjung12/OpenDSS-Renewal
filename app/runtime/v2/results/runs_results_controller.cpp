@@ -4,6 +4,7 @@
 #include "run_repository.h"
 
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
 #include <QStandardPaths>
@@ -21,6 +22,28 @@ QString operationText(run::RunOperation operation)
     return operation == run::RunOperation::LiveSorting
         ? QStringLiteral("Live Sorting")
         : QStringLiteral("Sequence Test");
+}
+
+QString hitBoundaryText(run::RunOperation operation,
+                        const run::HitBoundarySnapshot &boundary)
+{
+    const QString owner = operation == run::RunOperation::LiveSorting
+        ? QStringLiteral("Live")
+        : QStringLiteral("Sequence Test");
+    const QString side = boundary.hitSide == run::HitSide::NegativeY
+        ? QStringLiteral("Top is Hit")
+        : QStringLiteral("Bottom is Hit");
+    return QStringLiteral("%1 — %2").arg(owner, side);
+}
+
+bool hasRecordedHitBoundary(const QString &summaryPath)
+{
+    QFile file(summaryPath);
+    if (!file.open(QIODevice::ReadOnly))
+        return false;
+    return QJsonDocument::fromJson(file.readAll())
+        .object()
+        .contains(QStringLiteral("hit_boundary"));
 }
 
 QString statusText(run::RunStatus status)
@@ -207,6 +230,10 @@ QVariantMap RunsResultsController::loadedRun() const
                       ? QStringLiteral("Every Droplet")
                       : QStringLiteral("Class-Based"));
     result.insert(QStringLiteral("hitClass"), hitClassText(data));
+    result.insert(QStringLiteral("hitBoundary"),
+                  hasRecordedHitBoundary(loaded->entry.summaryPath)
+                      ? hitBoundaryText(loaded->entry.operation, data.hitBoundary)
+                      : QStringLiteral("Not recorded"));
     result.insert(QStringLiteral("physicalDaqOutput"),
                   data.routing.physicalDaqOutputEnabled
                       ? QStringLiteral("On")

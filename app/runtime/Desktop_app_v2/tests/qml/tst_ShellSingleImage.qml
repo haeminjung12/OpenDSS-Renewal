@@ -1688,7 +1688,8 @@ Item {
                 "Empty, Single, MoreThanOne")
         verify(typeof modelLibraryController.selectedDetail.sourceDataset === "undefined")
         verify(typeof modelLibraryController.selectedDetail.trainingMetrics === "undefined")
-        compare(shell.form.modelLibraryWorkspace.selectedModelSourceDataset, "")
+        compare(shell.form.modelLibraryWorkspace.selectedModelSourceDataset,
+                "Not recorded")
         compare(shell.form.modelLibraryWorkspace.selectedModelCreationDate, "2026-07-25")
         compare(shell.form.modelLibraryWorkspace.selectedModelPackageLocation,
                 "C:/OpenDSS/Models/model-candidate")
@@ -3217,6 +3218,7 @@ Item {
 
     function test_liveAndSequenceTestUseProductionControllers() {
         shell.liveSortingController = liveSortingController
+        sequenceTestController.requestedProcessingFps = 30.5647042253521
         shell.sequenceTestController = sequenceTestController
         shell.daqController = daqController
         shell.form.navLiveButton.clicked()
@@ -3308,6 +3310,7 @@ Item {
         compare(shell.form.sequenceTestWorkspace.presentation, "selected")
         compare(shell.form.sequenceTestWorkspace.sequenceNameField.text, "Test Sequence")
         compare(shell.form.sequenceTestWorkspace.frameCountText.text, "Frames: 24")
+        compare(shell.form.sequenceTestWorkspace.processingFpsField.text, "30.56")
         compare(shell.form.sequenceTestWorkspace.hitClassControl.currentIndex, 2)
         compare(shell.form.sequenceTestWorkspace.hitClassControl.currentText, "Single")
         shell.form.sequenceTestWorkspace.hitClassControl.activated(0)

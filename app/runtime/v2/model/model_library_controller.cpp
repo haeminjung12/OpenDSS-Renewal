@@ -77,8 +77,76 @@ QJsonObject projectionEntry(const QJsonObject &entry,
             metadata.value(QStringLiteral("created_at")).toString();
         if (!createdAt.isEmpty())
             projected.insert(QStringLiteral("created_at"), createdAt);
+        for (const QString &key :
+             {QStringLiteral("architecture"), QStringLiteral("training_config"),
+              QStringLiteral("source_dataset")}) {
+            if (metadata.contains(key))
+                projected.insert(key, metadata.value(key));
+        }
     }
     return projected;
+}
+
+QString architectureId(const QJsonObject &entry,
+                       const ModelPackageInspection &inspection)
+{
+    const QString inspected = inspection.architectureId.trimmed();
+    if (!inspected.isEmpty())
+        return inspected;
+
+    const QJsonObject architecture =
+        entry.value(QStringLiteral("architecture")).toObject();
+    const QString recordedId =
+        architecture.value(QStringLiteral("id")).toString().trimmed();
+    if (!recordedId.isEmpty())
+        return recordedId;
+
+    const QString family =
+        architecture.value(QStringLiteral("family")).toString().trimmed();
+    const QString variant =
+        architecture.value(QStringLiteral("variant")).toString().trimmed();
+    if (family.compare(QStringLiteral("MobileNetV3"), Qt::CaseInsensitive) == 0
+        && variant.compare(QStringLiteral("small"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("mobilenet_v3_small");
+    }
+    if (family.compare(QStringLiteral("EfficientNet"), Qt::CaseInsensitive) == 0
+        && variant.compare(QStringLiteral("b0"), Qt::CaseInsensitive) == 0) {
+        return QStringLiteral("efficientnet_b0");
+    }
+
+    return entry.value(QStringLiteral("training_config"))
+        .toObject()
+        .value(QStringLiteral("architecture"))
+        .toString()
+        .trimmed();
+}
+
+QString architectureDisplay(const QString &architecture)
+{
+    if (architecture == QStringLiteral("mobilenet_v3_small"))
+        return QStringLiteral("MobileNetV3-Small");
+    if (architecture == QStringLiteral("efficientnet_b0"))
+        return QStringLiteral("EfficientNet-B0");
+    return architecture;
+}
+
+QString sourceDataset(const QJsonObject &entry)
+{
+    const QString direct =
+        entry.value(QStringLiteral("source_dataset")).toString().trimmed();
+    if (!direct.isEmpty())
+        return direct;
+
+    const QJsonObject training =
+        entry.value(QStringLiteral("training_config")).toObject();
+    for (const QString &key :
+         {QStringLiteral("dataset_manifest"), QStringLiteral("dataset_path"),
+          QStringLiteral("dataset")}) {
+        const QString recorded = training.value(key).toString().trimmed();
+        if (!recorded.isEmpty())
+            return recorded;
+    }
+    return {};
 }
 
 QString performanceLabel(const QJsonObject &entry, const QString &architectureId)
@@ -106,13 +174,15 @@ QVariantMap rowMap(const QJsonObject &entry)
 {
     const ModelPackageInspection inspection = inspectModelPackage(entry);
     const QJsonObject projected = projectionEntry(entry, inspection);
+    const QString architecture = architectureId(projected, inspection);
     return {{QStringLiteral("id"), entryId(entry)},
             {QStringLiteral("name"), entryName(entry)},
-            {QStringLiteral("architecture"), inspection.architectureId},
+            {QStringLiteral("architecture"), architectureDisplay(architecture)},
             {QStringLiteral("userFacingLabel"),
              registryString(projected, QStringLiteral("user_facing_label")).trimmed()},
             {QStringLiteral("performanceLabel"),
-             performanceLabel(projected, inspection.architectureId)},
+             performanceLabel(projected, architecture)},
+            {QStringLiteral("classCount"), inspection.classCount},
             {QStringLiteral("classSummary"), classSummary(projected)},
             {QStringLiteral("active"), entry.value(QStringLiteral("active")).toBool(false)},
             {QStringLiteral("status"), inspection.status},
@@ -306,16 +376,18 @@ QVariantMap ModelLibraryController::selectedDetail() const
     const QJsonObject entry = entries_.at(selectedIndex_).toObject();
     const ModelPackageInspection inspection = inspectModelPackage(entry);
     const QJsonObject projected = projectionEntry(entry, inspection);
+    const QString architecture = architectureId(projected, inspection);
     return {{QStringLiteral("id"), entryId(entry)},
             {QStringLiteral("name"), entryName(entry)},
             {QStringLiteral("active"), entry.value(QStringLiteral("active")).toBool(false)},
-            {QStringLiteral("architecture"), inspection.architectureId},
+            {QStringLiteral("architecture"), architectureDisplay(architecture)},
             {QStringLiteral("userFacingLabel"),
              registryString(projected, QStringLiteral("user_facing_label")).trimmed()},
             {QStringLiteral("performanceLabel"),
-             performanceLabel(projected, inspection.architectureId)},
+             performanceLabel(projected, architecture)},
             {QStringLiteral("classCount"), inspection.classCount},
             {QStringLiteral("classSummary"), classSummary(projected)},
+            {QStringLiteral("sourceDataset"), sourceDataset(projected)},
             {QStringLiteral("createdAt"),
              projected.value(QStringLiteral("created_at")).toString()},
             {QStringLiteral("packageLocation"), inspection.packagePath},

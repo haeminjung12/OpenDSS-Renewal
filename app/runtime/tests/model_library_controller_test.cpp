@@ -104,6 +104,31 @@ QString createRegistry(const QString &root)
     const QString trainedLocalPackage =
         createPackage(QDir(root).filePath(QStringLiteral("trained-local")),
                       QStringLiteral("mobilenet_v3_small"));
+    QFile trainedMetadataFile(
+        QDir(trainedLocalPackage).filePath(QStringLiteral("metadata.json")));
+    require(trainedMetadataFile.open(QIODevice::ReadOnly),
+            "open trained metadata");
+    QJsonObject trainedMetadata =
+        QJsonDocument::fromJson(trainedMetadataFile.readAll()).object();
+    trainedMetadataFile.close();
+    QJsonObject trainedArchitecture =
+        trainedMetadata.value(QStringLiteral("architecture")).toObject();
+    trainedArchitecture.remove(QStringLiteral("id"));
+    trainedMetadata.insert(QStringLiteral("architecture"), trainedArchitecture);
+    QJsonObject trainingConfig =
+        trainedMetadata.value(QStringLiteral("training_config")).toObject();
+    trainingConfig.insert(QStringLiteral("architecture"),
+                          QStringLiteral("mobilenet_v3_small"));
+    trainingConfig.insert(QStringLiteral("dataset_manifest"),
+                          QStringLiteral("C:/OpenDSS/Datasets/training/dataset.json"));
+    trainedMetadata.insert(QStringLiteral("training_config"), trainingConfig);
+    require(trainedMetadataFile.open(QIODevice::WriteOnly | QIODevice::Truncate),
+            "rewrite trained metadata");
+    require(trainedMetadataFile.write(
+                QJsonDocument(trainedMetadata).toJson(QJsonDocument::Indented))
+                > 0,
+            "write trained metadata");
+    trainedMetadataFile.close();
     const QString unknownPackage = QDir(root).filePath(QStringLiteral("unknown_architecture"));
     require(QDir().mkpath(unknownPackage), "create unknown package");
     require(copyFile(QDir(mobileNetPackage).filePath(QStringLiteral("model.onnx")),
@@ -190,9 +215,10 @@ void testRefreshSelectionActivationAndRename()
         rowById(controller.modelRows(), QStringLiteral("trained-local-model"));
     require(trainedRow.value(QStringLiteral("userFacingLabel")).toString().isEmpty()
                 && trainedRow.value(QStringLiteral("architecture")).toString()
-                    == QStringLiteral("mobilenet_v3_small")
+                    == QStringLiteral("MobileNetV3-Small")
                 && trainedRow.value(QStringLiteral("performanceLabel")).toString()
-                    == QStringLiteral("Faster"),
+                    == QStringLiteral("Faster")
+                && trainedRow.value(QStringLiteral("classCount")).toInt() == 3,
             "trained row performance follows inspected supported architecture");
     const QVariantMap unknownRow =
         rowById(controller.modelRows(), QStringLiteral("trained-unknown-model"));
@@ -207,7 +233,7 @@ void testRefreshSelectionActivationAndRename()
                 == QStringLiteral("Pre-trained EfficientNet-B0 — More Accurate"),
             "row name remains factual");
     require(row.value(QStringLiteral("architecture")).toString()
-                == QStringLiteral("efficientnet_b0"),
+                == QStringLiteral("EfficientNet-B0"),
             "row architecture remains factual");
     require(row.value(QStringLiteral("userFacingLabel")).toString()
                 == QStringLiteral("EfficientNet-B0 — More Accurate"),
@@ -218,8 +244,15 @@ void testRefreshSelectionActivationAndRename()
     require(row.value(QStringLiteral("classSummary")).toString()
                 == QStringLiteral("Empty, Single, MoreThanOne"),
             "row class summary remains factual");
+    require(row.value(QStringLiteral("classCount")).toInt() == 3,
+            "row class count remains factual");
     require(!row.value(QStringLiteral("active")).toBool(),
-            "row active flag remains factual");
+              "row active flag remains factual");
+
+    require(controller.select(2), "select trained metadata fallback row");
+    require(controller.selectedDetail().value(QStringLiteral("sourceDataset")).toString()
+                == QStringLiteral("C:/OpenDSS/Datasets/training/dataset.json"),
+            "selected detail exposes only the recorded source Dataset");
 
     require(controller.select(1), qPrintable(controller.errorMessage()));
     require(controller.selectedIndex() == 1
@@ -229,10 +262,13 @@ void testRefreshSelectionActivationAndRename()
     const QVariantMap detail = controller.selectedDetail();
     require(detail.value(QStringLiteral("userFacingLabel")).toString()
                     == QStringLiteral("EfficientNet-B0 — More Accurate")
+                && detail.value(QStringLiteral("architecture")).toString()
+                    == QStringLiteral("EfficientNet-B0")
                 && detail.value(QStringLiteral("performanceLabel")).toString()
                     == QStringLiteral("More Accurate")
                 && detail.value(QStringLiteral("classSummary")).toString()
-                    == QStringLiteral("Empty, Single, MoreThanOne"),
+                    == QStringLiteral("Empty, Single, MoreThanOne")
+                && detail.value(QStringLiteral("sourceDataset")).toString().isEmpty(),
             "selected factual detail");
 
     const QByteArray registryBeforeLock = bytes(registryPath);

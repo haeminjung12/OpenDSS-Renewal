@@ -64,6 +64,7 @@ Item {
     property bool setupProfileExpanded: !setupLocked
     property bool runInformationExpanded: !setupLocked
     property bool triggerTimingExpanded: !completed
+    property bool triggerTimingHeadingEnabled: !root.completed
     property bool outputRecordingExpanded: !setupLocked
     property bool runningExpanded: active || completed
     property string activeModelText: qsTr("Model-042")
@@ -330,7 +331,7 @@ Item {
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Trigger & Timing")
                         expanded: root.triggerTimingExpanded
-                        headingEnabled: !root.completed
+                        headingEnabled: root.triggerTimingHeadingEnabled
                         useIntrinsicBodyHeight: true
 
                         Item {

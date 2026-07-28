@@ -1884,7 +1884,7 @@ Models > Library
 | **Secondary actions** | Add Model; Import Model; Remove Model; Export Model; Duplicate Model; Rename Model; Open in Model Test. |
 | **Required artifact/hardware** | Valid v2 Model Package for package actions. No hardware. Package and registry locks apply. |
 | **Output** | Model Registry changes and file copies/renames/removals as requested. |
-| **Direct disabled reasons** | **No Active Model** → **Selected model is already Active** for Set Active; **Model is in use by <running operation>** for locked mutation/removal. An idle Model Test selection/reference is not an in-use consumer. File-action failures use direct package/path reasons. Removal policy for the currently Active Model remains blocked pending the explicit user decision recorded under `UAT-MODEL-REMOVE-BLK-002`. |
+| **Direct disabled reasons** | **No Active Model** → **Selected model is already Active** for Set Active; **Model is in use by <running operation>** for locked mutation/removal. An idle Model Test selection/reference is not an in-use consumer. File-action failures use direct package/path reasons. When no consumer is running, being the currently Active Model does not disable Remove Model. |
 | **Fault banner** | Below workspace heading; spans master-detail region for validation, parse, copy, rename, remove, registry, or permission failures. |
 | **Applicable presentations** | Empty, Ready, Unavailable for a locked action, Failed. |
 | **Next likely action** | Open selected model in Model Test or navigate to Live after explicitly setting Active. |
@@ -1933,7 +1933,7 @@ Metrics use neutral presentation. No status badge derives from metric values.
 | **Set Active** | Primary when a valid nonactive package is selected and replacement is not locked. Successful activation updates header immediately. |
 | **Add Model** | Opens one popup requiring a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and locally available approved Starting Weights compatible with that Architecture. Library owns this identity. The selector never downloads weights or uses a network fallback. No additional architecture, option, or package schema is added. |
 | **Import Model** | Selects `metadata.json` inside one complete supported v2 Model Package and performs the existing technical and package-integrity checks. Raw weights, a bare ONNX file, an incomplete package, or any selection other than the package's `metadata.json` is not importable. Import does not perform conversion or assign scientific state. |
-| **Remove Model** | Adjacent to Import Model. It retains the existing direct confirmation naming the Model Package and consequence. After confirmation, it moves the OpenDSS-owned complete package folder to the Windows Recycle Bin. It never performs direct permanent deletion and cannot bypass a genuinely running in-use consumer or package-integrity lock. An idle Model Test selection/reference does not make the package in use. Removal policy for the currently Active Model is intentionally unresolved and remains blocked under `UAT-MODEL-REMOVE-BLK-002`; do not infer it. |
+| **Remove Model** | Adjacent to Import Model. It retains the existing direct confirmation naming the Model Package and consequence. When no consumer is running, the selected package may be removed even when it is currently Active. After confirmation, move the OpenDSS-owned complete package folder and files to the Windows Recycle Bin, update the registry, and leave Active Model empty. Do not infer or activate a fallback model. A genuinely running consumer still blocks removal. Preserve package-integrity checks and never perform direct permanent deletion. An idle Model Test selection/reference does not make the package in use. |
 | **Export Model** | Writes the complete package to a user-selected location. |
 | **Duplicate Model** | Creates an independent package copy with a new Model ID and user-provided name/location. |
 | **Rename Model** | Changes the user-facing Model Name without altering weights, Class IDs, or scientific metadata. |
@@ -1948,12 +1948,12 @@ Library owns model identity and creation. Train consumes the Library-defined Nam
 ## 14.8 Lock treatment
 
 - A package consumed by an actually running Model Test, Live, or Sequence Test operation cannot be renamed, removed, replaced, or otherwise mutated. Idle selection/reference is not use.
-- Removal policy for the current Active Model is unresolved under `UAT-MODEL-REMOVE-BLK-002`; do not infer availability or unavailability until the explicit user decision is published.
+- When no consumer is running, the current Active Model may be removed after the existing confirmation. Successful removal moves its package/files to the Windows Recycle Bin, clears the Active Model registry selection, and leaves Active Model empty; no fallback model is inferred.
 - When an operation uses the current Active Model, Set Active cannot replace it until the operation ends.
 - Unrelated packages remain manageable.
 - The locked row/detail displays the owning operation in text, for example `In use by Live Sorting`.
 - Lock styling must not resemble invalid, failed, or scientifically rejected state.
-- Import Model and Remove Model preserve genuinely running in-use, Model Registry, and package-integrity locks; neither action provides a bypass. An idle Model Test selection/reference is not a running in-use lock. The currently Active Model removal policy remains blocked pending explicit user authority.
+- Import Model and Remove Model preserve genuinely running in-use, Model Registry, and package-integrity safety; neither action provides a bypass. An idle Model Test selection/reference is not a running in-use lock. Removing an idle Active Model updates the registry to empty rather than selecting a fallback.
 
 ## 14.9 Keyboard, resizing, and mock states
 
@@ -1961,7 +1961,7 @@ Library owns model identity and creation. Train consumes the Library-defined Nam
 - `Enter` MAY open details or perform the documented row open behavior, but never implicitly activate.
 - Delete key must not remove a package without the named confirmation.
 - Master/detail splitter is resizable. At minimum width, the list remains visible and details may open as a full-height inspector; switching presentation does not change selection.
-- Required mocks: empty library; Add Model popup empty/duplicate Name; MobileNetV3-Small and EfficientNet-B0 identities; one Active model; multiple models; selected nonactive model; selected Active model with Remove Model disposition pending; two-class and three-class rows using exact `2 Class`/`3 Class` text; package selected by idle Model Test; package in use by a running Model Test; Active Model in use by Live; unreadable package; import failure; rename failure; remove confirmation; retraining source protected while a distinct new Name is created.
+- Required mocks: empty library; Add Model popup empty/duplicate Name; MobileNetV3-Small and EfficientNet-B0 identities; one Active model; multiple models; selected nonactive model; idle selected Active model with Remove Model available; Active Model empty after confirmed removal; two-class and three-class rows using exact `2 Class`/`3 Class` text; package selected by idle Model Test; package in use by a running Model Test; Active Model in use by Live; unreadable package; import failure; rename failure; remove confirmation; retraining source protected while a distinct new Name is created.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.6, §8, §13, §16, and D-010; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1, 4.9, and §6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §11, §16, §17, and §18; *OpenDSS Detailed User Workflow Specification* §17 as amended to v2-only import and no scientific states; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §8 master-detail evidence as adapted.
 
@@ -3662,7 +3662,7 @@ The following combined states MUST be previewable because isolated component sta
 | **Sequence Viewer** | No sequence; Ready at first/middle/final frame; unreadable sequence; silently skipped missing frame; Dataset/Run sequence source. |
 | **Train** | No Dataset; no Labeled crops; CPU fallback; GPU; Starting; Running; Stopping; Completed low metrics; Automatic Save; save failure; Active Model update; Interrupted/Failed. |
 | **Model Test** | Missing selections; class mismatch; GPU; CPU fallback; Running; Completed 2-class; Completed 3-class; Interrupted; failed output; Active Model unchanged. |
-| **Library** | Empty; Add Model empty/duplicate Name; one Active model; selected nonactive; selected Active with Remove unavailable; locked package; long list; import/rename/remove failure; remove confirmation; retraining source protected/new Name. |
+| **Library** | Empty; Add Model empty/duplicate Name; one Active model; selected nonactive; idle selected Active with Remove available; Active Model empty after confirmed removal; running-consumer locked package; long list; import/rename/remove failure; remove confirmation; retraining source protected/new Name. |
 | **Live** | Every state and condition listed in §15.19, including no model Trigger Every Droplet, two/three-class Class-Based, both Hit directions, panel lock, counters, Unresolved, and preservation outcomes. |
 | **Sequence Test** | DAQ enabled/disabled; DAQ unavailable; no Camera; with/without model; two/three classes; Running; Completed/Interrupted/Failed. |
 | **Runs list** | Empty; mixed statuses and operation types; unreadable entry; no model; long names. |

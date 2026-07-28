@@ -3,6 +3,9 @@ param(
     [string]$SourceRoot = (Resolve-Path "$PSScriptRoot\..").Path,
     [string]$TrainerWheelPath = $env:OPENDSS_TRAINER_WHEEL,
     [string]$PackageDir = "",
+    [string]$AcceptedExecutablePath = "",
+    [ValidatePattern("^$|^[0-9A-Fa-f]{64}$")]
+    [string]$AcceptedExecutableSha256 = "",
     [string]$InnoSetup = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     [string]$EvidencePath = (
         Join-Path $env:TEMP "opendss-training-installer-preflight.json"
@@ -62,6 +65,23 @@ foreach ($script in @(
             "${script}: " + (($parseErrors | ForEach-Object Message) -join "; "))
     } else {
         Add-Result -Name "PowerShell parser" -Status "pass" -Detail $script
+    }
+}
+
+if (-not $AcceptedExecutablePath -or -not $AcceptedExecutableSha256) {
+    Add-Remaining -Name "accepted v2 executable" -Detail (
+        "Supply AcceptedExecutablePath and AcceptedExecutableSha256 for byte-identity validation.")
+} elseif (-not (Test-Path -LiteralPath $AcceptedExecutablePath -PathType Leaf)) {
+    Add-Failure -Name "accepted v2 executable" -Detail (
+        "Accepted executable does not exist: $AcceptedExecutablePath")
+} else {
+    $acceptedHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $AcceptedExecutablePath).Hash
+    if ($acceptedHash -ne $AcceptedExecutableSha256.ToUpperInvariant()) {
+        Add-Failure -Name "accepted v2 executable" -Detail (
+            "Expected SHA-256 $($AcceptedExecutableSha256.ToUpperInvariant()); got $acceptedHash.")
+    } else {
+        Add-Result -Name "accepted v2 executable" -Status "pass" -Detail (
+            "$AcceptedExecutablePath SHA-256 $acceptedHash")
     }
 }
 
@@ -206,19 +226,72 @@ try {
         }
     }
     $installer = Get-Content -LiteralPath $issPath -Raw
+    $stageMarkers = @(
+        "StageWelcome = 'Welcome'",
+        "StagePrerequisiteCheck = 'Prerequisite Check'",
+        "StageOpenDssInstallation = 'OpenDSS installation'",
+        "StageTrainingEnvironmentSetup = 'Training Environment setup'",
+        "StageFinalVerification = 'Final Verification'"
+    )
+    $previousStageIndex = -1
+    foreach ($marker in $stageMarkers) {
+        $stageIndex = $installer.IndexOf(
+            $marker, [System.StringComparison]::Ordinal)
+        if ($stageIndex -le $previousStageIndex) {
+            throw "Installer stage is absent or out of order: $marker"
+        }
+        $previousStageIndex = $stageIndex
+    }
     foreach ($marker in @(
-        "Downloading and verifying the OpenDSS training runtime",
+        "dcamapi.dll",
+        "nicaiu.dll",
+        "nvcuda.dll",
+        "WinHttp.WinHttpRequest.5.1",
+        "VcRedistRequired",
+        "Driver Required",
+        "Check Again",
+        "https://www.hamamatsu.com/us/en/product/cameras/software/driver-software/dcam-api-for-windows.html",
+        "https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html/",
+        "RunTrainingProvisioner",
         "previous accepted runtime, if any, was preserved",
-        "RaiseException"
+        "Repair Training Environment",
+        "Training: Unavailable",
+        "ProbeTrainingCompute",
+        "Training compute: ",
+        "CUDA",
+        "CPU fallback"
     )) {
         if (-not $installer.Contains($marker)) {
-            throw "Visible installer failure marker is absent: $marker"
+            throw "Installer lifecycle marker is absent: $marker"
         }
     }
-    Add-Result -Name "transaction and visible failure" -Status "pass" -Detail (
-        "Candidate/backup publication, rollback, and visible installer failure are present.")
+    foreach ($forbiddenMarker in @(
+        "RaiseException('The OpenDSS training bootstrap could not be started.')",
+        "RaiseException(Format('The OpenDSS training runtime download or verification failed"
+    )) {
+        if ($installer.Contains($forbiddenMarker)) {
+            throw "Training failure still raises an installer-rollback exception: $forbiddenMarker"
+        }
+    }
+    $packageScript = Get-Content -LiteralPath $packagePath -Raw
+    $checkScript = Get-Content -LiteralPath $checkPath -Raw
+    foreach ($marker in @(
+        "AcceptedExecutablePath",
+        "AcceptedExecutableSha256",
+        "Packaged OpenDSS.exe differs from the accepted v2 executable"
+    )) {
+        if (-not $packageScript.Contains($marker)) {
+            throw "Accepted executable packaging marker is absent: $marker"
+        }
+    }
+    if (-not $checkScript.Contains("two local weights per architecture")) {
+        throw "Exact bundled-weight validation marker is absent."
+    }
+    Add-Result -Name "installer lifecycle and packaging contract" `
+        -Status "pass" -Detail (
+            "Five stages are ordered; prerequisites/actions, recoverable Training, factual final verification, accepted EXE identity, and two weights per architecture are present.")
 } catch {
-    Add-Failure -Name "transaction and visible failure" -Detail $_.Exception.Message
+    Add-Failure -Name "installer lifecycle and packaging contract" -Detail $_.Exception.Message
 }
 
 if (Test-Path -LiteralPath $InnoSetup -PathType Leaf) {

@@ -9,6 +9,8 @@ param(
     [switch]$RequireExternalRuntimes,
     [switch]$WriteManifest,
     [string]$ManifestPath = "",
+    [ValidatePattern("^$|^[0-9A-Fa-f]{64}$")]
+    [string]$ExpectedOpenDssSha256 = "",
     [string]$ExpectedOnnxDir = "C:\onnxruntime-gpu",
     [string]$ExpectedCudaRuntimeDir = "$env:LOCALAPPDATA\OpenDSS\training-venv-gpu\Lib\site-packages\torch\lib",
     [string]$MinimumOnnxRuntimeMajorMinor = "1.25"
@@ -332,6 +334,8 @@ $requiredPackageFiles = @($requiredPackageFiles | Select-Object -Unique)
 foreach ($relativePath in $requiredPackageFiles) {
     Test-RequiredPath -List $checks -Errors $errors -Name $relativePath -Path (Join-Path $PackageDir $relativePath) | Out-Null
 }
+Test-Hash -List $checks -Errors $errors -Name "accepted v2 executable identity" `
+    -Path (Join-Path $PackageDir "OpenDSS.exe") -Expected $ExpectedOpenDssSha256
 
 foreach ($relativePath in @(
     "training\python\build",
@@ -490,6 +494,23 @@ if (Test-Path -LiteralPath $registryPath) {
         [void]$errors.Add($message)
     } else {
         Add-CheckResult -List $checks -Name "simple model registry schema" -Status "pass" -Path $registryPath -Detail "model-registry-v3-simple"
+    }
+    $expectedBundleIds = @(
+        "opendss_blank_efficientnet_b0",
+        "opendss_blank_mobilenet_v3_small",
+        "opendss_pretrained_efficientnet_b0",
+        "opendss_pretrained_mobilenet_v3_small"
+    )
+    $actualBundleIds = @($registry.entries.registry_entry_id | Sort-Object)
+    if (($actualBundleIds -join "|") -ne (($expectedBundleIds | Sort-Object) -join "|")) {
+        $message = "Model registry must contain exactly the blank/ImageNet and pretrained bundle for both accepted architectures."
+        Add-CheckResult -List $checks -Name "two local weights per architecture" `
+            -Status "fail" -Path $registryPath -Detail $message
+        [void]$errors.Add($message)
+    } else {
+        Add-CheckResult -List $checks -Name "two local weights per architecture" `
+            -Status "pass" -Path $registryPath `
+            -Detail "Exactly blank/ImageNet plus pretrained for mobilenet_v3_small and efficientnet_b0."
     }
     foreach ($entry in @($registry.entries)) {
         Test-SimpleModelPackageContract -List $checks -Errors $errors -Name ("model package: " + $entry.registry_entry_id) -Entry $entry -PackageDir $PackageDir

@@ -1,8 +1,10 @@
 param(
     [string]$SourceRoot = (Resolve-Path "$PSScriptRoot\..").Path,
-    [string]$BuildDir = "",
-    [string]$AcceptedBuildDirName = "build-opendss-internal-release",
-    [string]$Config = "Release",
+    [Parameter(Mandatory = $true)]
+    [string]$AcceptedExecutablePath,
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern("^[0-9A-Fa-f]{64}$")]
+    [string]$AcceptedExecutableSha256,
     [string]$QtDir = "C:\Qt\6.10.1\msvc2022_64",
     [string]$OnnxDir = "C:\onnxruntime-gpu",
     [string]$CudaRuntimeDir = "$env:LOCALAPPDATA\OpenDSS\training-venv-gpu\Lib\site-packages\torch\lib",
@@ -13,7 +15,7 @@ param(
         Join-Path $env:LOCALAPPDATA "OpenDSS\training-venv-gpu\Scripts\python.exe"
     ),
     [string]$OutputDir = "",
-    [switch]$CopyNidaq = $true,
+    [switch]$CopyNidaq,
     [switch]$SkipPackageCheck,
     [switch]$NoManifest,
     [string]$NidaqBin = "C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\lib64\msvc"
@@ -58,10 +60,6 @@ $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot "..\..")).Path
 $RepoParent = Split-Path -Parent $RepoRoot
 
-if (-not $BuildDir) {
-    $BuildDir = Join-Path $RepoParent $AcceptedBuildDirName
-    Write-Host "Using accepted build tree default: $BuildDir"
-}
 if (-not $ModelsDir) { $ModelsDir = Join-Path $SourceRoot "models" }
 if (-not $OutputDir) { $OutputDir = Join-Path $RepoParent "artifacts\internal-release" }
 $preparedDatasetRoot = Join-Path $RepoRoot "datasets\prepared"
@@ -83,19 +81,19 @@ $requiredTrainerFiles = @(
     "requirements\windows-py312-gpu-cu130-inventory.json"
 )
 
-$BuildDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BuildDir)
 $OutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDir)
-if ($BuildDir.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "BuildDir must be outside the clean release repo. Got: $BuildDir"
-}
 if ($OutputDir.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "OutputDir must be outside the clean release repo. Got: $OutputDir"
 }
 
 $exeName = "OpenDSS.exe"
-$exePath = Join-Path $BuildDir ("desktop_app\" + $Config + "\" + $exeName)
-if (-not (Test-Path $exePath)) {
-    throw "Executable not found: $exePath"
+$exePath = (Resolve-Path -LiteralPath $AcceptedExecutablePath).Path
+if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
+    throw "Accepted v2 executable not found: $exePath"
+}
+$acceptedExecutableHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $exePath).Hash
+if ($acceptedExecutableHash -ne $AcceptedExecutableSha256.ToUpperInvariant()) {
+    throw "Accepted v2 executable SHA-256 mismatch. Expected $($AcceptedExecutableSha256.ToUpperInvariant()), got $acceptedExecutableHash."
 }
 
 $windeployqt = Join-Path $QtDir "bin\windeployqt.exe"
@@ -202,7 +200,12 @@ $stamp = Get-Date -Format "yyyyMMdd_HHmmss"
 $packageDir = Join-Path $OutputDir ("OpenDSS_" + $stamp)
 New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
 
-Copy-Item -Path $exePath -Destination $packageDir -Force
+$packagedExecutablePath = Join-Path $packageDir $exeName
+Copy-Item -LiteralPath $exePath -Destination $packagedExecutablePath -Force
+$packagedExecutableHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $packagedExecutablePath).Hash
+if ($packagedExecutableHash -ne $acceptedExecutableHash) {
+    throw "Packaged OpenDSS.exe differs from the accepted v2 executable."
+}
 
 foreach ($noticeFile in @("LICENSE", "THIRD_PARTY_NOTICES.md")) {
     $noticePath = Join-Path $RepoRoot $noticeFile
@@ -345,7 +348,10 @@ if (-not $SkipPackageCheck) {
         throw "Package check script not found: $checkScript"
     }
 
-    & $checkScript -PackageDir $packageDir -SourceRoot $SourceRoot -ExpectedOnnxDir $OnnxDir -ExpectedCudaRuntimeDir $CudaRuntimeDir -WriteManifest:(!$NoManifest)
+    & $checkScript -PackageDir $packageDir -SourceRoot $SourceRoot `
+        -ExpectedOpenDssSha256 $acceptedExecutableHash `
+        -ExpectedOnnxDir $OnnxDir -ExpectedCudaRuntimeDir $CudaRuntimeDir `
+        -WriteManifest:(!$NoManifest)
     if ($LASTEXITCODE -ne 0) {
         throw "Package check failed with exit code $LASTEXITCODE"
     }

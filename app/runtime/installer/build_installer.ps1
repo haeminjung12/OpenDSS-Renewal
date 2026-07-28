@@ -1,8 +1,10 @@
 param(
     [string]$SourceRoot = (Resolve-Path "$PSScriptRoot\..").Path,
-    [string]$BuildDir = "",
-    [string]$AcceptedBuildDirName = "build-opendss-internal-release",
-    [string]$Config = "Release",
+    [Parameter(Mandatory = $true)]
+    [string]$AcceptedExecutablePath,
+    [Parameter(Mandatory = $true)]
+    [ValidatePattern("^[0-9A-Fa-f]{64}$")]
+    [string]$AcceptedExecutableSha256,
     [string]$QtDir = "C:\Qt\6.10.1\msvc2022_64",
     [string]$OnnxDir = "C:\onnxruntime-gpu",
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
@@ -12,6 +14,7 @@ param(
         Join-Path $env:LOCALAPPDATA "OpenDSS\training-venv-gpu\Scripts\python.exe"
     ),
     [string]$OutputDir = "",
+    [string]$PortableOutputDir = "",
     [string]$NiInstaller = "",
     [string]$VcRedist = "",
     [string]$VcRedistUrl = "https://aka.ms/vc14/vc_redist.x64.exe",
@@ -23,20 +26,22 @@ $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot "..\..")).Path
 $RepoParent = Split-Path -Parent $RepoRoot
 
-if (-not $BuildDir) {
-    $BuildDir = Join-Path $RepoParent $AcceptedBuildDirName
-    Write-Host "Using accepted build tree default: $BuildDir"
-}
 if (-not $ModelsDir) { $ModelsDir = Join-Path $SourceRoot "models" }
 if (-not $OutputDir) { $OutputDir = Join-Path $RepoParent "artifacts\internal-release\installer" }
 
-$BuildDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($BuildDir)
 $OutputDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDir)
-if ($BuildDir.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
-    throw "BuildDir must be outside the clean release repo. Got: $BuildDir"
+if (-not $PortableOutputDir) {
+    $PortableOutputDir = Join-Path (Split-Path -Parent $OutputDir) "portable"
 }
+$PortableOutputDir =
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $PortableOutputDir)
 if ($OutputDir.StartsWith($RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
     throw "OutputDir must be outside the clean release repo. Got: $OutputDir"
+}
+if ($PortableOutputDir.StartsWith(
+        $RepoRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "PortableOutputDir must be outside the clean release repo. Got: $PortableOutputDir"
 }
 
 if ($NiInstaller) {
@@ -58,7 +63,7 @@ if ($innoFile.VersionInfo.FileDescription -ne "Inno Setup Command-Line Compiler"
 }
 
 if (-not $VcRedist) {
-    $prerequisiteDir = Join-Path $RepoParent "artifacts\internal-release\prerequisites"
+    $prerequisiteDir = Join-Path (Split-Path -Parent $OutputDir) "inputs"
     New-Item -ItemType Directory -Path $prerequisiteDir -Force | Out-Null
     $VcRedist = Join-Path $prerequisiteDir "vc_redist.x64.exe"
     Write-Host "Downloading the official Microsoft Visual C++ x64 runtime..."
@@ -84,16 +89,15 @@ if (-not (Test-Path $packageScript)) {
 
 $packageDir = & $packageScript `
     -SourceRoot $SourceRoot `
-    -BuildDir $BuildDir `
-    -AcceptedBuildDirName $AcceptedBuildDirName `
-    -Config $Config `
+    -AcceptedExecutablePath $AcceptedExecutablePath `
+    -AcceptedExecutableSha256 $AcceptedExecutableSha256 `
     -QtDir $QtDir `
     -OnnxDir $OnnxDir `
     -VcpkgBin $VcpkgBin `
     -ModelsDir $ModelsDir `
     -TrainerWheelPath $TrainerWheelPath `
     -WheelBuildPython $WheelBuildPython `
-    -OutputDir (Join-Path $RepoParent "artifacts\internal-release\portable") `
+    -OutputDir $PortableOutputDir `
     -CopyNidaq:$CopyNidaq
 
 $packageDir = ($packageDir | Select-Object -Last 1)
@@ -106,6 +110,7 @@ $checkScript = Join-Path $SourceRoot "scripts\check_package.ps1"
 & $checkScript `
     -PackageDir $packageDir `
     -SourceRoot $SourceRoot `
+    -ExpectedOpenDssSha256 $AcceptedExecutableSha256 `
     -WriteManifest `
     -VcRedist $VcRedist `
     -RequireVcRedist

@@ -258,27 +258,10 @@ Rectangle {
                                 height: Constants.appStandardControlHeight
                                 enabled: root.libraryModelOptions.length > 0
                                 model: root.libraryModelOptions
-                                delegate: ItemDelegate {
-                                    required property int index
-                                    required property var modelData
-                                    readonly property string compatibilityReason:
-                                        index < root.libraryModelCompatibility.reasons.length
-                                        ? root.libraryModelCompatibility.reasons[index]
-                                        : ""
-                                    width: libraryModelSelector.width
-                                    enabled: compatibilityReason === ""
-                                    highlighted: libraryModelSelector.highlightedIndex === index
-                                    text: compatibilityReason === ""
-                                          ? modelData
-                                          : qsTr("%1 — %2").arg(modelData).arg(compatibilityReason)
-                                }
                             }
                             Text {
                                 visible: root.libraryModelOptions.length === 0
-                                      || !root.libraryModelCompatibility.hasCompatibleModels
-                                text: root.libraryModelOptions.length === 0
-                                      ? qsTr("No Library models are available")
-                                      : qsTr("No compatible Library models are available")
+                                text: qsTr("No Library models are available")
                                 font: Constants.appCaptionFont
                                 color: Constants.mutedTextColor
                                 wrapMode: Text.WordWrap
@@ -319,13 +302,6 @@ Rectangle {
                                 enabled: true
                                 model: [qsTr("GPU"), qsTr("CPU")]
                                 currentIndex: 0
-                            }
-                            Text {
-                                text: qsTr("Training uses a qualified configuration. Split: 70% Training, 15% Validation, 15% Internal Test. Seed: 1729.")
-                                font: Constants.appCaptionFont
-                                color: Constants.mutedTextColor
-                                wrapMode: Text.WordWrap
-                                width: parent.width
                             }
                             Text { text: qsTr("Output Location"); font: Constants.appLabelFont }
                             Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: saveLocationField; text: root.saveLocationText; height: Constants.appStandardControlHeight; width: parent.width - browseButton.width - Constants.spacing } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }

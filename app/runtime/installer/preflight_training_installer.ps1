@@ -257,6 +257,8 @@ try {
         "Repair Training Environment",
         "Training: Unavailable",
         "ProbeTrainingCompute",
+        "else 10)",
+        "ExitCode = 10",
         "Training compute: ",
         "CUDA",
         "CPU fallback"
@@ -267,7 +269,8 @@ try {
     }
     foreach ($forbiddenMarker in @(
         "RaiseException('The OpenDSS training bootstrap could not be started.')",
-        "RaiseException(Format('The OpenDSS training runtime download or verification failed"
+        "RaiseException(Format('The OpenDSS training runtime download or verification failed",
+        "ort.get_available_providers() else 1)"
     )) {
         if ($installer.Contains($forbiddenMarker)) {
             throw "Training failure still raises an installer-rollback exception: $forbiddenMarker"

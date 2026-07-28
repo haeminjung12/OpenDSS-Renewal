@@ -221,7 +221,7 @@ begin
   end;
 
   if not Exec(PythonPath,
-      '-I -c "import sys,torch,onnxruntime as ort;sys.exit(0 if torch.cuda.is_available() and ''CUDAExecutionProvider'' in ort.get_available_providers() else 1)"',
+      '-I -c "import sys,torch,onnxruntime as ort;sys.exit(0 if torch.cuda.is_available() and ''CUDAExecutionProvider'' in ort.get_available_providers() else 10)"',
       '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
   begin
     ComputeStatus := 'Unavailable';
@@ -233,7 +233,7 @@ begin
     ComputeStatus := 'CUDA';
     Result := True;
   end
-  else if ExitCode = 1 then
+  else if ExitCode = 10 then
   begin
     ComputeStatus := 'CPU fallback';
     Result := True;

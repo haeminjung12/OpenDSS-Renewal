@@ -9,7 +9,6 @@
 #include <QFileInfo>
 #include <QVariantMap>
 
-#include <algorithm>
 #include <utility>
 
 namespace desktop_app::v2::training {
@@ -88,20 +87,6 @@ QStringList TrainingController::libraryModelOptions() const
         options.append(option.label);
     return options;
 }
-QVariantMap TrainingController::libraryModelCompatibility() const
-{
-    QStringList reasons;
-    reasons.reserve(weightOptions_.size());
-    bool hasCompatibleModels = false;
-    for (const WeightOption &option : weightOptions_) {
-        reasons.append(option.compatibilityReason);
-        hasCompatibleModels = hasCompatibleModels || option.compatibilityReason.isEmpty();
-    }
-    return {
-        {QStringLiteral("hasCompatibleModels"), hasCompatibleModels},
-        {QStringLiteral("reasons"), reasons},
-    };
-}
 int TrainingController::selectedLibraryModelIndex() const
 {
     return selectedWeightIndex_;
@@ -172,12 +157,6 @@ QString TrainingController::inputError() const
 {
     if (weightOptions_.isEmpty())
         return QStringLiteral("No Library models are available");
-    if (std::none_of(weightOptions_.cbegin(), weightOptions_.cend(),
-                     [](const WeightOption &option) {
-                         return !option.path.isEmpty();
-    })) {
-        return QStringLiteral("No compatible Library models are available");
-    }
     if (!controllerError_.isEmpty())
         return controllerError_;
     if (datasetManifestUrl_.isEmpty())
@@ -190,11 +169,12 @@ QString TrainingController::inputError() const
                                          &datasetError);
     if (dataset && dataset->counts().labeled == 0)
         return QStringLiteral("No Labeled Droplet Crops");
+    const QFileInfo selectedWeight(selectedWeightPath());
     if (selectedWeightIndex_ < 0
         || selectedWeightIndex_ >= weightOptions_.size()
-        || !QFileInfo(selectedWeightPath()).isFile()) {
+        || !selectedWeight.isFile() || !selectedWeight.isReadable()) {
         return QStringLiteral(
-            "No compatible local Weights are available for the selected Architecture.");
+            "The selected Library Starting Weights are unavailable.");
     }
     if (modelName_.trimmed().isEmpty())
         return QStringLiteral("Model name is required.");
@@ -322,29 +302,18 @@ bool TrainingController::selectLibraryModel(int index)
         emit changed();
         return false;
     }
-    if (weightOptions_.at(index).path.isEmpty()) {
-        const QVariantList rows = modelLibraryController_.trainingModelRows();
-        controllerError_ =
-            rows.value(index).toMap()
-                .value(QStringLiteral("compatibilityReason")).toString();
-        if (controllerError_.isEmpty()) {
-            controllerError_ =
-                QStringLiteral("The selected Library model is not compatible.");
-        }
-        emit changed();
-        return false;
-    }
-    if (!QFileInfo(weightOptions_[index].path).isFile()) {
-        controllerError_ =
-            QStringLiteral("The selected Library Starting Weights are no longer available.");
-        refreshLibraryModels();
-        return false;
-    }
     selectedWeightIndex_ = index;
     modelName_ = weightOptions_.at(index).label;
     architecture_ =
         weightOptions_.at(index).architecture == QStringLiteral("efficientnet_b0")
         ? QStringLiteral("efficientnet") : QStringLiteral("mobilenet");
+    const QFileInfo selectedWeight(weightOptions_[index].path);
+    if (!selectedWeight.isFile() || !selectedWeight.isReadable()) {
+        controllerError_ =
+            QStringLiteral("The selected Library Starting Weights are unavailable.");
+        emit changed();
+        return false;
+    }
     controllerError_.clear();
     emit changed();
     return true;
@@ -369,28 +338,20 @@ void TrainingController::refreshLibraryModels()
             row.value(QStringLiteral("architecture")).toString(),
             row.value(QStringLiteral("startingWeights")).toString(),
             row.value(QStringLiteral("packagePath")).toString(),
-            row.value(QStringLiteral("compatibilityReason")).toString(),
         });
     }
 
     selectedWeightIndex_ = -1;
     if (!selectedId.isEmpty()) {
         for (int index = 0; index < weightOptions_.size(); ++index) {
-            if (weightOptions_[index].id == selectedId
-                && !weightOptions_[index].path.isEmpty()) {
+            if (weightOptions_[index].id == selectedId) {
                 selectedWeightIndex_ = index;
                 break;
             }
         }
     }
-    if (selectedWeightIndex_ < 0) {
-        for (int index = 0; index < weightOptions_.size(); ++index) {
-            if (!weightOptions_[index].path.isEmpty()) {
-                selectedWeightIndex_ = index;
-                break;
-            }
-        }
-    }
+    if (selectedWeightIndex_ < 0 && !weightOptions_.isEmpty())
+        selectedWeightIndex_ = 0;
     if (selectedWeightIndex_ >= 0) {
         const WeightOption &selected = weightOptions_.at(selectedWeightIndex_);
         modelName_ = selected.label;

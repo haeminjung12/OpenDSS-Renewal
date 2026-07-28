@@ -325,17 +325,12 @@ void testErrorsAndEmptyPresentation()
     const QVariantList invalidLibraryRows = invalid.modelRows();
     for (const QString &id : {QStringLiteral("missing-metadata"),
                               QStringLiteral("malformed-metadata")}) {
-        const QString reason =
-            rowById(invalidTrainingRows, id)
-                .value(QStringLiteral("compatibilityReason")).toString();
-        require(!reason.isEmpty()
-                    && reason
-                        == rowById(invalidLibraryRows, id)
-                               .value(QStringLiteral("message")).toString()
-                    && reason
-                        != QStringLiteral(
-                            "Architecture is not supported for Training."),
-                "Training preserves the authoritative package inspection error");
+        const QVariantMap trainingRow = rowById(invalidTrainingRows, id);
+        require(trainingRow.value(QStringLiteral("weightPath")).toString().isEmpty()
+                    && !trainingRow.contains(QStringLiteral("compatibilityReason"))
+                    && !rowById(invalidLibraryRows, id)
+                            .value(QStringLiteral("message")).toString().isEmpty(),
+                "Training omits compatibility presentation while preserving package facts");
     }
 }
 
@@ -795,21 +790,40 @@ void testLibraryOwnedIdentityCreation()
         QJsonObject metadata = QJsonDocument::fromJson(file.readAll()).object();
         file.close();
         metadata.insert(QStringLiteral("status"), status);
+        if (status == QStringLiteral("completed")) {
+            const QJsonObject initialization =
+                metadata.value(QStringLiteral("initialization")).toObject();
+            metadata.insert(
+                QStringLiteral("artifact"),
+                QJsonObject{
+                    {QStringLiteral("checkpoint_file"),
+                     initialization.value(QStringLiteral("weight_file"))},
+                    {QStringLiteral("checkpoint_sha256"),
+                     initialization.value(QStringLiteral("weight_sha256"))},
+                });
+        } else {
+            metadata.remove(QStringLiteral("artifact"));
+        }
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
             return false;
         return file.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented)) > 0;
     };
     require(setIdentityStatus(QStringLiteral("completed")),
-            "create incompatible Training identity fixture");
+            "create completed Library model fixture");
     const QVariantList completedRows = controller.trainingModelRows();
     require(completedRows.size() == 1
-                && !completedRows.front().toMap()
-                        .value(QStringLiteral("compatible")).toBool()
                 && completedRows.front().toMap()
-                       .value(QStringLiteral("compatibilityReason")).toString()
-                       == QStringLiteral(
-                           "Use Add Model to create a new Library identity for Training."),
-            "Training keeps a completed package visible but disabled");
+                       .value(QStringLiteral("weightPath")).toString()
+                       == trainingRows.front().toMap()
+                              .value(QStringLiteral("weightPath")).toString()
+                && completedRows.front().toMap()
+                       .value(QStringLiteral("initializationMode")).toString()
+                       == QStringLiteral("checkpoint")
+                && !completedRows.front().toMap().contains(
+                    QStringLiteral("compatible"))
+                && !completedRows.front().toMap().contains(
+                    QStringLiteral("compatibilityReason")),
+            "Training exposes the completed package checkpoint without compatibility state");
     require(setIdentityStatus(QStringLiteral("library_identity")),
             "restore compatible Training identity fixture");
     const QString identityWeight =
@@ -820,13 +834,11 @@ void testLibraryOwnedIdentityCreation()
     tamperedWeight.close();
     const QVariantList tamperedRows = controller.trainingModelRows();
     require(tamperedRows.size() == 1
-                && !tamperedRows.front().toMap()
-                        .value(QStringLiteral("compatible")).toBool()
                 && tamperedRows.front().toMap()
-                       .value(QStringLiteral("compatibilityReason")).toString()
-                       == QStringLiteral(
-                           "Approved local Starting Weights are unavailable."),
-            "Starting Weights hash mismatch disables the visible identity");
+                       .value(QStringLiteral("weightPath")).toString().isEmpty()
+                && !tamperedRows.front().toMap().contains(
+                    QStringLiteral("compatibilityReason")),
+            "Starting Weights hash mismatch leaves a factual unavailable local path");
     const QByteArray registryAfterCreate = bytes(registryPath);
     require(!controller.addModel(QStringLiteral(" new mobilenet identity "), 0, 0,
                                  QUrl::fromLocalFile(selectedRoot))

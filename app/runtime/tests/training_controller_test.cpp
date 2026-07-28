@@ -321,10 +321,6 @@ int main(int argc, char **argv)
             QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT))
                 .absoluteFilePath());
         if (!check(emptyController.libraryModelOptions().isEmpty()
-                       && !emptyController.libraryModelCompatibility()
-                               .value(QStringLiteral("hasCompatibleModels")).toBool()
-                       && emptyController.libraryModelCompatibility()
-                              .value(QStringLiteral("reasons")).toStringList().isEmpty()
                        && emptyController.selectedLibraryModelIndex() == -1
                        && emptyController.errorMessage()
                            == QStringLiteral("No Library models are available"),
@@ -347,50 +343,45 @@ int main(int argc, char **argv)
         readJson(controllerIdentityMetadataPath);
     controllerIdentityMetadata.insert(QStringLiteral("status"),
                                       QStringLiteral("completed"));
+    const QJsonObject controllerInitialization =
+        controllerIdentityMetadata.value(QStringLiteral("initialization")).toObject();
+    controllerIdentityMetadata.insert(
+        QStringLiteral("artifact"),
+        QJsonObject{
+            {QStringLiteral("checkpoint_file"),
+             controllerInitialization.value(QStringLiteral("weight_file"))},
+            {QStringLiteral("checkpoint_sha256"),
+             controllerInitialization.value(QStringLiteral("weight_sha256"))},
+        });
     if (!check(writeJson(controllerIdentityMetadataPath,
                          controllerIdentityMetadata)
                    && modelLibraryController.refresh(),
-               QStringLiteral("Could not create incompatible Library fixture."))) {
+               QStringLiteral("Could not create completed Library fixture."))) {
         return 37;
     }
     {
-        TrainingController incompatibleController(
+        TrainingController completedController(
             operations, stateStore, modelLoadService, pipeline,
             modelLibraryController, QCoreApplication::applicationFilePath(),
             QFileInfo(QStringLiteral(OPENDSS_TEST_REPOSITORY_ROOT))
                 .absoluteFilePath());
         if (!check(
-                incompatibleController.libraryModelOptions()
+                completedController.libraryModelOptions()
                         == QStringList{QStringLiteral("Controller model")}
-                    && !incompatibleController.libraryModelCompatibility()
-                            .value(QStringLiteral("hasCompatibleModels")).toBool()
-                    && incompatibleController.libraryModelCompatibility()
-                           .value(QStringLiteral("reasons")).toStringList()
-                        == QStringList{QStringLiteral(
-                            "Use Add Model to create a new Library identity for Training.")}
-                    && incompatibleController.selectedLibraryModelIndex() == -1
-                    && incompatibleController.errorMessage()
-                        == QStringLiteral(
-                            "No compatible Library models are available"),
+                    && completedController.selectedLibraryModelIndex() == 0
+                    && completedController.modelName()
+                        == QStringLiteral("Controller model")
+                    && completedController.architecture()
+                        == QStringLiteral("MobileNetV3-Small")
+                    && completedController.startingWeights()
+                        == QStringLiteral("ImageNet")
+                    && completedController.selectLibraryModel(0)
+                    && completedController.errorMessage()
+                        == QStringLiteral("No dataset selected."),
                 QStringLiteral(
-                    "Incompatible Library model was hidden or enabled in Train."))
-            || !check(
-                !incompatibleController.selectLibraryModel(0)
-                    && incompatibleController.errorMessage()
-                        == QStringLiteral(
-                            "No compatible Library models are available"),
-                QStringLiteral(
-                    "Incompatible Library selection did not remain disabled."))) {
+                    "Completed Library model was not selectable with factual identity."))) {
             return 38;
         }
-    }
-    controllerIdentityMetadata.insert(QStringLiteral("status"),
-                                      QStringLiteral("library_identity"));
-    if (!check(writeJson(controllerIdentityMetadataPath,
-                         controllerIdentityMetadata)
-                   && modelLibraryController.refresh(),
-               QStringLiteral("Could not restore compatible Library fixture."))) {
-        return 39;
     }
     const QString modelsRoot =
         QDir(temporary.path()).filePath(QStringLiteral("models"));
@@ -529,8 +520,7 @@ int main(int argc, char **argv)
     const int changedSignal = metaObject->indexOfSignal("changed()");
     const char *propertyNames[] = {
         "datasetManifestUrl", "architecture", "modelName", "startingWeights",
-        "libraryModelOptions", "libraryModelCompatibility",
-        "selectedLibraryModelIndex",
+        "libraryModelOptions", "selectedLibraryModelIndex",
         "selectedLibraryModelId", "outputDirectoryUrl",
         "requestedDevice", "presentation", "errorMessage", "stage", "stageEpochs",
         "epoch", "globalEpoch", "resultDirectoryUrl", "modelOnnxUrl", "metadataUrl",
@@ -569,11 +559,6 @@ int main(int argc, char **argv)
     }
     if (!check(controller.libraryModelOptions()
                    == QStringList{QStringLiteral("Controller model")}
-                   && controller.libraryModelCompatibility()
-                          .value(QStringLiteral("hasCompatibleModels")).toBool()
-                   && controller.libraryModelCompatibility()
-                          .value(QStringLiteral("reasons")).toStringList()
-                       == QStringList{QString{}}
                    && controller.selectedLibraryModelIndex() == 0
                    && !controller.selectedLibraryModelId().isEmpty()
                    && controller.modelName() == QStringLiteral("Controller model")
@@ -622,7 +607,7 @@ int main(int argc, char **argv)
                    && !controller.start()
                    && controller.errorMessage()
                        == QStringLiteral(
-                           "No compatible Library models are available"),
+                           "The selected Library Starting Weights are unavailable."),
                QStringLiteral("Training did not block a Starting Weights hash mismatch."))
         || !check(writeBytes(initialIdentityWeightPath, initialIdentityWeights)
                       && modelLibraryController.refresh()
@@ -684,7 +669,7 @@ int main(int argc, char **argv)
                               .toObject()
                               .value(QStringLiteral("mode"))
                               .toString()
-                       == QStringLiteral("imagenet")
+                       == QStringLiteral("checkpoint")
                    && config.value(QStringLiteral("initialization"))
                               .toObject()
                               .value(QStringLiteral("weight_path"))

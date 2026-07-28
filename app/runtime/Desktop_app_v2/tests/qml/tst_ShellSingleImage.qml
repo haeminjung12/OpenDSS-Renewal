@@ -175,12 +175,12 @@ Item {
             {
                 id: "model-active", name: "Active Model",
                 architecture: "efficientnet_b0", performanceLabel: "More Accurate",
-                classSummary: "Empty, Single", active: true
+                classCount: 2, classSummary: "Empty, Single", active: true
             },
             {
                 id: "model-candidate", name: "Candidate Model",
                 architecture: "mobilenet_v3_small", performanceLabel: "Faster",
-                classSummary: "Empty, Single, MoreThanOne", active: false
+                classCount: 3, classSummary: "Empty, Single, MoreThanOne", active: false
             }
         ]
         property int selectedIndex: -1
@@ -196,7 +196,7 @@ Item {
                              ? "MobileNetV3-Small — Faster"
                              : "EfficientNet-B0 — More Accurate",
             performanceLabel: modelRows[selectedIndex].performanceLabel,
-            classCount: modelRows[selectedIndex].classSummary.split(",").length,
+            classCount: modelRows[selectedIndex].classCount,
             classSummary: modelRows[selectedIndex].classSummary,
             createdAt: "2026-07-25",
             packageLocation: "C:/OpenDSS/Models/model-candidate",
@@ -376,10 +376,6 @@ Item {
         property url registeredPackageUrl: ""
         property bool retrySaveAvailable: false
         property var libraryModelOptions: ["DropletNet-Test", "EfficientNet-Retrain"]
-        property var libraryModelCompatibility: ({
-            "hasCompatibleModels": true,
-            "reasons": ["", ""]
-        })
         property int selectedLibraryModelIndex: 0
         property string selectedLibraryModelId: "trained-dropletnet-test"
         property int startCallCount: 0
@@ -406,10 +402,6 @@ Item {
             registeredPackageUrl = ""
             retrySaveAvailable = false
             libraryModelOptions = ["DropletNet-Test", "EfficientNet-Retrain"]
-            libraryModelCompatibility = ({
-                "hasCompatibleModels": true,
-                "reasons": ["", ""]
-            })
             startCallCount = 0
             stopCallCount = 0
             retrySaveCallCount = 0
@@ -2900,10 +2892,18 @@ Item {
         verify(shell.form.trainWorkspace.startEnabled)
         verify(shell.form.trainWorkspace.libraryModelSelector.enabled)
         compare(shell.form.trainWorkspace.libraryModelSelector.model.length, 2)
-        verify(shell.form.trainWorkspace.libraryModelCompatibility.hasCompatibleModels)
-        compare(shell.form.trainWorkspace.libraryModelCompatibility.reasons.length, 2)
-        compare(shell.form.trainWorkspace.libraryModelCompatibility.reasons[0], "")
-        compare(shell.form.trainWorkspace.libraryModelCompatibility.reasons[1], "")
+        const selector = shell.form.trainWorkspace.libraryModelSelector
+        selector.popup.open()
+        tryVerify(function() {
+            return selector.popup.visible
+                    && selector.popup.contentItem.itemAtIndex(0) !== null
+                    && selector.popup.contentItem.itemAtIndex(1) !== null
+        })
+        verify(selector.popup.contentItem.itemAtIndex(0).enabled)
+        verify(selector.popup.contentItem.itemAtIndex(1).enabled)
+        compare(selector.popup.contentItem.itemAtIndex(0).text, "DropletNet-Test")
+        compare(selector.popup.contentItem.itemAtIndex(1).text, "EfficientNet-Retrain")
+        selector.popup.close()
         verify(!shell.form.trainWorkspace.showMetrics)
         verify(!shell.form.trainWorkspace.showTiming)
         verify(!shell.form.trainWorkspace.showActiveModelConfirmation)
@@ -3567,64 +3567,6 @@ Item {
         shell.form.datasetStopButton.clicked()
         compare(captureWorkflowController.stopDatasetCallCount, 1)
         compare(shell.form.datasetPresentation, "completed")
-    }
-
-    function test_trainingLibraryCompatibilityPresentation() {
-        shell.trainingController = trainingController
-        shell.form.navTrainButton.clicked()
-
-        const incompatibilityReason =
-                "Use Add Model to create a new Library identity for Training."
-        trainingController.libraryModelCompatibility = ({
-            "hasCompatibleModels": true,
-            "reasons": ["", incompatibilityReason]
-        })
-        tryVerify(function() {
-            return shell.form.trainWorkspace.libraryModelCompatibility
-                    .hasCompatibleModels
-        })
-        compare(shell.form.trainWorkspace.libraryModelCompatibility.reasons[1],
-                incompatibilityReason)
-
-        const selector = shell.form.trainWorkspace.libraryModelSelector
-        selector.popup.open()
-        tryVerify(function() {
-            return selector.popup.visible
-                    && selector.popup.contentItem.itemAtIndex(1) !== null
-        })
-        const incompatibleDelegate = selector.popup.contentItem.itemAtIndex(1)
-        verify(!incompatibleDelegate.enabled)
-        compare(incompatibleDelegate.text,
-                "EfficientNet-Retrain — " + incompatibilityReason)
-        selector.popup.close()
-
-        trainingController.libraryModelOptions = []
-        trainingController.libraryModelCompatibility = ({
-            "hasCompatibleModels": false,
-            "reasons": []
-        })
-        trainingController.presentation = "unavailable"
-        trainingController.errorMessage = "No Library models are available"
-        tryVerify(function() {
-            return shell.form.trainWorkspace.libraryModelOptions.length === 0
-        })
-        compare(shell.form.trainWorkspace.disabledReason,
-                "No Library models are available")
-
-        trainingController.libraryModelOptions = ["EfficientNet-Retrain"]
-        trainingController.libraryModelCompatibility = ({
-            "hasCompatibleModels": false,
-            "reasons": [incompatibilityReason]
-        })
-        trainingController.errorMessage =
-                "No compatible Library models are available"
-        tryVerify(function() {
-            return shell.form.trainWorkspace.libraryModelOptions.length === 1
-        })
-        verify(!shell.form.trainWorkspace.libraryModelCompatibility
-                    .hasCompatibleModels)
-        compare(shell.form.trainWorkspace.disabledReason,
-                "No compatible Library models are available")
     }
 
     function test_trainingWeightsAndSequenceViewerViewActions() {

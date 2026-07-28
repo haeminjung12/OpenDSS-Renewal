@@ -750,10 +750,14 @@ void testLibraryOwnedIdentityCreation()
     ModelLibraryController controller(registryPath, operations);
     require(controller.refresh(), qPrintable(controller.errorMessage()));
     require(controller.startingWeightOptions(0)
-                == QStringList{QStringLiteral("ImageNet")}
+                == QStringList{QStringLiteral("ImageNet"),
+                               QStringLiteral("Pretrained")}
+                && controller.startingWeightOptions(1)
+                       == QStringList{QStringLiteral("ImageNet"),
+                                      QStringLiteral("Pretrained")}
                 && !controller.addModel(QString(), 0, 0,
                                         QUrl::fromLocalFile(selectedRoot)),
-            "Add Model requires a nonblank Name");
+            "Add Model exposes both valid local bundles and requires a nonblank Name");
     require(controller.addModel(QStringLiteral("New MobileNet Identity"), 0, 0,
                                 QUrl::fromLocalFile(selectedRoot)),
             qPrintable(controller.errorMessage()));
@@ -802,6 +806,14 @@ void testLibraryOwnedIdentityCreation()
         file.close();
         metadata.insert(QStringLiteral("status"), status);
         if (status == QStringLiteral("trained")) {
+            metadata.insert(
+                QStringLiteral("architecture"),
+                QJsonObject{
+                    {QStringLiteral("family"), QStringLiteral("MobileNetV3")},
+                    {QStringLiteral("variant"), QStringLiteral("small")},
+                });
+            metadata.insert(QStringLiteral("migration_sentinel"),
+                            QStringLiteral("preserved"));
             const QJsonObject initialization =
                 metadata.value(QStringLiteral("initialization")).toObject();
             metadata.insert(
@@ -810,12 +822,6 @@ void testLibraryOwnedIdentityCreation()
                     {QStringLiteral("onnx_file"), QStringLiteral("model.onnx")},
                     {QStringLiteral("checkpoint_file"),
                      initialization.value(QStringLiteral("weight_file"))},
-                    {QStringLiteral("checkpoint_sha256"),
-                     initialization.value(QStringLiteral("weight_sha256"))},
-                    {QStringLiteral("output_tensor"),
-                     QJsonObject{
-                         {QStringLiteral("shape"), QJsonArray{1, 3}},
-                     }},
                 });
         } else if (!preserveArtifact) {
             metadata.remove(QStringLiteral("artifact"));
@@ -835,11 +841,31 @@ void testLibraryOwnedIdentityCreation()
                 && trainedRows.front().toMap()
                        .value(QStringLiteral("initializationMode")).toString()
                        == QStringLiteral("checkpoint")
+                && trainedRows.front().toMap()
+                       .value(QStringLiteral("architecture")).toString()
+                       == QStringLiteral("mobilenet_v3_small")
                 && !trainedRows.front().toMap().contains(
                     QStringLiteral("compatible"))
                 && !trainedRows.front().toMap().contains(
                     QStringLiteral("compatibilityReason")),
             "Training exposes the trained package checkpoint without compatibility state");
+    QFile migratedMetadataFile(identityMetadata);
+    require(migratedMetadataFile.open(QIODevice::ReadOnly),
+            "read migrated trained Library metadata");
+    const QJsonObject migratedMetadata =
+        QJsonDocument::fromJson(migratedMetadataFile.readAll()).object();
+    require(migratedMetadata.value(QStringLiteral("artifact"))
+                    .toObject()
+                    .value(QStringLiteral("checkpoint_sha256"))
+                    .toString()
+                    == migratedMetadata.value(QStringLiteral("initialization"))
+                           .toObject()
+                           .value(QStringLiteral("weight_sha256"))
+                           .toString(),
+            "Training atomically declares a legacy local checkpoint before use");
+    require(migratedMetadata.value(QStringLiteral("migration_sentinel")).toString()
+                == QStringLiteral("preserved"),
+            "legacy hash migration preserves the current metadata snapshot");
     require(setIdentityStatus(QStringLiteral("failed"), true),
             "create non-completed Library model fixture");
     const QVariantList failedRows = controller.trainingModelRows();

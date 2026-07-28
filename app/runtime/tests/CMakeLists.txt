@@ -295,7 +295,7 @@ add_test(
     "PATH=${ONNXRUNTIME_DIR}/lib\\;$<TARGET_FILE_DIR:model_library_controller_test>\\;$<TARGET_FILE_DIR:Qt6::Core>\\;$ENV{SystemRoot}/System32\\;$ENV{SystemRoot}"
     $<TARGET_FILE:model_library_controller_test>
 )
-set_tests_properties(model_library_controller_test PROPERTIES TIMEOUT 15)
+set_tests_properties(model_library_controller_test PROPERTIES TIMEOUT 30)
 
 qt_add_executable(dataset_manifest_v2_test
   dataset_manifest_v2_test.cpp

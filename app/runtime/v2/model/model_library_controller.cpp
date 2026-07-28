@@ -190,24 +190,67 @@ bool imageNetTemplateIsValid(const QString &architecture, QString *packagePath =
 }
 
 bool packageCheckpointIsValid(const QString &packagePath, const QJsonObject &metadata,
-                              QString *checkpointPath = nullptr)
+                              QString *checkpointPath = nullptr,
+                              bool migrateMissingHash = false)
 {
-    const QJsonObject artifact = metadata.value(QStringLiteral("artifact")).toObject();
+    QJsonObject artifact = metadata.value(QStringLiteral("artifact")).toObject();
     const QString checkpointFile =
         artifact.value(QStringLiteral("checkpoint_file")).toString().trimmed();
-    const QString expectedHash =
+    QString expectedHash =
         artifact.value(QStringLiteral("checkpoint_sha256")).toString().trimmed();
     const QFileInfo checkpoint(QDir(packagePath).filePath(checkpointFile));
+    if (checkpointFile.isEmpty() || QFileInfo(checkpointFile).isAbsolute()
+        || checkpoint.fileName() != checkpointFile || !checkpoint.isFile()
+        || !checkpoint.isReadable()) {
+        return false;
+    }
+    const QString actualHash = fileSha256(checkpoint.absoluteFilePath());
+    if (actualHash.isEmpty())
+        return false;
+    if (expectedHash.isEmpty()) {
+        if (!migrateMissingHash)
+            return false;
+        artifact.insert(QStringLiteral("checkpoint_sha256"), actualHash);
+        QJsonObject migrated = metadata;
+        migrated.insert(QStringLiteral("artifact"), artifact);
+        QSaveFile metadataFile(
+            QDir(packagePath).filePath(QStringLiteral("metadata.json")));
+        if (!metadataFile.open(QIODevice::WriteOnly)
+            || metadataFile.write(
+                   QJsonDocument(migrated).toJson(QJsonDocument::Indented))
+                   <= 0
+            || !metadataFile.commit()) {
+            return false;
+        }
+        expectedHash = packageMetadata(packagePath)
+                           .value(QStringLiteral("artifact"))
+                           .toObject()
+                           .value(QStringLiteral("checkpoint_sha256"))
+                           .toString()
+                           .trimmed();
+    }
     const bool valid =
-        !checkpointFile.isEmpty() && !QFileInfo(checkpointFile).isAbsolute()
-        && checkpoint.fileName() == checkpointFile && checkpoint.isFile()
-        && checkpoint.isReadable()
-        && !expectedHash.isEmpty()
-        && fileSha256(checkpoint.absoluteFilePath()).compare(
-               expectedHash, Qt::CaseInsensitive) == 0;
+        actualHash.compare(expectedHash, Qt::CaseInsensitive) == 0;
     if (valid && checkpointPath)
         *checkpointPath = checkpoint.absoluteFilePath();
     return valid;
+}
+
+bool pretrainedTemplateIsValid(const QString &architecture,
+                               QString *packagePath = nullptr)
+{
+    const ModelPackageInspection inspection = inspectModelPackage(
+        packagedModernModelRegistryEntry(architecture,
+                                         QStringLiteral("pretrained")));
+    const QJsonObject metadata = packageMetadata(inspection.packagePath);
+    if (metadata.value(QStringLiteral("status")).toString()
+            != QStringLiteral("trained")
+        || !packageCheckpointIsValid(inspection.packagePath, metadata)) {
+        return false;
+    }
+    if (packagePath)
+        *packagePath = inspection.packagePath;
+    return true;
 }
 
 QString architectureIdForIndex(int index)
@@ -347,6 +390,26 @@ QVariantList ModelLibraryController::trainingModelRows() const
             metadata.value(QStringLiteral("initialization")).toObject();
         const QString mode =
             initialization.value(QStringLiteral("mode")).toString();
+        QString architectureId = inspection.architectureId;
+        if (architectureId.isEmpty()) {
+            const QJsonObject architecture =
+                metadata.value(QStringLiteral("architecture")).toObject();
+            const QString family =
+                architecture.value(QStringLiteral("family")).toString();
+            const QString variant =
+                architecture.value(QStringLiteral("variant")).toString();
+            if (family.compare(QStringLiteral("MobileNetV3"),
+                               Qt::CaseInsensitive) == 0
+                && variant.compare(QStringLiteral("small"),
+                                   Qt::CaseInsensitive) == 0) {
+                architectureId = QStringLiteral("mobilenet_v3_small");
+            } else if (family.compare(QStringLiteral("EfficientNet"),
+                                      Qt::CaseInsensitive) == 0
+                       && variant.compare(QStringLiteral("b0"),
+                                          Qt::CaseInsensitive) == 0) {
+                architectureId = QStringLiteral("efficientnet_b0");
+            }
+        }
         QString weightPath;
         QString initializationMode;
         if (metadata.value(QStringLiteral("status")).toString()
@@ -358,24 +421,42 @@ QVariantList ModelLibraryController::trainingModelRows() const
                 initializationMode = mode;
             }
         } else {
-            QString validationError;
             const bool supportedArchitecture =
-                inspection.architectureId == QStringLiteral("mobilenet_v3_small")
-                || inspection.architectureId == QStringLiteral("efficientnet_b0");
-            if (metadata.value(QStringLiteral("status")).toString()
-                    == QStringLiteral("trained")
-                && supportedArchitecture
-                && validateCompleteV2ModelPackage(inspection.packagePath,
-                                                  &validationError)
-                && packageCheckpointIsValid(inspection.packagePath, metadata,
-                                            &weightPath)) {
+                architectureId == QStringLiteral("mobilenet_v3_small")
+                || architectureId == QStringLiteral("efficientnet_b0");
+            const bool trained =
+                metadata.value(QStringLiteral("status")).toString()
+                == QStringLiteral("trained");
+            const bool checkpointHashMissing =
+                metadata.value(QStringLiteral("artifact"))
+                    .toObject()
+                    .value(QStringLiteral("checkpoint_sha256"))
+                    .toString()
+                    .trimmed()
+                    .isEmpty();
+            bool checkpointValid = false;
+            if (trained && supportedArchitecture && checkpointHashMissing) {
+                auto lock = operations_.acquireModel(
+                    inspection.packagePath, ModelAccess::Write);
+                if (lock.acquired()) {
+                    const QJsonObject lockedMetadata =
+                        packageMetadata(inspection.packagePath);
+                    checkpointValid = packageCheckpointIsValid(
+                        inspection.packagePath, lockedMetadata, &weightPath,
+                        true);
+                }
+            } else if (trained && supportedArchitecture) {
+                checkpointValid = packageCheckpointIsValid(
+                    inspection.packagePath, metadata, &weightPath);
+            }
+            if (checkpointValid) {
                 initializationMode = QStringLiteral("checkpoint");
             }
         }
         rows.append(QVariantMap{
             {QStringLiteral("id"), entryId(entry)},
             {QStringLiteral("name"), entryName(entry)},
-            {QStringLiteral("architecture"), inspection.architectureId},
+            {QStringLiteral("architecture"), architectureId},
             {QStringLiteral("startingWeights"),
              mode == QStringLiteral("imagenet")
                  ? QStringLiteral("ImageNet")
@@ -430,18 +511,8 @@ QStringList ModelLibraryController::startingWeightOptions(int architectureIndex)
     QStringList options;
     if (imageNetTemplateIsValid(architecture))
         options.append(QStringLiteral("ImageNet"));
-    for (const QJsonValue &value : entries_) {
-        const QJsonObject entry = value.toObject();
-        const ModelPackageInspection inspection = inspectModelPackage(entry);
-        const QJsonObject metadata = packageMetadata(inspection.packagePath);
-        QString validationError;
-        if (inspection.architectureId == architecture
-            && validateCompleteV2ModelPackage(inspection.packagePath,
-                                              &validationError)
-            && packageCheckpointIsValid(inspection.packagePath, metadata)) {
-            options.append(entryName(entry));
-        }
-    }
+    if (pretrainedTemplateIsValid(architecture))
+        options.append(QStringLiteral("Pretrained"));
     return options;
 }
 
@@ -469,23 +540,13 @@ bool ModelLibraryController::addModel(const QString &name, int architectureIndex
         if (!imageNetTemplateIsValid(architecture, &sourcePackagePath))
             return fail(QStringLiteral("The approved ImageNet Starting Weights are unavailable."));
         initializationMode = QStringLiteral("imagenet");
+    } else if (selectedStartingWeights == QStringLiteral("Pretrained")) {
+        if (!pretrainedTemplateIsValid(architecture, &sourcePackagePath))
+            return fail(QStringLiteral(
+                "The approved Pretrained Starting Weights are unavailable."));
+        initializationMode = QStringLiteral("checkpoint");
     } else {
-        for (const QJsonValue &value : entries_) {
-            const QJsonObject entry = value.toObject();
-            const ModelPackageInspection inspection = inspectModelPackage(entry);
-            const QJsonObject metadata = packageMetadata(inspection.packagePath);
-            QString validationError;
-            if (inspection.architectureId != architecture
-                || !validateCompleteV2ModelPackage(inspection.packagePath,
-                                                   &validationError)
-                || !packageCheckpointIsValid(inspection.packagePath, metadata)
-                || entryName(entry) != selectedStartingWeights) {
-                continue;
-            }
-            sourcePackagePath = inspection.packagePath;
-            initializationMode = QStringLiteral("checkpoint");
-            break;
-        }
+        return fail(QStringLiteral("Select approved Starting Weights."));
     }
     if (sourcePackagePath.isEmpty())
         return fail(QStringLiteral("Select approved Starting Weights."));

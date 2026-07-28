@@ -319,11 +319,8 @@ Item {
         }
 
         function startingWeightOptions(architectureIndex) {
-            return architectureIndex === 0
-                    ? (revision > 1
-                       ? ["ImageNet", "Candidate Model", "Training Destination"]
-                       : ["ImageNet", "Candidate Model"])
-                    : ["ImageNet", "Active Model"]
+            return architectureIndex === 0 || architectureIndex === 1
+                    ? ["ImageNet", "Pretrained"] : []
         }
 
         function addModel(name, architectureIndex, startingWeightsIndex,
@@ -1664,7 +1661,11 @@ Item {
         compare(modelLibraryController.addedDestinationRoot.toString(),
                 textSizeController.libraryCreateOutputRoot.toString())
         compare(shell.form.modelLibraryWorkspace.addModelStartingWeightsSelector.model.length,
-                3)
+                2)
+        compare(shell.form.modelLibraryWorkspace.addModelStartingWeightsSelector.model[0],
+                "ImageNet")
+        compare(shell.form.modelLibraryWorkspace.addModelStartingWeightsSelector.model[1],
+                "Pretrained")
         verify(!shell.form.modelLibraryWorkspace.addModelPopup.opened)
 
         shell.mockState.selectedWorkspace = "library"

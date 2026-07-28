@@ -8,10 +8,22 @@ QtObject {
     readonly property real textScale: 1.375 * Math.max(80, Math.min(200, textSizePercent)) / 100
     // Remove the legacy visual tokens after every workspace consumes the approved App* component tokens.
     readonly property real designTextScale: textSizePercent === 80 ? 0.8 : (textSizePercent === 125 ? 1.25 : 1.0)
-    readonly property font font: Qt.font({ pointSize: 12 * textScale })
-    readonly property font smallFont: Qt.font({ pointSize: 10.5 * textScale })
-    readonly property font headingFont: Qt.font({ pointSize: 14.25 * textScale, bold: true })
-    readonly property font largeFont: Qt.font({ pointSize: 19.5 * textScale })
+
+    readonly property font appWorkspaceTitleFont: Qt.font({ family: "Segoe UI Variable", pointSize: 18 * designTextScale })
+    readonly property font appMajorSectionFont: Qt.font({ family: "Segoe UI Variable", pointSize: 13.5 * designTextScale, weight: Font.DemiBold })
+    readonly property font appSectionFont: Qt.font({ family: "Segoe UI Variable", pointSize: 12 * designTextScale, weight: Font.DemiBold })
+    readonly property font appBodyFont: Qt.font({ family: "Segoe UI Variable", pointSize: 12 * designTextScale })
+    readonly property font appButtonFont: Qt.font({ family: "Segoe UI Variable", pointSize: 12 * designTextScale, weight: Font.DemiBold })
+    readonly property font appLabelFont: Qt.font({ family: "Segoe UI Variable", pointSize: 11.25 * designTextScale })
+    readonly property font appCaptionFont: Qt.font({ family: "Segoe UI Variable", pointSize: 9.75 * designTextScale })
+    readonly property font appMetadataFont: Qt.font({ family: "Segoe UI Variable", pointSize: 9.75 * designTextScale })
+    readonly property font appMetricFont: Qt.font({ family: "Segoe UI Variable", pointSize: 18 * designTextScale, weight: Font.DemiBold })
+    readonly property font appInspectorRailGlyphFont: Qt.font({ family: "Segoe UI Variable", pointSize: 9.75 * designTextScale, weight: Font.DemiBold })
+
+    readonly property font font: appBodyFont
+    readonly property font smallFont: appCaptionFont
+    readonly property font headingFont: appMajorSectionFont
+    readonly property font largeFont: appWorkspaceTitleFont
 
     readonly property int shellHeaderHeight: Math.round(44 * textScale)
     readonly property int navigationWidth: Math.round(208 * textScale)
@@ -38,13 +50,6 @@ QtObject {
     readonly property color warningColor: "#956300"
     readonly property color faultColor: "#b42318"
     readonly property color errorSurfaceColor: "#fff1f0"
-
-    readonly property font appBodyFont: Qt.font({ family: "Segoe UI Variable", pointSize: Math.max(10, 12 * designTextScale) })
-    readonly property font appLabelFont: Qt.font({ family: "Segoe UI Variable", pointSize: Math.max(10, 11.25 * designTextScale) })
-    readonly property font appButtonFont: Qt.font({ family: "Segoe UI Variable", pointSize: Math.max(10, 12 * designTextScale), weight: Font.DemiBold })
-    readonly property font appSectionFont: Qt.font({ family: "Segoe UI Variable", pointSize: Math.max(10, 12 * designTextScale), weight: Font.DemiBold })
-    readonly property font appCaptionFont: Qt.font({ family: "Segoe UI Variable", pointSize: Math.max(10, 10 * designTextScale) })
-    readonly property font appInspectorRailGlyphFont: Qt.font({ family: "Segoe UI Variable", pointSize: Math.max(10, 10.5 * designTextScale), weight: Font.DemiBold })
 
     readonly property color appSurfaceColor: "#FFFFFF"
     readonly property color appSubtleSurfaceColor: "#F8FAFC"

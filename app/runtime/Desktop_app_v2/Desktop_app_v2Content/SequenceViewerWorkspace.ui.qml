@@ -103,7 +103,7 @@ Rectangle {
             Text {
                 text: root.presentation === "empty" ? qsTr("No Image Sequence selected") : qsTr("CURRENT FRAME")
                 color: Constants.surfaceColor
-                font: Constants.headingFont
+                font: Constants.appMetadataFont
                 anchors.top: parent.top
                 anchors.left: parent.left
                 anchors.margins: Constants.spacing
@@ -112,14 +112,14 @@ Rectangle {
                 visible: root.presentation !== "empty" && root.presentation !== "error" && root.currentFrameSource === ""
                 text: qsTr("Frame ") + root.currentFrame
                 color: Constants.surfaceColor
-                font: Constants.largeFont
+                font: Constants.appMetricFont
                 anchors.centerIn: parent
             }
             Text {
                 visible: root.presentation === "error"
                 text: qsTr("Error")
                 color: Constants.surfaceColor
-                font: Constants.largeFont
+                font: Constants.appMajorSectionFont
                 anchors.centerIn: parent
             }
         }

@@ -783,7 +783,9 @@ void testLibraryOwnedIdentityCreation()
             "Library identity owns a distinct local package");
     const QString identityMetadata =
         QDir(identityPackage).filePath(QStringLiteral("metadata.json"));
-    const auto setIdentityStatus = [&identityMetadata](const QString &status) {
+    const auto setIdentityStatus = [&identityMetadata](
+                                       const QString &status,
+                                       bool preserveArtifact = false) {
         QFile file(identityMetadata);
         if (!file.open(QIODevice::ReadOnly))
             return false;
@@ -801,7 +803,7 @@ void testLibraryOwnedIdentityCreation()
                     {QStringLiteral("checkpoint_sha256"),
                      initialization.value(QStringLiteral("weight_sha256"))},
                 });
-        } else {
+        } else if (!preserveArtifact) {
             metadata.remove(QStringLiteral("artifact"));
         }
         if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
@@ -824,7 +826,7 @@ void testLibraryOwnedIdentityCreation()
                 && !completedRows.front().toMap().contains(
                     QStringLiteral("compatibilityReason")),
             "Training exposes the completed package checkpoint without compatibility state");
-    require(setIdentityStatus(QStringLiteral("failed")),
+    require(setIdentityStatus(QStringLiteral("failed"), true),
             "create non-completed Library model fixture");
     const QVariantList failedRows = controller.trainingModelRows();
     require(failedRows.size() == 1

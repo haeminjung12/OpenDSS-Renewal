@@ -387,18 +387,34 @@ void testProductionProcessCommitsBatchBeforeStop() {
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
     ModelTestService* servicePointer = nullptr;
+    bool runningModelWriteBlocked = false;
     ModelTestService service(
         operations, &loader, {},
         [&](qint64 processed, qint64) {
-            if (processed == 1)
+            if (processed == 0) {
+                const auto runningWrite =
+                    operations.acquireModel(packagePath, ModelAccess::Write);
+                runningModelWriteBlocked =
+                    !runningWrite.acquired() && runningWrite.fault.has_value();
+            } else if (processed == 1) {
                 servicePointer->requestStop();
+            }
         },
         QCoreApplication::applicationFilePath(), temporary.path());
     servicePointer = &service;
     const QString output = QDir(temporary.path()).filePath("process-result");
     QString error;
+    auto idleWrite = operations.acquireModel(packagePath, ModelAccess::Write);
+    require(idleWrite.acquired(),
+            "idle Model Test reference does not lock the Model Package");
+    idleWrite.lease.release();
     require(service.run({fixture.datasetJson, output, "2.0"}, &error),
             qPrintable(error));
+    auto writeAfterRun =
+        operations.acquireModel(packagePath, ModelAccess::Write);
+    require(runningModelWriteBlocked && writeAfterRun.acquired(),
+            "running Model Test holds and then releases the Model Package");
+    writeAfterRun.lease.release();
 
     const auto summary = ModelTestSummaryV2::load(
         QDir(output).filePath("model_test_summary.json"), &error);

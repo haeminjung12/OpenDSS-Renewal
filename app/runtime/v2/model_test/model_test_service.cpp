@@ -176,6 +176,7 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
     stopRequested_.store(false, std::memory_order_release);
 
     OperationLease lease;
+    ModelLease modelLease;
     std::optional<ModelTestWriter> writer;
     QString localError;
     const auto failAfterStart = [&](const QString& message,
@@ -248,6 +249,19 @@ bool ModelTestService::run(const ModelTestRequest& request, QString* error) {
                 setError(error, checkpoint->error);
                 return false;
             }
+            auto acquiredModel = operations_.acquireModel(
+                QFileInfo(checkpoint->checkpointPath).absolutePath(),
+                ModelAccess::Read);
+            if (!acquiredModel.acquired()) {
+                lease.transition(OperationLifecycle::Failed);
+                setError(error,
+                         acquiredModel.fault
+                             ? acquiredModel.fault->reason
+                             : QStringLiteral(
+                                   "The Active Model Package is in use."));
+                return false;
+            }
+            modelLease = std::move(acquiredModel.lease);
         }
 
         auto dataset = dataset::DatasetManifestV2::load(

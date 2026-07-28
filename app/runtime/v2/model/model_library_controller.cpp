@@ -359,9 +359,20 @@ QVariantList ModelLibraryController::trainingModelRows() const
                                          &weightPath)) {
                 initializationMode = mode;
             }
-        } else if (packageCheckpointIsValid(inspection.packagePath, metadata,
+        } else {
+            QString validationError;
+            const bool supportedArchitecture =
+                inspection.architectureId == QStringLiteral("mobilenet_v3_small")
+                || inspection.architectureId == QStringLiteral("efficientnet_b0");
+            if (metadata.value(QStringLiteral("status")).toString()
+                    == QStringLiteral("completed")
+                && supportedArchitecture
+                && validateCompleteV2ModelPackage(inspection.packagePath,
+                                                  &validationError)
+                && packageCheckpointIsValid(inspection.packagePath, metadata,
                                             &weightPath)) {
-            initializationMode = QStringLiteral("checkpoint");
+                initializationMode = QStringLiteral("checkpoint");
+            }
         }
         rows.append(QVariantMap{
             {QStringLiteral("id"), entryId(entry)},

@@ -824,6 +824,13 @@ void testLibraryOwnedIdentityCreation()
                 && !completedRows.front().toMap().contains(
                     QStringLiteral("compatibilityReason")),
             "Training exposes the completed package checkpoint without compatibility state");
+    require(setIdentityStatus(QStringLiteral("failed")),
+            "create non-completed Library model fixture");
+    const QVariantList failedRows = controller.trainingModelRows();
+    require(failedRows.size() == 1
+                && failedRows.front().toMap()
+                       .value(QStringLiteral("weightPath")).toString().isEmpty(),
+            "Training does not expose a checkpoint from a non-completed package");
     require(setIdentityStatus(QStringLiteral("library_identity")),
             "restore compatible Training identity fixture");
     const QString identityWeight =

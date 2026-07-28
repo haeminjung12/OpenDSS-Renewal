@@ -38,9 +38,9 @@ Sequence Viewer is a still-frame inspection surface. It shows current and total 
 
 ### Train, Library, and Active Model
 
-Library owns Add Model and Import Model. Add Model uses one popup requiring a nonblank unique Name, one supported Architecture, and approved, architecture-compatible Starting Weights already available locally. No Starting Weights action downloads or falls back to the network. Train selects that Library-defined model read-only for identity, architecture, and initialization, then selects Dataset, Compute Device, and Output Location before Start. While Training it shows progress, timing, effective device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. Successful completion atomically creates the newly named package and makes it Active; failure leaves source identity/artifacts intact and shows `Error` and Retry Save without an Active success state.
+Library owns Add Model and Import Model. Add Model uses one popup requiring a nonblank unique Name, one supported Architecture, and approved, architecture-compatible Starting Weights already available locally. No Starting Weights action downloads or falls back to the network. Train shows every Library model as selectable, consumes the selected model read-only for identity, architecture, and factual Starting Weights, and trains that selected model after Dataset, Compute Device, and Output Location are selected. Train does not compatibility-filter Library models or show compatibility warnings/reasons. While Training it shows progress, timing, effective device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. Successful completion atomically creates the newly named package and makes it Active; failure leaves source identity/artifacts intact and shows `Error` and Retry Save without an Active success state.
 
-`ModelListRow` shows only a green Active check when applicable, bold Model Name, and smaller lighter Architecture. The Active check has textual or accessible meaning. A selected row has a darker background and selection never activates it. `SelectedModelSection` is collapsible and contains name, Active state, architecture, Starting Weights, trained date, source Dataset, classes, Training results, package location, and actions.
+`ModelListRow` shows exactly Model Name, Architecture, and Class Type. Class Type is rendered exactly as `2 Class` or `3 Class`; extra descriptions, class-name lists, and classes prose are absent from the row. A selected row has a darker background and selection never activates it. Active state remains factual in the global header and selected-model detail rather than adding a fourth row field. `SelectedModelSection` is collapsible and contains name, Active state, architecture, Starting Weights, trained date, source Dataset, classes, Training results, package location, and actions.
 
 Model Test and Sequence Test display the Active Model as read-only context and contain no local Model selector.
 
@@ -617,7 +617,7 @@ A neutral, highly legible sans-serif SHOULD be used throughout the application. 
 
 Text Size offers exactly **Small (80%)**, **Medium (100%, default)**, and **Large (125%)**. **200% remains validation-only and is not selectable.** SettingsRepository and the UI integration must expose only 80, 100, and 125. Before publication or persistence, legacy persisted values must normalize as 90 → 100 and 150/175/200 → 125. The UI must never silently expose an unsupported value.
 
-One application-wide text scale drives every typography role; workspace-local or component-local scale systems are prohibited. After the selected application scale is applied, every visible non-title label, control label, control value, caption, status, warning, metadata value, table value, path, filename, and log line MUST render at no less than `10 pt`. Application, workspace, major-section, and section titles remain on distinct larger title roles so the hierarchy is consistent rather than flattened to the minimum.
+One application-wide text scale drives every typography role; workspace-local or component-local scale systems are prohibited. There is no blanket `10 pt` minimum for non-title text. DESIGN must establish one coherent, restrained hierarchy from actual visual evidence at maximized and restored window sizes of at least `1600 × 900`, preserving distinct title, body/control, caption/status/metadata, table, path, and log roles. The accepted hierarchy must correct clipping and crowding while remaining legible and consistent; it must not enlarge every role to a common floor or flatten the title hierarchy.
 
 Numeric counters, timestamps, frame indices, Class Scores, Inference Time, FPS, and matrices SHOULD use tabular figures. Monospace must be limited to values that benefit from fixed-width alignment; it is not a general status typeface.
 
@@ -1584,9 +1584,6 @@ Models > Train
 │ Class 2 — <name>: <eligible count>           │ Architecture <read-only>  │
 │                                              │ Starting Weights <read-only>│
 │                                              │ Compute Device [ GPU/CPU ]│
-│                                              │                           │
-│                                              │ Split 70 / 15 / 15        │
-│                                              │ Seed 1729                 │
 │                                              │ Output Location [___] […] │
 │                                              │                           │
 │                                              │ [ Start Training ]        │
@@ -1627,10 +1624,10 @@ Active Model: <name>
 | **Main user goal** | Train one Library-defined model identity into a new technically completed two-class or three-class Model Package without mutating any source package. |
 | **Major regions** | Dataset summary; selected Library model identity; requested/effective device; Output Location; Training status; plots/progress; completion results; minimal Error/Retry Save. |
 | **Dominant hierarchy** | Before Start: Dataset, read-only Library model identity/architecture/initialization, Compute Device, and Output Location. During Training: progress and two live plots. After completion: atomically saved results and Active Model confirmation. |
-| **Operation-side panel** | Dataset selector/summary, Library model selector with read-only identity facts, Compute Device, fixed split/seed facts, Output Location, Start/Stop, and status. |
+| **Operation-side panel** | Dataset selector/summary, Library model selector with read-only identity facts, Compute Device, Output Location, Start/Stop, and status. |
 | **Primary action** | Start Training in Ready; Stop Training in Running; Retry Save only after automatic-save failure. |
 | **Secondary actions** | Select Dataset; select an existing Library-defined model; select Compute Device; browse Output Location; Open in Model Test; Open in Library; Diagnostics after technical failure. |
-| **Required artifact/hardware** | Compatible labeled Dataset with readable Labeled crops; one Library-defined unique model identity with supported architecture and approved Starting Weights; training runtime; writable temporary/final locations; global operation slot. No Camera or DAQ. |
+| **Required artifact/hardware** | Labeled Dataset with readable Labeled crops; one selected Library-defined unique model identity with supported architecture and approved Starting Weights; training runtime; writable temporary/final locations; global operation slot. No Camera or DAQ. |
 | **Output** | A new Model Package containing `metadata.json`, `checkpoint.pth`, and `model.onnx`. Successful atomic save registers the new package and makes it Active Model; it never overwrites or mutates a source package. |
 | **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Library model selected** → **Compute Device unavailable** → **Output location is not writable** → **Training environment unavailable**. |
 | **Fault banner** | Below workspace heading, above setup/metrics. It identifies input, runtime, process, or write failure and available Diagnostics/output. |
@@ -1644,7 +1641,7 @@ Active Model: <name>
 - No class-balance warning, suitability score, or minimum-per-class recommendation appears.
 - A missing required Droplet Crop is a technical file error, not a Dataset quality judgment.
 
-## 12.5 Library model identity and fixed configuration
+## 12.5 Library model identity
 
 Train has no Architecture, Starting Weights, or Model Name editor. Those values come read-only from the selected Library-defined model identity. The only supported architectures are:
 
@@ -1653,17 +1650,13 @@ MobileNetV3-Small
 EfficientNet-B0
 ```
 
-Library Add Model requires a nonblank unique Name, one of those two architectures, and approved Starting Weights that are already present locally and explicitly compatible with the selected architecture. The selector shows only locally available approved compatible choices. It MUST NOT download weights, present a network action, or use a network fallback. Train must not infer, substitute, download, or edit Name, Architecture, or Starting Weights.
+Library Add Model requires a nonblank unique Name, one of those two architectures, and approved Starting Weights that are already present locally and explicitly compatible with the selected architecture. The Add Model selector shows only locally available approved compatible Starting Weights. It MUST NOT download weights, present a network action, or use a network fallback. Train must not infer, substitute, download, or edit Name, Architecture, or Starting Weights.
 
-Train keeps incompatible Library models visible but disabled and gives each one a factual compatibility reason. When Library contains no models, the exact empty message is **No Library models are available**. When models exist but none is compatible, the exact empty message is **No compatible Library models are available**.
+Train shows every Library model as selectable and trains the selected model. It performs no Library-model compatibility filtering and shows no compatibility warning, disabled compatibility reason, or `No compatible Library models are available` state. When Library contains no models, the exact empty message is **No Library models are available**.
 
 Retraining an already-trained Library model always begins with a new unique Name defined through Add Model and produces a new Library entry/package. The prior package is read-only initialization evidence and remains intact and protected; retraining never overwrites or mutates it.
 
-The panel MUST include a concise fixed-configuration explanation such as:
-
-> Training uses a qualified configuration. Split: 70% Training, 15% Validation, 15% Internal Test. Seed: 1729.
-
-There is no Advanced Training Parameters heading, disclosure, button, tab, dialog, or placeholder.
+The panel does not show qualified-configuration, split, or seed helper copy. There is no Advanced Training Parameters heading, disclosure, button, tab, dialog, or placeholder.
 
 ## 12.6 Compute-device selection and display
 
@@ -1862,9 +1855,9 @@ Models > Library
 ┌──────────────────────────────────────────────┬────────────────────────────┐
 │ MODEL PACKAGES                               │ SELECTED MODEL             │
 │                                              │                            │
-│ ● <Active Model>                             │ Name                       │
-│   <Model 2>                                  │ Active: Yes / No           │
-│   <Model 3>                                  │ Architecture               │
+│ <Name> | <Architecture> | <2 Class/3 Class>  │ Name                       │
+│ <Name> | <Architecture> | <2 Class/3 Class>  │ Active: Yes / No           │
+│ <Name> | <Architecture> | <2 Class/3 Class>  │ Architecture               │
 │                                              │ Starting Weights           │
 │                                              │ Classes and Class Names    │
 │                                              │ Source Dataset             │
@@ -1891,7 +1884,7 @@ Models > Library
 | **Secondary actions** | Add Model; Import Model; Remove Model; Export Model; Duplicate Model; Rename Model; Open in Model Test. |
 | **Required artifact/hardware** | Valid v2 Model Package for package actions. No hardware. Package and registry locks apply. |
 | **Output** | Model Registry changes and file copies/renames/removals as requested. |
-| **Direct disabled reasons** | **No Active Model** → **Selected model is already Active** for Set Active; **Selected model is Active** for Remove Model; **Model is in use by <operation>** for locked mutation/replacement. File-action failures use direct package/path reasons. |
+| **Direct disabled reasons** | **No Active Model** → **Selected model is already Active** for Set Active; **Model is in use by <running operation>** for locked mutation/removal. An idle Model Test selection/reference is not an in-use consumer. File-action failures use direct package/path reasons. Removal policy for the currently Active Model remains blocked pending the explicit user decision recorded under `UAT-MODEL-REMOVE-BLK-002`. |
 | **Fault banner** | Below workspace heading; spans master-detail region for validation, parse, copy, rename, remove, registry, or permission failures. |
 | **Applicable presentations** | Empty, Ready, Unavailable for a locked action, Failed. |
 | **Next likely action** | Open selected model in Model Test or navigate to Live after explicitly setting Active. |
@@ -1901,20 +1894,19 @@ Models > Library
 These states MUST be independent:
 
 - **Selected Model** is the row currently displayed in the detail pane. It uses selection fill/indicator and selected state exposure.
-- **Active Model** is the one global Model Registry selection. It uses a persistent `Active Model` badge or leading marker and is reflected in the global header.
+- **Active Model** is the one global Model Registry selection. Its persistent factual indication appears in the global header and selected-model detail, not as an additional Library-row field.
 
 Selecting a row must not activate it. Set Active must be explicit. The detail pane should show `Active: Yes` or `Active: No` in text.
 
 ## 14.5 Model list
 
-Each row SHOULD show:
+Each row MUST show exactly:
 
 - Model Name;
 - Architecture (`MobileNetV3-Small` or `EfficientNet-B0`);
-- two-class or three-class count;
-- creation date;
-- Active marker when applicable;
-- direct unreadable/locked state when relevant.
+- Class Type, rendered exactly as `2 Class` or `3 Class`.
+
+Rows do not show descriptions, class-name lists, classes prose, creation date, or an additional Active field/marker. Selection remains structural; the global header and selected-model detail preserve the factual Active distinction. Technical action locks and failures are presented in the selected detail/action reason or fault banner rather than as extra row prose.
 
 The list MAY support text filtering or stable column sorting as a presentation aid if it does not create a managed scientific status. Empty and filter-empty states must be distinct.
 
@@ -1941,7 +1933,7 @@ Metrics use neutral presentation. No status badge derives from metric values.
 | **Set Active** | Primary when a valid nonactive package is selected and replacement is not locked. Successful activation updates header immediately. |
 | **Add Model** | Opens one popup requiring a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and locally available approved Starting Weights compatible with that Architecture. Library owns this identity. The selector never downloads weights or uses a network fallback. No additional architecture, option, or package schema is added. |
 | **Import Model** | Selects `metadata.json` inside one complete supported v2 Model Package and performs the existing technical and package-integrity checks. Raw weights, a bare ONNX file, an incomplete package, or any selection other than the package's `metadata.json` is not importable. Import does not perform conversion or assign scientific state. |
-| **Remove Model** | Adjacent to Import Model. It retains the existing direct confirmation naming the Model Package and consequence. After confirmation, it moves the OpenDSS-owned complete package folder to the Windows Recycle Bin. It never performs direct permanent deletion and cannot bypass Active Model, in-use, or package-integrity locks. |
+| **Remove Model** | Adjacent to Import Model. It retains the existing direct confirmation naming the Model Package and consequence. After confirmation, it moves the OpenDSS-owned complete package folder to the Windows Recycle Bin. It never performs direct permanent deletion and cannot bypass a genuinely running in-use consumer or package-integrity lock. An idle Model Test selection/reference does not make the package in use. Removal policy for the currently Active Model is intentionally unresolved and remains blocked under `UAT-MODEL-REMOVE-BLK-002`; do not infer it. |
 | **Export Model** | Writes the complete package to a user-selected location. |
 | **Duplicate Model** | Creates an independent package copy with a new Model ID and user-provided name/location. |
 | **Rename Model** | Changes the user-facing Model Name without altering weights, Class IDs, or scientific metadata. |
@@ -1955,13 +1947,13 @@ Library owns model identity and creation. Train consumes the Library-defined Nam
 
 ## 14.8 Lock treatment
 
-- A package used by Model Test, Live, or Sequence Test cannot be renamed, removed, replaced, or otherwise mutated.
-- The current Active Model cannot be removed. The user must first make another valid package Active.
+- A package consumed by an actually running Model Test, Live, or Sequence Test operation cannot be renamed, removed, replaced, or otherwise mutated. Idle selection/reference is not use.
+- Removal policy for the current Active Model is unresolved under `UAT-MODEL-REMOVE-BLK-002`; do not infer availability or unavailability until the explicit user decision is published.
 - When an operation uses the current Active Model, Set Active cannot replace it until the operation ends.
 - Unrelated packages remain manageable.
 - The locked row/detail displays the owning operation in text, for example `In use by Live Sorting`.
 - Lock styling must not resemble invalid, failed, or scientifically rejected state.
-- Import Model and Remove Model preserve the Active Model, in-use, Model Registry, and package-integrity locks; neither action provides a bypass.
+- Import Model and Remove Model preserve genuinely running in-use, Model Registry, and package-integrity locks; neither action provides a bypass. An idle Model Test selection/reference is not a running in-use lock. The currently Active Model removal policy remains blocked pending explicit user authority.
 
 ## 14.9 Keyboard, resizing, and mock states
 
@@ -1969,7 +1961,7 @@ Library owns model identity and creation. Train consumes the Library-defined Nam
 - `Enter` MAY open details or perform the documented row open behavior, but never implicitly activate.
 - Delete key must not remove a package without the named confirmation.
 - Master/detail splitter is resizable. At minimum width, the list remains visible and details may open as a full-height inspector; switching presentation does not change selection.
-- Required mocks: empty library; Add Model popup empty/duplicate Name; MobileNetV3-Small and EfficientNet-B0 identities; one Active model; multiple models; selected nonactive model; selected Active model with Remove Model unavailable; two-class and three-class packages; package in use by Model Test; Active Model in use by Live; unreadable package; import failure; rename failure; remove confirmation; retraining source protected while a distinct new Name is created.
+- Required mocks: empty library; Add Model popup empty/duplicate Name; MobileNetV3-Small and EfficientNet-B0 identities; one Active model; multiple models; selected nonactive model; selected Active model with Remove Model disposition pending; two-class and three-class rows using exact `2 Class`/`3 Class` text; package selected by idle Model Test; package in use by a running Model Test; Active Model in use by Live; unreadable package; import failure; rename failure; remove confirmation; retraining source protected while a distinct new Name is created.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.6, §8, §13, §16, and D-010; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1, 4.9, and §6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §11, §16, §17, and §18; *OpenDSS Detailed User Workflow Specification* §17 as amended to v2-only import and no scientific states; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §8 master-detail evidence as adapted.
 

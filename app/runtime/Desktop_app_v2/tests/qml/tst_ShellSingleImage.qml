@@ -3254,6 +3254,13 @@ Item {
         wait(0)
         verify(shell.form.liveWorkspace.daqOutputControl.checked)
 
+        liveSortingController.presentation = "starting"
+        wait(0)
+        verify(!shell.form.liveWorkspace.triggerTimingExpanded)
+        verify(!shell.form.liveWorkspace.triggerTimingHeadingButton.enabled)
+        shell.form.liveWorkspace.triggerTimingHeadingButton.click()
+        verify(!shell.form.liveWorkspace.triggerTimingExpanded)
+
         liveSortingController.presentation = "running"
         wait(0)
         verify(!shell.form.liveWorkspace.setupProfileExpanded)
@@ -3278,6 +3285,14 @@ Item {
         verify(!shell.form.hardwareButton.enabled)
         verify(!shell.form.startCameraButton.enabled)
         verify(!shell.form.daqRefreshDevicesButton.enabled)
+
+        liveSortingController.presentation = "stopping"
+        wait(0)
+        verify(!shell.form.liveWorkspace.triggerTimingExpanded)
+        verify(!shell.form.liveWorkspace.triggerTimingHeadingButton.enabled)
+        shell.form.liveWorkspace.triggerTimingHeadingButton.click()
+        verify(!shell.form.liveWorkspace.triggerTimingExpanded)
+
         liveSortingController.presentation = "ready"
         wait(0)
         verify(shell.form.liveWorkspace.setupProfileExpanded)

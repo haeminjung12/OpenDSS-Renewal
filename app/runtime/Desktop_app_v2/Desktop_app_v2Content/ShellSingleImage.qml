@@ -43,6 +43,10 @@ Item {
         root.liveSortingController ? root.realLiveOwnsOperation : state.liveActive
     readonly property bool effectiveLiveCompleted:
         root.effectiveLivePresentation === "completed"
+    readonly property bool liveTriggerTimingAvailable:
+        !root.effectiveLiveCompleted
+        && root.effectiveLivePresentation !== "starting"
+        && root.effectiveLivePresentation !== "stopping"
     property bool liveHitBoundaryDefined: false
     property real liveHitBoundaryXRatio: 0.0
     property real liveHitBoundaryYRatio: 0.0
@@ -1165,7 +1169,8 @@ Item {
     Binding { target: screen.liveWorkspace.saveProfileAsButton; property: "enabled"; value: !root.realLiveOwnsOperation; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace; property: "setupProfileExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveSetupProfileExpanded }
     Binding { target: screen.liveWorkspace; property: "runInformationExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveRunInformationExpanded }
-    Binding { target: screen.liveWorkspace; property: "triggerTimingExpanded"; value: !root.effectiveLiveCompleted && state.liveTriggerTimingExpanded }
+    Binding { target: screen.liveWorkspace; property: "triggerTimingExpanded"; value: root.liveTriggerTimingAvailable && state.liveTriggerTimingExpanded }
+    Binding { target: screen.liveWorkspace.triggerTimingHeadingButton; property: "enabled"; value: root.liveTriggerTimingAvailable }
     Binding { target: screen.liveWorkspace; property: "outputRecordingExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveOutputRecordingExpanded }
     Binding { target: screen.liveWorkspace; property: "runningExpanded"; value: (root.effectiveLiveActive || root.effectiveLiveCompleted) && state.liveRunningExpanded }
     Binding { target: screen.liveWorkspace; property: "runningHeadingEnabled"; value: root.effectiveLiveActive || root.effectiveLiveCompleted }

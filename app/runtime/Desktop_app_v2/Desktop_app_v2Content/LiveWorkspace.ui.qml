@@ -330,7 +330,7 @@ Item {
                         width: rightPanelScroll.availableWidth
                         sectionTitle: qsTr("Trigger & Timing")
                         expanded: root.triggerTimingExpanded
-                        headingEnabled: !root.setupLocked
+                        headingEnabled: !root.completed
                         useIntrinsicBodyHeight: true
 
                         Item {

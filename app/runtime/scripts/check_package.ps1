@@ -306,8 +306,7 @@ foreach ($relativePath in @(
     "opencv_imgproc4.dll",
     "opencv_imgcodecs4.dll",
     "platforms\qwindows.dll",
-    "platforminputcontexts\qtvirtualkeyboardplugin.dll",
-    "imageformats\qpdf.dll",
+    "qt.conf",
     "qml\QML\qmldir",
     "qml\QtQml\qmlplugin.dll",
     "qml\QtQuick\qtquick2plugin.dll",
@@ -329,6 +328,7 @@ foreach ($relativePath in @(
 }
 foreach ($datasetDir in $requiredDatasetDirs) {
     foreach ($relativePath in @(
+        "datasets\prepared\$datasetDir\dataset.json",
         "datasets\prepared\$datasetDir\metadata\dataset_manifest.json",
         "datasets\prepared\$datasetDir\metadata\dataset_summary.json",
         "datasets\prepared\$datasetDir\metadata\class_balance.csv"
@@ -386,8 +386,11 @@ if ($ExpectedDeployedRuntimeRoot) {
         $expectedRuntimeRoot =
             (Resolve-Path -LiteralPath $ExpectedDeployedRuntimeRoot).Path
         $expectedRuntimeAssets = @(
-            Get-ChildItem -LiteralPath (Join-Path $expectedRuntimeRoot "qml") `
-                -Recurse -File |
+            Get-ChildItem -LiteralPath $expectedRuntimeRoot -Directory |
+                Where-Object { $_.Name -ne "models" } |
+                ForEach-Object {
+                    Get-ChildItem -LiteralPath $_.FullName -Recurse -File
+                } |
                 Where-Object {
                     -not $_.FullName.StartsWith(
                         (Join-Path $expectedRuntimeRoot "qml\QtTest") + "\",
@@ -398,9 +401,14 @@ if ($ExpectedDeployedRuntimeRoot) {
                 }
         )
         $expectedRuntimeAssets += @(
-            "platforminputcontexts\qtvirtualkeyboardplugin.dll",
-            "imageformats\qpdf.dll"
+            Get-ChildItem -LiteralPath $expectedRuntimeRoot -File -Filter "*.dll" |
+                Where-Object { @("Qt6Test.dll", "Qt6QuickTest.dll") -notcontains $_.Name } |
+                ForEach-Object { $_.Name }
         )
+        $expectedRuntimeAssets += @(
+            "qt.conf"
+        )
+        $expectedRuntimeAssets = @($expectedRuntimeAssets | Select-Object -Unique)
         $runtimeAssetErrors =
             New-Object System.Collections.Generic.List[string]
         foreach ($relativePath in $expectedRuntimeAssets) {
@@ -574,6 +582,12 @@ if (Test-Path -LiteralPath $registryPath) {
         "opendss_pretrained_efficientnet_b0",
         "opendss_pretrained_mobilenet_v3_small"
     )
+    $expectedWeightHashes = @{
+        "opendss_blank_mobilenet_v3_small" = "047dcff4addef86ea5bc2eff13c9614dc11f47ab1160d0a71a25e7db994f4e1f"
+        "opendss_pretrained_mobilenet_v3_small" = "0542c4955ebcbe74fba96169967241a9453b2af135f241097b5cfae774dd1e35"
+        "opendss_blank_efficientnet_b0" = "7f5810bc96def8f7552d5b7e68d53c4786f81167d28291b21c0d90e1fca14934"
+        "opendss_pretrained_efficientnet_b0" = "242ed863549dd58af941fcbc879fbe83127a54772b003bba7637a9d8255cd1c5"
+    }
     $actualBundleIds = @($registry.entries.registry_entry_id | Sort-Object)
     if (($actualBundleIds -join "|") -ne (($expectedBundleIds | Sort-Object) -join "|")) {
         $message = "Model registry must contain exactly the blank/ImageNet and pretrained bundle for both accepted architectures."
@@ -587,6 +601,12 @@ if (Test-Path -LiteralPath $registryPath) {
     }
     foreach ($entry in @($registry.entries)) {
         Test-SimpleModelPackageContract -List $checks -Errors $errors -Name ("model package: " + $entry.registry_entry_id) -Entry $entry -PackageDir $PackageDir
+        $isBlank = ([string]$entry.registry_entry_id).StartsWith("opendss_blank_")
+        $weightName = $(if ($isBlank) { "imagenet_weights.pth" } else { "checkpoint.pth" })
+        $weightPath = Join-Path (Join-Path $PackageDir ([string]$entry.package_path)) $weightName
+        Test-Hash -List $checks -Errors $errors `
+            -Name ("accepted local template weight: " + $entry.registry_entry_id) `
+            -Path $weightPath -Expected $expectedWeightHashes[[string]$entry.registry_entry_id]
     }
 }
 

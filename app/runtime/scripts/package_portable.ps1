@@ -111,8 +111,7 @@ $acceptedRuntimeRoot = Split-Path -Parent $exePath
 $acceptedQmlRoot = Join-Path $acceptedRuntimeRoot "qml"
 foreach ($acceptedRuntimeAsset in @(
     $acceptedQmlRoot,
-    (Join-Path $acceptedRuntimeRoot "platforminputcontexts\qtvirtualkeyboardplugin.dll"),
-    (Join-Path $acceptedRuntimeRoot "imageformats\qpdf.dll")
+    (Join-Path $acceptedRuntimeRoot "qt.conf")
 )) {
     if (-not (Test-Path -LiteralPath $acceptedRuntimeAsset)) {
         throw "Accepted deployed runtime asset not found: $acceptedRuntimeAsset"
@@ -367,21 +366,18 @@ Copy-Item -LiteralPath $TrainerWheelPath -Destination (
 # Deploy Qt runtime and plugins next to the exe.
 & $windeployqt (Join-Path $packageDir $exeName) | Out-Host
 
-# Preserve the accepted deployed QML/runtime plugin closure that windeployqt
-# cannot infer from the resource-embedded application QML root.
-$packagedQmlRoot = Join-Path $packageDir "qml"
-Copy-FilteredTree -SourceDir $acceptedQmlRoot -DestinationDir $packagedQmlRoot `
-    -ExcludedRelativeRoots @("QtTest")
-foreach ($relativeRuntimeAsset in @(
-    "platforminputcontexts\qtvirtualkeyboardplugin.dll",
-    "imageformats\qpdf.dll"
-)) {
-    $sourceRuntimeAsset = Join-Path $acceptedRuntimeRoot $relativeRuntimeAsset
-    $destinationRuntimeAsset = Join-Path $packageDir $relativeRuntimeAsset
-    New-Item -ItemType Directory -Path (Split-Path -Parent $destinationRuntimeAsset) `
-        -Force | Out-Null
-    Copy-Item -LiteralPath $sourceRuntimeAsset -Destination $destinationRuntimeAsset -Force
+# Preserve every accepted deployed QML/plugin tree that windeployqt cannot
+# infer from the resource-embedded application QML root.
+Get-ChildItem -LiteralPath $acceptedRuntimeRoot -Directory | Where-Object {
+    $_.Name -ne "models"
+} | ForEach-Object {
+    $excludedRoots = $(if ($_.Name -eq "qml") { @("QtTest") } else { @() })
+    Copy-FilteredTree -SourceDir $_.FullName `
+        -DestinationDir (Join-Path $packageDir $_.Name) `
+        -ExcludedRelativeRoots $excludedRoots
 }
+Copy-Item -LiteralPath (Join-Path $acceptedRuntimeRoot "qt.conf") `
+    -Destination (Join-Path $packageDir "qt.conf") -Force
 
 if (-not $SkipPackageCheck) {
     $checkScript = Join-Path $PSScriptRoot "check_package.ps1"

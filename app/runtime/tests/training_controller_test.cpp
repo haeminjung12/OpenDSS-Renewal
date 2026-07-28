@@ -339,24 +339,37 @@ int main(int argc, char **argv)
             .value(QStringLiteral("packageLocation")).toString();
     const QString controllerIdentityMetadataPath =
         QDir(controllerIdentityPackage).filePath(QStringLiteral("metadata.json"));
+    const QString controllerIdentityOnnxPath =
+        QDir(controllerIdentityPackage).filePath(QStringLiteral("model.onnx"));
+    const QString pretrainedOnnxPath =
+        QDir(QStringLiteral(OPENDSS_TEST_RUNTIME_DIR))
+            .filePath(QStringLiteral(
+                "models/templates/pretrained/mobilenet_v3_small/model.onnx"));
     QJsonObject controllerIdentityMetadata =
         readJson(controllerIdentityMetadataPath);
     controllerIdentityMetadata.insert(QStringLiteral("status"),
-                                      QStringLiteral("completed"));
+                                      QStringLiteral("trained"));
     const QJsonObject controllerInitialization =
         controllerIdentityMetadata.value(QStringLiteral("initialization")).toObject();
     controllerIdentityMetadata.insert(
         QStringLiteral("artifact"),
         QJsonObject{
+            {QStringLiteral("onnx_file"), QStringLiteral("model.onnx")},
             {QStringLiteral("checkpoint_file"),
              controllerInitialization.value(QStringLiteral("weight_file"))},
             {QStringLiteral("checkpoint_sha256"),
              controllerInitialization.value(QStringLiteral("weight_sha256"))},
+            {QStringLiteral("output_tensor"),
+             QJsonObject{
+                 {QStringLiteral("shape"), QJsonArray{1, 3}},
+             }},
         });
-    if (!check(writeJson(controllerIdentityMetadataPath,
+    if (!check((QFileInfo(controllerIdentityOnnxPath).isFile()
+                || QFile::copy(pretrainedOnnxPath, controllerIdentityOnnxPath))
+                   && writeJson(controllerIdentityMetadataPath,
                          controllerIdentityMetadata)
                    && modelLibraryController.refresh(),
-               QStringLiteral("Could not create completed Library fixture."))) {
+               QStringLiteral("Could not create trained Library fixture."))) {
         return 37;
     }
     {
@@ -379,7 +392,7 @@ int main(int argc, char **argv)
                     && completedController.errorMessage()
                         == QStringLiteral("No dataset selected."),
                 QStringLiteral(
-                    "Completed Library model was not selectable with factual identity."))) {
+                    "Trained Library model was not selectable with factual identity."))) {
             return 38;
         }
     }
@@ -672,10 +685,10 @@ int main(int argc, char **argv)
                        == QStringLiteral("checkpoint")
                    && config.value(QStringLiteral("initialization"))
                               .toObject()
-                              .value(QStringLiteral("weight_path"))
+                              .value(QStringLiteral("checkpoint_path"))
                               .toString()
                        == initialIdentityWeightPath,
-               QStringLiteral("Architecture, device, or local ImageNet weight path was not forwarded.")) ||
+               QStringLiteral("Architecture, device, or selected checkpoint path was not forwarded.")) ||
         !check(trainingState.status == TrainingStatus::Completed
                    && trainingState.executionId.isEmpty()
                    && trainingState.fault.isEmpty(),
@@ -702,6 +715,13 @@ int main(int argc, char **argv)
                    QStringLiteral("Retry model"), 0, 1, QUrl{}),
                modelLibraryController.errorMessage())) {
         return 30;
+    }
+    const int retryModelIndex =
+        controller.libraryModelOptions().indexOf(QStringLiteral("Retry model"));
+    if (!check(retryModelIndex >= 0
+                   && controller.selectLibraryModel(retryModelIndex),
+               QStringLiteral("Retry model was not explicitly selected."))) {
+        return 39;
     }
     const int modelCountBeforeRetry =
         modelLibraryController.modelRows().size();
@@ -763,6 +783,13 @@ int main(int argc, char **argv)
                    QStringLiteral("Cancelled model"), 0, 1, QUrl{}),
                modelLibraryController.errorMessage())) {
         return 31;
+    }
+    const int cancelledModelIndex =
+        controller.libraryModelOptions().indexOf(QStringLiteral("Cancelled model"));
+    if (!check(cancelledModelIndex >= 0
+                   && controller.selectLibraryModel(cancelledModelIndex),
+               QStringLiteral("Cancelled model was not explicitly selected."))) {
+        return 40;
     }
     controller.setOutputDirectoryUrl(QUrl::fromLocalFile(cancelOutput));
     const QString cancelledIdentityPackage =

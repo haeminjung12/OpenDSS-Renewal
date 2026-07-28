@@ -783,6 +783,15 @@ void testLibraryOwnedIdentityCreation()
             "Library identity owns a distinct local package");
     const QString identityMetadata =
         QDir(identityPackage).filePath(QStringLiteral("metadata.json"));
+    const QString identityOnnx =
+        QDir(identityPackage).filePath(QStringLiteral("model.onnx"));
+    const QString pretrainedOnnx =
+        QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR))
+            .filePath(QStringLiteral(
+                "models/templates/pretrained/mobilenet_v3_small/model.onnx"));
+    require(QFileInfo(identityOnnx).isFile()
+                || QFile::copy(pretrainedOnnx, identityOnnx),
+            "create trained Library ONNX fixture");
     const auto setIdentityStatus = [&identityMetadata](
                                        const QString &status,
                                        bool preserveArtifact = false) {
@@ -792,16 +801,21 @@ void testLibraryOwnedIdentityCreation()
         QJsonObject metadata = QJsonDocument::fromJson(file.readAll()).object();
         file.close();
         metadata.insert(QStringLiteral("status"), status);
-        if (status == QStringLiteral("completed")) {
+        if (status == QStringLiteral("trained")) {
             const QJsonObject initialization =
                 metadata.value(QStringLiteral("initialization")).toObject();
             metadata.insert(
                 QStringLiteral("artifact"),
                 QJsonObject{
+                    {QStringLiteral("onnx_file"), QStringLiteral("model.onnx")},
                     {QStringLiteral("checkpoint_file"),
                      initialization.value(QStringLiteral("weight_file"))},
                     {QStringLiteral("checkpoint_sha256"),
                      initialization.value(QStringLiteral("weight_sha256"))},
+                    {QStringLiteral("output_tensor"),
+                     QJsonObject{
+                         {QStringLiteral("shape"), QJsonArray{1, 3}},
+                     }},
                 });
         } else if (!preserveArtifact) {
             metadata.remove(QStringLiteral("artifact"));
@@ -810,22 +824,22 @@ void testLibraryOwnedIdentityCreation()
             return false;
         return file.write(QJsonDocument(metadata).toJson(QJsonDocument::Indented)) > 0;
     };
-    require(setIdentityStatus(QStringLiteral("completed")),
-            "create completed Library model fixture");
-    const QVariantList completedRows = controller.trainingModelRows();
-    require(completedRows.size() == 1
-                && completedRows.front().toMap()
+    require(setIdentityStatus(QStringLiteral("trained")),
+            "create trained Library model fixture");
+    const QVariantList trainedRows = controller.trainingModelRows();
+    require(trainedRows.size() == 1
+                && trainedRows.front().toMap()
                        .value(QStringLiteral("weightPath")).toString()
                        == trainingRows.front().toMap()
                               .value(QStringLiteral("weightPath")).toString()
-                && completedRows.front().toMap()
+                && trainedRows.front().toMap()
                        .value(QStringLiteral("initializationMode")).toString()
                        == QStringLiteral("checkpoint")
-                && !completedRows.front().toMap().contains(
+                && !trainedRows.front().toMap().contains(
                     QStringLiteral("compatible"))
-                && !completedRows.front().toMap().contains(
+                && !trainedRows.front().toMap().contains(
                     QStringLiteral("compatibilityReason")),
-            "Training exposes the completed package checkpoint without compatibility state");
+            "Training exposes the trained package checkpoint without compatibility state");
     require(setIdentityStatus(QStringLiteral("failed"), true),
             "create non-completed Library model fixture");
     const QVariantList failedRows = controller.trainingModelRows();

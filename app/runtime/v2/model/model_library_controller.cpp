@@ -365,7 +365,7 @@ QVariantList ModelLibraryController::trainingModelRows() const
                 inspection.architectureId == QStringLiteral("mobilenet_v3_small")
                 || inspection.architectureId == QStringLiteral("efficientnet_b0");
             if (metadata.value(QStringLiteral("status")).toString()
-                    == QStringLiteral("completed")
+                    == QStringLiteral("trained")
                 && supportedArchitecture
                 && validateCompleteV2ModelPackage(inspection.packagePath,
                                                   &validationError)

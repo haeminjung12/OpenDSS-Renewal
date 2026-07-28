@@ -338,7 +338,7 @@ QtObject {
             liveRunInformationExpanded = !liveRunInformationExpanded
     }
     function toggleLiveTriggerTiming() {
-        if (!liveActive && livePresentation !== "completed")
+        if (livePresentation !== "completed")
             liveTriggerTimingExpanded = !liveTriggerTimingExpanded
     }
     function toggleLiveOutputRecording() {

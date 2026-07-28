@@ -1165,7 +1165,7 @@ Item {
     Binding { target: screen.liveWorkspace.saveProfileAsButton; property: "enabled"; value: !root.realLiveOwnsOperation; when: !!root.liveSortingController }
     Binding { target: screen.liveWorkspace; property: "setupProfileExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveSetupProfileExpanded }
     Binding { target: screen.liveWorkspace; property: "runInformationExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveRunInformationExpanded }
-    Binding { target: screen.liveWorkspace; property: "triggerTimingExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveTriggerTimingExpanded }
+    Binding { target: screen.liveWorkspace; property: "triggerTimingExpanded"; value: !root.effectiveLiveCompleted && state.liveTriggerTimingExpanded }
     Binding { target: screen.liveWorkspace; property: "outputRecordingExpanded"; value: !root.effectiveLiveActive && !root.effectiveLiveCompleted && state.liveOutputRecordingExpanded }
     Binding { target: screen.liveWorkspace; property: "runningExpanded"; value: (root.effectiveLiveActive || root.effectiveLiveCompleted) && state.liveRunningExpanded }
     Binding { target: screen.liveWorkspace; property: "runningHeadingEnabled"; value: root.effectiveLiveActive || root.effectiveLiveCompleted }

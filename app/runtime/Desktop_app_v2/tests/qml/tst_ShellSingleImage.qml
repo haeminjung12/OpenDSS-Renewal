@@ -2650,41 +2650,43 @@ Item {
     function test_textSizeProjection() {
         compare(textSizeController.textSizePercent, 100)
         compare(Constants.textSizePercent, 100)
-        verifyVisibleNonTitleFontFloor()
+        verifyTypographyHierarchy()
         textSizeController.textSizePercent = 80
         compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 0)
         shell.form.settingsWorkspace.textSizeSelector.activated(0)
         compare(textSizeController.lastRequestedTextSizePercent, 80)
         compare(textSizeController.textSizePercent, 80)
         compare(Constants.textSizePercent, 80)
-        verifyVisibleNonTitleFontFloor()
+        verifyTypographyHierarchy()
         textSizeController.textSizePercent = 100
         compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 1)
         shell.form.settingsWorkspace.textSizeSelector.activated(1)
         compare(textSizeController.lastRequestedTextSizePercent, 100)
         compare(Constants.textSizePercent, 100)
-        verifyVisibleNonTitleFontFloor()
+        verifyTypographyHierarchy()
         textSizeController.textSizePercent = 125
         compare(shell.form.settingsWorkspace.textSizeSelector.currentIndex, 2)
         shell.form.settingsWorkspace.textSizeSelector.activated(2)
         compare(textSizeController.lastRequestedTextSizePercent, 125)
         compare(Constants.textSizePercent, 125)
-        verifyVisibleNonTitleFontFloor()
+        verifyTypographyHierarchy()
     }
 
-    function verifyVisibleNonTitleFontFloor() {
-        const visibleNonTitleFonts = [
-            Constants.font,
-            Constants.smallFont,
-            Constants.appBodyFont,
-            Constants.appLabelFont,
-            Constants.appButtonFont,
-            Constants.appSectionFont,
-            Constants.appCaptionFont,
-            Constants.appInspectorRailGlyphFont
-        ]
-        for (let index = 0; index < visibleNonTitleFonts.length; ++index)
-            verify(visibleNonTitleFonts[index].pointSize >= 10)
+    function verifyTypographyHierarchy() {
+        verify(Constants.appWorkspaceTitleFont.pointSize
+               > Constants.appMajorSectionFont.pointSize)
+        verify(Constants.appMajorSectionFont.pointSize
+               > Constants.appBodyFont.pointSize)
+        verify(Constants.appBodyFont.pointSize
+               > Constants.appLabelFont.pointSize)
+        verify(Constants.appLabelFont.pointSize
+               > Constants.appCaptionFont.pointSize)
+        compare(Constants.font.pointSize, Constants.appBodyFont.pointSize)
+        compare(Constants.smallFont.pointSize, Constants.appCaptionFont.pointSize)
+        compare(Constants.headingFont.pointSize,
+                Constants.appMajorSectionFont.pointSize)
+        compare(Constants.largeFont.pointSize,
+                Constants.appWorkspaceTitleFont.pointSize)
     }
 
     function test_settingsStorageControllerWiring() {

@@ -38,7 +38,7 @@ Sequence Viewer is a still-frame inspection surface. It shows current and total 
 
 ### Train, Library, and Active Model
 
-Library owns Add Model and Import Model. Add Model uses one popup requiring a nonblank unique Name, one supported Architecture, and one of exactly two factual Starting Weights choices: `ImageNet` or `Pretrained`. Each choice resolves to its own fixed, bundled, architecture-specific local checkpoint; `Pretrained` is distinct from `ImageNet` and is not an existing Library model. A choice is enabled only when its corresponding bundled artifact is locally valid. No Starting Weights action downloads, substitutes, or falls back to the network. Train shows every Library model as selectable, consumes the selected model read-only for identity, architecture, and factual Starting Weights, and trains that selected model after Dataset, Compute Device, and Output Location are selected. Train does not compatibility-filter Library models or show compatibility warnings/reasons. While Training it shows progress, timing, effective device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. Successful completion atomically creates the newly named package and makes it Active; failure leaves source identity/artifacts intact and shows `Error` and Retry Save without an Active success state.
+Library owns Add Model and Import Model. Add Model uses one popup requiring a nonblank unique Name, one supported Architecture, and one of exactly two factual Starting Weights choices: `ImageNet` or `Pretrained`. Each choice resolves to its own fixed, bundled, architecture-specific local checkpoint. The Starting Weights choice itself is not a Library model; separately, a successful fresh installation registers two complete ready-to-run three-class pretrained Model Packages as specified in §2.1.1. A choice is enabled only when its corresponding bundled artifact is locally valid. No Starting Weights action downloads, substitutes, or falls back to the network. Train shows every Library model as selectable, consumes the selected model read-only for identity, architecture, and factual Starting Weights, and trains that selected model after Dataset, Compute Device, and Output Location are selected. Train does not compatibility-filter Library models or show compatibility warnings/reasons. While Training it shows progress, timing, effective device, one `TrainingPlot` for Training/Validation Loss, and one for Validation Accuracy. Successful completion atomically creates the newly named package and makes it Active; failure leaves source identity/artifacts intact and shows `Error` and Retry Save without an Active success state.
 
 `ModelListRow` shows exactly Model Name, Architecture, and Class Type. Class Type is rendered exactly as `2 Class` or `3 Class`; extra descriptions, class-name lists, and classes prose are absent from the row. A selected row has a darker background and selection never activates it. Active state remains factual in the global header and selected-model detail rather than adding a fourth row field. `SelectedModelSection` is collapsible and contains name, Active state, architecture, Starting Weights, trained date, source Dataset, classes, Training results, package location, and actions.
 
@@ -54,7 +54,7 @@ Running contains status, elapsed time, Total Droplets, Rejected, Predicted Class
 
 ### Sequence Test, Results, Settings, and Configuration
 
-Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, its own editable Decision Boundary, Start, and Stop. It does not reuse or modify Live Decision Boundary state. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default, and Sequence Test inference defaults to CPU.
+Sequence Test reuses Live disclosure styling without Camera controls. Its dedicated section contains Load Sequence, name, first-frame preview, frame count, recorded FPS, Processing FPS, available memory, buffer size, Load to Memory, load status, its own editable Decision Boundary, Start, and Stop. During Running, the viewer remains visibly populated and follows current processing with the newest renderable processed frame; intermediate preview frames may be dropped only to prevent preview lag, while scientific processing, event decisions, and trigger timing remain unchanged. It does not reuse or modify Live Decision Boundary state. The custom picker shows valid OpenDSS sequence folders, thumbnails, name, count, recorded FPS, and status. Physical DAQ Output is an unchecked checkbox by default, and Sequence Test inference defaults to CPU.
 
 Results keeps the loaded Run in the center. In `RunListSection` on the right, only the selectable Run list scrolls; the bottom Load and Remove Run actions remain fixed and continuously available. After explicit confirmation, Remove Run moves the complete selected Run folder to the Windows Recycle Bin; it never performs direct permanent deletion. Selection and loaded content are visually distinct. Center detail uses factual groups and tables rather than first-class charts or an event browser.
 
@@ -226,7 +226,7 @@ The following descriptions are task contexts, not permission-bearing roles:
 
 ### 2.1.1 Installation and network contract
 
-Installation MAY require internet access. The signed installer is a small bootstrap installer. It bundles only the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock; it does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
+Installation MAY require internet access. The signed installer is a small bootstrap installer. It bundles the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock and two complete ready-to-run three-class pretrained Model Packages: one MobileNetV3-Small package and one EfficientNet-B0 package. It does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
 
 The installer presents exactly this ordered flow:
 
@@ -250,7 +250,9 @@ On a fresh internet-connected Python-free Windows 11 computer, setup MUST:
 
 A failed Training Environment setup does not roll back the already-installed OpenDSS application. OpenDSS remains installed, Training is truthfully unavailable, and **Repair Training Environment** is offered. A partial environment is never usable or reported as successfully installed. After successful setup, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
 
-Final Verification reports the factual status of OpenDSS, DCAM, NI-DAQ, Training, and the effective Training compute path: CUDA when qualified and available, otherwise CPU fallback. It never reports an unavailable driver, environment, or accelerator as ready.
+On a successful fresh installation, both bundled Model Packages are installed under the standard Models data root and registered in Library. Both are immediately loadable by Model Test, Live, and Sequence Test without Training. Each declares exactly three immutable Class IDs; Class Names are user-facing display labels only and never determine package compatibility, inference, sorting, Hit Class identity, or DAQ behavior. The MobileNetV3-Small package is the one Active Model; the EfficientNet-B0 package is registered, valid, ready to use, and inactive. Two-class ready packages are deferred and are not created by this contract.
+
+Final Verification reports the factual status of OpenDSS, DCAM, NI-DAQ, Training, both bundled three-class Model Packages, their Library registration, the single Active MobileNetV3-Small package, and the effective Training compute path: CUDA when qualified and available, otherwise CPU fallback. It never reports an unavailable driver, environment, accelerator, package, registration, or Active Model as ready.
 
 ## 2.2 Experience principles
 
@@ -1653,7 +1655,7 @@ EfficientNet-B0
 Library Add Model requires a nonblank unique Name, one of those two architectures, and one of exactly two Starting Weights choices:
 
 - `ImageNet`: the fixed bundled local ImageNet checkpoint for the selected architecture;
-- `Pretrained`: a second fixed bundled local checkpoint for the selected architecture, distinct from `ImageNet` and from every existing Library model.
+- `Pretrained`: a second fixed bundled local checkpoint for the selected architecture, distinct from `ImageNet`. This Starting Weights selection is not itself a Library entry; the installer-owned ready-to-run packages are separate complete Model Packages under §2.1.1.
 
 Both labels remain visible for both supported architectures. Changing Architecture refreshes both choices to that architecture's own two bundled checkpoints. Each choice is enabled only when its corresponding bundled artifact is locally valid. Add Model requires Name, Architecture, and one of the two choices. Add Model MUST NOT download weights, present a network action, infer or substitute another artifact, or use a network fallback. Train must not infer, substitute, download, or edit Name, Architecture, or Starting Weights.
 
@@ -1706,7 +1708,7 @@ During and after Training, the requested and effective execution device are show
 
 ## 13.1 Design purpose and user goal
 
-Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval.
+Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval. Its navigation destination uses the same authoritative Training Environment readiness check as Train and is not activatable until that check passes.
 
 `UAT-MODEL-005` treats this dataset-wide operation as Dataset Validation for backend throughput. The visible, non-engineering-facing workspace name remains exactly `Model Test`. Its one input remains a structured, labeled OpenDSS Dataset selected through the existing Dataset workflow; it does not add arbitrary image-file or folder input. Automatic multi-image batches are an internal processing detail and do not change the visible input model, scientific meaning, artifacts, metrics, or observational status.
 
@@ -1765,11 +1767,11 @@ Confusion Matrix
 | **Operation-side panel** | Artifact selection, compatibility, planned/actual device, output path, Start/Stop, progress. |
 | **Primary action** | Start Model Test in Ready; Stop Model Test in Running; Open Predictions CSV or Open Model Test Summary in Completed, with one selected as the local primary according to the approved implementation. |
 | **Secondary actions** | Select Dataset; Set Active in Library; Open Model Test Summary; Open Predictions CSV; Open Output Folder; Start Another Model Test. |
-| **Required artifact/hardware** | Readable 2- or 3-class Model Package; readable labeled Dataset with same class count; readable Labeled crops; runtime; writable output; global operation slot. No hardware. GPU optional; CPU fallback. |
+| **Required artifact/hardware** | A Training Environment that has passed the same authoritative readiness check used by Train; readable 2- or 3-class Model Package; readable labeled Dataset with same class count; readable Labeled crops; writable output; global operation slot. No hardware. GPU optional; CPU fallback. |
 | **Output** | `model_test_summary.json` and `predictions.csv`. It is not a Run and is not listed under Results. |
-| **Direct disabled reasons** | **Another operation is active** → **No Active Model** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Model Test runtime unavailable** → **Output folder is not writable**. GPU absence is never a blocker. |
+| **Direct disabled reasons** | At navigation: **Training environment unavailable**, using the same readiness owner and presentation as Train. After navigation is available: **Another operation is active** → **No Active Model** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Output folder is not writable**. GPU absence is never a blocker. |
 | **Fault banner** | Below workspace heading and above selection/results. |
-| **Applicable presentations** | Empty, Unavailable, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. |
+| **Applicable presentations** | Empty, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. Training Environment unavailability is handled by the navigation gate and never opens or replaces the workspace with a dedicated Failed/Unavailable page. |
 | **Next likely action** | Review/open output or run another test. Active Model remains unchanged. |
 
 ## 13.4 Compatibility presentation
@@ -1840,7 +1842,7 @@ Live and Sequence Test execute `model.onnx`; their provenance remains the exact 
 - Artifact selectors occur first in Tab order, followed by output path and Start.
 - Confusion matrix cells expose row/column headers and values to assistive technology.
 - At minimum width, artifact summaries stack above the operation panel; completed metrics may scroll vertically, but output actions remain reachable.
-- Required mocks: no artifacts; model only; Dataset only; 2-vs-3 mismatch; no Labeled crops; GPU planned; CPU fallback; Starting; Running; Stopping; Completed two-class; Completed three-class; Interrupted with partial output; runtime failure; write failure; proof that Active Model header does not change.
+- Required mocks: disabled Model Test navigation while the shared Training Environment check is unavailable; no artifacts; model only; Dataset only; 2-vs-3 mismatch; no Labeled crops; GPU planned; CPU fallback; Starting; Running; Stopping; Completed two-class; Completed three-class; Interrupted with partial output; processing failure; write failure; proof that Active Model header does not change. No dedicated installed-runtime Failed/Unavailable workspace mock exists.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.5, §§11–13 and D-004, D-011, D-012, D-013; *OpenDSS v2 Information Architecture and Screen Inventory* §§3.1 and 4.8; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §10, §16, and §17; *OpenDSS Detailed User Workflow Specification* §16 and §§31–34 as amended for automatic GPU acceleration with CPU fallback; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §§9–12 as adapted metrics, table, and accessibility evidence.
 
@@ -1936,7 +1938,7 @@ Metrics use neutral presentation. No status badge derives from metric values.
 | Action | Design and behavior |
 |---|---|
 | **Set Active** | Primary when a valid nonactive package is selected and replacement is not locked. Successful activation updates header immediately. |
-| **Add Model** | Opens one popup requiring a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and exactly one visible Starting Weights choice: `ImageNet` or `Pretrained`. Each is a distinct fixed bundled architecture-specific local checkpoint and is enabled only when its corresponding artifact is locally valid. `Pretrained` is not an existing Library model. Library owns this identity. The selector never downloads, substitutes, or uses a network fallback. No additional architecture, option, or package schema is added. |
+| **Add Model** | Opens one popup requiring a nonblank unique Name, one supported Architecture (`MobileNetV3-Small` or `EfficientNet-B0`), and exactly one visible Starting Weights choice: `ImageNet` or `Pretrained`. Each is a distinct fixed bundled architecture-specific local checkpoint and is enabled only when its corresponding artifact is locally valid. The `Pretrained` Starting Weights choice is not itself a Library model; the two installer-owned ready packages are separate complete Model Packages under §2.1.1. Library owns this identity. The selector never downloads, substitutes, or uses a network fallback. No additional architecture, option, or package schema is added. |
 | **Import Model** | Selects `metadata.json` inside one complete supported v2 Model Package and performs the existing technical and package-integrity checks. Raw weights, a bare ONNX file, an incomplete package, or any selection other than the package's `metadata.json` is not importable. Import does not perform conversion or assign scientific state. |
 | **Remove Model** | Adjacent to Import Model. It retains the existing direct confirmation naming the Model Package and consequence. When no consumer is running, the selected package may be removed even when it is currently Active. After confirmation, move the OpenDSS-owned complete package folder and files to the Windows Recycle Bin, update the registry, and leave Active Model empty. Do not infer or activate a fallback model. A genuinely running consumer still blocks removal. Preserve package-integrity checks and never perform direct permanent deletion. An idle Model Test selection/reference does not make the package in use. |
 | **Export Model** | Writes the complete package to a user-selected location. |
@@ -2464,6 +2466,7 @@ The checkbox is not a software arming state and does not create an Emergency Sto
 - The source area may show the first frame or a representative static preview as a read-only sequence fact, but must not imply live acquisition.
 - Fixed detector, Droplet Crop, routing-algorithm, and internal timing configuration is described factually and not editable. Sequence Test's own Decision Boundary is the explicit operational exception and remains editable in setup.
 - Processing controls from Sequence Viewer is not shown and has no effect. Sequence Test processes at the configured Processing FPS.
+- Preview transport is presentation-only and never throttles, pauses, reorders, or changes scientific frame processing, event finalization, Decision, Observed Route, or physical DAQ timing.
 
 ## 16.7 Running presentation
 
@@ -2482,6 +2485,8 @@ The checkbox is not a software arming state and does not create an Emergency Sto
 ```
 
 Progress is based on sequence frames processed and may additionally show events finalized. Rejected, Predicted Class, Decision, and Observed Route remain separate. Rejected is excluded from Total Droplets; Observed Route includes Unresolved.
+
+The Running viewer retains the last successfully rendered frame until a newer processed frame is renderable; it never clears or becomes blank merely because processing is ahead of rendering. Intermediate preview frames MAY be coalesced or dropped. Whenever the viewer becomes ready, the newest processed frame available at that moment is published immediately so visible playback stays current with processing rather than replaying an accumulating backlog. Trigger execution and counters may advance between rendered frames, but a long interval of blank or stale presentation while multiple frames are processed and triggers fire is prohibited. Completion publishes the final processed frame without replaying dropped preview frames.
 
 ## 16.8 Stop, completion, and failure
 

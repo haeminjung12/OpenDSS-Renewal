@@ -264,7 +264,7 @@ The tool is idempotent and resumable after network or process failure. It shows 
 
 Every failure identifies the exact stage. A package download failure identifies the package, source URL, and underlying error; verification, Python installation, environment creation, package installation, and final environment-check failures are distinguished. Dependency download failure, interruption, or cancellation MUST NOT be reported as **Python installation failed**. The tool never silently claims readiness.
 
-A missing, partial, or failed Training Environment never rolls back or invalidates the installed OpenDSS application, local runtime, datasets, or ready-to-run Model Packages. Training and Model Test remain truthfully unavailable until the shared authoritative diagnosis passes and direct the user to **Set Up or Repair OpenDSS Training**. After successful setup, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
+A missing, partial, or failed Training Environment never rolls back or invalidates the installed OpenDSS application, local runtime, datasets, or ready-to-run Model Packages. Training and Model Test remain truthfully unavailable until the shared authoritative diagnosis passes. Their disabled navigation explanation directs the user to **Settings > Training Environment**, where **Repair Training Environment** launches the same application-owned setup/repair tool. After successful setup, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
 
 On a successful fresh installation, both bundled Model Packages are installed under the standard Models data root and registered in Library. Both are immediately loadable by Model Test, Live, and Sequence Test without Training. Each declares exactly three immutable Class IDs; Class Names are user-facing display labels only and never determine package compatibility, inference, sorting, Hit Class identity, or DAQ behavior. The MobileNetV3-Small package is the one Active Model; the EfficientNet-B0 package is registered, valid, ready to use, and inactive. Two-class ready packages are deferred and are not created by this contract.
 
@@ -1653,7 +1653,7 @@ Active Model: <name>
 | **Secondary actions** | Select Dataset; select an existing Library-defined model; select Compute Device; browse Output Location; Open in Model Test; Open in Library; Diagnostics after technical failure. |
 | **Required artifact/hardware** | Labeled Dataset with readable Labeled crops; one selected Library-defined unique model identity with supported architecture and approved Starting Weights; training runtime; writable temporary/final locations; global operation slot. No Camera or DAQ. |
 | **Output** | A new Model Package containing `metadata.json`, `checkpoint.pth`, and `model.onnx`. Successful atomic save registers the new package and makes it Active Model; it never overwrites or mutates a source package. |
-| **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Library model selected** → **Compute Device unavailable** → **Output location is not writable** → **Training environment unavailable**. The Training Environment reason uses the shared authoritative diagnosis and provides the direct action **Set Up or Repair OpenDSS Training**. |
+| **Direct disabled reasons** | At navigation: **Training environment unavailable. Open Settings > Training Environment.** After navigation is available: **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Library model selected** → **Compute Device unavailable** → **Output location is not writable**. The navigation gate uses the shared authoritative Training Environment diagnosis. |
 | **Fault banner** | Below workspace heading, above setup/metrics. It identifies input, runtime, process, or write failure and available Diagnostics/output. |
 | **Applicable presentations** | Empty, Unavailable, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. |
 | **Next likely action** | Open in Model Test after successful save. |
@@ -1730,7 +1730,7 @@ During and after Training, the requested and effective execution device are show
 
 ## 13.1 Design purpose and user goal
 
-Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval. Its navigation destination uses the same authoritative Training Environment diagnosis as Train and is not activatable until that diagnosis passes. When unavailable, the direct action is **Set Up or Repair OpenDSS Training**.
+Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval. Its navigation destination uses the same authoritative Training Environment diagnosis as Train and is not activatable until that diagnosis passes. When unavailable, its explanation is **Training environment unavailable. Open Settings > Training Environment.**
 
 `UAT-MODEL-005` treats this dataset-wide operation as Dataset Validation for backend throughput. The visible, non-engineering-facing workspace name remains exactly `Model Test`. Its one input remains a structured, labeled OpenDSS Dataset selected through the existing Dataset workflow; it does not add arbitrary image-file or folder input. Automatic multi-image batches are an internal processing detail and do not change the visible input model, scientific meaning, artifacts, metrics, or observational status.
 
@@ -1791,7 +1791,7 @@ Confusion Matrix
 | **Secondary actions** | Select Dataset; Set Active in Library; Open Model Test Summary; Open Predictions CSV; Open Output Folder; Start Another Model Test. |
 | **Required artifact/hardware** | A Training Environment that has passed the same authoritative readiness check used by Train; readable 2- or 3-class Model Package; readable labeled Dataset with same class count; readable Labeled crops; writable output; global operation slot. No hardware. GPU optional; CPU fallback. |
 | **Output** | `model_test_summary.json` and `predictions.csv`. It is not a Run and is not listed under Results. |
-| **Direct disabled reasons** | At navigation: **Training environment unavailable**, using the same diagnosis owner and presentation as Train, with direct action **Set Up or Repair OpenDSS Training**. After navigation is available: **Another operation is active** → **No Active Model** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Output folder is not writable**. GPU absence is never a blocker. |
+| **Direct disabled reasons** | At navigation: **Training environment unavailable. Open Settings > Training Environment.**, using the same diagnosis owner and presentation as Train. After navigation is available: **Another operation is active** → **No Active Model** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Output folder is not writable**. GPU absence is never a blocker. |
 | **Fault banner** | Below workspace heading and above selection/results. |
 | **Applicable presentations** | Empty, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. Training Environment unavailability is handled by the navigation gate and never opens or replaces the workspace with a dedicated Failed/Unavailable page. |
 | **Next likely action** | Review/open output or run another test. Active Model remains unchanged. |
@@ -2708,10 +2708,11 @@ Settings contains only:
 ```text
 Storage
 Application Information
+Training Environment
 Diagnostics
 ```
 
-Its purpose is to manage the default data root and inspect local application/runtime facts. It must not duplicate Camera or DAQ settings and must not expose detector, Droplet Crop, routing, internal timing, training, cloud, account, telemetry, update, or legacy-migration controls.
+Its purpose is to manage the default data root, inspect local application/runtime facts, and provide the single in-application entry point for diagnosing or repairing the Training Environment. It must not duplicate Camera or DAQ settings and must not expose detector, Droplet Crop, routing, internal timing, training parameters, cloud, account, telemetry, update, or legacy-migration controls.
 
 ## 18.2 Layout
 
@@ -2730,6 +2731,12 @@ Camera Driver Availability: <fact>
 DAQ Driver Availability: <fact>
 GPU Environment Availability: <fact>
 
+TRAINING ENVIRONMENT
+Status: <Ready | Missing | Broken | Checking>
+Last checked: <local date/time | Never>
+Result: <concise factual result>
+[ Repair Training Environment ]
+
 DIAGNOSTICS
 Diagnostic Folder: <path>
 [ Open Diagnostic Folder ]
@@ -2739,12 +2746,12 @@ Diagnostic Folder: <path>
 
 | Contract field | Specification |
 |---|---|
-| **Main user goal** | Set a valid default storage root and inspect application/runtime/diagnostic facts. |
-| **Major regions** | Storage; Application Information; Diagnostics; contextual fault banner. |
-| **Dominant hierarchy** | Current data root and direct folder actions; version/runtime facts; diagnostic-folder access. |
+| **Main user goal** | Set a valid default storage root, inspect application/runtime facts, and diagnose or repair the Training Environment. |
+| **Major regions** | Storage; Application Information; Training Environment; Diagnostics; contextual fault banner. |
+| **Dominant hierarchy** | Current data root and direct folder actions; version/runtime facts; Training Environment status and repair; diagnostic-folder access. |
 | **Operation-side panel** | Not required. Content may use one centered settings column or grouped panels. |
 | **Primary action** | Choose Default Data Root. |
-| **Secondary actions** | Open Data Root; Open Diagnostic Folder. |
+| **Secondary actions** | Open Data Root; Repair Training Environment; Open Diagnostic Folder. |
 | **Required artifact/hardware** | No hardware. A new root must validate as writable before becoming authoritative. |
 | **Output** | Updated application storage preference. No scientific artifact. |
 | **Direct disabled reasons** | Picker validation occurs after selection. Failure leaves prior root active and displays the direct path/permission reason. |
@@ -2785,12 +2792,22 @@ Unavailable drivers are factual statuses, not Failed application state unless an
 
 Diagnostics provides the diagnostic folder path and Open Diagnostic Folder. A log/diagnostic stream MAY be added only when it reflects existing approved diagnostic data and does not turn normal workflows into console-driven operation.
 
-## 18.7 Accessibility and mock states
+## 18.7 Training Environment
+
+The Training Environment group shows only three concise read-only facts: **Status**, **Last checked**, and **Result**. It contains one always-visible button whose exact label is **Repair Training Environment**. It contains no diagnostic-folder action; Diagnostics remains the separate group defined in §18.6.
+
+Activating **Repair Training Environment** launches the application-owned **Set Up or Repair OpenDSS Training** tool immediately, without a confirmation dialog, while OpenDSS remains open. The Settings controller owns the single child-process lifecycle and prevents duplicate concurrent launches without hiding the button. The tool always diagnoses first. If the environment is already healthy, it changes nothing and reports exactly **Training environment is ready. No repair was needed.**
+
+When the tool exits, whether successfully, unsuccessfully, or after cancellation, OpenDSS automatically reruns the shared authoritative readiness diagnosis and refreshes **Status**, **Last checked**, and **Result**. It never infers success from process exit alone. Train and Model Test use that same readiness result for their navigation gates and, while disabled, direct the user to **Settings > Training Environment** rather than opening a runtime-failure page or attempting to launch the tool from disabled navigation.
+
+The exact visual seam is `SettingsWorkspace.ui.qml`: properties `trainingEnvironmentStatus`, `trainingEnvironmentLastChecked`, and `trainingEnvironmentResult`, plus exported alias `repairTrainingEnvironmentButton`. `ShellSingleImage.qml` owns only the bindings, Settings navigation presentation, and button-to-controller connection. `SettingsController` owns diagnosis state, the tool launch/process lifecycle, exact result reporting, and exit-triggered recheck; `App/main.cpp` may supply only the installed tool path or construction-time process dependency. No new page, overlay, confirmation, navigation control, diagnostic-folder action, process service, or generalized launcher is introduced.
+
+## 18.8 Accessibility and mock states
 
 - Group headings use semantic heading levels.
 - Read-only values remain selectable/copyable where practical and are not styled as disabled.
 - At minimum width, groups stack without changing structure.
-- Required mocks: default root valid; long custom root; root selection failure; preference-write failure; Camera/DAQ drivers unavailable; CPU-only environment; GPU available; diagnostic folder missing/unopenable; 200% scaling.
+- Required mocks: default root valid; long custom root; root selection failure; preference-write failure; Camera/DAQ drivers unavailable; CPU-only environment; GPU available; Training Environment Never/Checking/Ready/Missing/Broken and healthy no-op result; repair tool running/exit recheck; diagnostic folder missing/unopenable; 200% scaling.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §7.10, §§11–12 and D-017; *OpenDSS v2 Information Architecture and Screen Inventory* §§1.4, 3.1, 4.17, and §8; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §15 and §16; *OpenDSS Detailed User Workflow Specification* §23 as narrowed by *OpenDSS Approved v2 Product Model* and applicable storage/diagnostic requirements; *OpenDSS Product Design Specification*, Draft v0.1 §§5–6 and §§9–10 as adapted form and accessibility evidence.
 

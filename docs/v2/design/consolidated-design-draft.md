@@ -226,17 +226,16 @@ The following descriptions are task contexts, not permission-bearing roles:
 
 ### 2.1.1 Installation and network contract
 
-Installation requires internet access to complete a fresh Training Environment setup. The current-release installer is unsigned and MUST explain the ordinary Windows SmartScreen flow exactly as **More info** → **Run anyway**, without disabling, bypassing, weakening, or instructing the user to weaken Windows security. The installer is a small bootstrap installer. It bundles the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock and two complete ready-to-run three-class pretrained Model Packages: one MobileNetV3-Small package and one EfficientNet-B0 package. It does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
+OpenDSS application installation does not require Python or a completed Training Environment and MUST NOT fail or block because Python, the Training Environment, internet access for training dependencies, or any training package is absent or broken. The current-release installer is unsigned and MUST explain the ordinary Windows SmartScreen flow exactly as **More info** → **Run anyway**, without disabling, bypassing, weakening, or instructing the user to weaken Windows security. The installer is a small bootstrap installer. It bundles the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock and two complete ready-to-run three-class pretrained Model Packages: one MobileNetV3-Small package and one EfficientNet-B0 package. It does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
 
 The installer presents exactly this ordered flow:
 
 1. **Welcome**;
 2. **Prerequisite Check**;
 3. **OpenDSS installation**;
-4. automatic **Training Environment setup**; and
-5. **Final Verification**.
+4. **Final Verification**.
 
-Prerequisite Check uses aligned status rows with consistent label, status, explanation, and action columns. Status text uses clear factual labels such as **Ready**, **Missing**, and **Driver Required**; buttons are short, consistently sized, and aligned. A prominent explanation identifies every missing requirement and whether it blocks **Next**. **Next** is disabled while internet connectivity or a required Windows runtime is absent. Missing DCAM, NI-DAQmx, an NVIDIA GPU/driver, or a connected Camera is nonblocking because Camera/DAQ workflows may be configured later and Training has CPU fallback.
+Prerequisite Check uses aligned status rows with consistent label, status, explanation, and action columns. Status text uses clear factual labels such as **Ready**, **Missing**, and **Driver Required**; buttons are short, consistently sized, and aligned. A prominent explanation identifies every missing requirement and whether it blocks **Next**. **Next** is disabled only while a required Windows runtime or another requirement for installing the OpenDSS application itself is absent. Internet connectivity, Python, Training Environment state, DCAM, NI-DAQmx, an NVIDIA GPU/driver, and a connected Camera are nonblocking for application installation.
 
 DCAM reporting separates three facts:
 
@@ -248,27 +247,30 @@ The existence of `dcamapi.dll` alone proves only a possible runtime file and MUS
 
 NVIDIA reporting independently checks for a compatible installed NVIDIA driver and explains that the user should verify the latest compatible driver. The row provides **Open NVIDIA Driver Page** and **Check Again**. Missing or incompatible NVIDIA support is nonblocking and states that Training will use CPU fallback. NI-DAQmx retains the same nonblocking **Driver Required**, official download-page, and **Check Again** treatment. The installer never silently installs DCAM, NI-DAQmx, or NVIDIA drivers. Python is never presented as a manual prerequisite.
 
-On a fresh internet-connected Python-free Windows 11 computer, setup MUST execute and report these stages in this order:
+The installer creates one visible Start Menu action named exactly **Set Up or Repair OpenDSS Training**. It may use a thin launcher plus a separate application-owned script when required for safe execution. The installer Final Verification page MAY offer **Run training setup now**, but this action is optional and application installation success is independent of its execution or outcome.
 
-1. download exact pinned CPython `3.12.10`, verify its authoritative SHA-256, and install it;
-2. create the application-owned environment at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
-3. verify the locked SHA-256 of the bundled OpenDSS `droplet_trainer` wheel;
-4. download the other 36 authoritative pinned, hash-locked third-party wheels into a persistent resumable application-owned wheel cache;
-5. verify every cached wheel against its authoritative hash before reuse or installation;
-6. install the exact 37-wheel environment from the bundled wheel and verified cache; and
-7. run the authoritative environment check.
+Every launch of **Set Up or Repair OpenDSS Training** diagnoses first, in stage order, and reports what is **Ready**, **Missing**, or **Broken** before modifying anything:
 
-Training setup shows the current stage and per-package progress, including package name and ordinal/total. Downloads use bounded retry behavior for transient failures. Cancellation stops safely, retains already verified cached wheels, removes or disregards incomplete temporary downloads, leaves Training truthfully unavailable, and writes a persistent diagnostic log. Repair resumes the same ordered setup, reuses every hash-verified cached artifact, and downloads only missing or invalid artifacts; it MUST NOT redownload the complete wheel set.
+1. exact pinned CPython `3.12.10`;
+2. application-owned environment at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
+3. locked bundled OpenDSS `droplet_trainer` wheel;
+4. the other 36 authoritative pinned, hash-locked third-party wheels in the persistent resumable application-owned wheel cache;
+5. exact 37-wheel environment installation; and
+6. authoritative environment check.
 
-Every failure identifies the exact stage. A package download failure identifies the package, source URL, and underlying error; verification, Python installation, environment creation, package installation, and final environment-check failures are distinguished. Dependency download failure, interruption, or cancellation MUST NOT be reported as **Python installation failed**.
+After diagnosis, the tool repairs or installs only missing or invalid stages, preserves every valid existing stage, and continues automatically through every remaining stage to Final Verification. When CPython is missing or invalid, it downloads exact pinned CPython `3.12.10`, verifies its authoritative SHA-256, and installs it before creating or repairing the environment. It verifies every cached wheel against its authoritative hash before reuse or installation.
 
-A failed Training Environment setup does not roll back the already-installed OpenDSS application. OpenDSS remains installed, Training is truthfully unavailable, and **Repair Training Environment** is offered. A partial environment is never usable or reported as successfully installed. After successful setup, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
+The tool is idempotent and resumable after network or process failure. It shows the current stage and per-package progress, including package name and ordinal/total; uses bounded retry behavior for transient failures; supports Cancel, Retry, and Repair; stops cancellation safely; retains already verified cached wheels; removes or disregards incomplete temporary downloads; preserves all valid components and all user data/Active Model; and writes a persistent diagnostic log. Repair reuses every hash-verified cached artifact and downloads only missing or invalid artifacts; it MUST NOT redownload the complete wheel set.
+
+Every failure identifies the exact stage. A package download failure identifies the package, source URL, and underlying error; verification, Python installation, environment creation, package installation, and final environment-check failures are distinguished. Dependency download failure, interruption, or cancellation MUST NOT be reported as **Python installation failed**. The tool never silently claims readiness.
+
+A missing, partial, or failed Training Environment never rolls back or invalidates the installed OpenDSS application, local runtime, datasets, or ready-to-run Model Packages. Training and Model Test remain truthfully unavailable until the shared authoritative diagnosis passes and direct the user to **Set Up or Repair OpenDSS Training**. After successful setup, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
 
 On a successful fresh installation, both bundled Model Packages are installed under the standard Models data root and registered in Library. Both are immediately loadable by Model Test, Live, and Sequence Test without Training. Each declares exactly three immutable Class IDs; Class Names are user-facing display labels only and never determine package compatibility, inference, sorting, Hit Class identity, or DAQ behavior. The MobileNetV3-Small package is the one Active Model; the EfficientNet-B0 package is registered, valid, ready to use, and inactive. Two-class ready packages are deferred and are not created by this contract.
 
 Reinstall and upgrade preserve all existing user datasets, Model Packages, and Model Registry data under the Documents data root without overwriting, replacing, deleting, or resetting them. They do not change an existing Active Model. Uninstall leaves those Documents user-data folders and registry data intact; removing the application MUST NOT remove user datasets or models.
 
-Final Verification uses aligned result rows and displays the result and exact failure for each checked item: OpenDSS, DCAM runtime, DCAM driver, connected Camera, NI-DAQmx, Training Environment, both bundled three-class Model Packages, Library registration, the single Active MobileNetV3-Small package, and the effective Training compute path—CUDA when qualified and available, otherwise CPU fallback. It never reports an unavailable driver, environment, accelerator, package, registration, or Active Model as ready. **Repair Training Environment**, **Check Again**, and final navigation actions appear in one consistent bottom action area; no Repair action floats beside or between verification rows.
+Final Verification uses aligned result rows and displays the result and exact failure for each checked item: OpenDSS, DCAM runtime, DCAM driver, connected Camera, NI-DAQmx, Training Environment, both bundled three-class Model Packages, Library registration, the single Active MobileNetV3-Small package, and the effective Training compute path—CUDA when qualified and available, otherwise CPU fallback. It never reports an unavailable driver, environment, accelerator, package, registration, or Active Model as ready. Training Environment absence or failure is reported factually but does not make OpenDSS installation fail. **Run training setup now**, **Check Again**, and final navigation actions appear in one consistent bottom action area; no Repair action floats beside or between verification rows.
 
 Every installer-visible product/version label is exactly `0.9.1`.
 
@@ -1651,7 +1653,7 @@ Active Model: <name>
 | **Secondary actions** | Select Dataset; select an existing Library-defined model; select Compute Device; browse Output Location; Open in Model Test; Open in Library; Diagnostics after technical failure. |
 | **Required artifact/hardware** | Labeled Dataset with readable Labeled crops; one selected Library-defined unique model identity with supported architecture and approved Starting Weights; training runtime; writable temporary/final locations; global operation slot. No Camera or DAQ. |
 | **Output** | A new Model Package containing `metadata.json`, `checkpoint.pth`, and `model.onnx`. Successful atomic save registers the new package and makes it Active Model; it never overwrites or mutates a source package. |
-| **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Library model selected** → **Compute Device unavailable** → **Output location is not writable** → **Training environment unavailable**. |
+| **Direct disabled reasons** | **Another operation is active** → **No dataset selected** → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **No Library model selected** → **Compute Device unavailable** → **Output location is not writable** → **Training environment unavailable**. The Training Environment reason uses the shared authoritative diagnosis and provides the direct action **Set Up or Repair OpenDSS Training**. |
 | **Fault banner** | Below workspace heading, above setup/metrics. It identifies input, runtime, process, or write failure and available Diagnostics/output. |
 | **Applicable presentations** | Empty, Unavailable, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. |
 | **Next likely action** | Open in Model Test after successful save. |
@@ -1728,7 +1730,7 @@ During and after Training, the requested and effective execution device are show
 
 ## 13.1 Design purpose and user goal
 
-Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval. Its navigation destination uses the same authoritative Training Environment readiness check as Train and is not activatable until that check passes.
+Model Test is an optional observational workspace. Its purpose is to use the Active Model with one compatible labeled Dataset, run inference over eligible Labeled Droplet Crops, and review factual classification measurements without assigning approval. Its navigation destination uses the same authoritative Training Environment diagnosis as Train and is not activatable until that diagnosis passes. When unavailable, the direct action is **Set Up or Repair OpenDSS Training**.
 
 `UAT-MODEL-005` treats this dataset-wide operation as Dataset Validation for backend throughput. The visible, non-engineering-facing workspace name remains exactly `Model Test`. Its one input remains a structured, labeled OpenDSS Dataset selected through the existing Dataset workflow; it does not add arbitrary image-file or folder input. Automatic multi-image batches are an internal processing detail and do not change the visible input model, scientific meaning, artifacts, metrics, or observational status.
 
@@ -1789,7 +1791,7 @@ Confusion Matrix
 | **Secondary actions** | Select Dataset; Set Active in Library; Open Model Test Summary; Open Predictions CSV; Open Output Folder; Start Another Model Test. |
 | **Required artifact/hardware** | A Training Environment that has passed the same authoritative readiness check used by Train; readable 2- or 3-class Model Package; readable labeled Dataset with same class count; readable Labeled crops; writable output; global operation slot. No hardware. GPU optional; CPU fallback. |
 | **Output** | `model_test_summary.json` and `predictions.csv`. It is not a Run and is not listed under Results. |
-| **Direct disabled reasons** | At navigation: **Training environment unavailable**, using the same readiness owner and presentation as Train. After navigation is available: **Another operation is active** → **No Active Model** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Output folder is not writable**. GPU absence is never a blocker. |
+| **Direct disabled reasons** | At navigation: **Training environment unavailable**, using the same diagnosis owner and presentation as Train, with direct action **Set Up or Repair OpenDSS Training**. After navigation is available: **Another operation is active** → **No Active Model** → **No dataset selected** → factual class-count mismatch → **No Labeled Droplet Crops** → **Required Droplet Crop is missing** → **Output folder is not writable**. GPU absence is never a blocker. |
 | **Fault banner** | Below workspace heading and above selection/results. |
 | **Applicable presentations** | Empty, Ready, Starting, Running, Stopping, Completed, Interrupted, Failed. No Pause. Training Environment unavailability is handled by the navigation gate and never opens or replaces the workspace with a dedicated Failed/Unavailable page. |
 | **Next likely action** | Review/open output or run another test. Active Model remains unchanged. |

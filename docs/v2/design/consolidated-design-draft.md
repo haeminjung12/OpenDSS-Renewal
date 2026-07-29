@@ -405,6 +405,8 @@ Every application launch MUST open:
 Data > Capture
 ```
 
+Normal launch from the installed shortcut or directly from the production OpenDSS executable displays only the GUI and MUST NOT create, retain, or flash a Command Prompt/console window. Explicit user-invoked diagnostic or command-line modes may use a console when that console is part of the requested mode. This launch contract does not hide installer progress or errors, suppress persistent diagnostic logs, or remove supported diagnostic entry points. Normal application exit leaves no orphan console or helper process.
+
 The previously open workspace MUST NOT be restored. Persisted domain state, including the Active Model and valid storage preferences, may remain available because it is not workspace restoration.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §4, §5, and D-001, D-006, D-007, D-011, D-013, D-014, D-017, and D-018; *OpenDSS v2 Information Architecture and Screen Inventory* §§1–3; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §§2.2–2.4 and §18; *OpenDSS Detailed User Workflow Specification* §§7–9 as amended by *OpenDSS Approved v2 Product Model*; *OpenDSS Product Design Specification*, Draft v0.1 §3 is not carried forward except for compatible compact/expanded rail presentation.

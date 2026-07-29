@@ -226,7 +226,7 @@ The following descriptions are task contexts, not permission-bearing roles:
 
 ### 2.1.1 Installation and network contract
 
-Installation MAY require internet access. The signed installer is a small bootstrap installer. It bundles the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock and two complete ready-to-run three-class pretrained Model Packages: one MobileNetV3-Small package and one EfficientNet-B0 package. It does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
+Installation requires internet access to complete a fresh Training Environment setup. The current-release installer is unsigned and MUST explain the ordinary Windows SmartScreen flow exactly as **More info** → **Run anyway**, without disabling, bypassing, weakening, or instructing the user to weaken Windows security. The installer is a small bootstrap installer. It bundles the exact repository-owned OpenDSS `droplet_trainer` wheel identified by the authoritative training-environment lock and two complete ready-to-run three-class pretrained Model Packages: one MobileNetV3-Small package and one EfficientNet-B0 package. It does not embed an offline Python runtime, third-party wheelhouse, or complete CPU/GPU training payload.
 
 The installer presents exactly this ordered flow:
 
@@ -236,23 +236,39 @@ The installer presents exactly this ordered flow:
 4. automatic **Training Environment setup**; and
 5. **Final Verification**.
 
-Prerequisite Check reports the factual state of Hamamatsu DCAM, NI-DAQmx, a compatible NVIDIA GPU/driver, internet connectivity, and required Windows runtimes. Missing DCAM or NI-DAQmx does not block OpenDSS installation: the affected prerequisite is shown as **Driver Required**, with an action opening the official vendor download page and a **Check Again** action. The installer never silently installs DCAM or NI-DAQmx. Python is never presented as a manual prerequisite.
+Prerequisite Check uses aligned status rows with consistent label, status, explanation, and action columns. Status text uses clear factual labels such as **Ready**, **Missing**, and **Driver Required**; buttons are short, consistently sized, and aligned. A prominent explanation identifies every missing requirement and whether it blocks **Next**. **Next** is disabled while internet connectivity or a required Windows runtime is absent. Missing DCAM, NI-DAQmx, an NVIDIA GPU/driver, or a connected Camera is nonblocking because Camera/DAQ workflows may be configured later and Training has CPU fallback.
 
-On a fresh internet-connected Python-free Windows 11 computer, setup MUST:
+DCAM reporting separates three facts:
 
-1. download exact pinned CPython `3.12.10`;
-2. verify the locked SHA-256 of the bundled OpenDSS `droplet_trainer` wheel before installation;
-3. download the other 36 authoritative third-party wheels, each pinned and hash-locked;
-4. verify the authoritative hash of CPython and every downloaded third-party wheel;
-5. provision the resulting exact 37-wheel environment at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
-6. run the authoritative environment check; and
-7. fail Training Environment setup atomically and visibly if any download, verification, provisioning, or environment-check step fails.
+1. **DCAM runtime** — the expected runtime is present and loadable;
+2. **DCAM driver** — the supported Windows driver/device stack is installed; and
+3. **Connected Camera** — a compatible Camera is currently discoverable.
+
+The existence of `dcamapi.dll` alone proves only a possible runtime file and MUST NOT report DCAM, its driver, or a Camera as **Ready**. Missing DCAM driver support is shown as **Driver Required** with the official vendor download-page action and **Check Again**. No connected Camera is shown factually and remains nonblocking.
+
+NVIDIA reporting independently checks for a compatible installed NVIDIA driver and explains that the user should verify the latest compatible driver. The row provides **Open NVIDIA Driver Page** and **Check Again**. Missing or incompatible NVIDIA support is nonblocking and states that Training will use CPU fallback. NI-DAQmx retains the same nonblocking **Driver Required**, official download-page, and **Check Again** treatment. The installer never silently installs DCAM, NI-DAQmx, or NVIDIA drivers. Python is never presented as a manual prerequisite.
+
+On a fresh internet-connected Python-free Windows 11 computer, setup MUST execute and report these stages in this order:
+
+1. download exact pinned CPython `3.12.10`, verify its authoritative SHA-256, and install it;
+2. create the application-owned environment at `%LOCALAPPDATA%\OpenDSS\training-venv-gpu`;
+3. verify the locked SHA-256 of the bundled OpenDSS `droplet_trainer` wheel;
+4. download the other 36 authoritative pinned, hash-locked third-party wheels into a persistent resumable application-owned wheel cache;
+5. verify every cached wheel against its authoritative hash before reuse or installation;
+6. install the exact 37-wheel environment from the bundled wheel and verified cache; and
+7. run the authoritative environment check.
+
+Training setup shows the current stage and per-package progress, including package name and ordinal/total. Downloads use bounded retry behavior for transient failures. Cancellation stops safely, retains already verified cached wheels, removes or disregards incomplete temporary downloads, leaves Training truthfully unavailable, and writes a persistent diagnostic log. Repair resumes the same ordered setup, reuses every hash-verified cached artifact, and downloads only missing or invalid artifacts; it MUST NOT redownload the complete wheel set.
+
+Every failure identifies the exact stage. A package download failure identifies the package, source URL, and underlying error; verification, Python installation, environment creation, package installation, and final environment-check failures are distinguished. Dependency download failure, interruption, or cancellation MUST NOT be reported as **Python installation failed**.
 
 A failed Training Environment setup does not roll back the already-installed OpenDSS application. OpenDSS remains installed, Training is truthfully unavailable, and **Repair Training Environment** is offered. A partial environment is never usable or reported as successfully installed. After successful setup, Training is local and has no runtime dependency download or network fallback. Existing trained-model local/no-network runtime requirements are unchanged.
 
 On a successful fresh installation, both bundled Model Packages are installed under the standard Models data root and registered in Library. Both are immediately loadable by Model Test, Live, and Sequence Test without Training. Each declares exactly three immutable Class IDs; Class Names are user-facing display labels only and never determine package compatibility, inference, sorting, Hit Class identity, or DAQ behavior. The MobileNetV3-Small package is the one Active Model; the EfficientNet-B0 package is registered, valid, ready to use, and inactive. Two-class ready packages are deferred and are not created by this contract.
 
-Final Verification reports the factual status of OpenDSS, DCAM, NI-DAQ, Training, both bundled three-class Model Packages, their Library registration, the single Active MobileNetV3-Small package, and the effective Training compute path: CUDA when qualified and available, otherwise CPU fallback. It never reports an unavailable driver, environment, accelerator, package, registration, or Active Model as ready.
+Final Verification uses aligned result rows and displays the result and exact failure for each checked item: OpenDSS, DCAM runtime, DCAM driver, connected Camera, NI-DAQmx, Training Environment, both bundled three-class Model Packages, Library registration, the single Active MobileNetV3-Small package, and the effective Training compute path—CUDA when qualified and available, otherwise CPU fallback. It never reports an unavailable driver, environment, accelerator, package, registration, or Active Model as ready. **Repair Training Environment**, **Check Again**, and final navigation actions appear in one consistent bottom action area; no Repair action floats beside or between verification rows.
+
+Every installer-visible product/version label is exactly `0.9.1`.
 
 ## 2.2 Experience principles
 

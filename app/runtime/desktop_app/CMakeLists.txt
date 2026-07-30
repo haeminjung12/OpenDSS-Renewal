@@ -114,6 +114,8 @@ add_executable(desktop_app
   icons.h
   object_names.h
   pipeline_runner.cpp
+  ../inference/onnx_inference_adapter.cpp
+  ../v2/model/model_load_service.cpp
   theme.cpp
   theme.h
   widget_helpers.cpp

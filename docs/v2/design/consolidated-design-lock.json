@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "document": "docs/v2/design/consolidated-design-draft.md",
+  "document_id": "ODSS-DES-002",
+  "status": "user-designated-master-specification",
+  "approved_by": "user",
+  "approved_date": "2026-07-26",
+  "canonicalization": "crlf-to-lf",
+  "sha256": "47c66e681d342779d2b22d545480803708f752de5e5e52a31e3ca0839104e04e"
+}

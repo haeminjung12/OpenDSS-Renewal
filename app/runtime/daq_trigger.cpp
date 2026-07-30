@@ -135,6 +135,7 @@ std::vector<DaqDeviceInfo> discoverDaqDevices(std::string& err) {
 
 DaqTrigger::DaqTrigger()
     : ready_(false)
+    , continuous_(false)
 #ifdef HAVE_NIDAQMX
       ,
       task_(nullptr)
@@ -288,18 +289,31 @@ void DaqTrigger::shutdown() {
     samples_ = 0;
 #endif
     ready_ = false;
+    continuous_ = false;
 }
 
 bool DaqTrigger::fire(std::string& err) {
+    return fireImpl(true, err);
+}
+
+bool DaqTrigger::fireImmediate(std::string& err) {
+    return fireImpl(false, err);
+}
+
+bool DaqTrigger::fireImpl(bool honorDelay, std::string& err) {
     if (!ready_) {
         err = "DAQ trigger not initialized";
+        return false;
+    }
+    if (continuous_) {
+        err = "Continuous DAQ output is active";
         return false;
     }
 
     err.clear();
     try {
 #ifdef HAVE_NIDAQMX
-        if (cfg_.delayMs > 0.0) {
+        if (honorDelay && cfg_.delayMs > 0.0) {
             std::this_thread::sleep_for(std::chrono::duration<double, std::milli>(cfg_.delayMs));
         }
 
@@ -319,7 +333,8 @@ bool DaqTrigger::fire(std::string& err) {
             return false;
         }
 
-        double timeout = 5.0 + (cfg_.durationMs + cfg_.delayMs) / 1000.0;
+        const double timeout =
+            5.0 + (cfg_.durationMs + (honorDelay ? cfg_.delayMs : 0.0)) / 1000.0;
         error = DAQmxWaitUntilTaskDone(task, timeout);
         if (DAQmxFailed(error)) {
             err = formatDaqError("DAQmxWaitUntilTaskDone failed", error);
@@ -341,8 +356,163 @@ bool DaqTrigger::fire(std::string& err) {
     }
 }
 
+bool DaqTrigger::startContinuous(std::string& err) {
+    if (!ready_) {
+        err = "DAQ trigger not initialized";
+        return false;
+    }
+    if (continuous_) {
+        err.clear();
+        return true;
+    }
+
+#ifdef HAVE_NIDAQMX
+    if (task_) {
+        TaskHandle task = static_cast<TaskHandle>(task_);
+        DAQmxStopTask(task);
+        DAQmxClearTask(task);
+        task_ = nullptr;
+    }
+    waveform_.clear();
+    samples_ = 0;
+    sampleRate_ = 0.0;
+    ready_ = false;
+
+    TaskHandle task = nullptr;
+    int32 error = DAQmxCreateTask("", &task);
+    if (DAQmxFailed(error)) {
+        err = formatDaqError("DAQmxCreateTask failed", error);
+        return false;
+    }
+    error = DAQmxCreateAOVoltageChan(task, cfg_.channel.c_str(), "",
+                                     cfg_.rangeMin, cfg_.rangeMax,
+                                     DAQmx_Val_Volts, nullptr);
+    if (DAQmxFailed(error)) {
+        err = formatDaqError("DAQmxCreateAOVoltageChan failed", error);
+        DAQmxClearTask(task);
+        return false;
+    }
+
+    const double maxAbs = std::min(std::abs(cfg_.rangeMin), std::abs(cfg_.rangeMax));
+    const double amplitude = std::clamp(std::abs(cfg_.amplitude), 0.0, maxAbs);
+    double sampleRate = std::clamp(cfg_.frequencyHz * kSamplesPerCycle,
+                                   kMinSampleRate, kMaxSampleRate);
+    std::string rateErr;
+    const std::string deviceName = deviceNameFromPhysicalChannel(cfg_.channel);
+    if (!deviceName.empty()) {
+        const double deviceMaxRate =
+            queryDaqFloat64(DAQmxGetDevAOMaxRate, deviceName, rateErr,
+                            "DAQmxGetDevAOMaxRate failed");
+        if (rateErr.empty() && deviceMaxRate > 0.0)
+            sampleRate = std::min(sampleRate, deviceMaxRate);
+    }
+    sampleRate = std::max(sampleRate, kAbsoluteMinSampleRate);
+
+    const int cycleSamples =
+        std::max(2, static_cast<int>(std::lround(sampleRate / cfg_.frequencyHz)));
+    waveform_.resize(cycleSamples);
+    for (int i = 0; i < cycleSamples; ++i) {
+        waveform_[i] =
+            amplitude * std::sin(2.0 * 3.14159265358979323846
+                                 * static_cast<double>(i)
+                                 / static_cast<double>(cycleSamples));
+    }
+
+    error = DAQmxCfgSampClkTiming(task, "", sampleRate, DAQmx_Val_Rising,
+                                  DAQmx_Val_ContSamps, cycleSamples);
+    if (!DAQmxFailed(error))
+        error = DAQmxCfgOutputBuffer(task, cycleSamples);
+    int32 written = 0;
+    if (!DAQmxFailed(error)) {
+        error = DAQmxWriteAnalogF64(task, cycleSamples, 0, 10.0,
+                                    DAQmx_Val_GroupByChannel, waveform_.data(),
+                                    &written, nullptr);
+    }
+    if (!DAQmxFailed(error))
+        error = DAQmxStartTask(task);
+    if (DAQmxFailed(error)) {
+        err = formatDaqError("Starting continuous DAQ output failed", error);
+        DAQmxStopTask(task);
+        DAQmxClearTask(task);
+        waveform_.clear();
+        return false;
+    }
+
+    task_ = task;
+    sampleRate_ = sampleRate;
+    samples_ = cycleSamples;
+    continuous_ = true;
+    ready_ = true;
+    err.clear();
+    return true;
+#else
+    err = "NI-DAQmx not available at build time";
+    return false;
+#endif
+}
+
+bool DaqTrigger::stopContinuous(std::string& err) {
+    if (!continuous_) {
+        err.clear();
+        return true;
+    }
+
+#ifdef HAVE_NIDAQMX
+    TaskHandle task = static_cast<TaskHandle>(task_);
+    const int32 stopError = DAQmxStopTask(task);
+    DAQmxClearTask(task);
+
+    task_ = nullptr;
+    continuous_ = false;
+    ready_ = false;
+    waveform_.clear();
+    sampleRate_ = 0.0;
+    samples_ = 0;
+
+    int32 zeroError = 0;
+    TaskHandle zeroTask = nullptr;
+    zeroError = DAQmxCreateTask("", &zeroTask);
+    if (!DAQmxFailed(zeroError)) {
+        zeroError = DAQmxCreateAOVoltageChan(
+            zeroTask, cfg_.channel.c_str(), "", cfg_.rangeMin, cfg_.rangeMax,
+            DAQmx_Val_Volts, nullptr);
+    }
+    if (!DAQmxFailed(zeroError))
+        zeroError = DAQmxWriteAnalogScalarF64(zeroTask, 1, 1.0, 0.0, nullptr);
+    if (zeroTask)
+        DAQmxClearTask(zeroTask);
+
+    const DaqConfig savedConfig = cfg_;
+    std::string restoreError;
+    const bool restored = init(savedConfig, restoreError);
+
+    if (DAQmxFailed(stopError)) {
+        err = formatDaqError("Stopping continuous DAQ output failed", stopError);
+        return false;
+    }
+    if (DAQmxFailed(zeroError)) {
+        err = formatDaqError("Returning DAQ output to zero failed", zeroError);
+        return false;
+    }
+    if (!restored) {
+        err = "Continuous output stopped, but finite DAQ output could not be restored: "
+            + restoreError;
+        return false;
+    }
+    err.clear();
+    return true;
+#else
+    err = "NI-DAQmx not available at build time";
+    return false;
+#endif
+}
+
 bool DaqTrigger::isReady() const {
     return ready_;
+}
+
+bool DaqTrigger::isContinuous() const {
+    return continuous_;
 }
 
 double DaqTrigger::sampleRateHz() const {

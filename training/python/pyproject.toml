@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "droplet-trainer"
-version = "0.2.0"
+dynamic = ["version"]
 description = "External Python trainer backend for OpenDSS."
 requires-python = ">=3.10,<3.13"
 readme = "README-windows-training.md"
@@ -27,5 +27,8 @@ onnx-gpu = ["onnxruntime-gpu==1.25.1"]
 [project.scripts]
 droplet-trainer = "droplet_trainer.cli:main"
 
-[tool.setuptools.packages.find]
-include = ["droplet_trainer*"]
+[tool.setuptools]
+packages = ["droplet_trainer"]
+
+[tool.setuptools.dynamic]
+version = {attr = "droplet_trainer.__version__"}

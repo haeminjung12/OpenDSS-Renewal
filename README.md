@@ -1,151 +1,92 @@
 # OpenDSS
 
-OpenDSS is a Windows application for viewing, classifying, and sorting droplets in a laboratory workflow. A complete laboratory installation uses a supported Hamamatsu camera and National Instruments DAQ hardware.
+OpenDSS is a Windows desktop application for working with droplet-sorting
+datasets, models, and experiments.
 
-<p align="center">
-  <img src="assets/branding/opendss-primary-full-color.svg" alt="OpenDSS logo" width="520">
-</p>
+## Prerequisites
 
-## Install OpenDSS
+- A Windows computer.
+- The current `OpenDSSSetup.exe` installer from the official project download.
 
-1. Open the [latest OpenDSS release](https://github.com/haeminjung12/OpenDSS_clean/releases/latest).
-2. Download `OpenDSSSetup.exe`.
-3. Double-click the downloaded file and follow the installer.
-4. Open **OpenDSS** from the Start menu.
+Camera and DAQ hardware setup is separate from basic software installation.
 
-The installer includes the Microsoft Visual C++ components needed to open OpenDSS. Before operating the complete system, install the camera and DAQ prerequisites below, then set up Python if you will train or test models.
+## Download
 
-## Required Laboratory Hardware And Drivers
+Download the current Windows installer:
 
-These are prerequisites for the complete OpenDSS laboratory workflow. They are not bundled in `OpenDSSSetup.exe`.
+[Download OpenDSSSetup.exe](https://github.com/haeminjung12/OpenDSS-Renewal/releases/download/v0.9.1/OpenDSSSetup.exe)
 
-### Hamamatsu camera
+The accepted installer details are:
 
-Connect a supported Hamamatsu camera and install Hamamatsu's DCAM runtime/driver before using Live View:
+- File name: `OpenDSSSetup.exe`
+- Size: 1,131,305,601 bytes
+- SHA-256:
+  `25DFCA689472DBFC0F0905B895684D58FC3364E70345AD0DF28697CA46F6A211`
 
-- [DCAM-API for Windows](https://www.hamamatsu.com/jp/en/product/cameras/driver-software/dcam-api-for-windows.html)
-- [DCAM-SDK4](https://www.hamamatsu.com/all/en/product/cameras/software/driver-software/dcam-sdk4.html)
+## Verify the download
 
-### National Instruments DAQ
-
-Connect supported National Instruments DAQ hardware and install NI-DAQmx before using sorting or trigger output:
-
-- [Download the official NI-DAQmx installer](https://www.ni.com/en/support/downloads/drivers/download.ni-daq-mx.html?srsltid=AfmBOoripP8sW1nXF0W7AAqlBqDBFPvAkvA-Otli6j6Q3Jcj7YSqsefx#590033)
-- [How to install NI-DAQmx](https://download.ni.com/support/manuals/373235aa.pdf)
-
-After installing either vendor driver, restart Windows before connecting through OpenDSS.
-
-## Set Up Python For Models
-
-Training and trainer-side model testing require **64-bit Python 3.12.x**. Python and the managed training environment are not inside the installer.
-
-1. Download and install [Python 3.12 for Windows (64-bit)](https://www.python.org/downloads/windows/). Keep the Python Launcher selected. **Add Python to PATH is not required** because the setup commands use the `py` launcher.
-2. Open Windows PowerShell.
-3. Go to the training tools installed with OpenDSS:
+After downloading the installer, open PowerShell in the folder containing it
+and run:
 
 ```powershell
-Set-Location "$env:ProgramFiles\OpenDSS\training\python"
+Get-FileHash .\OpenDSSSetup.exe -Algorithm SHA256
 ```
 
-4. Choose one environment:
+Confirm that the reported hash exactly matches:
 
-CPU works on every supported computer:
-
-```powershell
-.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
-.\scripts\windows\install-training-cpu.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv"
+```text
+25DFCA689472DBFC0F0905B895684D58FC3364E70345AD0DF28697CA46F6A211
 ```
 
-GPU training requires a compatible NVIDIA GPU and a current [NVIDIA driver](https://www.nvidia.com/Download/index.aspx). The current packaged GPU environment uses CUDA 13.0 PyTorch wheels:
+Do not install the file if the name or hash differs.
 
-```powershell
-.\scripts\windows\create-training-venv.ps1 -Python py -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu"
-.\scripts\windows\install-training-gpu-cu130.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu"
-```
+## Install
 
-The package also contains `install-training-gpu-cu128.ps1` for computers that have been qualified for that CUDA 12.8 environment. Do not run both GPU installers in the same environment.
+1. Verify the installer as described above.
+2. Open `OpenDSSSetup.exe`.
+3. Follow the installer prompts to complete installation.
 
-5. Verify the environment. Use `cpu` and `training-venv` for CPU, or `cuda` and `training-venv-gpu` for GPU:
+The accepted installer is unsigned, so Windows may display a security warning.
+Review the warning and continue only when the file came from the official
+project download and its SHA-256 matches the value above. If either check is
+uncertain, cancel the installation and report the problem.
 
-```powershell
-.\scripts\windows\verify-training-env.ps1 -VenvPath "$env:LOCALAPPDATA\OpenVisualDropletSorter\training-venv-gpu" -Device cuda -CheckOutput "$env:LOCALAPPDATA\OpenVisualDropletSorter\trainer_env_check"
-```
+## First launch
 
-The command must end with `Training environment verification passed.` The managed Python executables are:
+Launch OpenDSS after installation. The installer includes starter content, so
+you can explore the software without separately downloading datasets or model
+weights. Hardware-dependent workflows require separate camera and DAQ setup.
 
-- CPU: `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv\Scripts\python.exe`
-- GPU: `%LOCALAPPDATA%\OpenVisualDropletSorter\training-venv-gpu\Scripts\python.exe`
+## Bundled content
 
-The install scripts register the selected Python with OpenDSS. In **Models > Train**, choose CPU for the CPU environment or GPU for the CUDA environment. Packaged live model inference remains on the qualified CPU path.
+The installer contains two starter datasets and exactly four accepted local
+weights:
 
-## Start With Models
+- MobileNetV3-Small ImageNet
+- MobileNetV3-Small Pretrained
+- EfficientNet-B0 ImageNet
+- EfficientNet-B0 Pretrained
 
-Open **Models** from the left side of the application.
+These datasets and weights are intentionally excluded from the Git repository.
 
-- **MobileNet — Faster** is the best starting choice when speed matters most.
-- **EfficientNet — More Accurate** is the best starting choice when accuracy matters most.
-- A **Blank** model starts with general-purpose ImageNet knowledge and must be trained before it can be used.
-- A **Pre-trained** model already contains OpenDSS training and can be used or trained further.
+## Basic workflow
 
-To train a model:
-
-1. Choose a prepared dataset in **Models > Train**.
-2. Select a starting model and choose CPU or GPU.
-3. Start training and wait for it to finish.
-4. Select **Save/Use**, then choose whether to make the new model active.
-5. Restart OpenDSS and open **Models > Test** to test it.
-
-Datasets are provided separately and are not inside the installer. A completed model contains `metadata.json`, `checkpoint.pth`, and `model.onnx` in one folder.
-
-## Diagnostic Use Without Hardware
-
-OpenDSS can be launched without connected laboratory hardware to inspect the interface, open diagnostics, and work with already packaged models. This no-hardware diagnostic mode does not replace the camera, DCAM, NI DAQ, or NI-DAQmx prerequisites for operating the complete droplet-sorting system.
+1. Launch OpenDSS and begin with a bundled starter dataset.
+2. Select an appropriate bundled model weight for the work you are performing.
+3. Review the resulting data and model output in the application.
+4. Configure camera and DAQ hardware separately before starting a workflow that
+   requires physical devices.
 
 ## Troubleshooting
 
-- **OpenDSS does not open:** restart Windows after installation, then try again. If it still fails, open **Information > Diagnostics** and record any message shown.
-- **Camera or sorting hardware is unavailable:** use the no-hardware diagnostic mode only. Install and connect all required laboratory hardware and drivers before operating the full system.
-- **GPU is unavailable in Train:** update the NVIDIA driver and run one bundled GPU setup script. Choose CPU to continue without GPU setup.
-- **A model will not load:** confirm its folder contains all three model files. Open **Information > Diagnostics** for a short cause and expand **Detailed Log** for technical details.
-- **Training is rejected:** review the class labels and balance in the selected dataset. OpenDSS rejects a model that learns to predict only one class instead of silently saving an unusable result.
+- **The hash does not match:** do not run the installer. Download it again from
+  the official project location.
+- **Windows shows a security warning:** verify the source and exact SHA-256
+  above. Cancel if either cannot be confirmed.
+- **Hardware is unavailable:** complete the separate camera or DAQ setup before
+  using a hardware-dependent workflow.
 
-## Screenshots
+For installation problems or unexpected behavior, open an
+[issue](https://github.com/haeminjung12/OpenDSS-Renewal/issues).
 
-![Live view overview](assets/screenshots/01-live-view-overview.png)
-![Hardware settings](assets/screenshots/04-hardware-settings.png)
-![Model training workflow](assets/screenshots/05-model-training.png)
-
-## For Developers
-
-End users do not need the tools in this section. OpenDSS is a Windows C++/Qt project built with CMake.
-
-### Source-build requirements
-
-- CMake 3.19 or newer
-- Visual Studio with the MSVC x64 toolchain
-- [Qt](https://www.qt.io/development/download-open-source) 6 Widgets
-- OpenCV
-- [ONNX Runtime](https://onnxruntime.ai/docs/install/)
-- Hamamatsu DCAM SDK and NI-DAQmx development files when building those hardware features
-
-### Configure and build
-
-```powershell
-cmake -S app/runtime -B build-opendss-release `
-  -G "Visual Studio 17 2022" -A x64 `
-  -D CMAKE_PREFIX_PATH="C:\Qt\6.10.1\msvc2022_64" `
-  -D ONNXRUNTIME_DIR="C:\onnxruntime-gpu" `
-  -D NIDAQMX_INCLUDE_DIR="C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\include" `
-  -D NIDAQMX_LIBRARY="C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\lib64\msvc\NIDAQmx.lib" `
-  -D ENABLE_NIDAQMX=ON `
-  -D BUILD_QT_GUI=ON
-
-cmake --build build-opendss-release --config Release --target desktop_app
-```
-
-NI trigger support requires `ENABLE_NIDAQMX=ON` and valid NI-DAQmx include and library paths.
-
-## License
-
-- [LICENSE](LICENSE)
-- [Third-party notices](THIRD_PARTY_NOTICES.md)
+License: [LICENSE](LICENSE) · [Third-party notices](THIRD_PARTY_NOTICES.md)

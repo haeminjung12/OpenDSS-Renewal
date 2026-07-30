@@ -1,0 +1,24 @@
+<RCC>
+    <qresource>
+        <file>Desktop_app_v2.qmlproject</file>
+        <file>Desktop_app_v2/Constants.qml</file>
+        <file>Desktop_app_v2/EventListModel.qml</file>
+        <file>Desktop_app_v2/EventListSimulator.qml</file>
+        <file>Desktop_app_v2/MockAppState.qml</file>
+        <file>Desktop_app_v2/qmldir</file>
+        <file>Desktop_app_v2Content/App.qml</file>
+        <file>Desktop_app_v2Content/CollapsibleSection.ui.qml</file>
+        <file>Desktop_app_v2Content/LabelWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/LiveWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/ModelLibraryWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/ModelTestWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/RunsWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/Screen01.ui.qml</file>
+        <file>Desktop_app_v2Content/SequenceTestWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/SequenceViewerWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/SettingsWorkspace.ui.qml</file>
+        <file>Desktop_app_v2Content/ShellSingleImage.qml</file>
+        <file>Desktop_app_v2Content/TrainWorkspace.ui.qml</file>
+        <file>qtquickcontrols2.conf</file>
+    </qresource>
+</RCC>

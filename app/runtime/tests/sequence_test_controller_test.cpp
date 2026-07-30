@@ -1,0 +1,904 @@
+#include "../detection/droplet_detector.h"
+#include "../v2/model/model_load_service.h"
+#include "../v2/operation/operation_coordinator.h"
+#include "../v2/run/run_manifest_v2.h"
+#include "../v2/sequence/sequence_manifest_v2.h"
+#include "../v2/sequence_test/sequence_test_controller.h"
+
+#include <QCoreApplication>
+#include <QDir>
+#include <QElapsedTimer>
+#include <QEventLoop>
+#include <QFile>
+#include <QFileInfo>
+#include <QImage>
+#include <QJsonDocument>
+#include <QTemporaryDir>
+#include <QThread>
+#include <QUrlQuery>
+
+#include <atomic>
+#include <chrono>
+#include <condition_variable>
+#include <cstdlib>
+#include <functional>
+#include <iostream>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <thread>
+
+using namespace desktop_app::v2;
+using namespace desktop_app::v2::sequence_test;
+
+namespace desktop_app::v2 {
+std::unique_ptr<OnnxInferenceAdapter>
+ModelLoadService::preparePersistedActive(const QString&,
+                                         QString*,
+                                         QString* error) const {
+    if (error)
+        *error = QStringLiteral("No production model in this deterministic test.");
+    return {};
+}
+} // namespace desktop_app::v2
+
+namespace {
+
+void require(bool condition, const char* message) {
+    if (!condition) {
+        std::cerr << "FAIL: " << message << '\n';
+        std::exit(1);
+    }
+}
+
+bool waitUntil(const std::function<bool()>& predicate, int timeoutMs = 5000) {
+    QElapsedTimer timer;
+    timer.start();
+    while (!predicate() && timer.elapsed() < timeoutMs) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+        QThread::msleep(1);
+    }
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 20);
+    return predicate();
+}
+
+QByteArray fileBytes(const QString& path) {
+    QFile file(path);
+    require(file.open(QIODevice::ReadOnly), "read fixture bytes");
+    return file.readAll();
+}
+
+QString framePath(const QString& root, qint64 index) {
+    return QDir(root).filePath(
+        QStringLiteral("frames/frame_%1.tif")
+            .arg(index, 8, 10, QLatin1Char('0')));
+}
+
+QString legacyFramePath(const QString& root, qint64 zeroBasedIndex) {
+    return QDir(root).filePath(
+        QStringLiteral("%1.tiff").arg(zeroBasedIndex, 6, 10,
+                                      QLatin1Char('0')));
+}
+
+QString makeSequence(const QString& root,
+                     qint64 frameCount,
+                     bool corruptSecond = false,
+                     int imageWidth = 8,
+                     int imageHeight = 8) {
+    require(QDir().mkpath(QDir(root).filePath("frames")),
+            "create Sequence frames folder");
+    for (qint64 index = 1; index <= frameCount; ++index) {
+        const QString path = framePath(root, index);
+        if (corruptSecond && index == 2) {
+            QFile corrupt(path);
+            require(corrupt.open(QIODevice::WriteOnly), "open corrupt frame");
+            require(corrupt.write("not-a-tiff") > 0, "write corrupt frame");
+            continue;
+        }
+        QImage image(imageWidth, imageHeight, QImage::Format_Grayscale8);
+        image.fill(static_cast<int>(index * 20));
+        require(image.save(path, "TIFF"), "save Sequence frame");
+    }
+
+    sequence::SequenceManifestData data;
+    data.sequenceId = QStringLiteral("sequence-id");
+    data.name = QStringLiteral("Sequence");
+    data.experimentType = QStringLiteral("controller-test");
+    data.notes = QStringLiteral("facts");
+    data.status = QStringLiteral("completed");
+    data.createdAt = QStringLiteral("2026-07-25T12:00:00Z");
+    data.startedAt = QStringLiteral("2026-07-25T12:00:00Z");
+    data.endedAt = QStringLiteral("2026-07-25T12:00:01Z");
+    data.stopReason = QStringLiteral("end_of_sequence");
+    data.opendssVersion = QStringLiteral("2");
+    data.frameCount = frameCount;
+    data.cameraSettings = {{QStringLiteral("fixture"), true}};
+    data.imageWidth = imageWidth;
+    data.imageHeight = imageHeight;
+    data.bitDepth = 8;
+    data.nominalFps = 20.0;
+    const QString path = QDir(root).filePath(QStringLiteral("sequence.json"));
+    QString error;
+    require(sequence::SequenceManifestV2::save(path, data, &error),
+            qPrintable(error));
+    return path;
+}
+
+QString makeLegacySequence(const QString& root, qint64 frameCount) {
+    require(QDir().mkpath(root), "create legacy Sequence folder");
+    for (qint64 index = 0; index < frameCount; ++index) {
+        QImage image(8, 8, QImage::Format_Grayscale8);
+        image.fill(static_cast<int>((index + 1) * 20));
+        require(image.save(legacyFramePath(root, index), "TIFF"),
+                "save legacy Sequence frame");
+    }
+
+    sequence::SequenceManifestData data;
+    data.sequenceId = QStringLiteral("legacy-sequence-id");
+    data.name = QStringLiteral("Legacy Sequence");
+    data.experimentType = QString();
+    data.notes = QStringLiteral("Verified legacy TIFF fixture");
+    data.status = QStringLiteral("completed");
+    data.frameCount = frameCount;
+    data.imageWidth = 8;
+    data.imageHeight = 8;
+    data.bitDepth = 8;
+    data.provenanceMode = QStringLiteral("legacy_tiff_sequence");
+    data.frameFilenamePattern = QStringLiteral("%06d.tiff");
+    const QString path = QDir(root).filePath(QStringLiteral("sequence.json"));
+    QString error;
+    require(sequence::SequenceManifestV2::save(path, data, &error),
+            qPrintable(error));
+    return path;
+}
+
+run::ModelSnapshot activeModelSnapshot() {
+    return {QStringLiteral("active-model"),
+            QStringLiteral("Active Model"),
+            QString(64, QLatin1Char('a')),
+            {{QStringLiteral("0"), QStringLiteral("Empty")},
+             {QStringLiteral("1"), QStringLiteral("Single")},
+             {QStringLiteral("2"), QStringLiteral("More Than One")}}};
+}
+
+class FakeDetector final : public IDropletDetector {
+  public:
+    std::function<void(int)> onProcess;
+
+    void reset() override { index_ = 0; }
+    int backgroundFramesRemaining() const override { return 0; }
+    DropletDetectionFrame processFrame(const cv::Mat&) override {
+        if (onProcess)
+            onProcess(index_);
+        ++index_;
+        return {};
+    }
+
+  private:
+    int index_ = 0;
+};
+
+PreparedModel preparedModel() {
+    PreparedModel model;
+    model.snapshot = activeModelSnapshot();
+    model.classify = [](const cv::Mat&, QString*) {
+        return std::optional<ModelInferenceResult>(
+            ModelInferenceResult{{0.1, 0.8, 0.1}});
+    };
+    return model;
+}
+
+SequenceTestController makeController(
+    SequenceTestService& service,
+    const QString& output,
+    qulonglong& availableMemory,
+    int& resultsRefreshes,
+    ActiveModelSnapshotProvider modelProvider = {},
+    DaqReadinessGate daqReadinessProvider = {}) {
+    return SequenceTestController(
+        service,
+        std::move(modelProvider),
+        [&resultsRefreshes] { ++resultsRefreshes; },
+        [output] { return output; },
+        [&availableMemory] { return availableMemory; },
+        std::move(daqReadinessProvider),
+        {{QStringLiteral("fixed_detector"), true}},
+        {{QStringLiteral("crop_size"), 64}},
+        {{QStringLiteral("fixed_timing"), true}},
+         QStringLiteral("2"));
+}
+
+void placeDecisionBoundary(SequenceTestController& controller,
+                           double xRatio = 0.25,
+                           double yRatio = 0.5) {
+    require(controller.setDecisionBoundary(xRatio, yRatio) &&
+                controller.decisionBoundaryDefined() &&
+                controller.decisionBoundaryXRatio() == xRatio &&
+                controller.decisionBoundaryYRatio() == yRatio,
+            "place workspace-local Decision Boundary");
+}
+
+QString onlyRunFolder(const QString& output);
+
+void derivedBoundarySupportsArbitraryDimensions() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create derived-boundary temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create derived-boundary output");
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString manifest = makeSequence(sequenceRoot, 1, false, 13, 7);
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    SequenceTestService service(operations, detector, nullptr);
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller =
+        makeController(service, output, availableMemory, resultsRefreshes);
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load arbitrary-size Sequence");
+    require(!controller.canStart() &&
+                controller.errorMessage() ==
+                    QStringLiteral("No Decision Boundary set") &&
+                controller.decisionBoundarySide() == QStringLiteral("bottom"),
+            "explicit Decision Boundary is required with Bottom is Hit as default");
+    placeDecisionBoundary(controller, 0.25, 0.75);
+    controller.setTriggerEveryDroplet(true);
+    require(controller.canStart() && controller.start() &&
+                waitUntil([&] {
+                    return controller.presentation() ==
+                           QStringLiteral("completed");
+                }),
+            "start arbitrary-size Sequence with explicit boundary");
+
+    QString error;
+    const auto run = run::RunManifestV2::load(
+        QDir(onlyRunFolder(output)).filePath(QStringLiteral("run_summary.json")),
+        &error);
+    QFile summary(
+        QDir(onlyRunFolder(output)).filePath(QStringLiteral("run_summary.json")));
+    require(run.has_value() && summary.open(QIODevice::ReadOnly),
+            "load completed Run summary");
+    const QJsonObject hitBoundary =
+        QJsonDocument::fromJson(summary.readAll())
+            .object()
+            .value(QStringLiteral("hit_boundary"))
+            .toObject();
+    require(hitBoundary.size() == 1 &&
+                hitBoundary.value(QStringLiteral("top_is_hit")).isBool() &&
+                !hitBoundary.contains(QStringLiteral("boundary_x")) &&
+                !hitBoundary.contains(QStringLiteral("boundary_y")),
+            "Run must persist only Top/Bottom mapping, never workspace-local "
+            "Decision Boundary coordinates");
+}
+
+QString onlyRunFolder(const QString& output) {
+    const QStringList children =
+        QDir(output).entryList(QDir::Dirs | QDir::NoDotAndDotDot,
+                               QDir::Name);
+    require(children.size() == 1, "one direct Run child");
+    return QDir(output).filePath(children.front());
+}
+
+void selectionLoadingAndImmutableBuffer() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create selection temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create selection output");
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    SequenceTestService service(operations, detector, nullptr);
+    qulonglong availableMemory = 128;
+    int resultsRefreshes = 0;
+    auto controller =
+        makeController(service, output, availableMemory, resultsRefreshes);
+
+    require(!controller.selectSequence(QUrl(QStringLiteral("https://example.test/sequence.json"))) &&
+                controller.presentation() == QStringLiteral("error") &&
+                !controller.memoryReady(),
+            "reject non-local Sequence URL");
+
+    const QString legacyRoot =
+        QDir(temporary.path()).filePath("legacy-root-frames");
+    const QString legacyManifest = makeLegacySequence(legacyRoot, 2);
+    require(controller.selectSequence(QUrl::fromLocalFile(legacyManifest)) &&
+                controller.previewUrl() ==
+                    QUrl::fromLocalFile(
+                        QFileInfo(legacyFramePath(legacyRoot, 0))
+                            .canonicalFilePath()) &&
+                controller.recordedFps() == 0.0 &&
+                controller.bufferBytes() == 128 &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "select and enumerate validated root-level legacy TIFF frames");
+
+    const QString malformedRoot =
+        QDir(temporary.path()).filePath("malformed");
+    require(QDir().mkpath(malformedRoot), "create malformed folder");
+    QFile malformed(QDir(malformedRoot).filePath("sequence.json"));
+    require(malformed.open(QIODevice::WriteOnly), "open malformed manifest");
+    require(malformed.write("{broken") > 0, "write malformed manifest");
+    malformed.close();
+    require(!controller.selectSequence(
+                QUrl::fromLocalFile(malformed.fileName())),
+            "reject malformed manifest");
+
+    const QString missingRoot = QDir(temporary.path()).filePath("missing");
+    const QString missingManifest = makeSequence(missingRoot, 2);
+    require(QFile::remove(framePath(missingRoot, 2)),
+            "remove referenced frame");
+    require(controller.selectSequence(
+                QUrl::fromLocalFile(missingManifest)),
+            "selection does not inspect later frame references");
+    require(controller.loadToMemory() &&
+                waitUntil([&] {
+                    return controller.loadStatus() ==
+                           QStringLiteral("Error");
+                }) &&
+                !controller.memoryReady() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("frame 2 could not be decoded")),
+            "async load rejects missing later frame");
+
+    const QString validRoot = QDir(temporary.path()).filePath("valid");
+    const QString validManifest = makeSequence(validRoot, 3);
+    require(controller.selectSequence(QUrl::fromLocalFile(validManifest)),
+            "select valid Sequence");
+    require(controller.sourceManifestUrl() ==
+                    QUrl::fromLocalFile(QFileInfo(validManifest)
+                                            .canonicalFilePath()) &&
+                controller.sequenceName() == QStringLiteral("Sequence") &&
+                controller.sequenceFolderUrl() ==
+                    QUrl::fromLocalFile(QFileInfo(validManifest)
+                                            .absolutePath()) &&
+                controller.sequencePath() ==
+                    QDir::cleanPath(QFileInfo(validManifest)
+                                        .canonicalFilePath()) &&
+                controller.frameCount() == 3 &&
+                controller.recordedFps() == 20.0 &&
+                controller.requestedProcessingFps() == 20.0 &&
+                controller.previewUrl() ==
+                    QUrl::fromLocalFile(QFileInfo(framePath(validRoot, 1))
+                                            .canonicalFilePath()) &&
+                controller.sequenceValidation() == QStringLiteral("Valid") &&
+                controller.bufferBytes() == 192,
+            "publish Sequence preview and facts");
+    require(!controller.canLoadToMemory() &&
+                !controller.loadToMemory() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("requires 192 bytes")),
+            "reject load above available-memory preflight");
+
+    availableMemory = 1024 * 1024;
+    controller.refreshPreflight();
+    require(controller.canLoadToMemory() && controller.loadToMemory(),
+            "start asynchronous memory load");
+    require(waitUntil([&] {
+                return controller.loadStatus() == QStringLiteral("Ready");
+            }) &&
+                controller.memoryReady() && controller.bufferBytes() == 192,
+            "publish complete immutable memory load");
+
+    placeDecisionBoundary(controller);
+    controller.setTriggerEveryDroplet(true);
+    const QByteArray acceptedManifestBytes = fileBytes(validManifest);
+    QString provenanceError;
+    const auto acceptedManifest =
+        sequence::SequenceManifestV2::load(validManifest,
+                                           &provenanceError);
+    require(acceptedManifest.has_value(), qPrintable(provenanceError));
+    auto compatibleMutation = acceptedManifest->data();
+    compatibleMutation.name = QStringLiteral("Mutated Live Name");
+    compatibleMutation.experimentType =
+        QStringLiteral("mutated-experiment");
+    compatibleMutation.notes = QStringLiteral("mutated-notes");
+    compatibleMutation.cameraSettings = {
+        {QStringLiteral("mutated"), true}};
+    compatibleMutation.nominalFps = 1.0;
+    require(sequence::SequenceManifestV2::save(
+                validManifest, compatibleMutation, &provenanceError),
+            qPrintable(provenanceError));
+    require(fileBytes(validManifest) != acceptedManifestBytes,
+            "compatible mutation did not change live manifest bytes");
+    controller.refreshPreflight();
+    require(controller.canStart(),
+            "compatible live metadata mutation does not invalidate snapshot");
+
+    require(QFile::remove(framePath(validRoot, 2)),
+            "remove source frame after immutable load");
+    require(controller.canStart() && controller.start(),
+            "start from frozen snapshot after compatible live mutation");
+    require(waitUntil([&] {
+                return controller.presentation() ==
+                       QStringLiteral("completed");
+            }) &&
+                controller.processedFrames() == 3 &&
+                controller.totalFrames() == 3 &&
+                controller.achievedProcessingFps() > 0.0 &&
+                controller.outputStatus() == QStringLiteral("Completed") &&
+                resultsRefreshes == 1,
+            "complete immutable-buffer Run with progress and Results refresh");
+    const QString runFolder = onlyRunFolder(output);
+    const QString runSummaryPath =
+        QDir(runFolder).filePath(QStringLiteral("run_summary.json"));
+    const QString archivedManifestPath =
+        QDir(runFolder)
+            .filePath(QStringLiteral("source/sequence.json"));
+    const auto run =
+        run::RunManifestV2::load(runSummaryPath, &provenanceError);
+    const auto archivedManifest =
+        sequence::SequenceManifestV2::load(
+            archivedManifestPath, &provenanceError);
+    require(run.has_value() && archivedManifest.has_value() &&
+                run->data().sourceSequence.name ==
+                    QStringLiteral("Sequence") &&
+                run->data().experimentType ==
+                    QStringLiteral("controller-test") &&
+                run->data().notes == QStringLiteral("facts") &&
+                run->data().cameraSettings.value(
+                    QStringLiteral("fixture"))
+                    .toBool() &&
+                run->data().requestedProcessingFps == 20.0 &&
+                archivedManifest->data().name ==
+                    QStringLiteral("Sequence") &&
+                archivedManifest->data().nominalFps == 20.0 &&
+                archivedManifest->data().cameraSettings.value(
+                    QStringLiteral("fixture"))
+                    .toBool() &&
+                fileBytes(archivedManifestPath) ==
+                    acceptedManifestBytes,
+            "Run facts and archived source did not use accepted snapshot");
+    require(controller.runFolderUrl().toLocalFile() == runFolder &&
+                controller.runSummaryUrl().toLocalFile() == runSummaryPath,
+            "completed Sequence Test did not expose exact Run recovery paths");
+    QUrl requestedRunFolder;
+    QObject::connect(
+        &controller, &SequenceTestController::openRunFolderRequested,
+        &controller, [&requestedRunFolder](const QUrl& value) {
+            requestedRunFolder = value;
+        });
+    require(controller.openRunFolder() &&
+                requestedRunFolder.toLocalFile() == runFolder,
+            "Open Run Folder did not request the validated exact Run folder");
+    controller.startAnotherTest();
+    require(controller.presentation() == QStringLiteral("ready") &&
+                controller.runFolderUrl().isEmpty() &&
+                controller.runSummaryUrl().isEmpty() &&
+                controller.memoryReady(),
+            "Start Another Sequence Test did not restore loaded pre-run state");
+
+    const QString corruptRoot = QDir(temporary.path()).filePath("corrupt");
+    const QString corruptManifest = makeSequence(corruptRoot, 2, true);
+    require(controller.selectSequence(
+                QUrl::fromLocalFile(corruptManifest)),
+            "selection reads only first frame");
+    require(controller.loadToMemory(), "start corrupt decode load");
+    require(waitUntil([&] {
+                return controller.loadStatus() == QStringLiteral("Error");
+            }) &&
+                !controller.memoryReady() && !controller.canStart() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("frame 2 could not be decoded")),
+            "decode failure publishes no partial-ready buffer");
+}
+
+void modelRoutingAndDaqFacts() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create routing temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create routing output");
+    const QString manifest =
+        makeSequence(QDir(temporary.path()).filePath("sequence"), 2);
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    bool daqReady = false;
+    int daqReadinessCalls = 0;
+    int pulseCalls = 0;
+    const auto daqReadiness = [&](QString* error) {
+        ++daqReadinessCalls;
+        if (!daqReady && error)
+            *error = QStringLiteral("DAQ device is unavailable.");
+        return daqReady;
+    };
+    SequenceTestService service(
+        operations,
+        detector,
+        nullptr,
+        [](QString*) {
+            return std::optional<PreparedModel>(preparedModel());
+        },
+        [&pulseCalls](bool, QString*) {
+            ++pulseCalls;
+            return run::DaqPulseStatus::Issued;
+        },
+        daqReadiness);
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller = makeController(
+        service,
+        output,
+        availableMemory,
+        resultsRefreshes,
+        [](QString*) {
+            return std::optional<run::ModelSnapshot>(
+                activeModelSnapshot());
+        },
+        daqReadiness);
+
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load model-routing Sequence");
+    placeDecisionBoundary(controller);
+    require(controller.activeModelReady() &&
+                controller.activeModelName() ==
+                    QStringLiteral("Active Model") &&
+                controller.hitClassModel().size() == 3 &&
+                !controller.canStart(),
+            "publish Active Model and require Hit Class");
+    controller.setSelectedHitClassId(QStringLiteral("missing"));
+    require(!controller.canStart() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("not present")),
+            "reject incompatible Hit Class");
+    controller.setSelectedHitClassId(QStringLiteral("1"));
+    require(controller.canStart() && daqReadinessCalls == 0,
+            "DAQ OFF does not require or inspect DAQ readiness");
+    controller.setPhysicalDaqOutputEnabled(true);
+    require(controller.canStart() && daqReadinessCalls == 1 &&
+                !controller.physicalDaqOutputEnabled() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("Physical DAQ output was disabled because")) &&
+                controller.errorMessage().contains(
+                    QStringLiteral("DAQ device is unavailable.")),
+            "unavailable DAQ is cleared with a processing-only warning");
+    controller.setRequestedProcessingFps(1000.0);
+    require(controller.start() &&
+                waitUntil([&] {
+                    return controller.presentation() ==
+                           QStringLiteral("completed");
+                }) &&
+                !controller.physicalDaqOutputEnabled() &&
+                pulseCalls == 0,
+            "processing-only run completes without issuing a DAQ pulse");
+    const QString processingOnlyRun = onlyRunFolder(output);
+    require(QDir(processingOnlyRun).removeRecursively(),
+            "remove processing-only test Run before physical-output assertions");
+
+    daqReady = true;
+    controller.refreshPreflight();
+    require(controller.canStart() &&
+                !controller.physicalDaqOutputEnabled() &&
+                controller.errorMessage().contains(
+                    QStringLiteral("Physical DAQ output was disabled because")) &&
+                pulseCalls == 0,
+            "DAQ recovery keeps the prior auto-disable event truthful");
+    controller.setPhysicalDaqOutputEnabled(true);
+    require(controller.canStart() &&
+                controller.physicalDaqOutputEnabled() &&
+                controller.start(),
+            "start class-based physical-DAQ request");
+    require(waitUntil([&] {
+            return controller.presentation() ==
+                       QStringLiteral("completed");
+            }) &&
+                resultsRefreshes == 2,
+            "complete class-based request");
+
+    QString error;
+    const auto run = run::RunManifestV2::load(
+        QDir(onlyRunFolder(output))
+            .filePath(QStringLiteral("run_summary.json")),
+        &error);
+    require(run.has_value(), qPrintable(error));
+    const auto& facts = run->data();
+    require(facts.routing.triggerMode == run::TriggerMode::ClassBased &&
+                facts.routing.hitClassId ==
+                    std::optional<QString>(QStringLiteral("1")) &&
+                facts.routing.physicalDaqOutputEnabled &&
+                facts.model && facts.model->id == QStringLiteral("active-model") &&
+                facts.requestedProcessingFps == 1000.0 &&
+                facts.achievedProcessingFps > 0.0 &&
+                facts.detectorSettings.value(
+                    QStringLiteral("fixed_detector"))
+                    .toBool() &&
+                facts.cropSettings.value(QStringLiteral("crop_size"))
+                        .toInt() == 64 &&
+                facts.timingSettings.value(
+                    QStringLiteral("fixed_timing"))
+                    .toBool() &&
+                facts.cameraSettings.value(QStringLiteral("fixture"))
+                    .toBool() &&
+                facts.daqSettings.value(
+                    QStringLiteral("physical_output_enabled"))
+                    .toBool(),
+            "persist model, routing, DAQ, FPS, and immutable provenance facts");
+}
+
+void failedRunReasonSurvivesAutomaticPreflightRefresh() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create failed-run temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create failed-run output");
+    const QString manifest =
+        makeSequence(QDir(temporary.path()).filePath("sequence"), 2);
+
+    FakeDetector detector;
+    OperationCoordinator operations;
+    SequenceTestService service(
+        operations, detector, nullptr,
+        [](QString* error) -> std::optional<PreparedModel> {
+            if (error) {
+                *error = QStringLiteral(
+                    "The Active Model has no trusted declared ONNX SHA-256.");
+            }
+            return std::nullopt;
+        });
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller = makeController(
+        service, output, availableMemory, resultsRefreshes,
+        [](QString*) {
+            return std::optional<run::ModelSnapshot>(
+                activeModelSnapshot());
+        });
+
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load failed-run Sequence");
+    placeDecisionBoundary(controller);
+    controller.setSelectedHitClassId(QStringLiteral("1"));
+    require(controller.canStart() && controller.start(),
+            "start failed-run Sequence");
+    require(waitUntil([&] {
+                return controller.presentation() ==
+                       QStringLiteral("error");
+            }) &&
+                controller.outputStatus() == QStringLiteral("Failed") &&
+                controller.processedFrames() == 0 &&
+                controller.errorMessage().contains(
+                    QStringLiteral("no trusted declared ONNX SHA-256")),
+            "publish actionable zero-frame failure reason");
+
+    controller.refreshPreflight();
+    require(controller.presentation() == QStringLiteral("error") &&
+                controller.errorMessage().contains(
+                    QStringLiteral("no trusted declared ONNX SHA-256")),
+            "automatic preflight refresh erased the Run failure reason");
+}
+
+void asynchronousStopAndTeardown() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create stop temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create stop output");
+    const QString manifest =
+        makeSequence(QDir(temporary.path()).filePath("sequence"), 20);
+
+    std::mutex detectorMutex;
+    std::condition_variable detectorChanged;
+    bool entered = false;
+    bool release = false;
+    FakeDetector detector;
+    detector.onProcess = [&](int index) {
+        if (index != 0)
+            return;
+        std::unique_lock lock(detectorMutex);
+        entered = true;
+        detectorChanged.notify_all();
+        detectorChanged.wait(lock, [&] { return release; });
+    };
+    OperationCoordinator operations;
+    SequenceTestService service(operations, detector, nullptr);
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller =
+        makeController(service, output, availableMemory, resultsRefreshes);
+    bool stopAccepted = false;
+    QObject::connect(
+        &controller,
+        &SequenceTestController::stopRequestAccepted,
+        [&] { stopAccepted = true; });
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load stoppable Sequence");
+    placeDecisionBoundary(controller);
+    controller.setTriggerEveryDroplet(true);
+    controller.setRequestedProcessingFps(1000.0);
+    require(controller.start(), "start stoppable Sequence");
+    require(waitUntil([&] {
+                std::lock_guard lock(detectorMutex);
+                return entered;
+            }),
+            "enter background detector");
+
+    require(controller.stop(),
+            "Stop request accepted by the controller");
+    require(waitUntil([&] { return stopAccepted; }),
+            "service accepted Stop before detector release");
+    {
+        std::lock_guard lock(detectorMutex);
+        release = true;
+    }
+    detectorChanged.notify_all();
+    require(waitUntil([&] {
+                return controller.presentation() ==
+                       QStringLiteral("interrupted");
+            }) &&
+                controller.outputStatus() == QStringLiteral("Interrupted") &&
+                controller.processedFrames() == 0 &&
+                resultsRefreshes == 1,
+            "queued progress, stop, interruption, and Results refresh");
+
+    const QString teardownOutput =
+        QDir(temporary.path()).filePath("teardown-runs");
+    require(QDir().mkpath(teardownOutput), "create teardown output");
+    FakeDetector teardownDetector;
+    std::atomic_bool teardownEntered{false};
+    std::atomic_bool teardownRelease{false};
+    teardownDetector.onProcess = [&](int index) {
+        if (index != 0)
+            return;
+        teardownEntered.store(true, std::memory_order_release);
+        while (!teardownRelease.load(std::memory_order_acquire))
+            std::this_thread::yield();
+    };
+    OperationCoordinator teardownOperations;
+    SequenceTestService teardownService(
+        teardownOperations, teardownDetector, nullptr);
+    int teardownRefreshes = 0;
+    auto teardownController = std::make_unique<SequenceTestController>(
+        teardownService,
+        ActiveModelSnapshotProvider{},
+        [&teardownRefreshes] { ++teardownRefreshes; },
+        [teardownOutput] { return teardownOutput; },
+        [&availableMemory] { return availableMemory; },
+        DaqReadinessGate{},
+        QJsonObject{{QStringLiteral("fixed_detector"), true}},
+        QJsonObject{{QStringLiteral("crop_size"), 64}},
+        QJsonObject{{QStringLiteral("fixed_timing"), true}},
+        QStringLiteral("2"));
+    require(teardownController->selectSequence(
+                QUrl::fromLocalFile(manifest)) &&
+                teardownController->loadToMemory() &&
+                waitUntil([&] { return teardownController->memoryReady(); }),
+            "load teardown Sequence");
+    placeDecisionBoundary(*teardownController);
+    teardownController->setTriggerEveryDroplet(true);
+    teardownController->setRequestedProcessingFps(1000.0);
+    require(teardownController->start() &&
+                waitUntil([&] {
+                    return teardownEntered.load(std::memory_order_acquire);
+                }),
+            "start teardown Run");
+    std::thread releaser([&] {
+        QThread::msleep(20);
+        teardownRelease.store(true, std::memory_order_release);
+    });
+    teardownController.reset();
+    releaser.join();
+}
+
+qint64 previewFrame(const QUrl& url) {
+    return QUrlQuery(url).queryItemValue(QStringLiteral("frame")).toLongLong();
+}
+
+void latestPreviewTransportIsBounded() {
+    QTemporaryDir temporary;
+    require(temporary.isValid(), "create preview transport temporary directory");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "create preview transport output");
+    constexpr qint64 frameCount = 50;
+    const QString manifest =
+        makeSequence(QDir(temporary.path()).filePath("sequence"), frameCount);
+
+    std::mutex detectorMutex;
+    std::condition_variable detectorChanged;
+    bool thirdFrameEntered = false;
+    bool releaseBurst = false;
+    std::atomic_bool burstFinished{false};
+    FakeDetector detector;
+    detector.onProcess = [&](int index) {
+        if (index == 2) {
+            std::unique_lock lock(detectorMutex);
+            thirdFrameEntered = true;
+            detectorChanged.notify_all();
+            detectorChanged.wait(lock, [&] { return releaseBurst; });
+        }
+        if (index == frameCount - 1)
+            burstFinished.store(true, std::memory_order_release);
+    };
+
+    OperationCoordinator operations;
+    SequenceTestService service(operations, detector, nullptr);
+    qulonglong availableMemory = 1024 * 1024;
+    int resultsRefreshes = 0;
+    auto controller =
+        makeController(service, output, availableMemory, resultsRefreshes);
+    int changedCount = 0;
+    QObject::connect(&controller, &SequenceTestController::changed,
+                     [&] { ++changedCount; });
+
+    require(controller.selectSequence(QUrl::fromLocalFile(manifest)) &&
+                controller.loadToMemory() &&
+                waitUntil([&] { return controller.memoryReady(); }),
+            "load preview transport Sequence");
+    placeDecisionBoundary(controller);
+    controller.setTriggerEveryDroplet(true);
+    controller.setRequestedProcessingFps(1000.0);
+    require(controller.start(), "start preview transport Sequence");
+    require(waitUntil([&] {
+                std::lock_guard lock(detectorMutex);
+                return thirdFrameEntered;
+            }),
+            "reach gated third frame");
+    require(waitUntil([&] { return previewFrame(controller.previewUrl()) == 2; }),
+            "publish a processed frame beyond frame one");
+    require(waitUntil([&] {
+                return controller.presentation() == QStringLiteral("running");
+            }) &&
+                controller.setDecisionBoundary(0.5, 0.25),
+            "Sequence Running replacement updates X and Y.");
+    controller.setDecisionBoundarySide(QStringLiteral("top"));
+    require(controller.decisionBoundaryXRatio() == 0.5 &&
+                controller.decisionBoundaryYRatio() == 0.25 &&
+                controller.decisionBoundarySide() == QStringLiteral("top"),
+            "Sequence Running replacement updates mapping.");
+    const QUrl inFlightUrl = controller.previewUrl();
+    require(controller.currentPreviewImage().pixelColor(0, 0).red() == 40,
+            "publish the second immutable buffered frame");
+    const int notificationsBeforeBurst = changedCount;
+
+    {
+        std::lock_guard lock(detectorMutex);
+        releaseBurst = true;
+    }
+    detectorChanged.notify_all();
+    QElapsedTimer burstTimer;
+    burstTimer.start();
+    while (!burstFinished.load(std::memory_order_acquire) &&
+           burstTimer.elapsed() < 5000) {
+        QThread::msleep(1);
+    }
+    require(burstFinished.load(std::memory_order_acquire),
+            "complete burst producer without pumping the GUI queue");
+    QThread::msleep(20);
+    QCoreApplication::processEvents(QEventLoop::AllEvents, 100);
+    require(waitUntil([&] {
+                return controller.presentation() == QStringLiteral("completed");
+            }) &&
+                controller.processedFrames() == frameCount &&
+                controller.previewUrl() == inFlightUrl &&
+                changedCount - notificationsBeforeBurst <= 3,
+            "coalesce burst progress while one preview revision is in flight");
+
+    controller.acknowledgePreviewReady(inFlightUrl);
+    require(previewFrame(controller.previewUrl()) == frameCount &&
+                controller.currentPreviewImage().pixelColor(0, 0).red() ==
+                    static_cast<uchar>(frameCount * 20) &&
+                controller.previewUrl() != inFlightUrl,
+            "acknowledgement immediately publishes the newest pending frame");
+    const QUrl finalUrl = controller.previewUrl();
+    controller.acknowledgePreviewReady(finalUrl);
+    require(controller.previewUrl() == finalUrl,
+            "final acknowledgement leaves the rendered final frame stable");
+}
+
+} // namespace
+
+int main(int argc, char** argv) {
+    QCoreApplication application(argc, argv);
+    selectionLoadingAndImmutableBuffer();
+    derivedBoundarySupportsArbitraryDimensions();
+    modelRoutingAndDaqFacts();
+    failedRunReasonSurvivesAutomaticPreflightRefresh();
+    asynchronousStopAndTeardown();
+    latestPreviewTransportIsBounded();
+    return 0;
+}

@@ -1518,7 +1518,7 @@ QWidget* buildModelWorkspace(const ModelWorkspaceControls& controls) {
         }
         const QString selectedId = registryEntryId(selected);
         QString error;
-        if (!activateModelRegistryEntry(controls.registryFilePath, selectedId, &error)) {
+        if (!controls.activateModelCallback || !controls.activateModelCallback(selectedId, &error)) {
             QMessageBox::warning(modelWorkspacePage, "Set Active", error);
             return;
         }

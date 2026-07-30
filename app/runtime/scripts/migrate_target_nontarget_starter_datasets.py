@@ -1,32 +1,73 @@
 from __future__ import annotations
 
 import argparse
-import csv
 import hashlib
 import json
 import os
-import shutil
+import struct
+import tempfile
 from collections import Counter
-from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-SOURCE_MANIFEST_CANDIDATES = [
-    Path(r"C:\Users\goals\Documents\OpenDSS\datasets\droplet_binary_2026-04-30\metadata\dataset_manifest.json"),
-    Path(r"C:\Users\goals\Codex\CNN for Droplet Sorting\datasets\prepared\droplet_binary_2026-04-30\metadata\dataset_manifest.json"),
-]
+DEFAULT_DATASETS_ROOT = Path(
+    r"C:\Users\goals\OneDrive\Documents\OpenDropletSortingSuite\datasets\prepared"
+)
+DEFAULT_SEQUENCE_ROOT = Path(
+    r"D:\[2026] Visual Sorting Data\0226 Final please\20260226_163405_BEST SO FAR"
+)
 
-BINARY_DATASET_ID = "droplet_target_nontarget_binary_starter"
-THREE_CLASS_DATASET_ID = "droplet_target_nontarget_3class_starter"
-BINARY_SCHEMA_ID = "droplet-labels-target-nontarget-binary-v1"
-THREE_CLASS_SCHEMA_ID = "droplet-labels-target-nontarget-3class-v1"
+DATASETS = {
+    "droplet_target_nontarget_3class_starter": {
+        "name": "Droplet Target/Non-target 3-class Starter",
+        "classes": [
+            {"id": "0", "name": "Empty"},
+            {"id": "1", "name": "Single"},
+            {"id": "2", "name": "MoreThanOne"},
+        ],
+        "expected_counts": {"0": 3142, "1": 386, "2": 92},
+    },
+    "droplet_target_nontarget_binary_starter": {
+        "name": "Droplet Target/Non-target Binary Starter",
+        "classes": [
+            {"id": "0", "name": "Non-target"},
+            {"id": "1", "name": "Target"},
+        ],
+        "expected_counts": {"0": 3233, "1": 387},
+    },
+}
 
-LEGACY_EMPTY = "Empty"
-LEGACY_SINGLE = "Single"
-LEGACY_MORE = "MoreThanTwo"
+
+def load_json(path: Path) -> dict:
+    with path.open("r", encoding="utf-8-sig") as handle:
+        value = json.load(handle)
+    if not isinstance(value, dict):
+        raise ValueError(f"{path} is not a JSON object")
+    return value
 
 
-def utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+def write_json_atomically(path: Path, value: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            newline="\n",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as handle:
+            temporary_path = Path(handle.name)
+            json.dump(value, handle, indent=2)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary_path, path)
+        temporary_path = None
+    finally:
+        if temporary_path is not None:
+            temporary_path.unlink(missing_ok=True)
 
 
 def sha256_file(path: Path) -> str:
@@ -37,278 +78,293 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def normalize_legacy_label(label: str | None) -> str | None:
-    text = (label or "").strip()
-    lowered = text.lower()
-    if lowered in {"empty", "waste"}:
-        return LEGACY_EMPTY
-    if lowered in {"single", "target"}:
-        return LEGACY_SINGLE
-    if lowered in {"morethantwo", "more than two", "morethan2", ">2", "2", "multiple"}:
-        return LEGACY_MORE
-    return None
+def png_facts(path: Path) -> tuple[int, int, int, int]:
+    with path.open("rb") as handle:
+        header = handle.read(33)
+    if (
+        len(header) != 33
+        or header[:8] != b"\x89PNG\r\n\x1a\n"
+        or header[12:16] != b"IHDR"
+    ):
+        raise ValueError(f"Not a PNG with a readable IHDR: {path}")
+    width, height, bit_depth, color_type = struct.unpack(">IIBB", header[16:26])
+    return width, height, bit_depth, color_type
 
 
-def inverse_count_weights(train_counts: dict[str, int], classes: list[str]) -> dict[str, float]:
-    raw = [1.0 / float(train_counts[class_id]) for class_id in classes]
-    minimum = min(raw)
-    return {class_id: raw[index] / minimum for index, class_id in enumerate(classes)}
-
-
-def link_or_copy(source: Path, destination: Path) -> None:
-    destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.exists():
-        return
-    try:
-        os.link(source, destination)
-    except OSError:
-        shutil.copy2(source, destination)
-
-
-def load_json(path: Path) -> dict:
-    with path.open("r", encoding="utf-8-sig") as handle:
-        return json.load(handle)
-
-
-def detect_source_manifest(path_arg: str | None) -> Path:
-    if path_arg:
-        path = Path(path_arg).expanduser().resolve()
-        if not path.is_file():
-            raise FileNotFoundError(f"Source manifest not found: {path}")
-        return path
-    for candidate in SOURCE_MANIFEST_CANDIDATES:
-        if candidate.is_file():
-            return candidate
-    joined = "\n".join(f"- {candidate}" for candidate in SOURCE_MANIFEST_CANDIDATES)
-    raise FileNotFoundError(f"No source dataset manifest found. Checked:\n{joined}")
-
-
-def dataset_spec(kind: str) -> dict:
-    if kind == "binary":
-        return {
-            "dataset_id": BINARY_DATASET_ID,
-            "schema_id": BINARY_SCHEMA_ID,
-            "classes": ["0", "1"],
-            "display_labels": {"0": "Non-target", "1": "Target"},
-            "aliases": {
-                "0": ["0", "Non-target", "non-target", "Nontarget", "Empty", "empty", "Waste", "waste", "MoreThanTwo", "More than two", "MoreThan2", ">2", "2", "Multiple"],
-                "1": ["1", "Target", "target", "Single", "single"],
-            },
-            "legacy_to_class": {LEGACY_EMPTY: "0", LEGACY_SINGLE: "1", LEGACY_MORE: "0"},
-        }
-    if kind == "three_class":
-        return {
-            "dataset_id": THREE_CLASS_DATASET_ID,
-            "schema_id": THREE_CLASS_SCHEMA_ID,
-            "classes": ["0", "1", "2"],
-            "display_labels": {"0": "Non-target A", "1": "Target", "2": "Non-target B"},
-            "aliases": {
-                "0": ["0", "Non-target A", "non-target a", "NonTargetA", "Empty", "empty", "Waste", "waste"],
-                "1": ["1", "Target", "target", "Single", "single"],
-                "2": ["2", "Non-target B", "non-target b", "NonTargetB", "MoreThanTwo", "More than two", "MoreThan2", ">2", "Multiple"],
-            },
-            "legacy_to_class": {LEGACY_EMPTY: "0", LEGACY_SINGLE: "1", LEGACY_MORE: "2"},
-        }
-    raise ValueError(f"Unsupported dataset kind: {kind}")
-
-
-def build_manifest_classes(classes: list[str], display_labels: dict[str, str]) -> list[dict]:
-    return [
-        {
-            "id": class_id,
-            "index": index,
-            "display_name": display_labels[class_id],
-            "folder": f"images/{class_id}",
-        }
-        for index, class_id in enumerate(classes)
-    ]
-
-
-def migrate_dataset(source_manifest: dict, source_manifest_path: Path, output_root: Path, kind: str) -> Path:
-    spec = dataset_spec(kind)
-    dataset_root = output_root / spec["dataset_id"]
-    if dataset_root.exists():
-        shutil.rmtree(dataset_root)
-
-    source_dataset_roots = [source_manifest_path.parent.parent]
-    for candidate in SOURCE_MANIFEST_CANDIDATES:
-        candidate_root = candidate.parent.parent
-        if candidate.is_file() and candidate_root not in source_dataset_roots:
-            source_dataset_roots.append(candidate_root)
-    image_root = dataset_root / "images"
-    metadata_root = dataset_root / "metadata"
-    image_root.mkdir(parents=True, exist_ok=True)
-    metadata_root.mkdir(parents=True, exist_ok=True)
-
-    source_items = source_manifest.get("items", [])
-    manifest_items: list[dict] = []
-    included_counts = Counter()
-    split_counts = {role: Counter() for role in ("train", "val", "test")}
-    display_label_counts = Counter()
-    legacy_label_counts = Counter()
-
-    for raw in source_items:
-        item = dict(raw)
-        status = str(item.get("status", "included"))
-        raw_label = str(item.get("original_label", item.get("label", "")))
-        normalized_legacy = normalize_legacy_label(raw_label)
-        role = str(item.get("split", item.get("role", "unknown")))
-
-        source_rel = str(item.get("path") or item.get("crop_path") or "").strip()
-        source_file = None
-        if source_rel:
-            for source_root in source_dataset_roots:
-                candidate_file = (source_root / source_rel).resolve()
-                if candidate_file.is_file():
-                    source_file = candidate_file
-                    break
-        target_rel = ""
-        class_id = ""
-        display_label = ""
-        hash_value = str(item.get("hash_sha256", "")).strip()
-
-        if status not in {"rejected", "excluded"} and normalized_legacy is not None and source_file and source_file.is_file():
-            class_id = spec["legacy_to_class"][normalized_legacy]
-            display_label = spec["display_labels"][class_id]
-            target_rel = f"images/{class_id}/{source_file.name}"
-            target_file = dataset_root / target_rel
-            link_or_copy(source_file, target_file)
-            if not hash_value:
-                hash_value = sha256_file(target_file)
-            included_counts[class_id] += 1
-            display_label_counts[display_label] += 1
-            if role in split_counts:
-                split_counts[role][class_id] += 1
+def tiff_facts(path: Path) -> tuple[int, int, int]:
+    with path.open("rb") as handle:
+        byte_order = handle.read(2)
+        if byte_order == b"II":
+            endian = "<"
+        elif byte_order == b"MM":
+            endian = ">"
         else:
-            status = "rejected"
-            role = "rejected"
+            raise ValueError(f"Invalid TIFF byte order: {path}")
+        if struct.unpack(f"{endian}H", handle.read(2))[0] != 42:
+            raise ValueError(f"Invalid classic TIFF header: {path}")
+        ifd_offset = struct.unpack(f"{endian}I", handle.read(4))[0]
+        handle.seek(ifd_offset)
+        entry_count = struct.unpack(f"{endian}H", handle.read(2))[0]
+        tags: dict[int, list[int]] = {}
+        type_sizes = {3: 2, 4: 4}
+        for _ in range(entry_count):
+            entry = handle.read(12)
+            if len(entry) != 12:
+                raise ValueError(f"Truncated TIFF IFD: {path}")
+            tag, value_type, count = struct.unpack(f"{endian}HHI", entry[:8])
+            if tag not in {256, 257, 258}:
+                continue
+            if value_type not in type_sizes or count < 1:
+                raise ValueError(f"Unsupported TIFF fact encoding in {path}")
+            size = type_sizes[value_type] * count
+            if size <= 4:
+                raw = entry[8 : 8 + size]
+            else:
+                return_offset = handle.tell()
+                handle.seek(struct.unpack(f"{endian}I", entry[8:12])[0])
+                raw = handle.read(size)
+                handle.seek(return_offset)
+            code = "H" if value_type == 3 else "I"
+            tags[tag] = list(struct.unpack(f"{endian}{count}{code}", raw))
+    if 256 not in tags or 257 not in tags or 258 not in tags:
+        raise ValueError(f"TIFF dimensions or bit depth are missing: {path}")
+    bit_depths = set(tags[258])
+    if len(bit_depths) != 1:
+        raise ValueError(f"TIFF channels do not share one bit depth: {path}")
+    return tags[256][0], tags[257][0], bit_depths.pop()
 
-        legacy_label_key = normalized_legacy or (raw_label if raw_label else "<blank>")
-        legacy_label_counts[legacy_label_key] += 1
 
-        manifest_item = {
-            "row_index": item.get("row_index"),
-            "image_index": item.get("image_index"),
-            "source_path": item.get("source_path"),
-            "source_csv_image_path": item.get("source_csv_image_path"),
-            "source_relative_path": item.get("source_relative_path"),
-            "original_label": display_label if display_label else "",
-            "legacy_original_label": raw_label,
-            "label": class_id,
-            "status": status,
-            "exclude_reason": "" if status == "included" else str(item.get("exclude_reason", "blank_or_unknown_label")),
-            "split": role,
-            "role": role,
-            "provenance": dict(item.get("provenance", {})),
-            "hash_sha256": hash_value,
-            "path": target_rel,
-        }
-        if "review_state" in item:
-            manifest_item["review_state"] = item.get("review_state")
-        if "trainer_eligible" in item:
-            manifest_item["trainer_eligible"] = item.get("trainer_eligible")
-        if "timestamp" in item:
-            manifest_item["timestamp"] = item.get("timestamp")
-        manifest_items.append(manifest_item)
+def safe_crop_path(dataset_root: Path, relative_text: str) -> Path:
+    portable = PurePosixPath(relative_text)
+    if (
+        not relative_text
+        or portable.is_absolute()
+        or ".." in portable.parts
+        or "\\" in relative_text
+    ):
+        raise ValueError(f"Unsafe crop path: {relative_text!r}")
+    resolved = (dataset_root / Path(*portable.parts)).resolve()
+    resolved.relative_to(dataset_root.resolve())
+    return resolved
 
-    train_counts = {class_id: int(split_counts["train"].get(class_id, 0)) for class_id in spec["classes"]}
-    weights = inverse_count_weights(train_counts, spec["classes"])
-    manifest_payload = {
-        "schema_version": "dataset-manifest-v1",
-        "dataset_id": spec["dataset_id"],
-        "created_at": utc_now(),
-        "root": str(dataset_root.resolve()),
-        "source": {
-            "type": "migrated_from_binary_manifest_with_legacy_labels",
-            "path": str(source_manifest_path.parent.parent.resolve()),
-            "manifest": str(source_manifest_path.resolve()),
+
+def build_dataset_manifest(dataset_root: Path, spec: dict) -> dict:
+    source_path = dataset_root / "metadata" / "dataset_manifest.json"
+    source = load_json(source_path)
+    if (
+        source.get("schema_version") != "dataset-manifest-v1"
+        or source.get("dataset_id") != dataset_root.name
+    ):
+        raise ValueError(f"Unexpected legacy manifest identity: {source_path}")
+    items = source.get("items")
+    if not isinstance(items, list) or len(items) != 3625:
+        raise ValueError(f"{source_path} must contain exactly 3625 items")
+
+    records: list[dict] = []
+    labels: list[dict] = []
+    counts = Counter()
+    removed = 0
+    class_ids = {value["id"] for value in spec["classes"]}
+    record_ids: set[str] = set()
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError(f"{source_path} contains a non-object item")
+        row_index = item.get("row_index")
+        if not isinstance(row_index, int) or row_index < 0:
+            raise ValueError(f"Legacy item has an invalid row_index: {item!r}")
+        record_id = f"legacy-row-{row_index:06d}"
+        if record_id in record_ids:
+            raise ValueError(f"Duplicate legacy row_index: {row_index}")
+        record_ids.add(record_id)
+
+        included = item.get("status") == "included"
+        crop_path: str | None = None
+        crop_sha256: str | None = None
+        if included:
+            class_id = str(item.get("reviewed_label") or item.get("label") or "")
+            if class_id not in class_ids:
+                raise ValueError(f"Included row {row_index} has invalid class {class_id!r}")
+            crop_path = str(item.get("path") or "")
+            crop_file = safe_crop_path(dataset_root, crop_path)
+            if not crop_file.is_file():
+                raise FileNotFoundError(f"Included crop is missing: {crop_file}")
+            crop_sha256 = str(item.get("hash_sha256") or "").lower()
+            if len(crop_sha256) != 64 or sha256_file(crop_file) != crop_sha256:
+                raise ValueError(f"Crop SHA-256 mismatch: {crop_file}")
+            if png_facts(crop_file) != (64, 64, 8, 0):
+                raise ValueError(f"Crop is not verified 64x64 gray8 PNG: {crop_file}")
+            labels.append(
+                {
+                    "label_id": f"label-{record_id}",
+                    "record_id": record_id,
+                    "class_id": class_id,
+                }
+            )
+            counts[class_id] += 1
+        else:
+            if item.get("status") != "rejected":
+                raise ValueError(f"Unsupported legacy item status at row {row_index}")
+            labels.append(
+                {
+                    "label_id": f"label-{record_id}",
+                    "record_id": record_id,
+                    "excluded": True,
+                }
+            )
+            removed += 1
+
+        records.append(
+            {
+                "record_id": record_id,
+                "crop_path": crop_path,
+                "crop_sha256": crop_sha256,
+                "source_frame_id": None,
+                "source_frame_index": None,
+                "source_event_id": None,
+                "timestamp": None,
+                "crop_rect": None,
+            }
+        )
+
+    expected_counts = spec["expected_counts"]
+    actual_counts = {key: counts[key] for key in expected_counts}
+    if actual_counts != expected_counts or removed != 5:
+        raise ValueError(
+            f"{dataset_root.name} counts are {actual_counts} with {removed} excluded; "
+            f"expected {expected_counts} with 5 excluded"
+        )
+    manifest = {
+        "schema_version": "opendss.dataset.v2",
+        "provenance_mode": "legacy_crop_only",
+        "dataset_id": dataset_root.name,
+        "name": spec["name"],
+        "experiment_type": "",
+        "notes": "Engineering-converted legacy crop-only Dataset; acquisition provenance is unavailable.",
+        "status": "completed",
+        "created_at": source.get("created_at"),
+        "updated_at": source.get("updated_at"),
+        "opendss_version": None,
+        "capture": {
+            "started_at": None,
+            "ended_at": None,
+            "requested_duration_seconds": None,
+            "stop_reason": None,
+            "sequence": None,
+            "crop_settings": {
+                "width": 64,
+                "height": 64,
+                "pixel_format": "gray8",
+                "file_format": "png",
+                "method": None,
+                "interpolation": None,
+            },
+            "camera_settings": None,
+            "detection_settings": None,
+            "program_settings": None,
         },
-        "classes": build_manifest_classes(spec["classes"], spec["display_labels"]),
-        "class_schema": {
-            "label_schema_version": spec["schema_id"],
-            "classes": spec["classes"],
-            "class_to_idx": {class_id: index for index, class_id in enumerate(spec["classes"])},
-            "display_labels": spec["display_labels"],
-            "aliases": spec["aliases"],
-            "excluded_labels": ["Reject", "reject", "Rejected", "rejected", "exclude", "Exclude", ""],
+        "counts": {
+            "total": len(records),
+            "unlabeled": 0,
+            "labeled": sum(actual_counts.values()),
+            "removed": removed,
+            "by_class": actual_counts,
         },
-        "split": source_manifest.get("split", {"train": 0.7, "val": 0.15, "test": 0.15}),
-        "seed": source_manifest.get("seed", 42),
-        "items_total": len(manifest_items),
-        "items_included": sum(included_counts.values()),
-        "items_excluded": len([item for item in manifest_items if item["status"] != "included"]),
-        "items": manifest_items,
+        "classes": spec["classes"],
+        "records": records,
+        "labels": labels,
     }
+    return manifest
 
-    summary_payload = {
-        "schema_version": 1,
-        "dataset_id": spec["dataset_id"],
-        "created_at": utc_now(),
-        "dataset_path": str(dataset_root.resolve()),
-        "source_manifest": str(source_manifest_path.resolve()),
-        "samples_total_rows": len(manifest_items),
-        "samples_included": sum(included_counts.values()),
-        "samples_excluded": len([item for item in manifest_items if item["status"] != "included"]),
-        "class_counts": {class_id: int(included_counts.get(class_id, 0)) for class_id in spec["classes"]},
-        "display_label_counts": {label: int(display_label_counts.get(label, 0)) for label in spec["display_labels"].values()},
-        "legacy_original_label_counts": {label: int(legacy_label_counts[label]) for label in sorted(legacy_label_counts)},
-        "split_counts": {
-            role: {class_id: int(split_counts[role].get(class_id, 0)) for class_id in spec["classes"]}
-            for role in ("train", "val", "test")
-        },
-        "balancing": {
-            "mode": "inverse-count-min-normalized",
-            "class_weights": weights,
-        },
-        "warnings": [
-            "Starter dataset was rebuilt from a binary prepared manifest that preserved legacy source labels in legacy_original_label/original manifest fields."
-        ],
+
+def build_sequence_manifest(sequence_root: Path) -> dict:
+    existing_manifest_path = sequence_root / "sequence.json"
+    existing = load_json(existing_manifest_path)
+    tiff_files = sorted(
+        path.name for path in sequence_root.iterdir() if path.is_file() and path.suffix == ".tiff"
+    )
+    expected_names = [f"{index:06d}.tiff" for index in range(8687)]
+    if tiff_files != expected_names:
+        raise ValueError(
+            f"Legacy Sequence must contain exactly 000000.tiff through 008686.tiff"
+        )
+
+    expected_facts: tuple[int, int, int] | None = None
+    for name in expected_names:
+        facts = tiff_facts(sequence_root / name)
+        if expected_facts is None:
+            expected_facts = facts
+        elif facts != expected_facts:
+            raise ValueError(f"TIFF facts differ for {sequence_root / name}")
+    if expected_facts != (1200, 360, 8):
+        raise ValueError(f"Unexpected legacy TIFF facts: {expected_facts}")
+
+    sequence_id = existing.get("sequence_id")
+    if not isinstance(sequence_id, str) or not sequence_id.strip():
+        raise ValueError(f"Existing sequence.json has no stable sequence_id")
+    manifest = {
+        "schema_version": "opendss.sequence.v2",
+        "provenance_mode": "legacy_tiff_sequence",
+        "sequence_id": sequence_id,
+        "name": sequence_root.name,
+        "experiment_type": "",
+        "notes": "Engineering-converted legacy TIFF Sequence; only frame naming, count, dimensions, and bit depth were verified.",
+        "status": "completed",
+        "created_at": None,
+        "started_at": None,
+        "ended_at": None,
+        "requested_duration_seconds": None,
+        "stop_reason": None,
+        "opendss_version": None,
+        "frame_format": "tiff",
+        "frame_count": len(expected_names),
+        "frame_filename_pattern": "%06d.tiff",
+        "camera_settings": None,
+        "image": {"width": 1200, "height": 360, "bit_depth": 8},
+        "timing": {"timestamps_file": None, "nominal_fps": None},
+        "integrity": None,
     }
-
-    balance_rows = [
-        {
-            "class": class_id,
-            "display_label": spec["display_labels"][class_id],
-            "count": int(included_counts.get(class_id, 0)),
-            "train_count": train_counts[class_id],
-            "weight": weights[class_id],
-        }
-        for class_id in spec["classes"]
-    ]
-
-    (metadata_root / "dataset_manifest.json").write_text(json.dumps(manifest_payload, indent=2), encoding="utf-8")
-    (metadata_root / "dataset_summary.json").write_text(json.dumps(summary_payload, indent=2), encoding="utf-8")
-    with (metadata_root / "class_balance.csv").open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["class", "display_label", "count", "train_count", "weight"])
-        writer.writeheader()
-        for row in balance_rows:
-            writer.writerow(row)
-    return dataset_root
+    return manifest
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create package-ready target/non-target starter datasets.")
-    parser.add_argument("--source-manifest", help="Path to the existing prepared binary dataset manifest.")
-    parser.add_argument(
-        "--output-root",
-        default=str(Path(__file__).resolve().parents[3] / "datasets" / "prepared"),
-        help="Prepared dataset parent directory.",
+    parser = argparse.ArgumentParser(
+        description="Reconstruct the two known crop-only Datasets and known legacy TIFF Sequence as factual OpenDSS v2 artifacts."
     )
+    parser.add_argument("--datasets-root", type=Path, default=DEFAULT_DATASETS_ROOT)
+    parser.add_argument("--sequence-root", type=Path, default=DEFAULT_SEQUENCE_ROOT)
     args = parser.parse_args()
 
-    source_manifest_path = detect_source_manifest(args.source_manifest)
-    source_manifest = load_json(source_manifest_path)
-    output_root = Path(args.output_root).expanduser().resolve()
-    output_root.mkdir(parents=True, exist_ok=True)
+    dataset_manifests = {}
+    for dataset_id, spec in DATASETS.items():
+        dataset_root = args.datasets_root.expanduser().resolve() / dataset_id
+        dataset_manifests[dataset_id] = (
+            dataset_root,
+            build_dataset_manifest(dataset_root, spec),
+        )
+    sequence_root = args.sequence_root.expanduser().resolve()
+    sequence_manifest = build_sequence_manifest(sequence_root)
 
-    three_class_root = migrate_dataset(source_manifest, source_manifest_path, output_root, "three_class")
-    binary_root = migrate_dataset(source_manifest, source_manifest_path, output_root, "binary")
+    for dataset_root, manifest in dataset_manifests.values():
+        path = dataset_root / "dataset.json"
+        write_json_atomically(path, manifest)
+        if load_json(path) != manifest:
+            raise RuntimeError(f"Atomic Dataset manifest verification failed: {path}")
+    sequence_path = sequence_root / "sequence.json"
+    write_json_atomically(sequence_path, sequence_manifest)
+    if load_json(sequence_path) != sequence_manifest:
+        raise RuntimeError(f"Atomic Sequence manifest verification failed: {sequence_path}")
 
     result = {
-        "status": "ok",
-        "source_manifest": str(source_manifest_path),
-        "three_class_dataset": str(three_class_root),
-        "binary_dataset": str(binary_root),
+        "datasets": {
+            dataset_id: manifest["counts"]
+            for dataset_id, (_, manifest) in dataset_manifests.items()
+        },
+        "sequence": {
+            "frame_count": sequence_manifest["frame_count"],
+            "first": "000000.tiff",
+            "last": "008686.tiff",
+            "image": sequence_manifest["image"],
+        },
     }
     print(json.dumps(result, indent=2))
     return 0

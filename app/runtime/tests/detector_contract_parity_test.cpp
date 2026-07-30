@@ -42,6 +42,14 @@ cv::Mat droplet8(const cv::Rect& rect = kDropletRect) {
     return frame;
 }
 
+cv::Mat mixedCandidates8() {
+    cv::Mat frame = frame8();
+    cv::rectangle(frame, cv::Rect(8, 8, 5, 6), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, cv::Rect(35, 20, 20, 15), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, cv::Rect(75, 50, 7, 8), cv::Scalar(200), cv::FILLED);
+    return frame;
+}
+
 cv::Mat frame16(int value = 25600) {
     return cv::Mat(kHeight, kWidth, CV_16UC1, cv::Scalar(value)).clone();
 }
@@ -87,6 +95,9 @@ DropletDetectionFrame mapFast(const FastEventResult& result) {
     DropletDetectionFrame mapped;
     mapped.detected = result.detected;
     mapped.eventEntered = result.fired;
+    mapped.lifecycleEnded = result.lifecycleEnded;
+    mapped.rejectedAreas = result.rejectedAreas;
+    mapped.rejectedCount = result.rejectedCount;
     mapped.area = result.area;
     mapped.bbox = result.bbox;
     mapped.centroid = result.centroid;
@@ -95,9 +106,18 @@ DropletDetectionFrame mapFast(const FastEventResult& result) {
 }
 
 bool sameDetection(const DropletDetectionFrame& lhs, const DropletDetectionFrame& rhs) {
-    return lhs.detected == rhs.detected && lhs.eventEntered == rhs.eventEntered &&
-           std::abs(lhs.area - rhs.area) < 0.001 && lhs.bbox == rhs.bbox && samePoint(lhs.centroid, rhs.centroid) &&
-           sameMat(lhs.mask, rhs.mask);
+    if (lhs.detected != rhs.detected ||
+        lhs.eventEntered != rhs.eventEntered ||
+        lhs.lifecycleEnded != rhs.lifecycleEnded ||
+        lhs.rejectedCount != rhs.rejectedCount ||
+        std::abs(lhs.area - rhs.area) >= 0.001 || lhs.bbox != rhs.bbox ||
+        !samePoint(lhs.centroid, rhs.centroid) || !sameMat(lhs.mask, rhs.mask))
+        return false;
+    for (std::size_t index = 0; index < lhs.rejectedCount; ++index) {
+        if (std::abs(lhs.rejectedAreas[index] - rhs.rejectedAreas[index]) >= 0.001)
+            return false;
+    }
+    return true;
 }
 
 struct PreciseCallerState {
@@ -117,6 +137,7 @@ DropletDetectionFrame runPreciseDirect(EventDetector& detector, const cv::Mat& f
     }
 
     bool eventEntered = false;
+    bool lifecycleEnded = false;
     if (detected) {
         state.noDetectionFrames = 0;
         if (!state.eventActive) {
@@ -128,12 +149,14 @@ DropletDetectionFrame runPreciseDirect(EventDetector& detector, const cv::Mat& f
         if (state.noDetectionFrames >= resetFrames) {
             state.eventActive = false;
             state.noDetectionFrames = 0;
+            lifecycleEnded = true;
         }
     }
 
     DropletDetectionFrame mapped;
     mapped.detected = detected;
     mapped.eventEntered = eventEntered;
+    mapped.lifecycleEnded = lifecycleEnded;
     mapped.area = result.area;
     mapped.bbox = result.bbox;
     mapped.centroid = result.centroid;
@@ -169,6 +192,37 @@ void verifyFastParity() {
            "fast direct and wrapper agree on final background readiness");
     expect(direct.isReady() == adapter.isReady(), "fast direct and wrapper report the same readiness");
     expect(sameMat(direct.background(), adapter.background()), "fast direct and wrapper backgrounds match");
+
+    direct.setMinimumContourArea(481);
+    adapter.setMinimumContourArea(481);
+    FastEventResult rejectedDirect;
+    direct.processFrame(droplet8(), rejectedDirect);
+    const DropletDetectionFrame rejectedWrapped =
+        adapter.processFrame(droplet8());
+    expect(sameDetection(mapFast(rejectedDirect), rejectedWrapped) &&
+               rejectedWrapped.rejectedCount == 1 &&
+               rejectedWrapped.rejectedAreas != nullptr &&
+               rejectedWrapped.rejectedAreas[0] == 480.0 &&
+               !rejectedWrapped.detected && !rejectedWrapped.eventEntered &&
+               rejectedWrapped.area == 0.0 && rejectedWrapped.bbox.empty() &&
+               rejectedWrapped.mask.empty(),
+           "fast adapter preserves only the factual rejected candidate");
+
+    direct.setMinimumContourArea(100);
+    adapter.setMinimumContourArea(100);
+    FastEventResult mixedDirect;
+    direct.processFrame(mixedCandidates8(), mixedDirect);
+    const DropletDetectionFrame mixedWrapped = adapter.processFrame(mixedCandidates8());
+    expect(sameDetection(mapFast(mixedDirect), mixedWrapped) &&
+               mixedWrapped.detected && mixedWrapped.eventEntered &&
+               mixedWrapped.area == 300.0 &&
+               mixedWrapped.bbox == cv::Rect(35, 20, 20, 15) &&
+               mixedWrapped.rejectedCount == 2 &&
+               mixedWrapped.rejectedAreas[0] == 30.0 &&
+               mixedWrapped.rejectedAreas[1] == 56.0,
+           "fast adapter preserves accepted output and every ordered rejection");
+    direct.setMinimumContourArea(20);
+    adapter.setMinimumContourArea(20);
 
     const std::vector<cv::Mat> frames{
         cv::Mat(),

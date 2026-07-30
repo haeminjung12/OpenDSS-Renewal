@@ -2,6 +2,7 @@
 build*/
 out/
 artifacts/
+app/runtime/Desktop_app_v2App-Debug/
 *.obj
 *.pdb
 *.ilk
@@ -46,6 +47,13 @@ training/python/**/*.mat
 training/data/
 training/datasets/
 training/crops/
+
+# Local release payloads
+/datasets/prepared/
+/app/runtime/models/templates/blank/efficientnet_b0/imagenet_weights.pth
+/app/runtime/models/templates/blank/mobilenet_v3_small/imagenet_weights.pth
+/app/runtime/models/templates/pretrained/efficientnet_b0/checkpoint.pth
+/app/runtime/models/templates/pretrained/mobilenet_v3_small/checkpoint.pth
 
 # IDE/user files
 .vs/

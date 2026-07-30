@@ -128,6 +128,10 @@ bool cudaProviderAvailable() {
 
 } // namespace
 
+std::string OnnxClassifier::plannedAutomaticDevice() {
+    return cudaProviderAvailable() ? "GPU" : "CPU";
+}
+
 void OnnxClassifier::setupNormalizationLuts() {
     normMean_.assign(meta_.inputC, 0.0f);
     normScale_.assign(meta_.inputC, 1.0f);
@@ -184,9 +188,9 @@ bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, co
                 return {};
             }
             try {
-                OrtCUDAProviderOptions cudaOptions{};
-                cudaOptions.device_id = 0;
-                opts.AppendExecutionProvider_CUDA(cudaOptions);
+                Ort::CUDAProviderOptions cudaOptions;
+                cudaOptions.Update({{"device_id", "0"}, {"use_tf32", "0"}});
+                opts.AppendExecutionProvider_CUDA_V2(*cudaOptions);
             } catch (...) {
                 if (outErr) {
                     *outErr = "CUDA provider unavailable or failed to initialize; falling back to CPU";
@@ -213,7 +217,7 @@ bool OnnxClassifier::init(const std::string& modelPath, const Metadata& meta, co
     const std::string normalizedDevice = normalizedRequestedDevice(requestedDevice);
     const bool explicitCuda = normalizedDevice == "cuda";
     const bool autoDevice = normalizedDevice == "auto";
-    const bool cudaAvailable = cudaProviderAvailable();
+    const bool cudaAvailable = plannedAutomaticDevice() == "GPU";
     const bool preferCuda = explicitCuda || (autoDevice && cudaAvailable);
     if (autoDevice && !cudaAvailable)
         lastWarning_ = "CUDA provider unavailable; Auto mode fell back to CPU";

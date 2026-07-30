@@ -5,6 +5,9 @@ DropletDetectionFrame mapFastResult(const FastEventResult& result) {
     DropletDetectionFrame frame;
     frame.detected = result.detected;
     frame.eventEntered = result.fired;
+frame.lifecycleEnded = result.lifecycleEnded;
+frame.rejectedAreas = result.rejectedAreas;
+frame.rejectedCount = result.rejectedCount;
     frame.area = result.area;
     frame.bbox = result.bbox;
     frame.centroid = result.centroid;
@@ -41,6 +44,14 @@ const cv::Mat& FastEventDetectorAdapter::background() const {
     return detector_.background();
 }
 
+int FastEventDetectorAdapter::minimumContourArea() const noexcept {
+    return detector_.minimumContourArea();
+}
+
+void FastEventDetectorAdapter::setMinimumContourArea(int area) noexcept {
+    detector_.setMinimumContourArea(area);
+}
+
 EventDetectorAdapter::EventDetectorAdapter(const EventDetectorConfig& config, int resetFrames, double minAreaFrac,
                                            int minBbox, bool includeMask)
     : detector_(config), resetFrames_(resetFrames), minAreaFrac_(minAreaFrac), minBbox_(minBbox),
@@ -67,6 +78,7 @@ DropletDetectionFrame EventDetectorAdapter::processFrame(const cv::Mat& frame) {
     }
 
     bool eventEntered = false;
+    bool lifecycleEnded = false;
     if (detected) {
         noDetectionFrames_ = 0;
         if (!eventActive_) {
@@ -78,12 +90,14 @@ DropletDetectionFrame EventDetectorAdapter::processFrame(const cv::Mat& frame) {
         if (noDetectionFrames_ >= resetFrames_) {
             eventActive_ = false;
             noDetectionFrames_ = 0;
+            lifecycleEnded = true;
         }
     }
 
     DropletDetectionFrame frameResult;
     frameResult.detected = detected;
     frameResult.eventEntered = eventEntered;
+    frameResult.lifecycleEnded = lifecycleEnded;
     frameResult.area = result.area;
     frameResult.bbox = result.bbox;
     frameResult.centroid = result.centroid;

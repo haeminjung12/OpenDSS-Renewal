@@ -1,0 +1,326 @@
+/* This is a UI file (.ui.qml) intended for Qt Design Studio editing. */
+import QtQuick
+import QtQuick.Controls
+import Desktop_app_v2
+
+Rectangle {
+    id: root
+    width: 1200
+    height: 680
+    color: Constants.backgroundColor
+    property string presentation: "empty"
+    property string activeModelText: qsTr("No Active Model")
+    property string datasetText: qsTr("No Dataset selected")
+    property string deviceText: qsTr("CPU (automatic)")
+    property string outputLocationText: ""
+    property string blockerText: qsTr("No Active Model")
+    property bool startEnabled: false
+    property bool showRunning: false
+    property bool showCompleted: false
+    property bool showError: false
+    property bool partialSummaryAvailable: false
+    property bool partialPredictionsAvailable: false
+    property bool recoveryStartEnabled: false
+    property bool threeClassResult: false
+    property bool serviceFactsOnly: false
+    property int processedCount: 360
+    property int eligibleCount: 1200
+    property real progressValue: 0.3
+    property string overallAccuracyText: ""
+    property string perClassAccuracyText: ""
+    property string confusionMatrixText: ""
+    property string predictionSummaryText: ""
+    property string fallbackWarningText: ""
+    property string summaryPathText: ""
+    property string predictionsPathText: ""
+    property string actionErrorText: ""
+    readonly property bool resultFactsVisible: showCompleted
+    readonly property bool setupVisible: !showRunning && !showCompleted && !showError
+    property bool operationPanelExpanded: true
+    property bool modelTestSetupExpanded: true
+    property bool modelTestStatusExpanded: true
+    property alias selectDatasetButton: selectDatasetButton
+    property alias outputLocationField: outputLocationField
+    property alias browseButton: browseButton
+    property alias startButton: startButton
+    property alias stopButton: stopButton
+    property alias openPredictionsButton: openPredictionsButton
+    property alias openSummaryButton: openSummaryButton
+    property alias openOutputFolderButton: openOutputFolderButton
+    property alias startAnotherButton: startAnotherButton
+    property alias openPartialSummaryButton: openPartialSummaryButton
+    property alias openPartialPredictionsButton: openPartialPredictionsButton
+    property alias recoveryStartButton: recoveryStartButton
+    property alias operationPanelToggleButton: operationPanelToggleButton
+    property alias modelTestSetupHeadingButton: modelTestSetupSection.headingButton
+    property alias modelTestStatusHeadingButton: modelTestStatusSection.headingButton
+
+    Text {
+        id: workspaceTitle
+        text: qsTr("Model Test")
+        font: Constants.largeFont
+        color: Constants.textColor
+        height: Constants.controlHeight
+        verticalAlignment: Text.AlignVCenter
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: Constants.workspaceMargin
+    }
+
+    SplitView {
+        font: Constants.font
+        anchors.top: workspaceTitle.bottom
+        anchors.topMargin: Constants.spacing
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.leftMargin: Constants.workspaceMargin
+        anchors.rightMargin: Constants.workspaceMargin
+        anchors.bottomMargin: Constants.workspaceMargin
+
+        Item {
+            SplitView.fillWidth: true
+
+            Rectangle {
+                id: datasetSummary
+                width: parent.width
+                height: parent.height * 0.3
+                color: Constants.surfaceColor
+                border.color: Constants.borderColor
+                Column { anchors.fill: parent; anchors.margins: Constants.spacing * 2; spacing: Constants.spacing; Text { text: qsTr("Dataset Summary"); font: Constants.headingFont } Text { text: qsTr("Active Model (read-only): ") + root.activeModelText; font: Constants.appBodyFont } Text { text: qsTr("Dataset: ") + root.datasetText; font: Constants.appBodyFont } }
+            }
+
+            Rectangle {
+                anchors.top: datasetSummary.bottom
+                anchors.topMargin: Constants.spacing
+                width: parent.width
+                height: parent.height - datasetSummary.height - Constants.spacing
+                color: Constants.surfaceColor
+                border.color: Constants.borderColor
+                Column {
+                    visible: root.resultFactsVisible
+                    anchors.fill: parent
+                    anchors.margins: Constants.spacing * 2
+                    spacing: Constants.spacing
+                    Text { text: qsTr("Results"); font: Constants.headingFont }
+                    Row {
+                        width: parent.width
+                        spacing: Constants.spacing
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Overall Accuracy\n%1").arg(root.overallAccuracyText) : qsTr("Overall Accuracy"); font: Constants.appBodyFont } }
+                        Rectangle { width: (parent.width - parent.spacing) / 2; height: 92; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Per-Class Accuracy\n%1").arg(root.perClassAccuracyText) : qsTr("Per-Class Accuracy"); font: Constants.appBodyFont } }
+                    }
+                    Rectangle { width: parent.width; height: 112; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { anchors.fill: parent; anchors.margins: Constants.spacing; horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; wrapMode: Text.Wrap; text: root.serviceFactsOnly ? qsTr("Confusion Matrix\n%1").arg(root.confusionMatrixText) : root.threeClassResult ? qsTr("Confusion Matrix (3 classes)") : qsTr("Confusion Matrix (2 classes)"); font: Constants.appBodyFont } }
+                    Rectangle {
+                        width: parent.width
+                        height: root.serviceFactsOnly ? 132 : 72
+                        color: Constants.backgroundColor
+                        border.color: Constants.borderColor
+                        Column {
+                            anchors.fill: parent
+                            anchors.margins: Constants.spacing
+                            spacing: 2
+                            Text { text: root.serviceFactsOnly ? root.predictionSummaryText : qsTr("Prediction summary"); font: Constants.appBodyFont; wrapMode: Text.Wrap; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.fallbackWarningText !== ""; text: root.fallbackWarningText; font: Constants.appCaptionFont; color: Constants.warningColor; wrapMode: Text.Wrap; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.predictionsPathText !== ""; text: qsTr("Predictions: %1").arg(root.predictionsPathText); font: Constants.appCaptionFont; elide: Text.ElideMiddle; width: parent.width }
+                            Text { visible: root.serviceFactsOnly && root.summaryPathText !== ""; text: qsTr("Summary: %1").arg(root.summaryPathText); font: Constants.appCaptionFont; elide: Text.ElideMiddle; width: parent.width }
+                        }
+                    }
+                    Row {
+                        visible: root.showCompleted
+                        spacing: Constants.spacing
+                        AppButton { id: openPredictionsButton; text: qsTr("Open Predictions CSV"); enabled: !root.serviceFactsOnly || root.predictionsPathText !== ""; height: Constants.appStandardControlHeight }
+                        AppButton { id: openSummaryButton; text: qsTr("Open Model Test Summary"); enabled: !root.serviceFactsOnly || root.summaryPathText !== ""; height: Constants.appStandardControlHeight }
+                        AppButton { id: openOutputFolderButton; text: qsTr("Open Output Folder"); enabled: root.outputLocationText !== ""; height: Constants.appStandardControlHeight }
+                        AppButton { id: startAnotherButton; text: qsTr("Start Another"); height: Constants.appStandardControlHeight }
+                    }
+                    Text { visible: root.serviceFactsOnly && root.actionErrorText !== ""; text: root.actionErrorText; font: Constants.appCaptionFont; color: Constants.faultColor; wrapMode: Text.Wrap; width: parent.width }
+                }
+            }
+        }
+
+        Rectangle {
+            id: operationPanel
+            SplitView.preferredWidth: Constants.operationPanelWidth
+            SplitView.minimumWidth: Constants.collapsedOperationPanelWidth
+            SplitView.maximumWidth: root.operationPanelExpanded ? Math.max(Constants.collapsedOperationPanelWidth, parent.width * 0.75) : Constants.collapsedOperationPanelWidth
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+
+            Rectangle {
+                id: panelTopStrip
+                height: Constants.controlHeight
+                color: Constants.backgroundColor
+                border.color: Constants.borderColor
+                anchors.top: parent.top
+                anchors.left: parent.left
+                anchors.right: parent.right
+                Text {
+                    text: qsTr("Model Test")
+                    visible: root.operationPanelExpanded
+                    font: Constants.headingFont
+                    color: Constants.textColor
+                    anchors.left: parent.left
+                    anchors.leftMargin: Constants.spacing
+                    anchors.right: parent.right
+                    anchors.rightMargin: operationPanelToggleButton.width + Constants.spacing
+                    anchors.verticalCenter: parent.verticalCenter
+                    elide: Text.ElideRight
+                }
+            }
+            AppInspectorRail {
+                id: operationPanelToggleButton
+                text: root.operationPanelExpanded ? "›" : "‹"
+                anchors.right: parent.right
+                anchors.verticalCenter: parent.verticalCenter
+                z: 1
+            }
+
+            Column {
+                visible: root.operationPanelExpanded
+                anchors.top: panelTopStrip.bottom
+                anchors.topMargin: Constants.spacing
+                anchors.left: parent.left
+                anchors.right: parent.right
+                anchors.margins: Constants.spacing
+                anchors.leftMargin: Constants.spacing
+                spacing: 2
+
+                AppAccordion {
+                    id: modelTestSetupSection
+                    visible: root.setupVisible
+                    width: parent.width
+                    sectionTitle: qsTr("Test Setup")
+                    expanded: root.modelTestSetupExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: modelTestSetupContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: modelTestSetupContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            AppButton { id: selectDatasetButton; text: qsTr("Select Dataset"); height: Constants.appStandardControlHeight }
+                            Text { text: root.serviceFactsOnly ? qsTr("Output Parent Folder") : qsTr("Output Location"); font: Constants.font }
+                            Row { width: parent.width; spacing: Constants.spacing; AppTextField { id: outputLocationField; text: root.outputLocationText; readOnly: root.serviceFactsOnly; width: parent.width - browseButton.width - Constants.spacing; height: Constants.appStandardControlHeight } AppButton { id: browseButton; text: qsTr("Browse"); height: Constants.appStandardControlHeight } }
+                            Text { visible: !root.startEnabled; text: root.blockerText; font: Constants.appCaptionFont; color: Constants.warningColor }
+                            Text { visible: root.startEnabled; text: qsTr("Device: ") + root.deviceText; font: Constants.appCaptionFont; color: Constants.mutedTextColor }
+                            AppButton { id: startButton; text: qsTr("Start Model Test"); visualRole: "primary"; enabled: root.startEnabled; height: Constants.appPrimaryButtonHeight }
+                        }
+                    }
+                }
+
+                AppAccordion {
+                    id: modelTestStatusSection
+                    visible: root.showRunning
+                    width: parent.width
+                    sectionTitle: qsTr("Model Test Running")
+                    expanded: root.modelTestStatusExpanded
+                    useIntrinsicBodyHeight: true
+
+                    Item {
+                        width: parent.width
+                        height: modelTestStatusContent.implicitHeight + Constants.spacing * 2
+                        Column {
+                            id: modelTestStatusContent
+                            anchors.top: parent.top
+                            anchors.left: parent.left
+                            anchors.right: parent.right
+                            anchors.margins: Constants.spacing
+                            spacing: Constants.spacing
+                            Text { text: qsTr("Device: ") + root.deviceText; font: Constants.appCaptionFont }
+                            Text { text: qsTr("Processed: %1 of %2").arg(root.processedCount).arg(root.eligibleCount); font: Constants.appCaptionFont }
+                            AppProgressBar { value: root.progressValue; width: parent.width }
+                            AppButton { id: stopButton; text: qsTr("Stop Model Test"); visualRole: "destructive"; height: Constants.appPrimaryButtonHeight }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.showError && root.presentation === "error"
+                    width: parent.width
+                    height: 130
+                    color: Constants.errorSurfaceColor
+                    border.color: Constants.faultColor
+                    Column {
+                        anchors.fill: parent
+                        anchors.margins: Constants.spacing * 2
+                        spacing: Constants.spacing
+
+                        Text { text: qsTr("Error"); font: Constants.headingFont; color: Constants.faultColor }
+                        Text { text: root.blockerText; font: Constants.appCaptionFont; wrapMode: Text.Wrap; width: parent.width }
+                    }
+                }
+
+                Rectangle {
+                    visible: root.showError && (root.presentation === "interrupted" || root.presentation === "failed")
+                    width: parent.width
+                    height: recoveryContent.implicitHeight + Constants.spacing * 4
+                    color: Constants.errorSurfaceColor
+                    border.color: Constants.faultColor
+                    Column {
+                        id: recoveryContent
+                        anchors.fill: parent
+                        anchors.margins: Constants.spacing * 2
+                        spacing: Constants.spacing
+
+                        Text {
+                            text: root.presentation === "interrupted" ? qsTr("Interrupted") : qsTr("Failed")
+                            font: Constants.headingFont
+                            color: Constants.faultColor
+                        }
+                        Text {
+                            text: root.presentation === "interrupted" ? qsTr("Model Test was interrupted.") : root.blockerText
+                            font: Constants.appBodyFont
+                            wrapMode: Text.Wrap
+                            width: parent.width
+                        }
+                        Text { text: root.partialSummaryAvailable ? qsTr("Partial summary: Available") : qsTr("Partial summary: Not available"); font: Constants.appCaptionFont }
+                        Text { text: root.partialPredictionsAvailable ? qsTr("Partial predictions CSV: Available") : qsTr("Partial predictions CSV: Not available"); font: Constants.appCaptionFont }
+                        Row {
+                            spacing: Constants.spacing
+
+                            AppButton {
+                                id: openPartialSummaryButton
+                                text: qsTr("Open Partial Summary")
+                                visible: root.partialSummaryAvailable
+                                height: Constants.appStandardControlHeight
+                            }
+                            AppButton {
+                                id: openPartialPredictionsButton
+                                text: qsTr("Open Partial Predictions")
+                                visible: root.partialPredictionsAvailable
+                                height: Constants.appStandardControlHeight
+                            }
+                            AppButton {
+                                id: recoveryStartButton
+                                text: qsTr("Start Another")
+                                enabled: root.recoveryStartEnabled
+                                height: Constants.appStandardControlHeight
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    states: [
+        State { name: "empty"; PropertyChanges { root.presentation: "empty"; root.activeModelText: qsTr("No Active Model"); root.datasetText: qsTr("No Dataset selected"); root.startEnabled: false; root.showRunning: false; root.showCompleted: false; root.showError: false; root.blockerText: qsTr("No Active Model") } },
+        State { name: "modelOnly"; PropertyChanges { root.presentation: "modelOnly"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("No Dataset selected"); root.startEnabled: false; root.blockerText: qsTr("No dataset selected") } },
+        State { name: "datasetOnly"; PropertyChanges { root.presentation: "datasetOnly"; root.activeModelText: qsTr("No Active Model"); root.datasetText: qsTr("Dataset-042"); root.startEnabled: false; root.blockerText: qsTr("No Active Model") } },
+        State { name: "classMismatch"; PropertyChanges { root.presentation: "classMismatch"; root.activeModelText: qsTr("DropletNet-04 (2 classes)"); root.datasetText: qsTr("Dataset-042 (3 classes)"); root.startEnabled: false; root.blockerText: qsTr("The selected model has 2 output classes, but the selected Dataset defines 3 classes") } },
+        State { name: "noLabeled"; PropertyChanges { root.presentation: "noLabeled"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("Dataset-042"); root.startEnabled: false; root.blockerText: qsTr("No Labeled Droplet Crops") } },
+        State { name: "readyCpu"; PropertyChanges { root.presentation: "readyCpu"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("Dataset-042"); root.deviceText: qsTr("CPU (automatic)"); root.startEnabled: true; root.blockerText: "" } },
+        State { name: "readyGpu"; PropertyChanges { root.presentation: "readyGpu"; root.activeModelText: qsTr("DropletNet-04"); root.datasetText: qsTr("Dataset-042"); root.deviceText: qsTr("GPU (automatic)"); root.startEnabled: true; root.blockerText: "" } },
+        State { name: "running"; PropertyChanges { root.presentation: "running"; root.showRunning: true; root.showCompleted: false; root.showError: false; root.deviceText: qsTr("GPU (automatic)") } },
+        State { name: "completedTwoClass"; PropertyChanges { root.presentation: "completedTwoClass"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.threeClassResult: false } },
+        State { name: "completedThreeClass"; PropertyChanges { root.presentation: "completedThreeClass"; root.showRunning: false; root.showCompleted: true; root.showError: false; root.threeClassResult: true } },
+        State { name: "interrupted"; PropertyChanges { root.presentation: "interrupted"; root.showRunning: false; root.showCompleted: false; root.showError: true } },
+        State { name: "error"; PropertyChanges { root.presentation: "error"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.blockerText: qsTr("Output folder is not writable") } },
+        State { name: "failed"; PropertyChanges { root.presentation: "failed"; root.showRunning: false; root.showCompleted: false; root.showError: true; root.blockerText: qsTr("Output folder is not writable") } }
+    ]
+}

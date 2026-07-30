@@ -38,14 +38,20 @@ class DaqTrigger {
     bool init(const DaqConfig& cfg, std::string& err);
     void shutdown();
     bool fire(std::string& err);
+    bool fireImmediate(std::string& err);
+    bool startContinuous(std::string& err);
+    bool stopContinuous(std::string& err);
     bool isReady() const;
+    bool isContinuous() const;
     double sampleRateHz() const;
     int finiteSampleCount() const;
     double finalSampleValue() const;
 
   private:
+    bool fireImpl(bool honorDelay, std::string& err);
     DaqConfig cfg_;
     bool ready_;
+    bool continuous_;
 
 #ifdef HAVE_NIDAQMX
     void* task_;

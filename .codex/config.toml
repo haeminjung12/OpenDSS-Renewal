@@ -1,0 +1,9 @@
+[features]
+multi_agent = true
+
+[mcp_servers.qtDocumentation]
+url = "https://qt-docs-mcp.qt.io/mcp"
+
+[mcp_servers.qtCreator]
+command = "node"
+args = [".codex/qt_creator_mcp_bridge.mjs", "http://127.0.0.1:45678/"]

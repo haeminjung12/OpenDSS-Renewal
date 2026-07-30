@@ -1,0 +1,145 @@
+/* This is a UI file (.ui.qml) intended for Qt Design Studio editing. */
+import QtQuick
+import QtQuick.Controls
+import Desktop_app_v2
+
+Rectangle {
+    id: root
+    width: Constants.width
+    height: Constants.height
+    color: Constants.backgroundColor
+
+    property string settingsPresentation: "ready"
+    property string defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite")
+    property int textSizePercent: 100
+    property string settingsErrorMessage: ""
+    property string applicationVersion: qsTr("Unavailable")
+    property string schemaVersions: qsTr("Unavailable")
+    property string runtimeAvailability: qsTr("Unavailable — diagnostics not initialized")
+    property string cameraDriverAvailability: qsTr("Unavailable")
+    property string daqDriverAvailability: qsTr("Unavailable")
+    property string gpuEnvironmentAvailability: qsTr("Unavailable — diagnostics not initialized")
+    property string diagnosticFolder: ""
+    property bool diagnosticFolderAvailable: false
+    property string diagnosticFolderUnavailableReason: qsTr("Diagnostic folder is unavailable.")
+    property alias textSizeSelector: textSizeSelector
+    property alias chooseDataRootButton: chooseDataRootButton
+    property alias openDataRootButton: openDataRootButton
+    property alias openDiagnosticFolderButton: openDiagnosticFolderButton
+
+    Text {
+        id: workspaceTitle
+        text: qsTr("Settings")
+        font: Constants.largeFont
+        color: Constants.textColor
+        height: Constants.controlHeight
+        verticalAlignment: Text.AlignVCenter
+        anchors.top: parent.top
+        anchors.left: parent.left
+        anchors.margins: Constants.workspaceMargin
+    }
+
+    ScrollView {
+        id: settingsScroll
+        font: Constants.font
+        anchors.top: workspaceTitle.bottom
+        anchors.bottom: parent.bottom
+        anchors.left: parent.left
+        anchors.right: parent.right
+        anchors.topMargin: Constants.spacing
+        anchors.margins: Constants.workspaceMargin
+        contentWidth: availableWidth
+        contentHeight: settingsContent.implicitHeight
+        clip: true
+
+        Column {
+        id: settingsContent
+        width: Math.min(settingsScroll.availableWidth, Math.round(1120 * Constants.textScale))
+        x: Math.max(0, (settingsScroll.availableWidth - width) / 2)
+        height: implicitHeight
+        spacing: Constants.spacing
+
+        Rectangle {
+            visible: root.settingsPresentation === "error"
+            width: parent.width
+            height: 52
+            color: Constants.errorSurfaceColor
+            border.color: Constants.faultColor
+            Text { text: root.settingsErrorMessage === "" ? qsTr("Error") : root.settingsErrorMessage; color: Constants.faultColor; font: Constants.headingFont; anchors.centerIn: parent }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: storageContent.implicitHeight + Constants.spacing * 2
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+            Column { id: storageContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
+                Text { text: qsTr("Storage"); font: Constants.headingFont; color: Constants.textColor }
+                    Text { text: qsTr("Default Data Root"); color: Constants.textColor; font: Constants.font }
+                Rectangle { width: parent.width; height: Constants.controlHeight; color: Constants.backgroundColor; border.color: Constants.borderColor; Text { text: root.defaultDataRoot; elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; anchors.verticalCenter: parent.verticalCenter; anchors.left: parent.left; anchors.right: parent.right; anchors.margins: 6 } }
+                Flow { width: parent.width; height: implicitHeight; spacing: Constants.spacing
+                    AppButton { id: chooseDataRootButton; text: qsTr("Choose Default Data Root"); height: Constants.appStandardControlHeight }
+                    AppButton { id: openDataRootButton; text: qsTr("Open Data Root"); height: Constants.appStandardControlHeight }
+                }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: applicationInformationContent.implicitHeight + Constants.spacing * 2
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+            Column { id: applicationInformationContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 6
+                Text { text: qsTr("Application Information"); font: Constants.headingFont; color: Constants.textColor }
+                Text { text: qsTr("OpenDSS Version: %1").arg(root.applicationVersion); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("Schema Versions: %1").arg(root.schemaVersions); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("Runtime Availability: %1").arg(root.runtimeAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("Camera Driver Availability: %1").arg(root.cameraDriverAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("DAQ Driver Availability: %1").arg(root.daqDriverAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                Text { text: qsTr("GPU Environment Availability: %1").arg(root.gpuEnvironmentAvailability); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: diagnosticsContent.implicitHeight + Constants.spacing * 2
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+            Column { id: diagnosticsContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
+                Text { text: qsTr("Diagnostics"); font: Constants.headingFont; color: Constants.textColor }
+                Text { text: qsTr("Diagnostic Folder: %1").arg(root.diagnosticFolder === "" ? qsTr("Unavailable") : root.diagnosticFolder); elide: Text.ElideMiddle; color: Constants.textColor; font: Constants.smallFont; width: parent.width }
+                AppButton { id: openDiagnosticFolderButton; text: qsTr("Open Diagnostic Folder"); height: Constants.appStandardControlHeight; enabled: root.diagnosticFolderAvailable }
+                Text { visible: !openDiagnosticFolderButton.enabled; text: root.diagnosticFolderUnavailableReason; color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
+            }
+        }
+
+        Rectangle {
+            width: parent.width
+            height: visualsContent.implicitHeight + Constants.spacing * 2
+            color: Constants.surfaceColor
+            border.color: Constants.borderColor
+            Column { id: visualsContent; anchors.fill: parent; anchors.margins: Constants.spacing; spacing: 8
+                Text { text: qsTr("Visuals"); font: Constants.headingFont; color: Constants.textColor }
+                Row {
+                    width: parent.width
+                    spacing: Constants.spacing
+                    Text { text: qsTr("Text Size"); width: 120; font: Constants.font; verticalAlignment: Text.AlignVCenter; color: Constants.textColor }
+                    AppComboBox {
+                        id: textSizeSelector
+                        model: [qsTr("Small"), qsTr("Medium"), qsTr("Large")]
+                        currentIndex: root.textSizePercent === 80 ? 0 : root.textSizePercent === 125 ? 2 : 1
+                        width: parent.width - 120 - Constants.spacing
+                        height: Constants.appStandardControlHeight
+                    }
+                }
+            }
+        }
+        }
+    }
+
+    states: [
+        State { name: "settingsReady"; PropertyChanges { root.settingsPresentation: "ready"; root.defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite") } },
+        State { name: "settingsLongDataRoot"; PropertyChanges { root.settingsPresentation: "ready"; root.defaultDataRoot: qsTr("C:/Users/Scientist/Documents/OpenDropletSortingSuite/Research/2026/July/Long-Experiment-Name/Run-Archive") } },
+        State { name: "settingsError"; PropertyChanges { root.settingsPresentation: "error" } }
+    ]
+}

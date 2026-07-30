@@ -218,7 +218,9 @@ target_link_libraries(opendss_p0_2a_characterization_test PRIVATE
 
 add_test(
   NAME opendss_p0_2a_characterization_test
-  COMMAND opendss_p0_2a_characterization_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:opendss_p0_2a_characterization_test>
 )
 
 set_tests_properties(opendss_p0_2a_characterization_test PROPERTIES TIMEOUT 15)

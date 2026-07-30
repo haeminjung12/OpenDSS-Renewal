@@ -10,6 +10,7 @@ DcamCamera::DcamCamera()
     , opened_(false)
     , bufferCount_(16)
     , deliveredFrameCount_(0)
+    , legacyFrameCounter_(0)
 {
 }
 
@@ -68,6 +69,7 @@ std::string DcamCamera::init(int deviceIndex) {
 
     opened_ = true;
     deliveredFrameCount_ = 0;
+    legacyFrameCounter_ = 0;
     return {};
 }
 
@@ -158,6 +160,7 @@ std::string DcamCamera::apply(const CameraSettings& settings) {
     }
 
     deliveredFrameCount_ = 0;
+    legacyFrameCounter_ = 0;
     return warn.empty() ? std::string() : ("WARN: " + warn);
 }
 
@@ -191,6 +194,7 @@ std::string DcamCamera::applyApprovedSettings(const CameraSettings& settings) {
     if (firstError.empty() && failed(allocError))
         firstError = errText("dcambuf_alloc", allocError);
     deliveredFrameCount_ = 0;
+    legacyFrameCounter_ = 0;
     return firstError;
 }
 
@@ -287,6 +291,7 @@ std::string DcamCamera::start() {
     if (failed(err))
         return errText("dcamcap_start", err);
     deliveredFrameCount_ = 0;
+    legacyFrameCounter_ = 0;
     return {};
 }
 
@@ -313,10 +318,67 @@ void DcamCamera::cleanup() {
     hdcam_ = nullptr;
     opened_ = false;
     deliveredFrameCount_ = 0;
+    legacyFrameCounter_ = 0;
 }
 
 bool DcamCamera::isOpened() const {
     return opened_;
+}
+
+bool DcamCamera::waitForFrame(int timeoutMs) {
+    if (!opened_)
+        return false;
+    DCAMWAIT_START wait = {};
+    wait.size = sizeof(wait);
+    wait.eventmask = DCAMWAIT_CAPEVENT_FRAMEREADY;
+    wait.timeout = timeoutMs;
+    return !failed(dcamwait_start(hwait_, &wait));
+}
+
+bool DcamCamera::getLatestFrame(FrameData& out) {
+    if (!opened_)
+        return false;
+
+    DCAMBUF_FRAME bufferFrame = {};
+    bufferFrame.size = sizeof(bufferFrame);
+    bufferFrame.iFrame = -1;
+    const DCAMERR lockError = dcambuf_lockframe(hdcam_, &bufferFrame);
+    if (failed(lockError))
+        return false;
+
+    FrameMeta meta;
+    meta.width = static_cast<int>(bufferFrame.width);
+    meta.height = static_cast<int>(bufferFrame.height);
+    meta.rowBytes = static_cast<int>(bufferFrame.rowbytes);
+    meta.frameIndex = legacyFrameCounter_++;
+
+    double binning = 1.0;
+    double bits = 0.0;
+    dcamprop_getvalue(hdcam_, DCAM_IDPROP_BINNING, &binning);
+    dcamprop_getvalue(hdcam_, DCAM_IDPROP_BITSPERCHANNEL, &bits);
+    meta.binning = binning;
+    meta.bits = static_cast<int>(std::lround(bits));
+
+    DCAMCAP_TRANSFERINFO transferInfo = {};
+    transferInfo.size = sizeof(transferInfo);
+    if (!failed(dcamcap_transferinfo(hdcam_, &transferInfo))) {
+        meta.delivered = transferInfo.nFrameCount;
+        meta.dropped = 0;
+    }
+
+    double fps = 0.0;
+    double readoutSpeed = 0.0;
+    dcamprop_getvalue(hdcam_, DCAM_IDPROP_INTERNALFRAMERATE, &fps);
+    dcamprop_getvalue(hdcam_, DCAM_IDPROP_READOUTSPEED, &readoutSpeed);
+    meta.internalFps = fps;
+    meta.readoutSpeed = readoutSpeed;
+
+    const int type = meta.bits <= 8 ? CV_8UC1 : CV_16UC1;
+    cv::Mat image(meta.height, meta.width, type,
+                  bufferFrame.buf, bufferFrame.rowbytes);
+    out.image = image.clone();
+    out.meta = meta;
+    return true;
 }
 
 bool DcamCamera::getUnreadFrames(std::vector<FrameData>& out, std::string& error) {
@@ -473,4 +535,3 @@ std::string DcamCamera::errText(const char* label, DCAMERR err) const {
     std::snprintf(buf, sizeof(buf), "%s failed: 0x%08X", label, static_cast<unsigned int>(err));
     return std::string(buf);
 }
-

@@ -724,6 +724,7 @@ extern "C" int32 DAQmxCfgSampClkTiming(TaskHandle, const char[], float64 rate, i
 }
 extern "C" int32 DAQmxCfgOutputBuffer(TaskHandle, uInt32) { fakeDaq.calls.push_back("buffer"); return 0; }
 extern "C" int32 DAQmxStopTask(TaskHandle) { fakeDaq.calls.push_back("stop"); return 0; }
+extern "C" int32 DAQmxStartTask(TaskHandle) { fakeDaq.calls.push_back("start"); return 0; }
 extern "C" int32 DAQmxClearTask(TaskHandle) { fakeDaq.calls.push_back("clear"); return 0; }
 extern "C" int32 DAQmxWriteAnalogF64(TaskHandle, int32 samples, bool32 autoStart, float64 timeout, bool32 dataLayout,
                                       const float64 values[], int32* written, bool32*) {
@@ -734,6 +735,10 @@ extern "C" int32 DAQmxWriteAnalogF64(TaskHandle, int32 samples, bool32 autoStart
     fakeDaq.writeDataLayouts.push_back(dataLayout);
     fakeDaq.waveform.assign(values, values + samples);
     *written = samples;
+    return 0;
+}
+extern "C" int32 DAQmxWriteAnalogScalarF64(TaskHandle, bool32, float64, float64, bool32*) {
+    fakeDaq.calls.push_back("scalar");
     return 0;
 }
 extern "C" int32 DAQmxWaitUntilTaskDone(TaskHandle, float64 timeout) { fakeDaq.calls.push_back("wait"); fakeDaq.waitTimeouts.push_back(timeout); return fakeDaq.waitStatus; }

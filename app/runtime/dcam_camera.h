@@ -62,6 +62,8 @@ class DcamCamera {
     void cleanup();
 
     bool isOpened() const;
+    bool waitForFrame(int timeoutMs);
+    bool getLatestFrame(FrameData& out);
     bool getUnreadFrames(std::vector<FrameData>& out, std::string& error);
 
   private:
@@ -72,5 +74,5 @@ class DcamCamera {
     bool opened_;
     int bufferCount_;
     int64_t deliveredFrameCount_;
+    int64_t legacyFrameCounter_;
 };
-

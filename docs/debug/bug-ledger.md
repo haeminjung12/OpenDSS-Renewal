@@ -6,7 +6,158 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 
 ## Active bugs
 
-None.
+### DBG-001 — Record Dataset misses most droplets
+
+- Status: `root cause accepted — failing regression captured; acquisition fix active`
+- Priority: `P0 — blocks experiments`
+- Accountable owner: Debug Lead
+- Expected: Every acquired image passes through the event detector in order. Only then may the system decide first/last occurrence, trajectory, crop creation, or ONNX routing; Record Dataset writes one correctly centered crop per qualifying detected event.
+- Observed: `S7-5 OD-0.5` saved 13 crops from 664 sequence frames; `S7-5 OD-0.5-2` saved 3 crops from 423 frames. Visual sampling shows droplets throughout both sequences. Sampled saved crops are centered, so the accepted symptom is low detection/crop-generation recall rather than proven crop-rectangle misalignment.
+- Smallest reliable reproduction: the supplied S7-5 manifests and files deterministically show that `S7-5 OD-0.5` received 664 of 7,031 camera delivery IDs and produced 13 crops, while `S7-5 OD-0.5-2` received 423 of 4,476 delivery IDs and produced 3 crops. Both have zero queue rejections and zero consumer failures.
+- Observations: source evidence is under `C:\Users\goals\Downloads\DataCapture`; both datasets use DCAM:0 at 1152×288, 8-bit. Dataset capture processes every frame it receives and creates a crop only on `detection.eventEntered`. Approximately 90.5% of camera delivery IDs are absent before the dataset writer, and the retained artifacts do not contain the omitted frames or resolved detector settings.
+- Hypotheses: detector event lifecycle/hysteresis may still affect event grouping after lossless delivery is restored; this is a secondary risk, not the primary observed loss.
+- Accepted root cause: `CameraService` polls once every 16 ms and calls `ICameraDevice::latestFrame()` once. The DCAM adapter locks only the newest buffer frame (`iFrame = -1`) and assigns total acquired `nFrameCount` as the delivery ID. A roughly 662 fps camera therefore publishes at most roughly 62.5 fps, retaining about 9.45% of acquired frames—the exact ratio in both supplied datasets. `CameraController::frameReady` is emitted before preview coalescing, so loss occurs at the service/device newest-only polling boundary. Dataset Capture, Image Sequence, and Live Sorting all consume this sampled signal.
+- Changed files: isolated regression branch adds `app/runtime/tests/camera_pipeline_characterization_test.cpp` and its test target in `app/runtime/tests/CMakeLists.txt`; production fix is pending.
+- Regression and verification evidence: the two supplied manifests, 1,087 corresponding TIFF frames, and 16 corresponding crop records were reconciled; queue and consumer integrity counters exclude dataset writer loss. The proven legacy `sequence_headless` reference informed a current-interface headless regression without copying its pipeline. The Release regression at 2304×2304 Mono8 Fast measured 270 acquired, 259 detector-completed, 11 missing IDs, and 60.85 detector fps from a 63.30 fps source. At 1152×288 Mono8 Fast it measured 2,800 acquired, 257 detector-completed, 2,520 missing IDs, and 60.93 detector fps from a 661.34 fps inferred source. The executable exited 1 as expected before the fix.
+- Protected-asset impact: detector and camera-acquisition behavior are protected; characterization evidence is required before behavioral change. Detector delivery must remain an ordered all-acquired-frame path and must not depend on a sampled preview or optional sequence-persistence path.
+- Remaining risk and rollback: no code changed.
+- Exact next action: add a current-code headless characterization/regression proving ordered all-frame detector delivery and measuring acquired/detected/persisted rates separately, then implement a lossless acquisition-to-detector feed that keeps preview coalescing and optional persistence separate without changing qualified detector decisions.
+
+### DBG-002 — Capture integrity reports missing frames without adequate user warning
+
+- Status: `isolated fix complete — integration pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: lossless capture saves all attempted frames or clearly reports degraded/failed capture with saved, rejected, and attempted counts.
+- Observed: the Full GUI verification reported 77 saved frames and 47 recorder queue rejections at 2304×2304, 16-bit while the GUI reported only 77 captured. The supplied 1152×288, 8-bit captures report zero queue rejections and zero consumer failures but large `source_frame_gaps`: 6,367, 4,053, and 4,763.
+- Smallest reliable reproduction: deterministic service tests show delivery IDs 1 then 4 record two `source_frame_gaps` while completing, and bounded dispatcher overflow records queue rejection. Production code returns success after a rejected Image Sequence handoff and later writes `status: completed` when any frames were saved.
+- Observations: two different integrity mechanisms are present and must not be conflated. `source_frame_gaps` measures discontinuities in raw DCAM delivery IDs and alone does not prove camera loss. Queue rejection is application dispatcher loss. Vendor HCImageLive evidence at `C:\Users\goals\AppData\Local\Temp\codex-clipboard-d792c9e4-759b-459b-b523-6ccb01061f31.png` shows 2304×2304, 8-bit, Fast mode, 1.0 ms exposure operating at 63.33 fps; this is the equivalent-settings attempted-throughput acceptance baseline.
+- Hypotheses: high-resolution producer throughput exceeds the bounded recorder consumer; hardware throughput remains unmeasured.
+- Accepted root cause: Image Sequence queue rejection is only logged and counted; `offerFrame` still reports success, and `stopWithReason` marks the sequence completed without elevating rejected handoffs to a degraded or failed user-visible outcome.
+- Changed files: isolated branch changes `app/runtime/v2/sequence/image_sequence_capture_service.{h,cpp}` and `app/runtime/tests/image_sequence_capture_service_test.cpp`.
+- Regression and verification evidence: `sourceGapCompletion` continues to characterize source-gap semantics. A deterministic blocked-writer overflow regression now proves rejection reports degraded state immediately, finalizes as Failed, retains recovery metadata, does not publish `sequence.json`, and reports attempted/saved/rejected counts and rates separately. Focused Release target build passed; `image_sequence_capture_service_test` passed 1/1 in 0.51 s; scoped diff check passed. Vendor hardware throughput remains to be exercised.
+- Protected-asset impact: camera acquisition and persistence are protected; no behavior change without regression and throughput evidence.
+- Remaining risk and rollback: no code changed.
+- Exact next action: independently gate the three-file diff, then integrate it with the completed `DBG-001` fix before the single full build/test and vendor-equivalent hardware validation.
+
+### DBG-003 — Packaged Python provisioner is stale and fails PowerShell 5.1 inventory verification
+
+- Status: `triaged — source fix reported, packaging verification pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: the packaged provisioner verifies all 37 locked distributions under Windows PowerShell 5.1.
+- Observed: the installed script can report `Distribution count mismatch. Expected 37; got 1.` because the parsed JSON array is wrapped as one object; the corrected local script has not been packaged into a rebuilt installer.
+- Smallest reliable reproduction: run the packaged provisioner inventory check under Windows PowerShell 5.1.
+- Observations: corrected scripts are reported at `C:\OpenDSS\provision-training-runtime.ps1`, Google Drive, and the supplied installer evidence folder.
+- Hypotheses: installer payload was built before the corrected provisioner was incorporated.
+- Accepted root cause: pending repository/package comparison.
+- Changed files: none in this worktree.
+- Regression and verification evidence: local successful CPU provisioning is reported; rebuilt-installer verification is absent.
+- Protected-asset impact: training provisioning/export environment; preserve the qualified trainer and export mechanics.
+- Remaining risk and rollback: local fixes may diverge from repository source; no worktree code changed.
+- Exact next action: compare packaged, evidence-folder, and worktree provisioner versions and reproduce the PowerShell 5.1 inventory path.
+
+### DBG-004 — Stale Python registrations make a failed install appear successful
+
+- Status: `triaged — reproduction pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: Python detection requires a valid Python 3.12.10 x64 runtime at the intended target.
+- Observed: failed installation can leave CPython MSI/bundle registrations while runtime files are absent; a later installer returns success or assumes Python is installed without creating the requested runtime.
+- Smallest reliable reproduction: stale registered/missing-target Python scenario described in the installation incident log.
+- Observations: local recovery repaired the registration and copied a verified runtime.
+- Hypotheses: detection trusts registration/installer exit code instead of validating executable, version, architecture, and target.
+- Accepted root cause: pending controlled reproduction.
+- Changed files: none in this worktree.
+- Regression and verification evidence: incident log records the failure and local recovery; installer regression remains pending.
+- Protected-asset impact: training provisioning only; trainer behavior must remain unchanged.
+- Remaining risk and rollback: Windows Installer behavior may depend on elevation policy.
+- Exact next action: reproduce with an isolated stale-registration fixture or disposable test machine.
+
+### DBG-005 — Installer rollback leaves registry and partial-install artifacts
+
+- Status: `triaged — reproduction pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: failed installation rolls back owned registrations, candidates, environment paths, and partial artifacts without damaging a previously working Python/runtime.
+- Observed: rollback can delete candidate files while leaving CPython registrations and other partial-install state, poisoning the next attempt.
+- Smallest reliable reproduction: interrupt or fail provisioning after Python registration but before environment completion.
+- Observations: Windows Installer removal returned error 1603 in the reported managed environment.
+- Hypotheses: rollback order and ownership tracking are incomplete and do not account for MSI removal failure.
+- Accepted root cause: none yet.
+- Changed files: none.
+- Regression and verification evidence: incident log only.
+- Protected-asset impact: training provisioning; preserve working installations during rollback.
+- Remaining risk and rollback: cleanup may require elevation and must not remove unrelated user Python.
+- Exact next action: inventory exact installer-owned artifacts at each failure boundary.
+
+### DBG-006 — Installer performs provisioning stages in the wrong order
+
+- Status: `triaged — source fix reported, installer verification pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: install and verify Python first, create and verify the training environment second, then install the remaining application payload; verified downloads should survive safe retries.
+- Observed: the original provisioner downloaded dependency wheels before Python installation and discarded its temporary wheelhouse after attempts, wasting downloads and leaving later stages vulnerable to earlier failures.
+- Smallest reliable reproduction: run the original provisioner on a machine where Python installation fails.
+- Observations: supplied local source reports reordered provisioning and a SHA-256-verified persistent download cache.
+- Hypotheses: installer transaction boundaries were organized around payload acquisition rather than validated prerequisites.
+- Accepted root cause: pending worktree/package comparison.
+- Changed files: none in this worktree.
+- Regression and verification evidence: standalone corrected run reported successful; rebuilt installer unverified.
+- Protected-asset impact: training environment only.
+- Remaining risk and rollback: stage boundaries must preserve a previously working Python and environment.
+- Exact next action: map current installer stage order and failure rollback boundaries.
+
+### DBG-007 — Installer lacks reliable GPU selection and CPU fallback
+
+- Status: `triaged — source fix reported, installer verification pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: compatible CUDA hardware selects the pinned GPU environment; unavailable or incompatible CUDA selects the pinned CPU environment, and the application discovers either environment.
+- Observed: the original provisioner always selected the large CUDA/GPU package set and the installed application only recognized `training-venv-gpu`.
+- Smallest reliable reproduction: run Auto provisioning without usable NVIDIA/CUDA access.
+- Observations: supplied local changes add `Auto|cpu|cuda`, a CPU lock/inventory, and CPU environment discovery; the existing installed app required a temporary GPU-to-CPU junction.
+- Hypotheses: compute profile and environment path were hard-coded.
+- Accepted root cause: pending source and rebuilt-package verification.
+- Changed files: none in this worktree.
+- Regression and verification evidence: local CPU run reported Python 3.12.10, 37 packages, PyTorch CPU, CUDA unavailable, and CPUExecutionProvider.
+- Protected-asset impact: ONNX and training mechanics are protected; provider selection must retain qualified behavior.
+- Remaining risk and rollback: CUDA 13+ path and upgrade from GPU-only installs remain unverified.
+- Exact next action: verify both CPU and CUDA selection paths from the integrated installer payload.
+
+### DBG-008 — Installer and application version metadata disagree
+
+- Status: `triaged — reproduction documented`
+- Priority: `P2`
+- Accountable owner: Debug Lead
+- Expected: installer and application version metadata derive from one release version.
+- Observed: installer reports `0.9.1` while the installed application reports `2.0`.
+- Smallest reliable reproduction: compare installer identity with the installed application's displayed version.
+- Observations: documented in the Full GUI verification summary.
+- Hypotheses: independent hard-coded version sources.
+- Accepted root cause: none yet.
+- Changed files: none.
+- Regression and verification evidence: user verification report only.
+- Protected-asset impact: none.
+- Remaining risk and rollback: packaging-only risk; no code changed.
+- Exact next action: locate all version sources and select the canonical release owner.
+
+### DBG-009 — Installer progress text does not reflect the active provisioning stage
+
+- Status: `triaged — reproduction pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: installer text updates as work progresses, including downloading Python, installing Python, verifying Python, creating the environment, downloading/installing dependencies, verifying the environment, and installing the remaining application.
+- Observed: the installer appears stale because it continues to display a generic message such as `Configuring environment` while Python installation and other distinct stages run.
+- Smallest reliable reproduction: run a fresh installation and compare the visible status text with the provisioner log and process activity.
+- Observations: the provisioner reportedly emits textual stages, but the installer UI does not surface them accurately.
+- Hypotheses: the installer launches provisioning as one opaque step or does not relay stage events/output to its progress UI.
+- Accepted root cause: none yet.
+- Changed files: none.
+- Regression and verification evidence: user-observed Full GUI installation behavior.
+- Protected-asset impact: none; status reporting must not alter training or provisioning mechanics.
+- Remaining risk and rollback: presentation-only changes must not interfere with cancellation, rollback, or process output handling.
+- Exact next action: trace status messages from the provisioning script through the installer UI and identify the first stage that is not displayed.
 
 ## Bug record format
 

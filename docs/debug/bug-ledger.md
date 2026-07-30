@@ -8,7 +8,7 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 
 ### DBG-001 — Record Dataset misses most droplets
 
-- Status: `root cause accepted — failing regression captured; acquisition fix active`
+- Status: `fix committed and HIL verified — combined full build pending`
 - Priority: `P0 — blocks experiments`
 - Accountable owner: Debug Lead
 - Expected: Every acquired image passes through the event detector in order. Only then may the system decide first/last occurrence, trajectory, crop creation, or ONNX routing; Record Dataset writes one correctly centered crop per qualifying detected event.
@@ -17,15 +17,15 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Observations: source evidence is under `C:\Users\goals\Downloads\DataCapture`; both datasets use DCAM:0 at 1152×288, 8-bit. Dataset capture processes every frame it receives and creates a crop only on `detection.eventEntered`. Approximately 90.5% of camera delivery IDs are absent before the dataset writer, and the retained artifacts do not contain the omitted frames or resolved detector settings.
 - Hypotheses: detector event lifecycle/hysteresis may still affect event grouping after lossless delivery is restored; this is a secondary risk, not the primary observed loss.
 - Accepted root cause: `CameraService` polls once every 16 ms and calls `ICameraDevice::latestFrame()` once. The DCAM adapter locks only the newest buffer frame (`iFrame = -1`) and assigns total acquired `nFrameCount` as the delivery ID. A roughly 662 fps camera therefore publishes at most roughly 62.5 fps, retaining about 9.45% of acquired frames—the exact ratio in both supplied datasets. `CameraController::frameReady` is emitted before preview coalescing, so loss occurs at the service/device newest-only polling boundary. Dataset Capture, Image Sequence, and Live Sorting all consume this sampled signal.
-- Changed files: isolated regression branch adds `app/runtime/tests/camera_pipeline_characterization_test.cpp` and its test target in `app/runtime/tests/CMakeLists.txt`; production fix is pending.
-- Regression and verification evidence: the two supplied manifests, 1,087 corresponding TIFF frames, and 16 corresponding crop records were reconciled; queue and consumer integrity counters exclude dataset writer loss. The proven legacy `sequence_headless` reference informed a current-interface headless regression without copying its pipeline. The Release regression at 2304×2304 Mono8 Fast measured 270 acquired, 259 detector-completed, 11 missing IDs, and 60.85 detector fps from a 63.30 fps source. At 1152×288 Mono8 Fast it measured 2,800 acquired, 257 detector-completed, 2,520 missing IDs, and 60.93 detector fps from a 661.34 fps inferred source. The executable exited 1 as expected before the fix.
+- Changed files: commit `eda6c768795aecdf258ccd34290eac7e703928a2` changes `app/runtime/dcam_camera.{h,cpp}`, the v2 camera device/service/DCAM adapter, their focused tests and fake, and adds the registered Release service characterization plus real-DCAM headless HIL target and evidence.
+- Regression and verification evidence: the two supplied manifests, 1,087 corresponding TIFF frames, and 16 corresponding crop records were reconciled; queue and consumer integrity counters exclude dataset writer loss. The pre-fix Release regression measured 259/270 and 257/2,800 detector completions. After the fix, Release service characterization passes exact acquired/service/detector counts of 270/270/270 at 2304×2304 and 2,800/2,800/2,800 at 1152×288 with zero gaps, ordering errors, pixel-ID errors, or pre-service coalescing. Physical USB HIL drained and detector-completed 3,554/3,554 ROI frames at 710.858 fps and 316/316 full frames at 63.309 fps with zero gaps, duplicates, ordering errors, or DCAM overrun. Full-frame average detector service time was 7.804 ms, mathematically supporting 128.140 fps versus the 89.1 fps CoaXPress specification and 100 fps headroom target. Focused Release camera service, controller, DCAM adapter, and characterization tests pass. Evidence: `docs/debug/evidence/DBG-001-real-dcam-headless-20260730.md`.
 - Protected-asset impact: detector and camera-acquisition behavior are protected; characterization evidence is required before behavioral change. Detector delivery must remain an ordered all-acquired-frame path and must not depend on a sampled preview or optional sequence-persistence path.
-- Remaining risk and rollback: no code changed.
-- Exact next action: add a current-code headless characterization/regression proving ordered all-frame detector delivery and measuring acquired/detected/persisted rates separately, then implement a lossless acquisition-to-detector feed that keeps preview coalescing and optional persistence separate without changing qualified detector decisions.
+- Remaining risk and rollback: the short HIL scenes contained no detected droplets, so live droplet recall remains unaccepted; GUI and persistence throughput are not measured. CoaXPress capacity is a user-authorized mathematical check rather than physical CoaXPress HIL. Rollback is `git revert eda6c768795aecdf258ccd34290eac7e703928a2`.
+- Exact next action: integrate the verified `DBG-002` reporting fix and run the single combined full Release build/test gate.
 
 ### DBG-002 — Capture integrity reports missing frames without adequate user warning
 
-- Status: `isolated fix complete — integration pending`
+- Status: `focused fix verified — integration commit and combined full build pending`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: lossless capture saves all attempted frames or clearly reports degraded/failed capture with saved, rejected, and attempted counts.
@@ -34,11 +34,11 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Observations: two different integrity mechanisms are present and must not be conflated. `source_frame_gaps` measures discontinuities in raw DCAM delivery IDs and alone does not prove camera loss. Queue rejection is application dispatcher loss. Vendor HCImageLive evidence at `C:\Users\goals\AppData\Local\Temp\codex-clipboard-d792c9e4-759b-459b-b523-6ccb01061f31.png` shows 2304×2304, 8-bit, Fast mode, 1.0 ms exposure operating at 63.33 fps; this is the equivalent-settings attempted-throughput acceptance baseline.
 - Hypotheses: high-resolution producer throughput exceeds the bounded recorder consumer; hardware throughput remains unmeasured.
 - Accepted root cause: Image Sequence queue rejection is only logged and counted; `offerFrame` still reports success, and `stopWithReason` marks the sequence completed without elevating rejected handoffs to a degraded or failed user-visible outcome.
-- Changed files: isolated branch changes `app/runtime/v2/sequence/image_sequence_capture_service.{h,cpp}` and `app/runtime/tests/image_sequence_capture_service_test.cpp`.
+- Changed files: the canonical worktree changes `app/runtime/v2/sequence/image_sequence_capture_service.{h,cpp}` and `app/runtime/tests/image_sequence_capture_service_test.cpp`.
 - Regression and verification evidence: `sourceGapCompletion` continues to characterize source-gap semantics. A deterministic blocked-writer overflow regression now proves rejection reports degraded state immediately, finalizes as Failed, retains recovery metadata, does not publish `sequence.json`, and reports attempted/saved/rejected counts and rates separately. Focused Release target build passed; `image_sequence_capture_service_test` passed 1/1 in 0.51 s; scoped diff check passed. Vendor hardware throughput remains to be exercised.
 - Protected-asset impact: camera acquisition and persistence are protected; no behavior change without regression and throughput evidence.
-- Remaining risk and rollback: no code changed.
-- Exact next action: independently gate the three-file diff, then integrate it with the completed `DBG-001` fix before the single full build/test and vendor-equivalent hardware validation.
+- Remaining risk and rollback: the combined full Release build/test gate is pending. Throughput loss is now reported factually but this fix does not increase persistence throughput. Rollback is reversion of the three-file reporting/regression change.
+- Exact next action: pass the corrected combined Plan Guardian gate, commit the three-file fix, and run the single full Release build/test gate.
 
 ### DBG-003 — Packaged Python provisioner is stale and fails PowerShell 5.1 inventory verification
 

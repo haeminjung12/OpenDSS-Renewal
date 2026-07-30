@@ -166,11 +166,13 @@ QJsonObject integrityJson(const SequenceIntegrity& value) {
 ImageSequenceCaptureService::ImageSequenceCaptureService(CameraService& camera,
                                                          OperationCoordinator& operations,
                                                          MonotonicNow monotonicNow,
-                                                         FrameConverter frameConverter)
+                                                         FrameConverter frameConverter,
+                                                         FrameWriter frameWriter)
     : camera_(camera),
       operations_(operations),
       monotonicNow_(std::move(monotonicNow)),
       frameConverter_(std::move(frameConverter)),
+      frameWriter_(std::move(frameWriter)),
       dispatcher_([this](const QImage& image, const FrameMeta& meta, double fps,
                          std::uint64_t handoffId, LiveFrameDispatcher::Membership membership) {
           consumeFrame(image, meta, fps, handoffId, membership);
@@ -180,6 +182,8 @@ ImageSequenceCaptureService::ImageSequenceCaptureService(CameraService& camera,
             return convertCameraFrame(frame, error);
         };
     }
+    if (!frameWriter_)
+        frameWriter_ = writeTiffWithoutReplace;
 }
 
 ImageSequenceCaptureService::~ImageSequenceCaptureService() = default;
@@ -327,8 +331,24 @@ bool ImageSequenceCaptureService::offerFrame(const CameraFrame& frame, double no
     if (nonIncreasingDelivery)
         return failAndRelease(QStringLiteral("Camera delivery IDs must increase."),
                               QStringLiteral("delivery_error"), error);
-    if (!result.accepted)
+    if (!result.accepted) {
         qWarning().noquote() << "Image Sequence queue rejected handoff" << result.handoffId;
+        const auto dispatcherIntegrity = dispatcher_.integrity();
+        qint64 savedFrames = 0;
+        {
+            std::lock_guard lock(mutex_);
+            savedFrames = savedFrameCount_;
+            error_ =
+                QStringLiteral("Image Sequence save queue is degraded. Attempted so far: %1; "
+                               "saved so far: %2; rejected: %3. This recording will fail.")
+                    .arg(dispatcherIntegrity.handoffAccepted +
+                         dispatcherIntegrity.queueRejectedCount)
+                    .arg(savedFrames)
+                    .arg(dispatcherIntegrity.queueRejectedCount);
+            setError(error, error_);
+        }
+        return false;
+    }
     return true;
 }
 
@@ -423,7 +443,7 @@ void ImageSequenceCaptureService::consumeFrame(const QImage& image, const FrameM
         throw std::runtime_error("frame format mismatch");
     }
     QString writeError;
-    if (!writeTiffWithoutReplace(image, target, &writeError)) {
+    if (!frameWriter_(image, target, &writeError)) {
         {
             std::lock_guard lock(mutex_);
             error_ = writeError;
@@ -478,9 +498,15 @@ bool ImageSequenceCaptureService::stopWithReason(const QString& reason, QString*
 
     SequenceManifestData manifest;
     bool noFrames = false;
+    qint64 rejectedFrames = 0;
+    qint64 attemptedFrames = 0;
+    double activeElapsedSeconds = 0.0;
     {
         std::lock_guard lock(mutex_);
         noFrames = savedFrameCount_ == 0;
+        rejectedFrames = combinedIntegrity().queueRejections.count;
+        attemptedFrames = savedFrameCount_ + rejectedFrames;
+        activeElapsedSeconds = activeElapsedLocked(monotonicNow_());
         if (!noFrames) {
             manifest.sequenceId = sequenceId_;
             manifest.name = displayName_;
@@ -504,6 +530,23 @@ bool ImageSequenceCaptureService::stopWithReason(const QString& reason, QString*
     }
     if (noFrames)
         return failAndRelease(QStringLiteral("No frames were captured."), reason, error);
+    if (rejectedFrames > 0) {
+        QString message =
+            QStringLiteral("Image Sequence failed because the save queue rejected frame "
+                           "handoffs. Attempted: %1; saved: %2; rejected: %3.")
+                .arg(attemptedFrames)
+                .arg(attemptedFrames - rejectedFrames)
+                .arg(rejectedFrames);
+        if (activeElapsedSeconds > 0.0) {
+            message +=
+                QStringLiteral(" Rates: attempted %1 fps; saved %2 fps; rejected %3 fps.")
+                    .arg(attemptedFrames / activeElapsedSeconds, 0, 'f', 2)
+                    .arg((attemptedFrames - rejectedFrames) / activeElapsedSeconds,
+                         0, 'f', 2)
+                    .arg(rejectedFrames / activeElapsedSeconds, 0, 'f', 2);
+        }
+        return failAndRelease(message, QStringLiteral("queue_rejection"), error);
+    }
     QString manifestError;
     const QString manifestPath = QDir(folder_).filePath(QStringLiteral("sequence.json"));
     if (!SequenceManifestV2::save(manifestPath, manifest, &manifestError))

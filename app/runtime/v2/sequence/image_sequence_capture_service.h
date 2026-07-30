@@ -42,10 +42,12 @@ class ImageSequenceCaptureService final {
   public:
     using MonotonicNow = std::function<qint64()>;
     using FrameConverter = std::function<QImage(const CameraFrame&, QString*)>;
+    using FrameWriter = std::function<bool(const QImage&, const QString&, QString*)>;
 
     ImageSequenceCaptureService(CameraService& camera, OperationCoordinator& operations,
                                 MonotonicNow monotonicNow,
-                                FrameConverter frameConverter = {});
+                                FrameConverter frameConverter = {},
+                                FrameWriter frameWriter = {});
     ~ImageSequenceCaptureService();
 
     bool start(const ImageSequenceCaptureRequest& request, QString* error = nullptr);
@@ -70,6 +72,7 @@ class ImageSequenceCaptureService final {
     OperationCoordinator& operations_;
     MonotonicNow monotonicNow_;
     FrameConverter frameConverter_;
+    FrameWriter frameWriter_;
 
     mutable std::mutex mutex_;
     OperationLease lease_;

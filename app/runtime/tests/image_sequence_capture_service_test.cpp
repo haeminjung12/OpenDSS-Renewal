@@ -9,6 +9,7 @@
 #include <QDir>
 #include <QFile>
 #include <QImageReader>
+#include <QImageWriter>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -74,9 +75,8 @@ struct Fixture {
 
     Fixture() {
         camera = std::make_unique<CameraService>(std::make_unique<CameraDevice>(), store);
-        QString error;
-        camera->open(&error);
-        camera->start(&error);
+        camera->open();
+        camera->start();
     }
 };
 
@@ -208,6 +208,111 @@ bool sourceGapCompletion() {
                      manifest->data().integrity.sourceFrameGaps.ranges.front().last == 3,
                  "Gap manifest must record exact inclusive range 2-3.") &&
            check(logged, "Gap range must be written to diagnostics.");
+}
+
+bool queueOverflowFailsFactually() {
+    QTemporaryDir root;
+    Fixture fixture;
+    std::mutex writerMutex;
+    std::condition_variable writerGate;
+    bool writerEntered = false;
+    bool releaseWriter = false;
+    ImageSequenceCaptureService service(
+        *fixture.camera, fixture.operations, [&] { return fixture.now; }, {},
+        [&](const QImage& image, const QString& target, QString* error) {
+            {
+                std::unique_lock lock(writerMutex);
+                if (!writerEntered) {
+                    writerEntered = true;
+                    writerGate.notify_all();
+                    writerGate.wait(lock, [&] { return releaseWriter; });
+                }
+            }
+            QImageWriter writer(target, "tiff");
+            if (writer.write(image))
+                return true;
+            if (error)
+                *error = writer.errorString();
+            return false;
+        });
+    auto releaseBlockedWriter = [&] {
+        {
+            std::lock_guard lock(writerMutex);
+            releaseWriter = true;
+        }
+        writerGate.notify_all();
+    };
+
+    QString error;
+    if (!service.start(request(root.path()), &error) ||
+        !service.offerFrame(frame(1), 25.0, &error)) {
+        releaseBlockedWriter();
+        return check(false, "Overflow fixture must accept its first frame.");
+    }
+    {
+        std::unique_lock lock(writerMutex);
+        if (!writerGate.wait_for(lock, std::chrono::seconds(2),
+                                 [&] { return writerEntered; })) {
+            releaseWriter = true;
+            lock.unlock();
+            writerGate.notify_all();
+            return check(false, "Overflow fixture must reach the deterministic writer gate.");
+        }
+    }
+
+    qint64 rejectedOffers = 0;
+    QString degradedError;
+    const quint64 attempted =
+        static_cast<quint64>(LiveFrameDispatcher::capacity()) + 2;
+    for (quint64 delivery = 2; delivery <= attempted; ++delivery) {
+        if (!service.offerFrame(frame(delivery), 25.0, &error)) {
+            ++rejectedOffers;
+            degradedError = error;
+        }
+    }
+    const QString degradedSnapshotError = service.snapshot().error;
+    releaseBlockedWriter();
+
+    fixture.now = 2'000'000'000;
+    const bool stopped = service.stop(&error);
+    const auto state = service.snapshot();
+    const QJsonObject recovery =
+        readJsonObject(QDir(state.folder).filePath("sequence.partial.json"));
+    const QJsonObject rejections =
+        recovery.value("integrity").toObject().value("queue_rejections").toObject();
+    return check(rejectedOffers == 1 &&
+                     degradedError.contains("degraded", Qt::CaseInsensitive) &&
+                     degradedError.contains(QStringLiteral("Attempted so far: %1").arg(attempted)) &&
+                     degradedError.contains(QStringLiteral("rejected: 1")) &&
+                     degradedSnapshotError == degradedError,
+                 "The rejected offer must immediately report a factual degraded state.") &&
+           check(!stopped && state.lifecycle == OperationLifecycle::Failed,
+                 "A queue-rejected sequence must finish as Failed.") &&
+           check(state.savedFrameCount == static_cast<qint64>(attempted - 1) &&
+                     state.integrity.queueRejections.count == 1 &&
+                     state.integrity.consumerFailures.count == 0 &&
+                     state.integrity.sourceFrameGaps.count == 0,
+                 "Overflow failure must preserve separate factual integrity counts.") &&
+           check(error.contains(QStringLiteral("Attempted: %1").arg(attempted)) &&
+                     error.contains(QStringLiteral("saved: %1").arg(attempted - 1)) &&
+                     error.contains(QStringLiteral("rejected: 1")) &&
+                     error.contains(QStringLiteral("attempted %1 fps")
+                                        .arg(attempted / 2.0, 0, 'f', 2)) &&
+                     error.contains(QStringLiteral("saved %1 fps")
+                                        .arg((attempted - 1) / 2.0, 0, 'f', 2)) &&
+                     error.contains(QStringLiteral("rejected 0.50 fps")) &&
+                     state.error == error,
+                 "Overflow failure must report separate factual counts and rates.") &&
+           check(recovery.value("status") == "failed" &&
+                     recovery.value("stop_reason") == "queue_rejection" &&
+                     recovery.value("saved_frame_count").toInteger(-1) ==
+                         static_cast<qint64>(attempted - 1) &&
+                     rejections.value("count").toInteger(-1) == 1,
+                 "Overflow recovery metadata must remain factual.") &&
+           check(!QFileInfo::exists(QDir(state.folder).filePath("sequence.json")),
+                 "Overflow failure must not publish an ordinary completed manifest.") &&
+           check(fixture.operations.snapshot().lifecycle == OperationLifecycle::Idle,
+                 "Overflow failure must release its operation lock.");
 }
 
 bool pauseOfferRace() {
@@ -454,8 +559,9 @@ int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const auto previousHandler = qInstallMessageHandler(messageHandler);
     const bool ok = manualCompletion() && timedPauseCompletion() &&
-                    sourceGapCompletion() && pauseOfferRace() && zeroFrameFailure() &&
-                    startConflicts() && writeFailure() && queuedWriteFailureRange();
+                    sourceGapCompletion() && queueOverflowFailsFactually() &&
+                    pauseOfferRace() && zeroFrameFailure() && startConflicts() &&
+                    writeFailure() && queuedWriteFailureRange();
     qInstallMessageHandler(previousHandler);
     return ok ? 0 : 1;
 }

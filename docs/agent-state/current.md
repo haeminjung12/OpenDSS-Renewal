@@ -2,7 +2,7 @@
 
 State format: `1`
 
-- Policy revision: `ODSS-2026-07-30.1`
+- Policy revision: `ODSS-2026-07-30.2`
 - Mode: `debug`
 - User-facing Lead: `Debug Lead`
 - Checkpoint branch: `codex/debug-lead`
@@ -10,7 +10,7 @@ State format: `1`
 - Active ID: `DBG-INTAKE`
 - Status: `Ready for bug intake`
 - Dirty paths at checkpoint: `docs/agent-state/current.md`
-- Updated: `2026-07-30T15:50:00-05:00`
+- Updated: `2026-07-30T16:12:00-05:00`
 
 ## Accepted decisions
 
@@ -19,6 +19,8 @@ State format: `1`
 - Normally use no more than two internal workers and one validator concurrently.
 - Every accepted bug receives one stable `DBG-*` ID before production changes.
 - Fresh-agent handoff is preferred over repeated compaction; this file and verified Git evidence are authoritative.
+- Verification uses coherent integration batches, avoids unchanged reruns, and reserves full builds for the integrated batch unless a named early-build risk applies.
+- A fresh read-only Plan Guardian checks canonical plan fidelity at integration, closure, merge, and material-scope-change gates.
 
 ## Accepted evidence
 

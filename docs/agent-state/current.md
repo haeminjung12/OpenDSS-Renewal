@@ -3,44 +3,39 @@
 State format: `1`
 
 - Policy revision: `ODSS-2026-07-30.1`
-- Mode: `implementation`
-- User-facing Lead: `Implementation Lead`
-- Checkpoint branch: `codex/project-policy-reset`
-- Checkpoint commit: `cb101cb87c23e1718ea4e97316e052091e194bee`
-- Active ID: `P0-1`
-- Status: `Planned; implementation is not authorized`
-- Dirty paths at checkpoint: `AGENTS.md`; `docs/agent-state/current.md`; `docs/debug/bug-ledger.md`
-- Updated: `2026-07-30T15:26:00-05:00`
+- Mode: `debug`
+- User-facing Lead: `Debug Lead`
+- Checkpoint branch: `codex/debug-lead`
+- Checkpoint commit: `5ce3a838446adfefac8180d611069741fe54eff5`
+- Active ID: `DBG-INTAKE`
+- Status: `Ready for bug intake`
+- Dirty paths at checkpoint: `docs/agent-state/current.md`
+- Updated: `2026-07-30T15:50:00-05:00`
 
 ## Accepted decisions
 
-- P0-1 Detector Characterization and Neutral Contract is the next implementation slice.
-- Current desktop/default selection remains `FastEventDetector`.
-- Current CLI precise selection remains `EventDetector`.
-- No detector algorithm, threshold, routing, DAQ, persistence, camera ownership, or QML change is authorized.
-- Fresh-agent handoff is preferred over repeated compaction; this file is authoritative over a compacted transcript.
+- The Debug Lead is the sole user-facing agent for OpenDSS debugging.
+- Workers and validators report only to the Debug Lead and do not edit canonical state or the bug ledger.
+- Normally use no more than two internal workers and one validator concurrently.
+- Every accepted bug receives one stable `DBG-*` ID before production changes.
+- Fresh-agent handoff is preferred over repeated compaction; this file and verified Git evidence are authoritative.
 
 ## Accepted evidence
 
-- Product authority and reading order: `docs/v2/CONTEXT.md`.
-- Slice scope and acceptance: `docs/v2/implementation/current-slice.md`.
-- Reuse findings: `docs/v2/audits/OpenDSS_v2_Reusable_Core_Audit.md`, F-A01 and F-A02.
+- Debug authority and safety rules: `AGENTS.md`.
+- Canonical bug records: `docs/debug/bug-ledger.md`.
+- Product authority and protected assets: `docs/v2/CONTEXT.md` and the protected-asset section of `AGENTS.md`.
 
 ## Verification
 
-- Policy maintenance completed on `codex/project-policy-reset`; the checkpoint commit above records the pre-policy base.
-- All 26 approved orchestration, continuity, and debug rule IDs are present.
-- Both initializer skills pass schema validation.
-- Implementation resume passes; debug resume rejects implementation mode and passes a clean debug-mode fixture.
-- Portable policy-kit 0.2.0 passes isolated install, hook, drift, migration, update, and rollback tests.
-- A fresh Codex session loaded `G-2026-07-30.1`, `ODSS-2026-07-30.1`, `Implementation Lead`, `docs/agent-state/current.md`, and `O-HANDOFF-001`.
-- Production v2 implementation has not started.
+- Debug worktree was created from OpenDSS policy commit `5ce3a838446adfefac8180d611069741fe54eff5`.
+- Branch is `codex/debug-lead`.
+- No production files have been changed.
 
 ## Blockers
 
-- Explicit user authorization is required before P0-1 implementation.
-- Representative real-sequence replay and hardware qualification evidence remain unavailable for detector retirement.
+- The user’s bug descriptions and reproduction details have not yet been entered into the bug ledger.
 
 ## Exact next action
 
-Wait for explicit implementation authorization. Once authorized, characterize both current detectors with deterministic tests and introduce only the smallest neutral boundary required by current consumers.
+Receive the bug list, assign stable IDs, triage by impact and independence, reproduce the highest-priority bug, and spawn up to two internal workers only for independent investigations.

@@ -1,280 +1,99 @@
-# Repository Agent Policy
+# OpenDSS Repository Agent Policy
 
-Use this file as the repo-level `AGENTS.md` template for projects that should follow the token-saving and memory strategy.
+Ruleset revision: `ODSS-2026-07-30.1`
 
-## Priorities
+This file contains OpenDSS-specific authority, orchestration, continuity, engineering, and safety rules. Global policy remains authoritative for universal rules, filesystem investigation, work reports, and shared-rule change control.
 
-1. Save tokens by using indexed, compressed, and targeted context.
-2. Preserve useful project memory across sessions.
-3. Keep raw file reads and broad shell output as fallback paths.
+## User-facing leadership
 
-## Repo Workflow Order
+- **O-FRONT-001** — One Lead is the sole user-facing agent for an active task. The Implementation Lead owns planned product work. The Debug Lead owns defect investigation in a designated debug task or worktree. Workers and validators report only to the active Lead.
+- **O-OWN-001** — The Lead owns scope, accepted decisions, the canonical ledger, integration, user updates, and the final result. Each artifact or task ID has exactly one accountable owner.
+- **O-LIMIT-001** — Normally use no more than two workers and one validator at once. Exceed this only when the independent work and coordination benefit are explicit.
+- **O-WORK-001** — Give every worker one bounded task ID, allowed paths, required authority inputs, acceptance evidence, and return format.
+- **O-OVERLAP-001** — Do not assign overlapping write ownership. Serialize unavoidable overlap under one owner.
+- **O-SPAWN-001** — Spawn only for independent work that materially improves speed, evidence quality, or isolation. Keep small or tightly coupled work with the Lead.
+- **O-REPORT-001** — Workers return changed IDs, files, evidence, blockers, and the next recommendation. They do not send parallel user-facing narratives or raw transcripts.
+- **O-VALID-001** — Use one scoped independent validation pass when risk warrants it. Validate the user-observable outcome and protected behavior; do not create review-of-review loops.
+- **O-RULES-001** — At task start, load the current global and OpenDSS revisions. If either changes during work, explicitly reread the changed authority files before continuing; start a fresh agent when safe adoption is uncertain.
 
-For repo work, follow this order:
+## Durable continuity
 
-1. Read durable context first: `graphify-out/GRAPH_REPORT.md` and `graphify-out/wiki/index.md` when present.
-2. Check semantic indexes next: run `grepai status` when `.grepai/` exists, then use `grepai search "<concept>" --json --compact` before broad grep/find when locations are unclear.
-3. Use RTK-native commands for repo shell work: `rtk read`, `rtk grep`, `rtk find`, `rtk tree`, `rtk diff`, `rtk test`, and `rtk git ...`.
-4. Use RTK-native commands for repo shell work. If there is no RTK-native equivalent, use plain PowerShell directly.
+- **O-STATE-001** — The active Lead owns `docs/agent-state/current.md` as the single canonical durable state file. It contains accepted facts and evidence links, not raw transcripts or private reasoning.
+- **O-CHECKPOINT-001** — Before a planned handoff or context boundary, record policy revision, mode, active IDs, branch, checkpoint commit, dirty paths, accepted decisions, tests, blockers, and the exact next action.
+- **O-RESUME-001** — A replacement Lead or worker must run the applicable OpenDSS initializer, load current rules and durable state, and verify branch, commit, dirty files, and referenced evidence before acting.
+- **O-HANDOFF-001** — Prefer a fresh-agent handoff over repeated compaction when context becomes materially crowded. Checkpoint before the handoff.
+- **O-WORKER-STATE-001** — Workers never independently rewrite `docs/agent-state/current.md` or the canonical bug ledger. The Lead accepts or rejects reports and performs state updates.
+- **O-COMPACT-001** — Compaction output is non-authoritative. After any compaction, reread and verify durable state before continuing.
 
-Do not use `rtk powershell`; use RTK-native commands for repo work and plain PowerShell directly when no RTK-native equivalent exists.
+## OpenDSS v2 authority
 
-RTK requirements apply only to repo-scoped work. For operations on paths outside the repository root, use plain PowerShell or another appropriate non-RTK tool unless the task is specifically about testing RTK.
-
-## Navigation Policy
-
-- Check existing project context first: `graphify-out/GRAPH_REPORT.md`, `graphify-out/wiki/index.md`, `.grepai/`, and any repo docs.
-- Use graph/index/search before reading files broadly.
-- Read raw files only after narrowing to a symbol, module, or at most 3 likely files.
-- Prefer snippets, call traces, graph paths, and compact JSON over whole-file dumps.
-- Prefer RTK-native commands such as `rtk read`, `rtk grep`, `rtk ls`, `rtk tree`, `rtk find`, `rtk diff`, `rtk test`, and compact tool-specific wrappers.
-- Before using RTK, check whether the primary target path is inside the repository root.
-- Do not use `rtk powershell`.
-- For repo-scoped work without an RTK-native equivalent, use plain PowerShell directly.
-- Do not use `rtk` or `rtk powershell` for ad hoc inspection of external data directories, removable drives, network shares, or user folders outside the repo root unless the user explicitly asks to use or validate RTK.
-
-## Repo Initialization
-
-- When setting up this policy in a repo, initialize local token-saving indexes unless the repo is too large, unsupported, or the user asks not to:
-
-```powershell
-grepai init --provider ollama --backend gob --model nomic-embed-text --yes
-grepai watch --background
-graphify extract .
-```
-
-- If initialization is skipped, note why and leave the repo-local `AGENTS.md` in place.
-
-## Graphify
-
-- If no graph exists during repo initialization, or if the task requires architecture, cross-document context, onboarding, or broad repo understanding, run:
-
-```powershell
-graphify extract .
-```
-
-- If `graphify-out/GRAPH_REPORT.md` exists, read it before architecture or codebase questions.
-- For relationship questions, prefer:
-
-```powershell
-graphify query "<question>"
-graphify path "<A>" "<B>"
-graphify explain "<concept>"
-```
-
-- After meaningful code changes, refresh the graph:
-
-```powershell
-graphify update .
-```
-
-## grepai
-
-- On repo start, check whether `.grepai/` exists.
-- If `.grepai/` exists, run:
-
-```powershell
-grepai status
-```
-
-- If the watcher is not running, run:
-
-```powershell
-grepai watch --background
-```
-
-- This default workflow uses local Ollama embeddings and does not require an embedding API key.
-- If `.grepai/` is absent during repo initialization, or if semantic search will materially reduce exploration during ordinary work, initialize once:
-
-```powershell
-grepai init --provider ollama --backend gob --model nomic-embed-text --yes
-grepai watch --background
-```
-
-- Prefer local Ollama embeddings with `nomic-embed-text` to avoid cloud API keys and code upload.
-- If using a cloud provider instead, the relevant embedding API key must be set before indexing/search will work.
-
-- For conceptual search:
-
-```powershell
-grepai search "<concept>" --json --compact
-```
-
-- For call relationships:
-
-```powershell
-grepai trace callers "<symbol>" --json --compact
-grepai trace callees "<symbol>" --json --compact
-```
-
-## Shell Output
-
-- Use RTK for shell workflows that inspect repo files, git state, search results, tests, build output, package-manager output, logs, or generated evidence. This is mandatory, not optional.
-
-```powershell
-rtk git status
-rtk git diff
-rtk rg "<pattern>"
-rtk pytest -q
-rtk npm test
-```
-
-- Prefer RTK-native commands for repo inspection and developer workflows:
-
-```powershell
-rtk read path\file.md
-rtk grep "pattern" path
-rtk ls path
-rtk tree path
-rtk find path -name "*.md"
-rtk diff
-rtk test
-```
-
-- Use `rtk init -g` when the global RTK hook is missing or needs to be refreshed. This is a user/environment setup step, not a per-repo routine.
-- Do not use `rtk powershell`.
-- If exact repo work requires a PowerShell cmdlet and no RTK-native command exists, run plain PowerShell directly instead.
-- If exact file text is needed, first narrow with graphify, grepai, `rtk grep`, `rtk find`, a heading/symbol query, or another compact search/trace. Then read the smallest useful snippet with `rtk read` or another compact RTK-native command.
-- Do not use raw `Get-Content`, `Get-ChildItem`, `Select-String`, `git`, `rg`, build, test, or package-manager commands for repo work unless testing RTK itself, working around an RTK-specific failure, using a non-shell MCP/tool, or editing with `apply_patch`.
-- If the primary target path is outside the repository root, do not route the command through RTK unless the task is specifically about testing RTK behavior.
-- Check savings when relevant:
-
-```powershell
-rtk gain
-```
-
-Examples:
-
-```powershell
-# Repo path
-rtk read src\main.cpp
-rtk grep "pattern" src
-powershell -NoProfile -Command "Test-Path .\build\app.log"
-
-# Non-repo path
-Test-Path "D:\dataset\run1"
-Get-ChildItem -LiteralPath "D:\dataset\run1" -File
-Get-ChildItem "\\server\share\images" -Filter *.tif
-```
-
-## Headroom
-
-- Use Headroom MCP tools for large logs, long pasted context, large JSON, reports, generated artifacts, or repeated retrieval.
-- Prefer compress-cache-retrieve behavior over keeping large raw output in context.
-- For local proxy sessions, verify:
-
-```powershell
-Invoke-RestMethod http://127.0.0.1:8787/stats
-```
-
-## Token Usage
-
-- Use `tokscale` for token/context usage analytics:
-
-```powershell
-tokscale --client codex --today
-tokscale monthly --client codex
-tokscale tui --client codex
-```
-
-## Freshness
-
-- After edits, refresh relevant indexes before continuing broad navigation.
-- Keep this file short. Put detailed project knowledge in graph reports, grepai indexes, or dedicated docs rather than expanding this policy.
-
-## OpenDSS Process Handling
-
-- When a process blocks the selected OpenDSS build output, identify its PID, executable path, and command line. If those details show that it belongs to the exact intended build root, terminate it and continue the build even when the PID was not previously recorded.
-- This applies to stale OpenDSS executables and build tools such as CMake, MSBuild, Ninja, `cl.exe`, and linker processes whose command line targets the selected OpenDSS build output.
-- Never terminate an OpenDSS instance while training or testing is active. Never terminate unrelated user applications, camera/vendor tools, DAQ utilities, or build processes targeting another workspace.
-- After terminating a blocking process, report its PID/path or command line and retry the original build. Do not create a one-off build output merely to avoid a verified lock.
-
-## OpenDSS v2 source authority
-
-Apply the following authority order repository-wide:
-
-1. `docs/v2/source/OpenDSS_v2_Approved_Product_Model.md` controls approved product decisions D-001 through D-019, product structure, scope, terminology, configuration boundaries, and product-state ownership constraints.
-2. `docs/v2/source/OpenDSS_v2_Information_Architecture_and_Screen_Inventory.md` and `docs/v2/source/OpenDSS_v2_Low_Fidelity_Interaction_and_Application_State_Specification.md` control the current shell, navigation, workspaces, interactions, application states, resource ownership, locks, and contextual recovery.
-3. `docs/v2/source/OpenDSS_Detailed_Workflow_Specification.md` supplies detailed scientific, artifact, persistence, recovery, and acceptance requirements that do not conflict with higher-authority documents.
-4. `docs/v2/OpenDSS_v2_Consolidated_Product_Design_Specification.md` is the current consolidated visual/component design baseline under review and does not override the approved product model or interaction baselines.
-5. `docs/v2/source/OpenDSS_Product_Design_Specification_Draft_v0.1.md` is historical, non-normative design evidence only.
-6. Existing repository code is implementation evidence and a source of reusable technical components; it is not authority for v2 UX, product structure, terminology, product policy, or exposed configuration.
-
-D-001 through D-019 belong only to the Approved Product Model. Repository code must not be used to reintroduce superseded navigation, terminology, product states, scientific policy, or editable settings. Existing v1 behavior is not automatically a v2 requirement. The consolidated design specification remains **Consolidated Draft for Review** and must not be silently marked Approved.
+- **O-AUTH-001** — Apply the authority order in `docs/v2/CONTEXT.md`. In brief: Approved Product Model; Information Architecture plus Low-Fidelity Interaction/Application-State specification; nonconflicting Detailed Workflow; Consolidated Draft for Review; historical draft; code as implementation evidence only.
+- D-001 through D-019 belong only to the Approved Product Model. Existing v1 behavior cannot reintroduce superseded navigation, terminology, product states, scientific policy, or editable settings.
+- Derived engineering documents cannot override canonical specifications. Report conflicts instead of silently resolving them.
 
 ## Protected reusable technical assets
 
-The following technical areas are presumed reusable and must not be rewritten, replaced, deleted, or behaviorally changed without documented justification and regression evidence:
+- **O-PROTECT-001** — Preserve qualified DCAM, NI-DAQmx, camera acquisition, DAQ output, detector, ONNX Runtime, preprocessing/inference, Python training, model export, and proven background/atomic persistence mechanics unless the active slice explicitly authorizes behavioral change.
+- Representative protected paths include:
+  - `app/runtime/dcam_camera.*`
+  - `app/runtime/daq_trigger.*`
+  - `app/runtime/event_detector.*`
+  - `app/runtime/fast_event_detector.*`
+  - `app/runtime/onnx_classifier.*`
+  - `app/runtime/metadata_loader.*`
+  - `training/python/droplet_trainer/**`
+  - `app/runtime/desktop_app/json_persistence.*`
+  - `app/runtime/desktop_app/live_data_collection_writer.*`
+  - `app/runtime/desktop_app/live_log_writer.*`
+  - `app/runtime/desktop_app/sequence_summary_writer.*`
+- Before consolidating, deleting, replacing, or materially changing a protected module, record its consumers and build targets, characterization/regression tests, representative fixtures, before/after behavior, timing evidence where relevant, hardware-in-the-loop evidence where hardware is affected, justification, and rollback strategy.
 
-- Hamamatsu/DCAM integration;
-- National Instruments/NI-DAQmx integration;
-- camera acquisition mechanics;
-- DAQ output mechanics;
-- qualified droplet-detection behavior;
-- ONNX Runtime integration;
-- model preprocessing and inference mechanics;
-- Python training implementation;
-- model export mechanics;
-- proven background file-writing and atomic-persistence mechanics.
+## Engineering boundaries
 
-Representative protected paths include, but are not limited to:
+- QML and UI code must not call vendor SDKs or the trainer directly.
+- Separate old product policy from reusable mechanics. Do not restore user-facing detector, crop, routing, internal timing, or training-hyperparameter controls from old code.
+- Keep one authoritative owner for each domain state; duplicated widget-local state cannot become v2 architecture.
+- Make the smallest coherent change that satisfies the active slice. Every new production class, function, field, flag, and abstraction needs an immediate production consumer or required characterization test.
+- Do not add speculative factories, registries, plugin systems, strategy selectors, service locators, compatibility layers, placeholder APIs, TODO scaffolding, or unrelated cleanup.
+- A temporary parallel implementation requires a documented reason, removal condition, and tests protecting retained behavior.
+- Comments explain non-obvious constraints or rationale; they do not narrate straightforward code.
 
-- `app/runtime/dcam_camera.*`
-- `app/runtime/daq_trigger.*`
-- `app/runtime/event_detector.*`
-- `app/runtime/fast_event_detector.*`
-- `app/runtime/onnx_classifier.*`
-- `app/runtime/metadata_loader.*`
-- `training/python/droplet_trainer/**`
-- `app/runtime/desktop_app/json_persistence.*`
-- `app/runtime/desktop_app/live_data_collection_writer.*`
-- `app/runtime/desktop_app/live_log_writer.*`
-- `app/runtime/desktop_app/sequence_summary_writer.*`
-
-Protected does not mean exempt from review. It means no replacement or behavioral modification without evidence.
-
-## Change-control rule for protected assets
-
-Before consolidating, deleting, replacing, or materially changing a protected module, a future implementation task must provide:
-
-1. current consumers and build targets;
-2. characterization or regression tests;
-3. representative fixtures;
-4. behavior comparison before and after;
-5. performance comparison where timing matters;
-6. hardware-in-the-loop evidence where hardware behavior is affected;
-7. documented justification;
-8. rollback strategy.
-
-## Application-layer boundary
-
-- QML or UI code must not call vendor SDKs or the trainer directly.
-- Old product policy must be separated from reusable technical mechanics.
-- User-facing detector, crop, routing, internal timing, and training hyperparameter controls must not be restored from old code.
-- One authoritative owner must exist for each domain state.
-- Duplicated widget-local state must not become the v2 architecture.
-
-## Required v2 task context
-
-For v2 implementation work:
+## Implementation mode
 
 1. Read `AGENTS.md`.
-2. Read `docs/v2/CONTEXT.md`.
-3. Read `docs/v2/implementation/current-slice.md`.
-4. Read only the canonical sections referenced by the current slice.
-5. Report a conflict instead of silently resolving it.
-6. Work on one approved slice at a time.
+2. Run `$opendss-agent-rules-init` to verify repository and checkpoint state.
+3. Read `docs/v2/CONTEXT.md`.
+4. Read `docs/agent-state/current.md`.
+5. Read `docs/v2/implementation/current-slice.md`.
+6. Read only canonical sections referenced by the active slice.
+7. Work on one explicitly authorized slice at a time.
 
-## Lean implementation rules
+`docs/v2/implementation/current-slice.md` is currently P0-1 and remains planned until the user explicitly authorizes implementation.
 
-- Make the smallest coherent change that satisfies the current slice. Prefer direct, conventional code over generalized frameworks, and do not add code for hypothetical future requirements.
-- Every new production class, function, field, flag, and abstraction must have an immediate production consumer or a required characterization test.
-- Do not add unused hooks, placeholder APIs, commented-out implementations, speculative configuration, or TODO scaffolding.
-- Do not add a factory, registry, plugin system, strategy selector, service locator, or dependency-injection framework unless the current slice demonstrates the need.
-- A hardware or test boundary may justify a narrow interface limited to behavior currently required by real consumers.
-- Do not maintain duplicate authoritative state or retain an obsolete path merely “in case.”
-- A temporary parallel implementation requires a documented reason, a concrete removal condition, and tests protecting the retained behavior.
-- Remove code made unreachable by the current slice when removal is safe, tested, and in scope. When immediate removal is unsafe, identify the exact missing evidence instead of creating permanent compatibility machinery.
-- Preserve qualified DCAM, NI-DAQmx, detector, ONNX, trainer, export, and persistence mechanics unless the current slice explicitly authorizes a behavior change.
-- Do not perform broad cleanup or unrelated refactoring in a feature PR. New code must not introduce avoidable warnings.
-- Comments explain non-obvious constraints or rationale; they do not narrate straightforward code.
+## Debug mode
+
+- **DBG-ID-001** — Assign one stable bug ID to every investigation and fix.
+- **DBG-REPRO-001** — Capture the smallest reliable reproduction and expected versus observed behavior before changing production code.
+- **DBG-EVID-001** — Separate observations, hypotheses, and conclusions. Attach commands, logs, tests, or artifacts to accepted findings.
+- **DBG-SCOPE-001** — Change only what the accepted root cause requires. Keep cleanup and unrelated refactoring out of the fix.
+- **DBG-REGRESS-001** — Add the narrowest useful regression test or explain the exact reason it is not feasible.
+- **DBG-PROTECT-001** — Do not bypass protected-asset evidence gates during debugging.
+- **DBG-VERIFY-001** — Verify the reproduction no longer fails and relevant existing behavior still passes.
+- **DBG-CLOSE-001** — Close a bug only with root cause, changed files, verification evidence, remaining risk, and rollback notes.
+- **DBG-LEDGER-001** — The Debug Lead owns `docs/debug/bug-ledger.md` and accepts worker findings into it.
+- **DBG-USER-001** — Only the Debug Lead communicates bug status, decisions, and completion to the user.
+
+For a debug task, run `$opendss-debug-init`, confirm `Mode: debug` in `docs/agent-state/current.md`, and use one active bug ID.
+
+## Process safety
+
+- When a process blocks the selected OpenDSS build output, identify its PID, executable path, and command line. Terminate it only when those details prove it belongs to that exact build root.
+- Never terminate OpenDSS while training or testing is active. Never terminate unrelated user applications, camera/vendor tools, DAQ utilities, or builds targeting another workspace.
+- After terminating a verified blocker, report its PID and path or command line, then retry the original build.
+- DAQ output may be intentionally fired only when the active task requires hardware verification. Record trigger source, channel, waveform/settings, count, and observed or logged result.
+
+## Inspection and verification
+
+- Follow `G-INSPECT-001` and `C:\Users\goals\.codex\RTK.md`; do not duplicate its changing command policy here.
+- Prefer deterministic unit, integration, replay, build, and hardware evidence in proportion to risk.
+- Refresh semantic or graph indexes only when their task value justifies it.

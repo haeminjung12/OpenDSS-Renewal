@@ -10,7 +10,7 @@ State format: `1`
 - Active ID: `DBG-INTAKE`
 - Status: `Ready for bug intake`
 - Dirty paths at checkpoint: `docs/agent-state/current.md`
-- Updated: `2026-07-30T16:12:00-05:00`
+- Updated: `2026-07-30T16:23:00-05:00`
 
 ## Accepted decisions
 
@@ -33,6 +33,7 @@ State format: `1`
 - Debug worktree was created from OpenDSS policy commit `5ce3a838446adfefac8180d611069741fe54eff5`.
 - Branch is `codex/debug-lead`.
 - No production files have been changed.
+- A fresh Codex session loaded `G-2026-07-30.2`, `ODSS-2026-07-30.2`, `Debug Lead`, `DBG-INTAKE`, `G-VERIFY-001`, `O-WORKER-BUILD-001`, `O-GATE-001`, and `$opendss-plan-guardian`; `$opendss-debug-init` reported ready.
 
 ## Blockers
 

@@ -10,7 +10,7 @@ State format: `1`
 - Active ID: `P0-1`
 - Status: `Planned; implementation is not authorized`
 - Dirty paths at checkpoint: `AGENTS.md`; `docs/agent-state/current.md`; `docs/debug/bug-ledger.md`
-- Updated: `2026-07-30T16:12:00-05:00`
+- Updated: `2026-07-30T16:23:00-05:00`
 
 ## Accepted decisions
 
@@ -34,8 +34,8 @@ State format: `1`
 - All approved orchestration, continuity, verification-scheduling, plan-fidelity, and debug rule IDs are present.
 - Both initializer skills pass schema validation.
 - Implementation resume passes; debug resume rejects implementation mode and passes a clean debug-mode fixture.
-- Portable policy-kit 0.2.0 passes isolated install, hook, drift, migration, update, and rollback tests.
-- A fresh Codex session loaded `G-2026-07-30.1`, `ODSS-2026-07-30.1`, `Implementation Lead`, `docs/agent-state/current.md`, and `O-HANDOFF-001`.
+- Portable policy-kit `0.3.1` passes clean-checkout isolated install, hook, drift, migration, update, rollback, and GitHub validation.
+- A fresh Codex session loaded `G-2026-07-30.2`, `ODSS-2026-07-30.2`, `Implementation Lead`, `G-VERIFY-001`, `O-BATCH-001`, `O-RERUN-001`, `O-GATE-001`, and `$opendss-plan-guardian`.
 - Production v2 implementation has not started.
 
 ## Blockers

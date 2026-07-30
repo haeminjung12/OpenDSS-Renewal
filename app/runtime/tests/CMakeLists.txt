@@ -787,6 +787,62 @@ add_test(
 )
 set_tests_properties(camera_service_contract_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(opendss_camera_pipeline_characterization_test
+  camera_pipeline_characterization_test.cpp
+  ../detection/droplet_detector_adapters.cpp
+  ../event_detector.cpp
+  ../fast_event_detector.cpp
+  ../v2/camera/camera_controller.cpp
+  ../v2/camera/camera_preview_image_provider.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/camera/frame_conversion.cpp
+  ../v2/state/application_state_store.cpp
+)
+target_include_directories(opendss_camera_pipeline_characterization_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(opendss_camera_pipeline_characterization_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  Qt6::Quick
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME opendss_camera_pipeline_characterization_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\\;$<TARGET_FILE_DIR:Qt6::Gui>\\;$ENV{PATH}"
+    $<TARGET_FILE:opendss_camera_pipeline_characterization_test>
+)
+set_tests_properties(opendss_camera_pipeline_characterization_test PROPERTIES
+  TIMEOUT 45
+)
+
+qt_add_executable(opendss_real_dcam_pipeline_headless
+  real_dcam_pipeline_headless.cpp
+  ../dcam_camera.cpp
+  ../detection/droplet_detector_adapters.cpp
+  ../event_detector.cpp
+  ../fast_event_detector.cpp
+  ../v2/camera/dcam_camera_device.cpp
+)
+set_target_properties(opendss_real_dcam_pipeline_headless PROPERTIES
+  WIN32_EXECUTABLE FALSE
+)
+target_include_directories(opendss_real_dcam_pipeline_headless PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${DCAM_SDK_DIR}/inc
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_directories(opendss_real_dcam_pipeline_headless PRIVATE
+  ${DCAM_SDK_DIR}/lib/win64
+)
+target_link_libraries(opendss_real_dcam_pipeline_headless PRIVATE
+  Qt6::Core
+  dcamapi
+  ${OpenCV_LIBS}
+)
+
 qt_add_executable(camera_controller_test
   camera_controller_test.cpp
   ../v2/camera/camera_controller.cpp

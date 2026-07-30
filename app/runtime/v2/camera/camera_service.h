@@ -43,7 +43,7 @@ signals:
 private:
     bool openDevice(QString *error);
     bool closeDevice(QString *error);
-    void pollFrame();
+    void drainFrames();
     void publish(CameraStatus status, const QString &fault = {});
 
     std::unique_ptr<ICameraDevice> device_;
@@ -56,3 +56,4 @@ private:
 };
 
 } // namespace desktop_app::v2
+

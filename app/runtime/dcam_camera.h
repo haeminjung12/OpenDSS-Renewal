@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <opencv2/core.hpp>
 #include "dcamapi4.h"
 #include "dcamprop.h"
@@ -61,8 +62,7 @@ class DcamCamera {
     void cleanup();
 
     bool isOpened() const;
-    bool waitForFrame(int timeoutMs);
-    bool getLatestFrame(FrameData& out);
+    bool getUnreadFrames(std::vector<FrameData>& out, std::string& error);
 
   private:
     std::string errText(const char* label, DCAMERR err) const;
@@ -71,5 +71,6 @@ class DcamCamera {
     HDCAMWAIT hwait_;
     bool opened_;
     int bufferCount_;
-    int64_t frameCounter_;
+    int64_t deliveredFrameCount_;
 };
+

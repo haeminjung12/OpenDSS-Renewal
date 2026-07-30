@@ -12,7 +12,6 @@ namespace fake_dcam {
 void reset();
 void setInitResult(DCAMERR result);
 void setStartResult(DCAMERR result);
-void setWaitResult(bool ready);
 void queueAllocationResult(DCAMERR result);
 void queueReleaseResult(DCAMERR result);
 void setProperty(int32 property, double value);
@@ -23,7 +22,7 @@ void clearAttributeResult(int32 property);
 void queueSetResult(int32 property, DCAMERR result);
 void queueGetValue(int32 property, double value);
 void queueGetResult(int32 property, DCAMERR result);
-void setFrame(FrameData frame);
+void setFrames(std::vector<FrameData> frames, int frameCount, int newestFrameIndex);
 int openedIndex();
 int allocations();
 int releases();
@@ -45,15 +44,15 @@ bool check(bool condition, const char *message)
     return condition;
 }
 
-FrameData validFrame()
+FrameData validFrame(int delivery, uchar pixel)
 {
     FrameData frame;
     frame.image = cv::Mat(1, 2, CV_8UC1);
-    frame.image.at<uchar>(0, 0) = 0x11;
-    frame.image.at<uchar>(0, 1) = 0x22;
+    frame.image.at<uchar>(0, 0) = pixel;
+    frame.image.at<uchar>(0, 1) = static_cast<uchar>(pixel + 1);
     frame.meta.bits = 8;
-    frame.meta.frameIndex = 3;
-    frame.meta.delivered = 4;
+    frame.meta.frameIndex = delivery - 1;
+    frame.meta.delivered = delivery;
     return frame;
 }
 
@@ -205,23 +204,103 @@ int main(int argc, char **argv)
 
     ok &= check(device.start(&error) && fake_dcam::starts() == 1,
                 "Start must delegate through protected DcamCamera.");
-    CameraFrame output;
-    fake_dcam::setWaitResult(false);
-    ok &= check(device.latestFrame(output, &error) == CameraFrameResult::NoFrame
+    std::vector<CameraFrame> output;
+    ok &= check(device.drainFrames(output, &error) == CameraFrameResult::NoFrame
+                    && output.empty()
                     && error.isEmpty(),
-                "A wait without a new frame must remain NoFrame.");
+                "An empty transfer ring must remain NoFrame.");
 
-    FrameData source = validFrame();
+    std::vector<FrameData> source;
+    for (int delivery = 1; delivery <= 4; ++delivery)
+        source.push_back(validFrame(delivery, static_cast<uchar>(delivery * 0x10)));
     fake_dcam::setProperty(DCAM_IDPROP_BITSPERCHANNEL, 8.0);
-    fake_dcam::setFrame(source);
-    ok &= check(device.latestFrame(output, &error) == CameraFrameResult::Frame
-                    && output.pixelFormat == CameraPixelFormat::Mono8
-                    && output.deliveryId == 4
-                    && output.bytes == QByteArray::fromHex("1122"),
-                "Protected frame acquisition must map into an owned CameraFrame.");
-    source.image.at<uchar>(0, 0) = 0x7f;
-    ok &= check(output.bytes == QByteArray::fromHex("1122"),
-                "Adapter output must not alias fixture frame memory.");
+    fake_dcam::setFrames(source, 4, 3);
+    ok &= check(device.drainFrames(output, &error) == CameraFrameResult::Frame
+                    && output.size() == 4
+                    && output[0].pixelFormat == CameraPixelFormat::Mono8
+                    && output[0].deliveryId == 1
+                    && output[1].deliveryId == 2
+                    && output[2].deliveryId == 3
+                    && output[3].deliveryId == 4
+                    && output[0].bytes == QByteArray::fromHex("1011")
+                    && output[3].bytes == QByteArray::fromHex("4041")
+                    && output[0].monotonicTimestampNs > 0
+                    && output[1].monotonicTimestampNs
+                        - output[0].monotonicTimestampNs == 10'000'000
+                    && output[2].monotonicTimestampNs
+                        - output[1].monotonicTimestampNs == 10'000'000
+                    && output[3].monotonicTimestampNs
+                        - output[2].monotonicTimestampNs == 10'000'000,
+                "One drain must map every burst frame in source order with "
+                "qualified 100 fps acquisition spacing.");
+    const qint64 firstBatchLastTimestamp = output.back().monotonicTimestampNs;
+    source[0].image.at<uchar>(0, 0) = 0x7f;
+    ok &= check(output[0].bytes == QByteArray::fromHex("1011"),
+                "Batch adapter output must not alias ring-buffer memory.");
+
+    source.clear();
+    for (int delivery = 5; delivery <= 20; ++delivery)
+        source.push_back(validFrame(delivery, static_cast<uchar>(delivery)));
+    fake_dcam::setFrames(source, 20, 3);
+    output.clear();
+    ok &= check(device.drainFrames(output, &error) == CameraFrameResult::Frame
+                    && output.size() == 16
+                    && output.front().deliveryId == 5
+                    && output.back().deliveryId == 20
+                    && output.front().monotonicTimestampNs
+                        - firstBatchLastTimestamp == 10'000'000,
+                "A full-capacity ring wrap must drain each unread slot exactly once.");
+    bool wrappedPixelsMatch = output.size() == 16;
+    bool wrappedTimestampsMatch = output.size() == 16;
+    for (int index = 0; index < static_cast<int>(output.size()); ++index) {
+        wrappedPixelsMatch = wrappedPixelsMatch
+            &&
+            static_cast<uchar>(output[index].bytes.at(0))
+            == static_cast<uchar>(index + 5);
+        if (index > 0) {
+            wrappedTimestampsMatch = wrappedTimestampsMatch
+                &&
+                output[index].monotonicTimestampNs
+                    - output[index - 1].monotonicTimestampNs == 10'000'000;
+        }
+    }
+    ok &= check(wrappedPixelsMatch,
+                "Ring-wrap output pixels must remain paired with contiguous delivery IDs.");
+    ok &= check(wrappedTimestampsMatch,
+                "Ring-wrap timestamps must retain qualified per-frame spacing.");
+
+    ok &= check(device.stop(&error) && device.start(&error),
+                "Single-frame timestamp setup must restart acquisition cleanly.");
+    source = {validFrame(1, 0x51)};
+    fake_dcam::setFrames(source, 1, 0);
+    output.clear();
+    ok &= check(device.drainFrames(output, &error) == CameraFrameResult::Frame
+                    && output.size() == 1
+                    && output.front().deliveryId == 1
+                    && output.front().monotonicTimestampNs > 0,
+                "One unread frame must retain a valid monotonic timestamp.");
+    const qint64 firstSingleTimestamp = output.front().monotonicTimestampNs;
+    source = {validFrame(2, 0x52)};
+    fake_dcam::setFrames(source, 2, 1);
+    output.clear();
+    ok &= check(device.drainFrames(output, &error) == CameraFrameResult::Frame
+                    && output.size() == 1
+                    && output.front().deliveryId == 2
+                    && output.front().monotonicTimestampNs
+                        - firstSingleTimestamp == 10'000'000,
+                "Adjacent single-frame drains must preserve qualified spacing.");
+
+    ok &= check(device.stop(&error) && device.start(&error),
+                "Overrun setup must restart acquisition cleanly.");
+    source.clear();
+    for (int delivery = 2; delivery <= 17; ++delivery)
+        source.push_back(validFrame(delivery, static_cast<uchar>(delivery)));
+    fake_dcam::setFrames(source, 17, 0);
+    output.clear();
+    ok &= check(device.drainFrames(output, &error) == CameraFrameResult::Error
+                    && output.empty()
+                    && error.contains(QStringLiteral("ring buffer overrun")),
+                "Unread data beyond ring capacity must fault instead of skipping frames.");
 
     ok &= check(device.stop(&error), "Stop must delegate through protected DcamCamera.");
     const int closesBefore = fake_dcam::closes();
@@ -249,3 +328,4 @@ int main(int argc, char **argv)
 
     return ok ? 0 : 1;
 }
+

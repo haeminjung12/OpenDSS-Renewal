@@ -36,9 +36,9 @@ CameraService::CameraService(std::unique_ptr<ICameraDevice> device,
 {
     qRegisterMetaType<CameraFrame>();
     qRegisterMetaType<CameraAppliedSettings>();
-    pollTimer_->setInterval(16);
+    pollTimer_->setInterval(0);
     pollTimer_->setTimerType(Qt::PreciseTimer);
-    connect(pollTimer_, &QTimer::timeout, this, &CameraService::pollFrame);
+    connect(pollTimer_, &QTimer::timeout, this, &CameraService::drainFrames);
     publish(CameraStatus::Unavailable);
 }
 
@@ -298,11 +298,11 @@ void CameraService::recover()
     emit commandFinished(succeeded, error);
 }
 
-void CameraService::pollFrame()
+void CameraService::drainFrames()
 {
-    CameraFrame frame;
+    std::vector<CameraFrame> frames;
     QString deviceError;
-    const CameraFrameResult result = device_->latestFrame(frame, &deviceError);
+    const CameraFrameResult result = device_->drainFrames(frames, &deviceError);
     if (result == CameraFrameResult::NoFrame)
         return;
     if (result == CameraFrameResult::Error) {
@@ -319,19 +319,21 @@ void CameraService::pollFrame()
         return;
     }
 
-    if (lastDeliveryId_ && frame.deliveryId < *lastDeliveryId_) {
-        emit frameError(QStringLiteral("The camera returned an older frame delivery identifier."));
-        return;
-    }
-    if (lastTimestampNs_ && frame.monotonicTimestampNs < *lastTimestampNs_) {
-        emit frameError(QStringLiteral("The camera returned an older frame timestamp."));
-        return;
-    }
+    for (CameraFrame &frame : frames) {
+        if (lastDeliveryId_ && frame.deliveryId <= *lastDeliveryId_) {
+            emit frameError(
+                QStringLiteral("The camera returned an older or duplicate frame delivery identifier."));
+            continue;
+        }
+        if (lastTimestampNs_ && frame.monotonicTimestampNs < *lastTimestampNs_) {
+            emit frameError(QStringLiteral("The camera returned an older frame timestamp."));
+            continue;
+        }
 
-    frame.bytes = QByteArray(frame.bytes.constData(), frame.bytes.size());
-    lastDeliveryId_ = frame.deliveryId;
-    lastTimestampNs_ = frame.monotonicTimestampNs;
-    emit frameReady(std::move(frame));
+        lastDeliveryId_ = frame.deliveryId;
+        lastTimestampNs_ = frame.monotonicTimestampNs;
+        emit frameReady(std::move(frame));
+    }
 }
 
 CameraState CameraService::state() const
@@ -366,3 +368,4 @@ void CameraService::publish(CameraStatus status, const QString &fault)
 }
 
 } // namespace desktop_app::v2
+

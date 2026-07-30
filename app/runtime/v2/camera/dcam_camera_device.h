@@ -3,6 +3,7 @@
 #include "camera_device.h"
 
 #include <memory>
+#include <optional>
 
 class DcamCamera;
 
@@ -19,7 +20,8 @@ public:
     bool start(QString *error) override;
     bool stop(QString *error) override;
     bool close(QString *error) override;
-    CameraFrameResult latestFrame(CameraFrame &frame, QString *error) override;
+    CameraFrameResult drainFrames(std::vector<CameraFrame> &frames,
+                                  QString *error) override;
     CameraConfigurationSupport configurationSupport(QString *error) const override;
     bool readConfiguration(CameraAppliedSettings &settings, QString *error) override;
     CameraConfigurationResult applyConfiguration(
@@ -29,6 +31,9 @@ public:
 
 private:
     std::unique_ptr<DcamCamera> camera_;
+    std::optional<quint64> lastTimestampDeliveryId_;
+    std::optional<qint64> lastAcquisitionTimestampNs_;
 };
 
 } // namespace desktop_app::v2
+

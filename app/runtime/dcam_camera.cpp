@@ -2,8 +2,16 @@
 
 #include <cmath>
 #include <cstdio>
+#include <utility>
 
-DcamCamera::DcamCamera() : hdcam_(nullptr), hwait_(nullptr), opened_(false), bufferCount_(16), frameCounter_(0) {}
+DcamCamera::DcamCamera()
+    : hdcam_(nullptr)
+    , hwait_(nullptr)
+    , opened_(false)
+    , bufferCount_(16)
+    , deliveredFrameCount_(0)
+{
+}
 
 DcamCamera::~DcamCamera() {
     cleanup();
@@ -59,7 +67,7 @@ std::string DcamCamera::init(int deviceIndex) {
     }
 
     opened_ = true;
-    frameCounter_ = 0;
+    deliveredFrameCount_ = 0;
     return {};
 }
 
@@ -149,7 +157,7 @@ std::string DcamCamera::apply(const CameraSettings& settings) {
         return "buffer alloc failed after apply";
     }
 
-    frameCounter_ = 0;
+    deliveredFrameCount_ = 0;
     return warn.empty() ? std::string() : ("WARN: " + warn);
 }
 
@@ -182,7 +190,7 @@ std::string DcamCamera::applyApprovedSettings(const CameraSettings& settings) {
     const DCAMERR allocError = dcambuf_alloc(hdcam_, bufferCount_);
     if (firstError.empty() && failed(allocError))
         firstError = errText("dcambuf_alloc", allocError);
-    frameCounter_ = 0;
+    deliveredFrameCount_ = 0;
     return firstError;
 }
 
@@ -278,6 +286,7 @@ std::string DcamCamera::start() {
     DCAMERR err = dcamcap_start(hdcam_, DCAMCAP_START_SEQUENCE);
     if (failed(err))
         return errText("dcamcap_start", err);
+    deliveredFrameCount_ = 0;
     return {};
 }
 
@@ -303,65 +312,151 @@ void DcamCamera::cleanup() {
     hwait_ = nullptr;
     hdcam_ = nullptr;
     opened_ = false;
-    frameCounter_ = 0;
+    deliveredFrameCount_ = 0;
 }
 
 bool DcamCamera::isOpened() const {
     return opened_;
 }
 
-bool DcamCamera::waitForFrame(int timeoutMs) {
-    if (!opened_)
+bool DcamCamera::getUnreadFrames(std::vector<FrameData>& out, std::string& error) {
+    out.clear();
+    error.clear();
+    if (!opened_) {
+        error = "Camera not opened";
         return false;
-    DCAMWAIT_START wait = {};
-    wait.size = sizeof(wait);
-    wait.eventmask = DCAMWAIT_CAPEVENT_FRAMEREADY;
-    wait.timeout = timeoutMs;
-    return !failed(dcamwait_start(hwait_, &wait));
-}
-
-bool DcamCamera::getLatestFrame(FrameData& out) {
-    if (!opened_)
-        return false;
-
-    DCAMBUF_FRAME bf = {};
-    bf.size = sizeof(bf);
-    bf.iFrame = -1;
-    DCAMERR err = dcambuf_lockframe(hdcam_, &bf);
-    if (failed(err))
-        return false;
-
-    FrameMeta meta;
-    meta.width = static_cast<int>(bf.width);
-    meta.height = static_cast<int>(bf.height);
-    meta.rowBytes = static_cast<int>(bf.rowbytes);
-    meta.frameIndex = frameCounter_++;
-
-    double bin = 1.0;
-    double bits = 0.0;
-    dcamprop_getvalue(hdcam_, DCAM_IDPROP_BINNING, &bin);
-    dcamprop_getvalue(hdcam_, DCAM_IDPROP_BITSPERCHANNEL, &bits);
-    meta.binning = bin;
-    meta.bits = static_cast<int>(std::lround(bits));
-
-    DCAMCAP_TRANSFERINFO ti = {};
-    ti.size = sizeof(ti);
-    if (!failed(dcamcap_transferinfo(hdcam_, &ti))) {
-        meta.delivered = ti.nFrameCount;
-        meta.dropped = 0;
     }
 
-    double fps = 0.0;
-    double rds = 0.0;
-    dcamprop_getvalue(hdcam_, DCAM_IDPROP_INTERNALFRAMERATE, &fps);
-    dcamprop_getvalue(hdcam_, DCAM_IDPROP_READOUTSPEED, &rds);
-    meta.internalFps = fps;
-    meta.readoutSpeed = rds;
+    DCAMCAP_TRANSFERINFO available = {};
+    available.size = sizeof(available);
+    DCAMERR transferError = dcamcap_transferinfo(hdcam_, &available);
+    if (failed(transferError)) {
+        error = errText("dcamcap_transferinfo", transferError);
+        return false;
+    }
 
-    int type = (meta.bits <= 8) ? CV_8UC1 : CV_16UC1;
-    cv::Mat img(meta.height, meta.width, type, bf.buf, bf.rowbytes);
-    out.image = img.clone();
-    out.meta = meta;
+    const int64_t availableCount = available.nFrameCount;
+    if (availableCount < deliveredFrameCount_) {
+        error = "DCAM transfer frame count regressed";
+        return false;
+    }
+    if (availableCount == deliveredFrameCount_) {
+        DCAMWAIT_START wait = {};
+        wait.size = sizeof(wait);
+        wait.eventmask = DCAMWAIT_CAPEVENT_FRAMEREADY;
+        wait.timeout = 1;
+        if (failed(dcamwait_start(hwait_, &wait)))
+            return true;
+        available = {};
+        available.size = sizeof(available);
+        transferError = dcamcap_transferinfo(hdcam_, &available);
+        if (failed(transferError)) {
+            error = errText("dcamcap_transferinfo", transferError);
+            return false;
+        }
+        if (available.nFrameCount < deliveredFrameCount_) {
+            error = "DCAM transfer frame count regressed";
+            return false;
+        }
+    }
+
+    const int64_t unreadCount =
+        static_cast<int64_t>(available.nFrameCount) - deliveredFrameCount_;
+    if (unreadCount == 0)
+        return true;
+    if (unreadCount > bufferCount_) {
+        error = "DCAM ring buffer overrun: " + std::to_string(unreadCount)
+            + " unread frames exceed " + std::to_string(bufferCount_) + " buffers";
+        return false;
+    }
+
+    std::vector<FrameData> drained;
+    drained.reserve(static_cast<size_t>(unreadCount));
+    for (int64_t sequence = deliveredFrameCount_ + 1;
+         sequence <= available.nFrameCount; ++sequence) {
+        DCAMCAP_TRANSFERINFO current = {};
+        current.size = sizeof(current);
+        transferError = dcamcap_transferinfo(hdcam_, &current);
+        if (failed(transferError)) {
+            error = errText("dcamcap_transferinfo", transferError);
+            return false;
+        }
+
+        const int64_t currentCount = current.nFrameCount;
+        if (currentCount < sequence
+            || currentCount - sequence >= bufferCount_) {
+            error = "DCAM ring buffer overrun while draining frame "
+                + std::to_string(sequence);
+            return false;
+        }
+        if (current.nNewestFrameIndex < 0
+            || current.nNewestFrameIndex >= bufferCount_) {
+            error = "DCAM reported an invalid newest ring-buffer index";
+            return false;
+        }
+
+        const int64_t ringDistance = (currentCount - sequence) % bufferCount_;
+        int ringIndex = current.nNewestFrameIndex
+            - static_cast<int>(ringDistance);
+        if (ringIndex < 0)
+            ringIndex += bufferCount_;
+
+        DCAMBUF_FRAME bufferFrame = {};
+        bufferFrame.size = sizeof(bufferFrame);
+        bufferFrame.iFrame = ringIndex;
+        const DCAMERR lockError = dcambuf_lockframe(hdcam_, &bufferFrame);
+        if (failed(lockError)) {
+            error = errText("dcambuf_lockframe", lockError);
+            return false;
+        }
+
+        FrameMeta meta;
+        meta.width = static_cast<int>(bufferFrame.width);
+        meta.height = static_cast<int>(bufferFrame.height);
+        meta.rowBytes = static_cast<int>(bufferFrame.rowbytes);
+        meta.frameIndex = sequence - 1;
+        meta.delivered = sequence;
+
+        double bin = 1.0;
+        double bits = 0.0;
+        dcamprop_getvalue(hdcam_, DCAM_IDPROP_BINNING, &bin);
+        dcamprop_getvalue(hdcam_, DCAM_IDPROP_BITSPERCHANNEL, &bits);
+        meta.binning = bin;
+        meta.bits = static_cast<int>(std::lround(bits));
+
+        double fps = 0.0;
+        double readoutSpeed = 0.0;
+        dcamprop_getvalue(hdcam_, DCAM_IDPROP_INTERNALFRAMERATE, &fps);
+        dcamprop_getvalue(hdcam_, DCAM_IDPROP_READOUTSPEED, &readoutSpeed);
+        meta.internalFps = fps;
+        meta.readoutSpeed = readoutSpeed;
+
+        const int type = meta.bits <= 8 ? CV_8UC1 : CV_16UC1;
+        cv::Mat image(meta.height, meta.width, type,
+                      bufferFrame.buf, bufferFrame.rowbytes);
+        FrameData frame;
+        frame.image = image.clone();
+        frame.meta = meta;
+
+        DCAMCAP_TRANSFERINFO afterCopy = {};
+        afterCopy.size = sizeof(afterCopy);
+        transferError = dcamcap_transferinfo(hdcam_, &afterCopy);
+        if (failed(transferError)) {
+            error = errText("dcamcap_transferinfo", transferError);
+            return false;
+        }
+        if (afterCopy.nFrameCount < sequence
+            || static_cast<int64_t>(afterCopy.nFrameCount) - sequence
+                >= bufferCount_) {
+            error = "DCAM ring buffer overrun while copying frame "
+                + std::to_string(sequence);
+            return false;
+        }
+        drained.push_back(std::move(frame));
+    }
+
+    deliveredFrameCount_ = available.nFrameCount;
+    out = std::move(drained);
     return true;
 }
 
@@ -378,3 +473,4 @@ std::string DcamCamera::errText(const char* label, DCAMERR err) const {
     std::snprintf(buf, sizeof(buf), "%s failed: 0x%08X", label, static_cast<unsigned int>(err));
     return std::string(buf);
 }
+

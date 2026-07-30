@@ -7,6 +7,9 @@
 #include <QString>
 #include <QtGlobal>
 
+#include <utility>
+#include <vector>
+
 namespace desktop_app::v2 {
 
 enum class CameraPixelFormat {
@@ -53,7 +56,22 @@ public:
     virtual bool start(QString *error) = 0;
     virtual bool stop(QString *error) = 0;
     virtual bool close(QString *error) = 0;
-    virtual CameraFrameResult latestFrame(CameraFrame &frame, QString *error) = 0;
+    virtual CameraFrameResult latestFrame(CameraFrame &frame, QString *error)
+    {
+        Q_UNUSED(frame);
+        if (error)
+            *error = QStringLiteral("Single-frame camera reads are not supported.");
+        return CameraFrameResult::Error;
+    }
+    virtual CameraFrameResult drainFrames(std::vector<CameraFrame> &frames,
+                                          QString *error)
+    {
+        CameraFrame frame;
+        const CameraFrameResult result = latestFrame(frame, error);
+        if (result == CameraFrameResult::Frame)
+            frames.push_back(std::move(frame));
+        return result;
+    }
     virtual CameraConfigurationSupport configurationSupport(QString *error) const
     {
         if (error)
@@ -83,3 +101,4 @@ public:
 } // namespace desktop_app::v2
 
 Q_DECLARE_METATYPE(desktop_app::v2::CameraFrame)
+

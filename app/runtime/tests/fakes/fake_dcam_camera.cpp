@@ -29,8 +29,10 @@ struct State {
     int stops = 0;
     int closes = 0;
     int uninitializes = 0;
+    int bufferCount = 16;
     int frameCount = 0;
-    FrameData frame;
+    int newestFrameIndex = -1;
+    std::map<int32, FrameData> ringFrames;
     std::map<int32, double> properties;
     std::map<int32, int32> attributes;
     std::map<int32, DCAMERR> attributeResults;
@@ -85,10 +87,6 @@ void reset()
 
 void setInitResult(DCAMERR result) { state.initResult = result; }
 void setStartResult(DCAMERR result) { state.startResult = result; }
-void setWaitResult(bool ready)
-{
-    state.waitResult = ready ? DCAMERR_SUCCESS : DCAMERR_TEST_FAILURE;
-}
 void setLockFrameResult(bool available)
 {
     state.lockFrameResult = available ? DCAMERR_SUCCESS : DCAMERR_TEST_FAILURE;
@@ -127,9 +125,19 @@ void queueGetResult(int32 property, DCAMERR result)
 {
     state.getResults[property].push_back({result, 0.0, false});
 }
-void setFrame(FrameData frame)
+void setFrames(std::vector<FrameData> frames, int frameCount, int newestFrameIndex)
 {
-    state.frame = std::move(frame);
+    state.frameCount = frameCount;
+    state.newestFrameIndex = newestFrameIndex;
+    state.ringFrames.clear();
+    for (FrameData &frame : frames) {
+        int ringIndex = newestFrameIndex
+            - (frameCount - static_cast<int>(frame.meta.delivered))
+                % state.bufferCount;
+        if (ringIndex < 0)
+            ringIndex += state.bufferCount;
+        state.ringFrames[ringIndex] = std::move(frame);
+    }
     state.lockFrameResult = DCAMERR_SUCCESS;
     state.waitResult = DCAMERR_SUCCESS;
 }
@@ -195,9 +203,10 @@ DCAMERR dcamwait_start(HDCAMWAIT, DCAMWAIT_START *)
     return fake_dcam::state.waitResult;
 }
 
-DCAMERR dcambuf_alloc(HDCAM, int32)
+DCAMERR dcambuf_alloc(HDCAM, int32 count)
 {
     ++fake_dcam::state.allocations;
+    fake_dcam::state.bufferCount = count;
     if (fake_dcam::state.allocationResults.empty())
         return DCAMERR_SUCCESS;
     const DCAMERR result = fake_dcam::state.allocationResults.front();
@@ -208,6 +217,9 @@ DCAMERR dcambuf_alloc(HDCAM, int32)
 DCAMERR dcambuf_release(HDCAM)
 {
     ++fake_dcam::state.releases;
+    fake_dcam::state.ringFrames.clear();
+    fake_dcam::state.frameCount = 0;
+    fake_dcam::state.newestFrameIndex = -1;
     if (fake_dcam::state.releaseResults.empty())
         return DCAMERR_SUCCESS;
     const DCAMERR result = fake_dcam::state.releaseResults.front();
@@ -219,16 +231,26 @@ DCAMERR dcambuf_lockframe(HDCAM, DCAMBUF_FRAME *frame)
 {
     if (failed(fake_dcam::state.lockFrameResult))
         return fake_dcam::state.lockFrameResult;
-    frame->buf = fake_dcam::state.frame.image.data;
-    frame->rowbytes = static_cast<int32>(fake_dcam::state.frame.image.step);
-    frame->width = fake_dcam::state.frame.image.cols;
-    frame->height = fake_dcam::state.frame.image.rows;
+    const int32 index = frame->iFrame < 0
+        ? fake_dcam::state.newestFrameIndex : frame->iFrame;
+    const auto found = fake_dcam::state.ringFrames.find(index);
+    if (found == fake_dcam::state.ringFrames.end())
+        return DCAMERR_TEST_FAILURE;
+    frame->buf = found->second.image.data;
+    frame->rowbytes = static_cast<int32>(found->second.image.step);
+    frame->width = found->second.image.cols;
+    frame->height = found->second.image.rows;
     return DCAMERR_SUCCESS;
 }
 
 DCAMERR dcamcap_start(HDCAM, int32)
 {
     ++fake_dcam::state.starts;
+    if (!failed(fake_dcam::state.startResult)) {
+        fake_dcam::state.ringFrames.clear();
+        fake_dcam::state.frameCount = 0;
+        fake_dcam::state.newestFrameIndex = -1;
+    }
     return fake_dcam::state.startResult;
 }
 
@@ -240,7 +262,8 @@ DCAMERR dcamcap_stop(HDCAM)
 
 DCAMERR dcamcap_transferinfo(HDCAM, DCAMCAP_TRANSFERINFO *info)
 {
-    info->nFrameCount = fake_dcam::state.frame.meta.delivered;
+    info->nFrameCount = fake_dcam::state.frameCount;
+    info->nNewestFrameIndex = fake_dcam::state.newestFrameIndex;
     return DCAMERR_SUCCESS;
 }
 
@@ -288,3 +311,4 @@ DCAMERR dcamprop_setvalue(HDCAM, int32 property, double value)
     fake_dcam::state.properties[property] = value;
     return DCAMERR_SUCCESS;
 }
+

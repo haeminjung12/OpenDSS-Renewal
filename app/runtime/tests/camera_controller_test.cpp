@@ -80,15 +80,19 @@ public:
         error->clear();
         return CameraConfigurationResult::Applied;
     }
-    CameraFrameResult latestFrame(CameraFrame &frame, QString *error) override
+    CameraFrameResult drainFrames(std::vector<CameraFrame> &frames,
+                                  QString *error) override
     {
         if (failFrames.load()) {
             *error = QStringLiteral("Camera transport failed.");
             return CameraFrameResult::Error;
         }
-        if (manualFramesOnly.load())
+        if (manualFramesOnly.load()) {
+            error->clear();
             return CameraFrameResult::NoFrame;
+        }
         const quint64 id = delivery.fetch_add(1);
+        CameraFrame frame;
         frame.pixelFormat = CameraPixelFormat::Mono8;
         frame.width = 2;
         frame.height = 1;
@@ -99,6 +103,8 @@ public:
         frame.bytes = movingFrames.load()
             ? QByteArray(2, static_cast<char>(id & 1 ? 0xff : 0x00))
             : QByteArray::fromHex("1122");
+        frames.push_back(std::move(frame));
+        error->clear();
         return CameraFrameResult::Frame;
     }
 
@@ -590,3 +596,4 @@ int main(int argc, char **argv)
     retryWorker.wait();
     return ok ? 0 : 1;
 }
+

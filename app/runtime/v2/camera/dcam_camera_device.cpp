@@ -6,6 +6,7 @@
 #include <chrono>
 #include <cmath>
 #include <limits>
+#include <utility>
 
 namespace desktop_app::v2 {
 namespace {
@@ -158,6 +159,10 @@ bool DcamCameraDevice::start(QString *error)
     }
 
     const std::string result = camera_->start();
+    if (result.empty()) {
+        lastTimestampDeliveryId_.reset();
+        lastAcquisitionTimestampNs_.reset();
+    }
     setError(error, messageFrom(result));
     return result.empty();
 }
@@ -170,6 +175,8 @@ bool DcamCameraDevice::stop(QString *error)
     }
 
     camera_->stop();
+    lastTimestampDeliveryId_.reset();
+    lastAcquisitionTimestampNs_.reset();
     setError(error, {});
     return true;
 }
@@ -180,59 +187,134 @@ bool DcamCameraDevice::close(QString *error)
         camera_->cleanup();
         camera_.reset();
     }
+    lastTimestampDeliveryId_.reset();
+    lastAcquisitionTimestampNs_.reset();
     setError(error, {});
     return true;
 }
 
-CameraFrameResult DcamCameraDevice::latestFrame(CameraFrame &frame, QString *error)
+CameraFrameResult DcamCameraDevice::drainFrames(std::vector<CameraFrame> &frames,
+                                                QString *error)
 {
+    frames.clear();
     if (!camera_ || !camera_->isOpened()) {
         setError(error, QStringLiteral("The DCAM camera is not open."));
         return CameraFrameResult::Error;
     }
-    if (!camera_->waitForFrame(1)) {
+
+    std::vector<FrameData> sources;
+    std::string drainError;
+    if (!camera_->getUnreadFrames(sources, drainError)) {
+        setError(error, messageFrom(drainError));
+        return CameraFrameResult::Error;
+    }
+    if (sources.empty()) {
         setError(error, {});
         return CameraFrameResult::NoFrame;
     }
 
-    FrameData source;
-    if (!camera_->getLatestFrame(source) || source.image.empty()) {
-        setError(error, QStringLiteral("The camera frame could not be read."));
+    const double internalFps = sources.back().meta.internalFps;
+    if (!std::isfinite(internalFps) || internalFps <= 0.0) {
+        setError(error,
+                 QStringLiteral("The camera returned an invalid internal frame rate."));
         return CameraFrameResult::Error;
     }
-    if (source.image.type() != CV_8UC1 && source.image.type() != CV_16UC1) {
-        setError(error, QStringLiteral("The camera returned an unsupported pixel format."));
-        return CameraFrameResult::Error;
-    }
-    if (source.image.type() == CV_16UC1
-        && (source.meta.bits < 9 || source.meta.bits > 16)) {
-        setError(error, QStringLiteral("The camera returned an invalid bit depth."));
-        return CameraFrameResult::Error;
-    }
-
-    const size_t sourceRowBytes = source.image.step;
-    if (sourceRowBytes > static_cast<size_t>(std::numeric_limits<int>::max())
-        || source.image.rows <= 0
-        || sourceRowBytes > static_cast<size_t>(std::numeric_limits<qsizetype>::max())
-                / static_cast<size_t>(source.image.rows)) {
-        setError(error, QStringLiteral("The camera frame is too large."));
+    const qint64 framePeriodNs =
+        static_cast<qint64>(std::llround(1'000'000'000.0 / internalFps));
+    if (framePeriodNs <= 0) {
+        setError(error,
+                 QStringLiteral("The camera returned an unusable internal frame rate."));
         return CameraFrameResult::Error;
     }
 
-    const qsizetype rowBytes = static_cast<qsizetype>(sourceRowBytes);
-    const qsizetype byteCount = rowBytes * source.image.rows;
-    frame.pixelFormat =
-        source.image.type() == CV_8UC1 ? CameraPixelFormat::Mono8 : CameraPixelFormat::Mono16;
-    frame.width = source.image.cols;
-    frame.height = source.image.rows;
-    frame.rowBytes = static_cast<int>(rowBytes);
-    frame.bitDepth =
-        frame.pixelFormat == CameraPixelFormat::Mono8 ? 8 : source.meta.bits;
-    frame.deliveryId = source.meta.delivered > 0
-        ? static_cast<quint64>(source.meta.delivered)
-        : static_cast<quint64>(std::max<int64_t>(source.meta.frameIndex, 0));
-    frame.monotonicTimestampNs = monotonicTimestampNs();
-    frame.bytes = QByteArray(reinterpret_cast<const char *>(source.image.data), byteCount);
+    std::vector<quint64> deliveryIds;
+    deliveryIds.reserve(sources.size());
+    for (const FrameData &source : sources) {
+        const quint64 deliveryId = source.meta.delivered > 0
+            ? static_cast<quint64>(source.meta.delivered)
+            : static_cast<quint64>(std::max<int64_t>(source.meta.frameIndex, 0));
+        if (!deliveryIds.empty() && deliveryId != deliveryIds.back() + 1) {
+            setError(error,
+                     QStringLiteral("The camera returned non-contiguous frame identifiers."));
+            return CameraFrameResult::Error;
+        }
+        deliveryIds.push_back(deliveryId);
+    }
+
+    std::vector<qint64> timestamps;
+    timestamps.reserve(sources.size());
+    if (lastTimestampDeliveryId_ && lastAcquisitionTimestampNs_) {
+        if (deliveryIds.front() <= *lastTimestampDeliveryId_) {
+            setError(error,
+                     QStringLiteral("The camera returned a regressed frame identifier."));
+            return CameraFrameResult::Error;
+        }
+        for (const quint64 deliveryId : deliveryIds) {
+            const quint64 deliveryDelta = deliveryId - *lastTimestampDeliveryId_;
+            timestamps.push_back(
+                *lastAcquisitionTimestampNs_
+                + static_cast<qint64>(deliveryDelta) * framePeriodNs);
+        }
+    } else {
+        const qint64 drainTimestampNs = monotonicTimestampNs();
+        const quint64 lastDeliveryId = deliveryIds.back();
+        for (const quint64 deliveryId : deliveryIds) {
+            const quint64 deliveryDelta = lastDeliveryId - deliveryId;
+            timestamps.push_back(
+                drainTimestampNs
+                - static_cast<qint64>(deliveryDelta) * framePeriodNs);
+        }
+    }
+
+    frames.reserve(sources.size());
+    for (size_t index = 0; index < sources.size(); ++index) {
+        const FrameData &source = sources[index];
+        if (source.image.empty()) {
+            setError(error, QStringLiteral("The camera frame could not be read."));
+            frames.clear();
+            return CameraFrameResult::Error;
+        }
+        if (source.image.type() != CV_8UC1 && source.image.type() != CV_16UC1) {
+            setError(error, QStringLiteral("The camera returned an unsupported pixel format."));
+            frames.clear();
+            return CameraFrameResult::Error;
+        }
+        if (source.image.type() == CV_16UC1
+            && (source.meta.bits < 9 || source.meta.bits > 16)) {
+            setError(error, QStringLiteral("The camera returned an invalid bit depth."));
+            frames.clear();
+            return CameraFrameResult::Error;
+        }
+
+        const size_t sourceRowBytes = source.image.step;
+        if (sourceRowBytes > static_cast<size_t>(std::numeric_limits<int>::max())
+            || source.image.rows <= 0
+            || sourceRowBytes > static_cast<size_t>(std::numeric_limits<qsizetype>::max())
+                    / static_cast<size_t>(source.image.rows)) {
+            setError(error, QStringLiteral("The camera frame is too large."));
+            frames.clear();
+            return CameraFrameResult::Error;
+        }
+
+        const qsizetype rowBytes = static_cast<qsizetype>(sourceRowBytes);
+        const qsizetype byteCount = rowBytes * source.image.rows;
+        CameraFrame frame;
+        frame.pixelFormat =
+            source.image.type() == CV_8UC1 ? CameraPixelFormat::Mono8
+                                           : CameraPixelFormat::Mono16;
+        frame.width = source.image.cols;
+        frame.height = source.image.rows;
+        frame.rowBytes = static_cast<int>(rowBytes);
+        frame.bitDepth =
+            frame.pixelFormat == CameraPixelFormat::Mono8 ? 8 : source.meta.bits;
+        frame.deliveryId = deliveryIds[index];
+        frame.monotonicTimestampNs = timestamps[index];
+        frame.bytes =
+            QByteArray(reinterpret_cast<const char *>(source.image.data), byteCount);
+        frames.push_back(std::move(frame));
+    }
+    lastTimestampDeliveryId_ = deliveryIds.back();
+    lastAcquisitionTimestampNs_ = timestamps.back();
     setError(error, {});
     return CameraFrameResult::Frame;
 }
@@ -346,3 +428,4 @@ CameraConfigurationResult DcamCameraDevice::applyConfiguration(
 }
 
 } // namespace desktop_app::v2
+

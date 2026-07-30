@@ -90,9 +90,10 @@ public:
         return CameraConfigurationResult::Applied;
     }
 
-    CameraFrameResult latestFrame(CameraFrame &output, QString *error) override
+    CameraFrameResult drainFrames(std::vector<CameraFrame> &output,
+                                  QString *error) override
     {
-        ++latestFrameCalls;
+        ++drainFrameCalls;
         if (failFrames.load()) {
             *error = QStringLiteral("Camera transport failed.");
             return CameraFrameResult::Error;
@@ -102,7 +103,10 @@ public:
             error->clear();
             return CameraFrameResult::NoFrame;
         }
-        output = frames.dequeue();
+        output.reserve(output.size() + frames.size());
+        while (!frames.isEmpty())
+            output.push_back(frames.dequeue());
+        error->clear();
         return CameraFrameResult::Frame;
     }
 
@@ -140,7 +144,7 @@ public:
     int readConfigurationCalls = 0;
     int applyConfigurationCalls = 0;
     std::atomic_bool failFrames = false;
-    std::atomic_int latestFrameCalls = 0;
+    std::atomic_int drainFrameCalls = 0;
 };
 
 bool check(bool condition, const char *message)
@@ -263,14 +267,38 @@ int main(int argc, char **argv)
                     "Frame delivery must preserve a deep-owned CameraFrame.");
     }
 
-    fake->enqueue(frame(6, 701));
+    fake->enqueue(frame(8, 800));
+    fake->enqueue(frame(9, 900));
+    fake->enqueue(frame(10, 1000));
+    if (frames.count() < 4)
+        frames.wait(1000);
+    CameraFrame delivered8;
+    CameraFrame delivered9;
+    CameraFrame delivered10;
+    if (frames.count() >= 4) {
+        delivered8 = qvariant_cast<CameraFrame>(frames.at(1).first());
+        delivered9 = qvariant_cast<CameraFrame>(frames.at(2).first());
+        delivered10 = qvariant_cast<CameraFrame>(frames.at(3).first());
+    }
+    ok &= check(frames.count() >= 4
+                    && delivered8.deliveryId == 8
+                    && delivered9.deliveryId == 9
+                    && delivered10.deliveryId == 10
+                    && delivered9.monotonicTimestampNs
+                        - delivered8.monotonicTimestampNs == 100
+                    && delivered10.monotonicTimestampNs
+                        - delivered9.monotonicTimestampNs == 100,
+                "One acquisition wake must publish every available burst frame "
+                "in order without changing source timestamp spacing.");
+
+    fake->enqueue(frame(6, 1001));
     if (frameErrors.isEmpty())
         frameErrors.wait(1000);
     ok &= check(!frameErrors.isEmpty()
                     && frameErrors.takeFirst().first().toString().contains("older"),
                 "A regressed delivery identifier must be rejected factually.");
 
-    fake->enqueue(frame(8, 699));
+    fake->enqueue(frame(11, 999));
     if (frameErrors.isEmpty())
         frameErrors.wait(1000);
     ok &= check(!frameErrors.isEmpty()
@@ -280,14 +308,14 @@ int main(int argc, char **argv)
     fake->failFrames = true;
     if (frameErrors.isEmpty())
         frameErrors.wait(1000);
-    const int callsAtFault = fake->latestFrameCalls.load();
+    const int callsAtFault = fake->drainFrameCalls.load();
     const int errorsAtFault = frameErrors.count();
     QThread::msleep(80);
     QCoreApplication::processEvents();
     ok &= check(service->state().status == CameraStatus::Faulted
                     && service->state().fault == QStringLiteral("Camera transport failed.")
                     && fake->stopCalls == 3 && fake->closeCalls == 1
-                    && fake->latestFrameCalls.load() == callsAtFault
+                    && fake->drainFrameCalls.load() == callsAtFault
                     && errorsAtFault == 1 && frameErrors.count() == errorsAtFault,
                 "A polling error must close the stream, publish Faulted, and stop error flooding.");
 
@@ -406,3 +434,4 @@ int main(int argc, char **argv)
 
     return ok ? 0 : 1;
 }
+

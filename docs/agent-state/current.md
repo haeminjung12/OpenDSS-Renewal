@@ -2,7 +2,7 @@
 
 State format: `1`
 
-- Policy revision: `ODSS-2026-07-30.1`
+- Policy revision: `ODSS-2026-07-30.2`
 - Mode: `implementation`
 - User-facing Lead: `Implementation Lead`
 - Checkpoint branch: `codex/project-policy-reset`
@@ -10,7 +10,7 @@ State format: `1`
 - Active ID: `P0-1`
 - Status: `Planned; implementation is not authorized`
 - Dirty paths at checkpoint: `AGENTS.md`; `docs/agent-state/current.md`; `docs/debug/bug-ledger.md`
-- Updated: `2026-07-30T15:26:00-05:00`
+- Updated: `2026-07-30T16:12:00-05:00`
 
 ## Accepted decisions
 
@@ -19,6 +19,8 @@ State format: `1`
 - Current CLI precise selection remains `EventDetector`.
 - No detector algorithm, threshold, routing, DAQ, persistence, camera ownership, or QML change is authorized.
 - Fresh-agent handoff is preferred over repeated compaction; this file is authoritative over a compacted transcript.
+- Verification uses coherent integration batches, avoids unchanged reruns, and reserves full builds for the integrated batch unless a named early-build risk applies.
+- A fresh read-only Plan Guardian checks canonical plan fidelity at integration, closure, merge, and material-scope-change gates.
 
 ## Accepted evidence
 
@@ -29,7 +31,7 @@ State format: `1`
 ## Verification
 
 - Policy maintenance completed on `codex/project-policy-reset`; the checkpoint commit above records the pre-policy base.
-- All 26 approved orchestration, continuity, and debug rule IDs are present.
+- All approved orchestration, continuity, verification-scheduling, plan-fidelity, and debug rule IDs are present.
 - Both initializer skills pass schema validation.
 - Implementation resume passes; debug resume rejects implementation mode and passes a clean debug-mode fixture.
 - Portable policy-kit 0.2.0 passes isolated install, hook, drift, migration, update, and rollback tests.

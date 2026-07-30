@@ -1,6 +1,6 @@
 # OpenDSS Repository Agent Policy
 
-Ruleset revision: `ODSS-2026-07-30.1`
+Ruleset revision: `ODSS-2026-07-30.2`
 
 This file contains OpenDSS-specific authority, orchestration, continuity, engineering, and safety rules. Global policy remains authoritative for universal rules, filesystem investigation, work reports, and shared-rule change control.
 
@@ -15,6 +15,20 @@ This file contains OpenDSS-specific authority, orchestration, continuity, engine
 - **O-REPORT-001** — Workers return changed IDs, files, evidence, blockers, and the next recommendation. They do not send parallel user-facing narratives or raw transcripts.
 - **O-VALID-001** — Use one scoped independent validation pass when risk warrants it. Validate the user-observable outcome and protected behavior; do not create review-of-review loops.
 - **O-RULES-001** — At task start, load the current global and OpenDSS revisions. If either changes during work, explicitly reread the changed authority files before continuing; start a fresh agent when safe adoption is uncertain.
+
+## Verification scheduling
+
+- **O-BATCH-001** — Treat an approved collection of related changes as one integration batch. Integrate the coherent batch before running one full build and its required tests; do not run the full build after every edit or worker result.
+- **O-EARLY-CHECK-001** — Before batch completion, run only narrow checks needed to resolve a named uncertainty that could invalidate remaining work. An early full build requires an explicit build-boundary, protected-asset, ABI, toolchain, or hardware reason.
+- **O-RERUN-001** — Do not rerun verification when its relevant inputs and evidence are unchanged. After a failure, rerun affected checks until repaired, followed by one final required pass.
+- **O-WORKER-BUILD-001** — Workers do not each run the same full build. Workers return targeted evidence; the Lead performs the integrated build after accepting the batch.
+
+## Plan fidelity
+
+- **O-PLAN-001** — Measure plan fidelity against canonical OpenDSS authority and the active durable plan or state, never agent memory.
+- **O-GATE-001** — Use one fresh read-only `$opendss-plan-guardian` before integration, closure, merge, or after a material scope change.
+- **O-DEVIATE-001** — Only the user may approve a material deviation from canonical authority or the active plan. Update durable authority before the deviating work continues.
+- **O-GUARD-001** — The Plan Guardian reports evidence to the active Lead and owns no implementation, scheduling, canonical state, or user communication.
 
 ## Durable continuity
 

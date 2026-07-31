@@ -1,6 +1,6 @@
 # OpenDSS Repository Agent Policy
 
-Ruleset revision: `ODSS-2026-07-30.3`
+Ruleset revision: `ODSS-2026-07-30.4`
 
 This file contains common OpenDSS authority, ownership, safety, and coordination rules. Global policy controls universal inspection, logging, verification, and shared-rule maintenance. Mode-specific procedures live in repository skills.
 
@@ -14,6 +14,7 @@ This file contains common OpenDSS authority, ownership, safety, and coordination
 - **O-SPAWN-001** — Spawn only independent work that materially improves speed, evidence, or isolation. Keep small or coupled work with the Lead.
 - **O-MODEL-001** — Follow `G-MODEL-001`: use the lowest-cost capable model and reasoning effort; escalate only for ambiguity, protected assets, high risk, or a failed cheaper attempt.
 - **O-WORKER-STATE-001** — Workers never edit `docs/agent-state/current.md` or `docs/debug/bug-ledger.md`.
+- **O-QT-TOOLS-001** — Implementation and debugging share the repository `.codex/config.toml`: keep multi-agent support enabled and preserve both `qtDocumentation` and `qtCreator`, including `.codex/qt_creator_mcp_bridge.mjs`. Merge workflow settings into that configuration; never replace, disable, remove, or rename these integrations without explicit user authorization.
 
 ## Preflight budget
 
@@ -21,6 +22,7 @@ This file contains common OpenDSS authority, ownership, safety, and coordination
 - **O-RESUME-001** — On a new Lead chat, handoff, replacement Lead, or compaction, run exactly one appropriate initializer, then read only canonical state and the active slice or bug record.
 - **O-ESCALATE-001** — Load more policy, Git history, authority, index, or protected-asset evidence only for a named mismatch, conflict, unexpected dirty path, protected boundary, or material environment change.
 - **O-WORKER-PREFLIGHT-001** — Temporary workers consume the Lead's verified task packet. They do not rerun full Lead initialization unless the packet conflicts with their observed root, mode, HEAD, or dirty paths.
+- For Qt work, use `qtDocumentation` for current Qt API/version evidence and `qtCreator` when live Qt Creator state is relevant. Their availability does not require a routine startup probe.
 - Do not start or refresh Graphify/grepai merely because a session began. Use semantic indexes only when substantial or conceptually unclear investigation justifies them.
 
 ## Verification and plan fidelity
@@ -44,6 +46,14 @@ This file contains common OpenDSS authority, ownership, safety, and coordination
 - Preserve one authoritative owner for each domain state. QML/UI code must not call vendor SDKs or the trainer directly.
 - Make the smallest coherent authorized change. Do not add speculative factories, registries, strategy selectors, service locators, compatibility layers, placeholder APIs, unused production code, or unrelated cleanup.
 - Do not restore superseded v1 navigation, terminology, product state, scientific policy, or editable settings.
+
+## Qt task routing
+
+- **O-QT-SKILLS-001** — The Lead names only the Qt skills required by the task packet; workers do not load the whole Qt skill set.
+- QML implementation/fixes use `$qt-qml`; UI layout/design work uses `$qt-ui-design`; CMake target/source/resource changes use `$qt-cmake-project`.
+- QML test creation uses `$qt-qml-test`, and execution uses `$qt-qml-test-run`. QML performance work uses `$qt-qml-profiler` only for a named performance problem.
+- Qt/QML or Qt/C++ review uses `$qt-qml-review` or `$qt-cpp-review` only at a requested review gate. Documentation uses `$qt-qml-docs` or `$qt-cpp-docs` only for an explicit documentation task.
+- Figma extraction/generation skills are used only when the task explicitly includes Figma source or design-system work.
 
 ## Protected technical assets
 

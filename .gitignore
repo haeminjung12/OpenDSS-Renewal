@@ -21,6 +21,7 @@ graphify-out/
 !.agents/skills/**
 .codex/*
 !.codex/config.toml
+!.codex/qt_creator_mcp_bridge.mjs
 !.codex/agents/
 !.codex/agents/*.toml
 WORKSPACE_ORCHESTRATION_RULE_V2.md

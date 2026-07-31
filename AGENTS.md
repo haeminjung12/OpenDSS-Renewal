@@ -57,6 +57,13 @@ This file contains common OpenDSS authority, ownership, safety, and coordination
 - Debug Lead: confirm `Mode: debug`, then use `$opendss-debug-init` only on session boundaries and work one stable `DBG-*` record at a time.
 - Plan fidelity: use `$opendss-plan-guardian` only at the gates named by `O-GATE-001`.
 
+## Build-root retention
+
+- **BUILD-CLEAN-001** — Keep only the active build, latest successful build, and one current diagnostic or fallback build at the top level of `C:\b`.
+- Move an inactive completed direct child of `C:\b` intact to the same name under `C:\b\archive` only after confirming no active process, lock, live-validation dependency, current acceptance role, or destination collision.
+- Never move a repository, registered worktree, active environment, backup, user data, policy, release/publication state, or anything outside `C:\b`. Never delete or agent-prune `C:\b\archive`; archive deletion is user-owned.
+- Preserve failed-build diagnostics before archival. Do not overwrite, merge, flatten, partially move, or create a one-off build root merely to evade a verified lock.
+
 ## Process safety
 
 - Before terminating a build blocker, prove its PID, executable, and command line belong to the exact selected build root. Never terminate training/testing, unrelated applications, vendor tools, or another workspace's build.

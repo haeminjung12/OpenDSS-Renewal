@@ -59,4 +59,6 @@ set_tests_properties(ShellSingleImageNativeWindowClamp PROPERTIES
     WORKING_DIRECTORY "$<TARGET_FILE_DIR:tst_ShellSingleImage>"
     ENVIRONMENT
         "QT_QPA_PLATFORM=windows;QT_PLUGIN_PATH=${_opendss_qt_plugin_path};QML_IMPORT_PATH=${QT_QML_OUTPUT_DIRECTORY}"
+    ENVIRONMENT_MODIFICATION
+        "PATH=path_list_prepend:${_opendss_qt_bin};PATH=path_list_prepend:$<TARGET_FILE_DIR:tst_ShellSingleImage>"
 )

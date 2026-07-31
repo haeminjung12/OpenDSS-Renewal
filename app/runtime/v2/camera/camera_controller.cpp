@@ -1,5 +1,6 @@
 #include "camera_controller.h"
 
+#include "frame_conversion.h"
 #include "camera_preview_image_provider.h"
 #include "camera_service.h"
 
@@ -56,6 +57,16 @@ QString statusText(int status)
         return QStringLiteral("Unavailable");
     }
     return QStringLiteral("Unavailable");
+}
+
+QString exposureText(double exposureMs)
+{
+    QString text = QString::number(exposureMs, 'f', 2);
+    while (text.endsWith(QLatin1Char('0')))
+        text.chop(1);
+    if (text.endsWith(QLatin1Char('.')))
+        text.chop(1);
+    return text;
 }
 
 } // namespace
@@ -197,7 +208,7 @@ QString CameraController::bitDepth() const
 QString CameraController::exposureMs() const
 {
     return configurationAvailable_
-        ? QString::number(appliedSettings_.exposureMs, 'g', 12)
+        ? exposureText(appliedSettings_.exposureMs)
         : QString();
 }
 
@@ -341,6 +352,68 @@ bool CameraController::applyExposureMs(double exposureMs)
     CameraAppliedSettings requested = appliedSettings_;
     requested.exposureMs = exposureMs;
     return requestConfiguration(requested);
+}
+
+bool CameraController::autoExposure()
+{
+    if (!configurationAvailable_) {
+        setError(QStringLiteral(
+            "Auto Exposure requires a connected camera."));
+        return false;
+    }
+    if (busy_)
+        return false;
+
+    const std::optional<CameraFrame> frame = previewProvider_.latestFrame();
+    if (!frame) {
+        setError(QStringLiteral(
+            "Auto Exposure needs a current camera frame."));
+        return false;
+    }
+
+    QString conversionError;
+    const QImage image = convertCameraFrame(*frame, &conversionError);
+    if (image.isNull()) {
+        setError(conversionError.isEmpty()
+                     ? QStringLiteral("Auto Exposure could not read the current frame.")
+                     : conversionError);
+        return false;
+    }
+
+    std::array<int, 256> histogram{};
+    int total = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        const uchar *row = image.constScanLine(y);
+        for (int x = 0; x < image.width(); ++x) {
+            ++histogram[row[x]];
+            ++total;
+        }
+    }
+    if (total <= 0) {
+        setError(QStringLiteral(
+            "Auto Exposure could not read the current frame."));
+        return false;
+    }
+
+    const int targetCount = std::clamp(
+        static_cast<int>(std::lround(total * 0.95)), 0, total - 1);
+    int cumulative = 0;
+    int p95 = 0;
+    for (int value = 0; value < static_cast<int>(histogram.size()); ++value) {
+        cumulative += histogram[value];
+        if (cumulative > targetCount) {
+            p95 = value;
+            break;
+        }
+    }
+    p95 = std::max(p95, 1);
+
+    constexpr double targetP95 = 180.0;
+    const double factor = std::clamp(
+        targetP95 / static_cast<double>(p95), 0.25, 4.0);
+    const double nextMs = std::round(appliedSettings_.exposureMs * factor * 100.0)
+        / 100.0;
+    return applyExposureMs(nextMs);
 }
 
 bool CameraController::applyReadoutMode(const QString &readoutMode)

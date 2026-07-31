@@ -845,6 +845,45 @@ target_link_libraries(opendss_real_dcam_pipeline_headless PRIVATE
   ${OpenCV_LIBS}
 )
 
+qt_add_executable(opendss_dbg019_sequence_persistence_headless
+  dbg019_sequence_persistence_headless.cpp
+  ../dcam_camera.cpp
+  ../desktop_app/json_persistence.cpp
+  ../detection/droplet_detector_adapters.cpp
+  ../event_detector.cpp
+  ../fast_event_detector.cpp
+  ../v2/camera/camera_service.cpp
+  ../v2/camera/dcam_camera_device.cpp
+  ../v2/camera/frame_conversion.cpp
+  ../v2/operation/operation_coordinator.cpp
+  ../v2/sequence/image_sequence_capture_service.cpp
+  ../v2/sequence/sequence_manifest_v2.cpp
+  ../v2/state/application_state_store.cpp
+)
+find_package(TIFF REQUIRED)
+set_target_properties(opendss_dbg019_sequence_persistence_headless PROPERTIES
+  WIN32_EXECUTABLE FALSE
+)
+target_compile_definitions(opendss_dbg019_sequence_persistence_headless PRIVATE
+  TIFF_DISABLE_DEPRECATED
+)
+target_include_directories(opendss_dbg019_sequence_persistence_headless PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
+  ${DCAM_SDK_DIR}/inc
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_directories(opendss_dbg019_sequence_persistence_headless PRIVATE
+  ${DCAM_SDK_DIR}/lib/win64
+)
+target_link_libraries(opendss_dbg019_sequence_persistence_headless PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  dcamapi
+  TIFF::TIFF
+  ${OpenCV_LIBS}
+)
+
 qt_add_executable(camera_controller_test
   camera_controller_test.cpp
   ../v2/camera/camera_controller.cpp

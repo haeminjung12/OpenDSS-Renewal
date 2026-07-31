@@ -5,6 +5,8 @@
 #include <QMutex>
 #include <QQuickImageProvider>
 
+#include <optional>
+
 namespace desktop_app::v2 {
 
 class CameraPreviewImageProvider final : public QQuickImageProvider
@@ -14,11 +16,12 @@ public:
 
     quint64 updateFrame(CameraFrame frame);
     quint64 setPreviewLutRange(int blackLevel, int whiteLevel);
+    std::optional<CameraFrame> latestFrame() const;
     QImage requestImage(const QString &id, QSize *size,
                         const QSize &requestedSize) override;
 
 private:
-    QMutex mutex_;
+    mutable QMutex mutex_;
     CameraFrame latestFrame_;
     bool hasFrame_ = false;
     int blackLevel_ = 0;

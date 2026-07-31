@@ -31,6 +31,14 @@ quint64 CameraPreviewImageProvider::setPreviewLutRange(int blackLevel,
     return ++revision_;
 }
 
+std::optional<CameraFrame> CameraPreviewImageProvider::latestFrame() const
+{
+    QMutexLocker locker(&mutex_);
+    if (!hasFrame_)
+        return std::nullopt;
+    return latestFrame_;
+}
+
 QImage CameraPreviewImageProvider::requestImage(const QString &id, QSize *size,
                                                 const QSize &requestedSize)
 {

@@ -1552,12 +1552,12 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
 
     auto exposureSpin = new QDoubleSpinBox;
     exposureSpin->setSuffix(" ms");
-    exposureSpin->setDecimals(3);
+    exposureSpin->setDecimals(2);
     exposureSpin->setSingleStep(0.1);
     exposureSpin->setMinimum(0.01);
     exposureSpin->setMaximum(10000.0);
     exposureSpin->setValue(10.0);
-    auto autoExposureBtn = new QPushButton("Auto Exposure");
+    auto autoExposureBtn = new QPushButton("Auto");
     autoExposureBtn->setToolTip("Adjust exposure from the current live frame.");
 
     auto readoutCombo = new QComboBox;
@@ -9871,8 +9871,10 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                         cameraApplyButton->text().contains("Settings", Qt::CaseInsensitive),
                     QString("Camera apply button keeps expected visible wording (text=%1)")
                         .arg(cameraApplyButton ? cameraApplyButton->text() : QStringLiteral("<missing>")));
-            require(cameraAutoExposureButton && cameraAutoExposureButton->text() == "Auto Exposure",
+            require(cameraAutoExposureButton && cameraAutoExposureButton->text() == "Auto",
                     "CameraAutoExposureButton exists with expected text");
+            require(cameraExposureSpin && cameraExposureSpin->decimals() <= 2,
+                    "Camera exposure display uses no more than two decimal places");
             require(cameraAutoExposureButton &&
                         cameraAutoExposureButton->toolTip().contains("current live frame", Qt::CaseInsensitive),
                     "CameraAutoExposureButton tooltip explains current-frame behavior");

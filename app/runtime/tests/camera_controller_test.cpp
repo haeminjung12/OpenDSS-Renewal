@@ -195,6 +195,13 @@ int main(int argc, char **argv)
                     && controller.exposureMs() == QStringLiteral("4.5")
                     && fake->applyConfigurationCalls == 2,
                 "Controller must serialize configuration and publish factual readback.");
+    ok &= check(!controller.autoExposure()
+                    && controller.exposureMs() == QStringLiteral("4.5")
+                    && controller.error()
+                           == QStringLiteral(
+                               "Auto Exposure needs a current camera frame.")
+                    && fake->applyConfigurationCalls == 2,
+                "Auto Exposure without a frame must retain the accepted exposure.");
 
     ok &= check(controller.selectCustomResolution()
                     && controller.resolution() == QStringLiteral("Custom"),
@@ -256,6 +263,12 @@ int main(int argc, char **argv)
     ok &= check(controller.previewSource().startsWith(
                     QStringLiteral("image://camera-preview/frame?r=")),
                 "Controller must publish a revisioned camera-preview URL.");
+    const double exposureBeforeAuto = controller.exposureMs().toDouble();
+    ok &= check(controller.autoExposure()
+                    && waitForIdle(controller, busySpy)
+                    && controller.exposureMs()
+                           == QString::number(exposureBeforeAuto * 4.0, 'g', 12),
+                "One-shot Auto Exposure must use the current frame and publish the accepted exposure.");
     bool blankPreviewWhileStreaming = false;
     QElapsedTimer stressClock;
     QMutex acceptedFramesMutex;
@@ -488,7 +501,7 @@ int main(int argc, char **argv)
                     && controller.streaming()
                     && controller.exposureMs() == QStringLiteral("6")
                     && controller.error().isEmpty()
-                    && fake->stopCalls == 1 && fake->startCalls == 2,
+                    && fake->stopCalls == 2 && fake->startCalls == 3,
                 "Streaming configuration must reach the serialized service transaction.");
 
     fake->rejectConfiguration = true;
@@ -498,7 +511,7 @@ int main(int argc, char **argv)
                     && controller.exposureMs() == QStringLiteral("6")
                     && controller.error()
                            == QStringLiteral("Camera configuration was rejected.")
-                    && fake->stopCalls == 2 && fake->startCalls == 3,
+                    && fake->stopCalls == 3 && fake->startCalls == 4,
                 "Rejected streaming configuration must retain facts and project its error.");
     fake->rejectConfiguration = false;
 
@@ -510,7 +523,7 @@ int main(int argc, char **argv)
                     && controller.resolution() == QStringLiteral("Custom")
                     && controller.customWidth() == QStringLiteral("1536")
                     && controller.customHeight() == QStringLiteral("1024")
-                    && fake->stopCalls == 3 && fake->startCalls == 4,
+                    && fake->stopCalls == 4 && fake->startCalls == 5,
                 "Custom resolution must be selectable and factually applied while streaming.");
 
     ok &= check(controller.stop() && waitForIdle(controller, busySpy)
@@ -527,7 +540,7 @@ int main(int argc, char **argv)
     ok &= check(controller.cameraStatus() == QStringLiteral("Unavailable")
                     && controller.error() == QStringLiteral("Camera transport failed.")
                     && controller.previewSource().isEmpty()
-                    && fake->stopCalls == 5 && fake->closeCalls == 1,
+                    && fake->stopCalls == 6 && fake->closeCalls == 1,
                 "A polling fault must project closed Unavailable truth through the facade.");
     QEventLoop unavailablePreviewWait;
     QTimer::singleShot(300, &unavailablePreviewWait, &QEventLoop::quit);

@@ -438,6 +438,7 @@ Item {
         property string sequencePresentation: "ready"
         property string datasetPresentation: "ready"
         property int sequenceFrameCount: 0
+        property int sequenceFinalizedFrameCount: 0
         property int datasetFrameCount: 0
         property int datasetCropCount: 0
         property string sequenceLocation: "C:/OpenDSS/Collections"
@@ -448,6 +449,7 @@ Item {
         property string datasetError: ""
         readonly property bool captureActive:
             sequencePresentation === "running" || sequencePresentation === "paused"
+            || sequencePresentation === "stopping"
             || datasetPresentation === "running" || datasetPresentation === "paused"
         property bool captureStartAvailable: !captureActive
         property int startSequenceCallCount: 0
@@ -461,6 +463,7 @@ Item {
             sequencePresentation = "ready"
             datasetPresentation = "ready"
             sequenceFrameCount = 0
+            sequenceFinalizedFrameCount = 0
             datasetFrameCount = 0
             datasetCropCount = 0
             startSequenceCallCount = 0
@@ -971,6 +974,7 @@ Item {
         property int resolutionCallCount: 0
         property int bitDepthCallCount: 0
         property int exposureCallCount: 0
+        property int autoExposureCallCount: 0
         property int readoutCallCount: 0
         property int lutCallCount: 0
         property int previewReadyCallCount: 0
@@ -1011,6 +1015,10 @@ Item {
         function applyExposureMs(value) {
             ++exposureCallCount
             requestedExposureMs = value
+            return true
+        }
+        function autoExposure() {
+            ++autoExposureCallCount
             return true
         }
         function applyReadoutMode(mode) {
@@ -1253,6 +1261,7 @@ Item {
         verify(!unavailableCameraShell.form.cameraResolutionSelector.enabled)
         verify(!unavailableCameraShell.form.cameraBitDepthSelector.enabled)
         verify(!unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(!unavailableCameraShell.form.cameraAutoExposureButton.enabled)
         verify(!unavailableCameraShell.form.cameraReadoutSelector.enabled)
         verify(!unavailableCameraShell.form.previewLutRangeSlider.enabled)
         compare(unavailableCameraShell.form.cameraResolutionSelector.currentIndex, -1)
@@ -1286,6 +1295,7 @@ Item {
         verify(unavailableCameraShell.form.cameraResolutionSelector.enabled)
         verify(unavailableCameraShell.form.cameraBitDepthSelector.enabled)
         verify(unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(unavailableCameraShell.form.cameraAutoExposureButton.enabled)
         verify(unavailableCameraShell.form.cameraReadoutSelector.enabled)
         compare(unavailableCameraShell.form.cameraResolutionSelector.currentIndex, 0)
         compare(unavailableCameraShell.form.cameraBitDepthSelector.currentIndex, 1)
@@ -1321,6 +1331,8 @@ Item {
         unavailableCameraShell.form.cameraExposureField.editingFinished()
         compare(unavailableCameraController.exposureCallCount, 1)
         compare(unavailableCameraController.requestedExposureMs, 4.5)
+        unavailableCameraShell.form.cameraAutoExposureButton.clicked()
+        compare(unavailableCameraController.autoExposureCallCount, 1)
         unavailableCameraShell.form.cameraReadoutSelector.activated(1)
         compare(unavailableCameraController.readoutCallCount, 1)
         compare(unavailableCameraController.requestedReadoutMode, "Slow")
@@ -1344,6 +1356,7 @@ Item {
         verify(!unavailableCameraShell.form.cameraResolutionSelector.enabled)
         verify(!unavailableCameraShell.form.cameraBitDepthSelector.enabled)
         verify(!unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(!unavailableCameraShell.form.cameraAutoExposureButton.enabled)
         verify(!unavailableCameraShell.form.cameraReadoutSelector.enabled)
         unavailableCameraController.busy = false
         unavailableCameraShell.mockState.activeOperation = "imageSequence"
@@ -3591,6 +3604,23 @@ Item {
         shell.form.datasetStopButton.clicked()
         compare(captureWorkflowController.stopDatasetCallCount, 1)
         compare(shell.form.datasetPresentation, "completed")
+    }
+
+    function test_sequenceFinalizingPresentation() {
+        shell.captureWorkflowController = captureWorkflowController
+        shell.mockState.imageSequenceOpen = true
+        shell.form.sequenceFrameCount = 120
+        captureWorkflowController.sequenceFinalizedFrameCount = 47
+        captureWorkflowController.sequencePresentation = "stopping"
+        wait(0)
+
+        compare(shell.form.sequenceStatusText.text, "Finalizing TIFFs: 47 of 120")
+        verify(!shell.form.sequenceNameField.enabled)
+        verify(!shell.form.sequenceExperimentTypeField.enabled)
+        verify(!shell.form.sequenceNotesField.enabled)
+        verify(!shell.form.sequenceDurationField.enabled)
+        verify(!shell.form.sequenceLocationField.enabled)
+        verify(!shell.form.sequenceBrowseButton.enabled)
     }
 
     function test_trainingWeightsAndSequenceViewerViewActions() {

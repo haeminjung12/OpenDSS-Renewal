@@ -93,6 +93,23 @@ CameraFrame frame(quint64 delivery, uchar value = 42) {
     return result;
 }
 
+CameraFrame frame16(quint64 delivery, quint16 value = 0x7f00) {
+    CameraFrame result;
+    result.pixelFormat = CameraPixelFormat::Mono16;
+    result.width = 3;
+    result.height = 2;
+    result.rowBytes = 6;
+    result.bitDepth = 16;
+    result.deliveryId = delivery;
+    result.monotonicTimestampNs = static_cast<qint64>(delivery);
+    result.bytes.resize(12);
+    for (int offset = 0; offset != result.bytes.size(); offset += 2) {
+        result.bytes[offset] = static_cast<char>(value & 0xff);
+        result.bytes[offset + 1] = static_cast<char>(value >> 8);
+    }
+    return result;
+}
+
 ImageSequenceCaptureRequest request(const QString& root,
                                     std::optional<double> duration = std::nullopt) {
     return {root, "Sequence: test", "Experiment", "Notes", duration, "2.0.0",
@@ -210,7 +227,29 @@ bool sourceGapCompletion() {
            check(logged, "Gap range must be written to diagnostics.");
 }
 
-bool queueOverflowFailsFactually() {
+bool input16PersistsAs8Bit() {
+    QTemporaryDir root;
+    Fixture fixture;
+    ImageSequenceCaptureService service(
+        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+    QString error;
+    if (!service.start(request(root.path()), &error) ||
+        !service.offerFrame(frame16(1), 31.6, &error) || !service.stop(&error)) {
+        return check(false, "16-bit input sequence must finalize successfully.");
+    }
+    const auto state = service.snapshot();
+    const QString framePath = QDir(state.folder).filePath("frames/frame_00000001.tif");
+    const QImage saved = QImageReader(framePath).read();
+    QString loadError;
+    const auto manifest =
+        SequenceManifestV2::load(QDir(state.folder).filePath("sequence.json"), &loadError);
+    return check(!saved.isNull() && saved.depth() == 8,
+                 "Image Sequence TIFF output must remain 8-bit for 16-bit camera input.") &&
+           check(manifest && manifest->data().bitDepth == 8,
+                 "Image Sequence manifest must report the persisted 8-bit format.");
+}
+
+bool deferredFinalizationDoesNotThrottleCapture() {
     QTemporaryDir root;
     Fixture fixture;
     std::mutex writerMutex;
@@ -235,7 +274,7 @@ bool queueOverflowFailsFactually() {
                 *error = writer.errorString();
             return false;
         });
-    auto releaseBlockedWriter = [&] {
+    const auto releaseBlockedWriter = [&] {
         {
             std::lock_guard lock(writerMutex);
             releaseWriter = true;
@@ -244,11 +283,30 @@ bool queueOverflowFailsFactually() {
     };
 
     QString error;
-    if (!service.start(request(root.path()), &error) ||
-        !service.offerFrame(frame(1), 25.0, &error)) {
-        releaseBlockedWriter();
-        return check(false, "Overflow fixture must accept its first frame.");
+    if (!service.start(request(root.path()), &error))
+        return check(false, "Deferred-finalization fixture must start.");
+    constexpr quint64 frameCount = 32;
+    for (quint64 delivery = 1; delivery <= frameCount; ++delivery) {
+        if (!service.offerFrame(frame(delivery), 25.0, &error)) {
+            releaseBlockedWriter();
+            return check(false, "Spool persistence must accept the bounded test stream.");
+        }
+        QThread::msleep(1);
     }
+    if (!service.pause(&error)) {
+        releaseBlockedWriter();
+        return check(false, "Pausing must drain all offered frames into the spool.");
+    }
+    const auto captured = service.snapshot();
+    if (!check(captured.capturedFrameCount == frameCount && captured.savedFrameCount == 0,
+               "TIFF writing must remain deferred while frames are captured.")) {
+        releaseBlockedWriter();
+        return false;
+    }
+
+    bool stopped = false;
+    QString stopError;
+    std::thread finalizer([&] { stopped = service.stop(&stopError); });
     {
         std::unique_lock lock(writerMutex);
         if (!writerGate.wait_for(lock, std::chrono::seconds(2),
@@ -256,63 +314,26 @@ bool queueOverflowFailsFactually() {
             releaseWriter = true;
             lock.unlock();
             writerGate.notify_all();
-            return check(false, "Overflow fixture must reach the deterministic writer gate.");
+            finalizer.join();
+            return check(false, "Stop must enter the deferred TIFF writer.");
         }
     }
-
-    qint64 rejectedOffers = 0;
-    QString degradedError;
-    const quint64 attempted =
-        static_cast<quint64>(LiveFrameDispatcher::capacity()) + 2;
-    for (quint64 delivery = 2; delivery <= attempted; ++delivery) {
-        if (!service.offerFrame(frame(delivery), 25.0, &error)) {
-            ++rejectedOffers;
-            degradedError = error;
-        }
-    }
-    const QString degradedSnapshotError = service.snapshot().error;
+    const auto finalizing = service.snapshot();
+    const bool finalizingFacts =
+        check(finalizing.lifecycle == OperationLifecycle::Stopping &&
+                  finalizing.capturedFrameCount == frameCount &&
+                  finalizing.savedFrameCount == 0 &&
+                  finalizing.integrity.queueRejections.count == 0,
+              "Finalizing must expose captured, saved, and rejection counts independently.");
     releaseBlockedWriter();
-
-    fixture.now = 2'000'000'000;
-    const bool stopped = service.stop(&error);
-    const auto state = service.snapshot();
-    const QJsonObject recovery =
-        readJsonObject(QDir(state.folder).filePath("sequence.partial.json"));
-    const QJsonObject rejections =
-        recovery.value("integrity").toObject().value("queue_rejections").toObject();
-    return check(rejectedOffers == 1 &&
-                     degradedError.contains("degraded", Qt::CaseInsensitive) &&
-                     degradedError.contains(QStringLiteral("Attempted so far: %1").arg(attempted)) &&
-                     degradedError.contains(QStringLiteral("rejected: 1")) &&
-                     degradedSnapshotError == degradedError,
-                 "The rejected offer must immediately report a factual degraded state.") &&
-           check(!stopped && state.lifecycle == OperationLifecycle::Failed,
-                 "A queue-rejected sequence must finish as Failed.") &&
-           check(state.savedFrameCount == static_cast<qint64>(attempted - 1) &&
-                     state.integrity.queueRejections.count == 1 &&
-                     state.integrity.consumerFailures.count == 0 &&
-                     state.integrity.sourceFrameGaps.count == 0,
-                 "Overflow failure must preserve separate factual integrity counts.") &&
-           check(error.contains(QStringLiteral("Attempted: %1").arg(attempted)) &&
-                     error.contains(QStringLiteral("saved: %1").arg(attempted - 1)) &&
-                     error.contains(QStringLiteral("rejected: 1")) &&
-                     error.contains(QStringLiteral("attempted %1 fps")
-                                        .arg(attempted / 2.0, 0, 'f', 2)) &&
-                     error.contains(QStringLiteral("saved %1 fps")
-                                        .arg((attempted - 1) / 2.0, 0, 'f', 2)) &&
-                     error.contains(QStringLiteral("rejected 0.50 fps")) &&
-                     state.error == error,
-                 "Overflow failure must report separate factual counts and rates.") &&
-           check(recovery.value("status") == "failed" &&
-                     recovery.value("stop_reason") == "queue_rejection" &&
-                     recovery.value("saved_frame_count").toInteger(-1) ==
-                         static_cast<qint64>(attempted - 1) &&
-                     rejections.value("count").toInteger(-1) == 1,
-                 "Overflow recovery metadata must remain factual.") &&
-           check(!QFileInfo::exists(QDir(state.folder).filePath("sequence.json")),
-                 "Overflow failure must not publish an ordinary completed manifest.") &&
-           check(fixture.operations.snapshot().lifecycle == OperationLifecycle::Idle,
-                 "Overflow failure must release its operation lock.");
+    finalizer.join();
+    const auto completed = service.snapshot();
+    return finalizingFacts &&
+           check(stopped && stopError.isEmpty() &&
+                     completed.lifecycle == OperationLifecycle::Completed &&
+                     completed.capturedFrameCount == frameCount &&
+                     completed.savedFrameCount == frameCount,
+                 "Deferred finalization must publish every captured frame.");
 }
 
 bool pauseOfferRace() {
@@ -451,30 +472,26 @@ bool writeFailure() {
         return check(false, "Write collision fixture must be created.");
     collision.close();
     if (!service.offerFrame(frame(1), 25.0, &error))
-        return check(false, "Write failure must be asynchronous and nonblocking.");
-    if (!waitForLifecycle(service, OperationLifecycle::Failed))
-        return check(false, "Consumer write failure must transition to Failed.");
+        return check(false, "Spooling must remain independent of a future TIFF collision.");
+    if (service.stop(&error))
+        return check(false, "The deferred TIFF collision must fail finalization.");
     const auto state = service.snapshot();
     const QJsonObject recovery =
         readJsonObject(QDir(folder).filePath("sequence.partial.json"));
     const QJsonObject consumer =
         recovery.value("integrity").toObject().value("consumer_failures").toObject();
     const QJsonArray failureRanges = consumer.value("ranges").toArray();
-    bool loggedHandoff = false;
-    for (const QString& warning : warnings) {
-        loggedHandoff |= warning.contains("handoff 1 - 1") ||
-                         warning.contains("handoff 1-1");
-    }
     return check(QFileInfo::exists(QDir(folder).filePath("sequence.partial.json")),
                  "Failed sequence must retain its recovery marker.") &&
            check(!QFileInfo::exists(QDir(folder).filePath("sequence.json")),
                  "Failed sequence must not publish a canonical manifest.") &&
-           check(state.savedFrameCount == 0 &&
+           check(state.capturedFrameCount == 1 && state.savedFrameCount == 0 &&
                      state.integrity.consumerFailures.count == 1,
-                 "Failed write must not count a frame and must record consumer failure.") &&
+                 "Failed finalization must preserve captured and saved counts independently.") &&
            check(recovery.value("status") == "failed" &&
-                     recovery.value("stop_reason") == "consumer_failure" &&
+                     recovery.value("stop_reason") == "finalization_error" &&
                      !recovery.value("error").toString().isEmpty() &&
+                     recovery.value("captured_frame_count").toInteger(-1) == 1 &&
                      recovery.value("saved_frame_count").toInteger(-1) == 0,
                  "Failed recovery marker must record factual failure state.") &&
            check(consumer.value("count").toInteger(-1) == 1 &&
@@ -482,75 +499,55 @@ bool writeFailure() {
                      failureRanges.at(0).toObject().value("first").toInteger(-1) == 1 &&
                      failureRanges.at(0).toObject().value("last").toInteger(-1) == 1,
                  "Failed recovery metadata must contain exact failed handoff 1-1.") &&
-           check(loggedHandoff, "Consumer diagnostics must identify failed handoff 1-1.") &&
+           check(QFileInfo::exists(QDir(folder).filePath("sequence.frames.partial")),
+                 "Failed finalization must retain the recoverable spool.") &&
            check(fixture.operations.snapshot().lifecycle == OperationLifecycle::Idle,
                  "Write failure must release its operation lock.");
 }
 
 bool queuedWriteFailureRange() {
     warnings.clear();
-    {
-        std::lock_guard lock(warningGateMutex);
-        blockInitiatingWarning = true;
-        initiatingWarningEntered = false;
-        releaseInitiatingWarning = false;
-    }
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+        *fixture.camera, fixture.operations, [&] { return fixture.now; }, {},
+        [](const QImage& image, const QString& target, QString* error) {
+            if (target.endsWith(QStringLiteral("frame_00000002.tif"))) {
+                if (error)
+                    *error = QStringLiteral("Deterministic deferred writer failure.");
+                return false;
+            }
+            QImageWriter writer(target, "tiff");
+            if (writer.write(image))
+                return true;
+            if (error)
+                *error = writer.errorString();
+            return false;
+        });
     QString error;
     if (!service.start(request(root.path()), &error))
         return check(false, "Queued-failure sequence must start.");
     const QString folder = service.snapshot().folder;
-    QFile collision(QDir(folder).filePath("frames/frame_00000001.tif"));
-    if (!collision.open(QIODevice::WriteOnly) || collision.write("collision") < 0)
-        return check(false, "Queued-failure collision must be created.");
-    collision.close();
-    if (!service.offerFrame(frame(1), 25.0, &error))
-        return check(false, "Initiating failed frame must be accepted.");
-    {
-        std::unique_lock lock(warningGateMutex);
-        if (!warningGate.wait_for(lock, std::chrono::seconds(2),
-                                  [] { return initiatingWarningEntered; })) {
-            releaseInitiatingWarning = true;
-            warningGate.notify_all();
-            return check(false, "Consumer must reach the deterministic warning gate.");
-        }
-    }
     bool offersAccepted = true;
-    for (quint64 delivery = 2; delivery <= 4; ++delivery)
+    for (quint64 delivery = 1; delivery <= 4; ++delivery) {
         offersAccepted &= service.offerFrame(frame(delivery), 25.0, &error);
-    {
-        std::lock_guard lock(warningGateMutex);
-        releaseInitiatingWarning = true;
+        QThread::msleep(1);
     }
-    warningGate.notify_all();
-    if (!offersAccepted ||
-        !waitForLifecycle(service, OperationLifecycle::Failed)) {
-        return check(false, "Queued frames must be accepted then discarded by the failure.");
-    }
-    {
-        std::lock_guard lock(warningGateMutex);
-        blockInitiatingWarning = false;
-    }
+    if (!offersAccepted || service.stop(&error))
+        return check(false, "All frames must spool before deterministic finalization failure.");
 
     const QJsonObject recovery =
         readJsonObject(QDir(folder).filePath("sequence.partial.json"));
     const QJsonObject consumer =
         recovery.value("integrity").toObject().value("consumer_failures").toObject();
     const QJsonArray ranges = consumer.value("ranges").toArray();
-    bool aggregateLogged = false;
-    for (const QString& warning : warnings) {
-        aggregateLogged |= warning.contains("aggregate consumer failures") &&
-                           warning.contains("count 4") && warning.contains("1-4");
-    }
-    return check(consumer.value("count").toInteger(-1) == 4 && ranges.size() == 1 &&
-                     ranges.at(0).toObject().value("first").toInteger(-1) == 1 &&
+    const auto state = service.snapshot();
+    return check(state.capturedFrameCount == 4 && state.savedFrameCount == 1,
+                 "Finalization failure must retain exact captured and saved counts.") &&
+           check(consumer.value("count").toInteger(-1) == 3 && ranges.size() == 1 &&
+                     ranges.at(0).toObject().value("first").toInteger(-1) == 2 &&
                      ranges.at(0).toObject().value("last").toInteger(-1) == 4,
-                 "Failed recovery metadata must contain the full discarded range 1-4.") &&
-           check(aggregateLogged,
-                 "Aggregate diagnostics must match the full metadata range 1-4.");
+                 "Failed recovery metadata must contain the unfinalized range 2-4.");
 }
 
 } // namespace
@@ -558,8 +555,8 @@ bool queuedWriteFailureRange() {
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const auto previousHandler = qInstallMessageHandler(messageHandler);
-    const bool ok = manualCompletion() && timedPauseCompletion() &&
-                    sourceGapCompletion() && queueOverflowFailsFactually() &&
+    const bool ok = manualCompletion() && input16PersistsAs8Bit() && timedPauseCompletion() &&
+                    sourceGapCompletion() && deferredFinalizationDoesNotThrottleCapture() &&
                     pauseOfferRace() && zeroFrameFailure() && startConflicts() &&
                     writeFailure() && queuedWriteFailureRange();
     qInstallMessageHandler(previousHandler);

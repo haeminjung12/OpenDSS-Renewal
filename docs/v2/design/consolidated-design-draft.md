@@ -2898,7 +2898,7 @@ This UI exposes the existing qualified detector threshold; it does not authorize
 ### 19.3.2 Camera default and LUT
 
 - Bit Depth is exactly `8-bit` only for a new/default live-Camera state. A legacy live-Camera profile with no Bit Depth field resolves to `8-bit`. Loading a saved supported Setup Profile preserves its explicit saved Bit Depth and MUST NOT overwrite that value with the default. Loaded image files and sequences retain their native bit depth and are never converted by this live-Camera default.
-- Auto Exposure is removed from the product. There is no Auto Exposure button, action, state, algorithm, service/controller path, protected DCAM bounds expansion, mock state, or placeholder. Manual Exposure remains unchanged.
+- Camera exposes one `Auto` button beside the existing manual Exposure input. One click performs one one-shot auto-exposure operation through the existing camera/exposure path; success applies the calculated exposure and updates the same input, which displays no more than two digits after the decimal point. Failure preserves the prior usable exposure and does not wedge the UI. Manual Exposure remains unchanged. Continuous auto exposure, additional settings, new camera abstractions, protected DCAM behavior changes, and unrelated refactoring are not authorized.
 - The visible section title is exactly `LUT`. Retain the existing preview-only LUT slider and required LUT behavior. Remove the displayed numeric row beneath it; the slider retains its accessible name, role, and current value without a replacement visual numeric readout.
 
 ### 19.3.3 DAQ numeric-step responsiveness

@@ -69,6 +69,7 @@ public:
     Q_INVOKABLE bool selectResolutionPreset(int index);
     Q_INVOKABLE bool applyBitDepth(int bitDepth);
     Q_INVOKABLE bool applyExposureMs(double exposureMs);
+    Q_INVOKABLE bool autoExposure();
     Q_INVOKABLE bool applyReadoutMode(const QString &readoutMode);
     Q_INVOKABLE void setPreviewLutRange(int blackLevel, int whiteLevel);
     Q_INVOKABLE void acknowledgePreviewReady(const QString &previewSource);

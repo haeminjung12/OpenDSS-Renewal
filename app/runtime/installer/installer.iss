@@ -3,7 +3,9 @@
 #endif
 
 #define AppName "OpenDSS"
-#define AppVersion "0.9.0"
+#ifndef AppVersion
+  #error AppVersion not defined. build_installer.ps1 derives it from the v2 application.
+#endif
 #define AppPublisher "haeminjung"
 #define AppExeName "OpenDSS.exe"
 #define DefaultDirName "{pf}\OpenDSS"
@@ -173,7 +175,7 @@ begin
     ExpandConstant('{app}\training\python\scripts\windows\provision-training-runtime.ps1') +
     '" -BootstrapRoot "' + ExpandConstant('{app}\training\bootstrap') +
     '" -InstallRoot "' + ExpandConstant('{localappdata}\OpenDSS') +
-    '" -CheckOutput "' +
+    '" -ComputeProfile Auto -CheckOutput "' +
     ExpandConstant('{localappdata}\OpenDSS\training-runtime-check') + '"';
 end;
 
@@ -185,7 +187,7 @@ begin
   TrainingFailureDetail := '';
   Result := Exec(
     ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
-    TrainingProvisionerParameters, '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+    TrainingProvisionerParameters, '', SW_SHOW, ewWaitUntilTerminated, ExitCode);
   if not Result then
   begin
     TrainingFailureDetail := 'the Training bootstrap could not be started';
@@ -206,31 +208,85 @@ begin
   Result := True;
 end;
 
+function ProbePythonEnvironment(
+  PythonPath: String; IsCpuEnvironment: Boolean; var ExitCode: Integer): Boolean;
+begin
+  if IsCpuEnvironment then
+    Result := Exec(PythonPath,
+      '-I -c "import importlib.metadata as m,platform,struct,sys,torch,onnxruntime as ort;import droplet_trainer;names={d.metadata[''Name''].lower() for d in m.distributions()};ok=platform.python_version()==''3.12.10'' and struct.calcsize(''P'')*8==64 and m.version(''torch'').endswith(''+cpu'') and ''CPUExecutionProvider'' in ort.get_available_providers() and ''onnxruntime'' in names and ''onnxruntime-gpu'' not in names;sys.exit(0 if ok else 10)"',
+      '', SW_HIDE, ewWaitUntilTerminated, ExitCode)
+  else
+    Result := Exec(PythonPath,
+      '-I -c "import importlib.metadata as m,platform,struct,sys,torch,onnxruntime as ort;import droplet_trainer;names={d.metadata[''Name''].lower() for d in m.distributions()};ok=platform.python_version()==''3.12.10'' and struct.calcsize(''P'')*8==64 and torch.cuda.is_available() and ''CUDAExecutionProvider'' in ort.get_available_providers() and ''onnxruntime-gpu'' in names and ''onnxruntime'' not in names;sys.exit(0 if ok else 10)"',
+      '', SW_HIDE, ewWaitUntilTerminated, ExitCode);
+end;
+
 function ProbeTrainingCompute(var ComputeStatus: String): Boolean;
 var
   PythonPath: String;
+  AlternatePythonPath: String;
+  SelectionPath: String;
+  SelectedEnvironment: AnsiString;
+  IsCpuEnvironment: Boolean;
   ExitCode: Integer;
 begin
   Result := False;
-  PythonPath :=
-    ExpandConstant('{localappdata}\OpenDSS\training-venv-gpu\Scripts\python.exe');
+  IsCpuEnvironment := False;
+  SelectionPath :=
+    ExpandConstant('{localappdata}\OpenDSS\training-runtime-selection.txt');
+  if LoadStringFromFile(SelectionPath, SelectedEnvironment) and
+      (Trim(SelectedEnvironment) = 'training-venv-cpu') then
+  begin
+    IsCpuEnvironment := True;
+    PythonPath :=
+      ExpandConstant('{localappdata}\OpenDSS\training-venv-cpu\Scripts\python.exe');
+    AlternatePythonPath :=
+      ExpandConstant('{localappdata}\OpenDSS\training-venv-gpu\Scripts\python.exe');
+  end
+  else
+  begin
+    PythonPath :=
+      ExpandConstant('{localappdata}\OpenDSS\training-venv-gpu\Scripts\python.exe');
+    AlternatePythonPath :=
+      ExpandConstant('{localappdata}\OpenDSS\training-venv-cpu\Scripts\python.exe');
+  end;
+
   if not FileExists(PythonPath) then
+  begin
+    PythonPath := AlternatePythonPath;
+    AlternatePythonPath := '';
+    IsCpuEnvironment := not IsCpuEnvironment;
+    if not FileExists(PythonPath) then
+    begin
+      ComputeStatus := 'Unavailable';
+      Exit;
+    end;
+  end;
+
+  if not ProbePythonEnvironment(
+      PythonPath, IsCpuEnvironment, ExitCode) then
   begin
     ComputeStatus := 'Unavailable';
     Exit;
   end;
 
-  if not Exec(PythonPath,
-      '-I -c "import sys,torch,onnxruntime as ort;sys.exit(0 if torch.cuda.is_available() and ''CUDAExecutionProvider'' in ort.get_available_providers() else 10)"',
-      '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+  if (ExitCode <> 0) and FileExists(AlternatePythonPath) then
   begin
-    ComputeStatus := 'Unavailable';
-    Exit;
+    IsCpuEnvironment := not IsCpuEnvironment;
+    if not ProbePythonEnvironment(
+        AlternatePythonPath, IsCpuEnvironment, ExitCode) then
+    begin
+      ComputeStatus := 'Unavailable';
+      Exit;
+    end;
   end;
 
   if ExitCode = 0 then
   begin
-    ComputeStatus := 'CUDA';
+    if IsCpuEnvironment then
+      ComputeStatus := 'CPU'
+    else
+      ComputeStatus := 'CUDA';
     Result := True;
   end
   else if ExitCode = 10 then
@@ -296,7 +352,8 @@ procedure RepairTrainingEnvironment(Sender: TObject);
 begin
   RepairTrainingButton.Enabled := False;
   WizardForm.FinishedLabel.Caption :=
-    StageTrainingEnvironmentSetup + ': downloading and verifying...';
+    StageTrainingEnvironmentSetup +
+    ': follow the OpenDSS Training Setup console for live progress...';
   WizardForm.Repaint;
   RunTrainingProvisioner;
   UpdateFinalVerification;
@@ -398,7 +455,8 @@ begin
   begin
     WizardForm.PageNameLabel.Caption := StageTrainingEnvironmentSetup;
     WizardForm.StatusLabel.Caption :=
-      StageTrainingEnvironmentSetup + ': downloading and verifying...';
+      StageTrainingEnvironmentSetup +
+      ': follow the OpenDSS Training Setup console for live progress...';
     RunTrainingProvisioner;
   end;
 end;

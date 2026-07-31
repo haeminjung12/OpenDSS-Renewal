@@ -177,6 +177,7 @@ def main() -> int:
     try:
         config = {
             "architecture": args.architecture,
+            "classes": list(CLASSES),
             "initialization": {"mode": "checkpoint"},
             "input_size": [96, 96, 3],
             "onnx_opset": 18,
@@ -192,6 +193,7 @@ def main() -> int:
             {
                 "model_state": model.state_dict(),
                 "config": config,
+                "class_ids": list(config["classes"]),
                 "source_checkpoint_sha256": sha256(source),
             },
             checkpoint,

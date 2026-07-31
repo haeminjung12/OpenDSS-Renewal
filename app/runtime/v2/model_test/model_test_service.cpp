@@ -30,6 +30,8 @@ namespace {
 using namespace desktop_app::v2;
 using namespace desktop_app::v2::model_test;
 
+constexpr qsizetype kMaximumProcessMessageBytes = 1024 * 1024;
+
 void setError(QString* error, const QString& message) {
     if (error)
         *error = message;
@@ -89,6 +91,13 @@ std::optional<QJsonObject> readProcessMessage(QProcess& process,
         }
         const qsizetype newline = buffer.indexOf('\n');
         if (newline >= 0) {
+            if (newline > kMaximumProcessMessageBytes) {
+                setError(
+                    error,
+                    QStringLiteral(
+                        "Model Test process message exceeded the maximum allowed size."));
+                return std::nullopt;
+            }
             const QByteArray line = buffer.left(newline).trimmed();
             buffer.remove(0, newline + 1);
             QJsonParseError parseError;
@@ -106,10 +115,24 @@ std::optional<QJsonObject> readProcessMessage(QProcess& process,
             buffer += process.readAllStandardOutput();
         if (buffer.indexOf('\n') >= 0)
             continue;
+        if (buffer.size() > kMaximumProcessMessageBytes) {
+            setError(
+                error,
+                QStringLiteral(
+                    "Model Test process message exceeded the maximum allowed size."));
+            return std::nullopt;
+        }
         if (process.state() == QProcess::NotRunning) {
             buffer += process.readAllStandardOutput();
             if (buffer.indexOf('\n') >= 0)
                 continue;
+            if (buffer.size() > kMaximumProcessMessageBytes) {
+                setError(
+                    error,
+                    QStringLiteral(
+                        "Model Test process message exceeded the maximum allowed size."));
+                return std::nullopt;
+            }
             setError(error,
                      QStringLiteral("Model Test process exited before completing its protocol: %1")
                          .arg(QString::fromUtf8(process.readAllStandardError()).trimmed()));

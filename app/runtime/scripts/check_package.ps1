@@ -125,6 +125,63 @@ function Test-Hash {
     }
 }
 
+function Test-WindowsGuiExecutable {
+    param(
+        [System.Collections.ArrayList]$List,
+        [System.Collections.ArrayList]$Errors,
+        [string]$Path
+    )
+
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+        return
+    }
+
+    try {
+        $stream = [System.IO.File]::OpenRead($Path)
+        try {
+            $reader = [System.IO.BinaryReader]::new($stream)
+            $stream.Position = 0x3c
+            $peOffset = $reader.ReadInt32()
+            if ($peOffset -lt 0x40 -or $peOffset -gt ($stream.Length - 94)) {
+                throw "Invalid PE header offset."
+            }
+            $stream.Position = $peOffset
+            if ($reader.ReadUInt32() -ne 0x00004550) {
+                throw "PE signature is absent."
+            }
+            $stream.Position = $peOffset + 24
+            $optionalHeaderMagic = $reader.ReadUInt16()
+            if ($optionalHeaderMagic -notin @(0x010b, 0x020b)) {
+                throw "Unsupported PE optional-header format."
+            }
+            $stream.Position = $peOffset + 24 + 68
+            $subsystem = $reader.ReadUInt16()
+        } finally {
+            $stream.Dispose()
+        }
+    } catch {
+        $message = "Packaged OpenDSS.exe PE validation failed: $($_.Exception.Message)"
+        Add-CheckResult -List $List -Name "Windows GUI subsystem" `
+            -Status "fail" -Path $Path -Detail $message
+        [void]$Errors.Add($message)
+        return
+    }
+
+    if ($subsystem -ne 2) {
+        $message = (
+            "Packaged OpenDSS.exe must use Windows GUI subsystem 2; " +
+            "found subsystem $subsystem.")
+        Add-CheckResult -List $List -Name "Windows GUI subsystem" `
+            -Status "fail" -Path $Path -Detail $message
+        [void]$Errors.Add($message)
+        return
+    }
+
+    Add-CheckResult -List $List -Name "Windows GUI subsystem" `
+        -Status "pass" -Path $Path `
+        -Detail "PE subsystem 2 prevents an application console window."
+}
+
 function Get-FileVersionString {
     param([string]$Path)
 
@@ -319,6 +376,8 @@ foreach ($relativePath in @(
     "training\python\droplet_trainer\__main__.py",
     "training\python\droplet_trainer\cli.py",
     "training\python\scripts\windows\provision-training-runtime.ps1",
+    "training\bootstrap\windows-py312-cpu.lock",
+    "training\bootstrap\windows-py312-cpu-inventory.json",
     "training\bootstrap\windows-py312-gpu-cu130-downloads.json",
     "training\bootstrap\windows-py312-gpu-cu130.lock",
     "training\bootstrap\windows-py312-gpu-cu130-inventory.json",
@@ -345,6 +404,8 @@ foreach ($relativePath in $requiredPackageFiles) {
 }
 Test-Hash -List $checks -Errors $errors -Name "accepted v2 executable identity" `
     -Path (Join-Path $PackageDir "OpenDSS.exe") -Expected $ExpectedOpenDssSha256
+Test-WindowsGuiExecutable -List $checks -Errors $errors `
+    -Path (Join-Path $PackageDir "OpenDSS.exe")
 
 foreach ($relativePath in @(
     "Desktop_app_v2App.exe",
@@ -450,6 +511,16 @@ try {
     $authoritativeRoot = Join-Path $RepoRoot "training\python"
     foreach ($comparison in @(
         @{
+            source = Join-Path $authoritativeRoot "requirements\windows-py312-cpu.lock"
+            packaged = Join-Path $trainingBootstrapRoot "windows-py312-cpu.lock"
+            label = "CPU lock"
+        },
+        @{
+            source = Join-Path $authoritativeRoot "requirements\windows-py312-cpu-inventory.json"
+            packaged = Join-Path $trainingBootstrapRoot "windows-py312-cpu-inventory.json"
+            label = "CPU inventory"
+        },
+        @{
             source = Join-Path $authoritativeRoot "requirements\windows-py312-gpu-cu130-downloads.json"
             packaged = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130-downloads.json"
             label = "download catalog"
@@ -480,8 +551,13 @@ try {
     $catalogPath = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130-downloads.json"
     $lockPath = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130.lock"
     $inventoryPath = Join-Path $trainingBootstrapRoot "windows-py312-gpu-cu130-inventory.json"
+    $cpuLockPath = Join-Path $trainingBootstrapRoot "windows-py312-cpu.lock"
+    $cpuInventoryPath =
+        Join-Path $trainingBootstrapRoot "windows-py312-cpu-inventory.json"
     $catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json
     $inventory = Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json
+    $cpuInventory =
+        Get-Content -LiteralPath $cpuInventoryPath -Raw | ConvertFrom-Json
     if ([string]$catalog.schema_version -ne "opendss-training-bootstrap-downloads-v1" -or
         @($catalog.wheels).Count -ne 36) {
         throw "Training bootstrap download catalog is not accepted."
@@ -489,6 +565,22 @@ try {
     if ([string]$catalog.python.filename -ne [string]$inventory.python.installer_file -or
         [string]$catalog.python.url -notmatch "^https://www[.]python[.]org/") {
         throw "CPython bootstrap source differs from the accepted inventory/source."
+    }
+    $cpuLockText = Get-Content -LiteralPath $cpuLockPath -Raw
+    $cpuLockEntries = @(
+        Get-Content -LiteralPath $cpuLockPath |
+            Where-Object { $_ -match "==" }
+    )
+    if ([string]$cpuInventory.python.version -ne "3.12.10" -or
+        [string]$cpuInventory.python.architecture -ne "64bit" -or
+        [string]$cpuInventory.runtime.environment_name -ne
+            "training-venv-cpu" -or
+        [string]$cpuInventory.runtime.onnxruntime_distribution -ne
+            "onnxruntime" -or
+        $cpuLockEntries.Count -ne 37 -or
+        $cpuLockText -notmatch "(?m)^onnxruntime==1[.]25[.]1 " -or
+        $cpuLockText -match "(?m)^onnxruntime-gpu==") {
+        throw "Packaged CPU fallback contract is not accepted."
     }
     $catalogText = Get-Content -LiteralPath $catalogPath -Raw
     if ($catalogText -match '"sha256"\s*:') {
@@ -584,9 +676,9 @@ if (Test-Path -LiteralPath $registryPath) {
     )
     $expectedWeightHashes = @{
         "opendss_blank_mobilenet_v3_small" = "047dcff4addef86ea5bc2eff13c9614dc11f47ab1160d0a71a25e7db994f4e1f"
-        "opendss_pretrained_mobilenet_v3_small" = "0542c4955ebcbe74fba96169967241a9453b2af135f241097b5cfae774dd1e35"
+        "opendss_pretrained_mobilenet_v3_small" = "4a8f704bf77a51900a4efcd9ea2fafd54d91d51f08dee684db0437da38d953ea"
         "opendss_blank_efficientnet_b0" = "7f5810bc96def8f7552d5b7e68d53c4786f81167d28291b21c0d90e1fca14934"
-        "opendss_pretrained_efficientnet_b0" = "242ed863549dd58af941fcbc879fbe83127a54772b003bba7637a9d8255cd1c5"
+        "opendss_pretrained_efficientnet_b0" = "7496bb0d2959e456ed4bb9ae77b03fd187fe5d75e0a86e40b5a18296da7b4135"
     }
     $actualBundleIds = @($registry.entries.registry_entry_id | Sort-Object)
     if (($actualBundleIds -join "|") -ne (($expectedBundleIds | Sort-Object) -join "|")) {

@@ -1789,6 +1789,24 @@ Item {
         compare(shell.mockState.selectedWorkspace, "modelTest")
     }
 
+    function test_modelLibraryListRemainsViewportBounded() {
+        const rows = []
+        for (let index = 0; index < 100; ++index) {
+            rows.push({
+                name: "Model " + index,
+                architecture: "mobilenet_v3_small",
+                classCount: 3
+            })
+        }
+        const workspace = shell.form.modelLibraryWorkspace
+        workspace.presentation = "ready"
+        workspace.modelRows = rows
+        tryCompare(workspace.modelListView, "count", 100)
+        verify(workspace.modelListView.height
+               < workspace.modelListView.contentHeight)
+        verify(workspace.modelListView.itemAtIndex(99) === null)
+    }
+
     function test_startupPromptAndNavigation() {
         shell.mockState.cameraAvailable = false
         shell.mockState.cameraStreaming = false
@@ -3694,6 +3712,12 @@ Item {
         }
 
         const viewer = viewers[0]
+        viewer.source =
+                "file:///C:/OpenDSS/missing-full-size-viewer-image.tif"
+        tryCompare(viewer.image, "status", Image.Error)
+        verify(!viewer.image.visible)
+        verify(viewer.placeholder.visible)
+
         viewer.zoomScale = 2
         wait(0)
         verify(viewer.viewport.contentWidth > viewer.viewport.width)

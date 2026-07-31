@@ -31,7 +31,7 @@ using namespace desktop_app::v2::model_test;
 constexpr auto ExpectedAuditManifestSha256 =
     "1583ed3ddd9c76c4fbb8badf34932ff79835ac7faaa639e64fb4ee84f3361adf";
 constexpr auto ExpectedDatasetJsonSha256 =
-    "e6bcea0f2f7e192008381329e4d8c355ba2ae2f0baf867feada0f60f255f1c72";
+    "58500d725d1e185667225835915dac64473eb790896b561d6db892cfbaf9233b";
 constexpr auto ExpectedDatasetId =
     "droplet_target_nontarget_3class_starter";
 constexpr auto RepresentativeDatasetId =
@@ -518,32 +518,32 @@ int main(int argc, char** argv) {
     QString registryWarning;
     const QJsonArray registryEntries =
         readModelRegistryEntriesFromPath(registryPath, &registryWarning);
-    int activeCount = 0;
+    int expectedEntryCount = 0;
     QJsonObject activeEntry;
     for (const QJsonValue& value : registryEntries) {
         const QJsonObject entry = value.toObject();
-        if (entry.value("active").toBool()) {
+        if (registryString(entry, QStringLiteral("registry_entry_id")) ==
+            QLatin1String(ExpectedRegistryEntryId)) {
             activeEntry = entry;
-            ++activeCount;
+            ++expectedEntryCount;
         }
     }
-    if (!registryWarning.isEmpty() || activeCount != 1) {
+    if (!registryWarning.isEmpty() || expectedEntryCount != 1) {
         return finish(
             20,
             registryWarning.isEmpty()
-                ? QStringLiteral("Registry must have exactly one Active Model.")
+                ? QStringLiteral(
+                      "Registry must contain exactly one pinned Model entry.")
                 : registryWarning);
     }
     const QString configuredPackage =
         registryString(activeEntry, QStringLiteral("package_path"));
-    if (registryString(activeEntry, QStringLiteral("registry_entry_id")) !=
-            QLatin1String(ExpectedRegistryEntryId) ||
-        registryString(activeEntry, QStringLiteral("display_name")) !=
+    if (registryString(activeEntry, QStringLiteral("display_name")) !=
             QLatin1String(ExpectedModelName) ||
         !localAbsolutePath(configuredPackage) ||
         !samePath(configuredPackage, QLatin1String(ExpectedPackagePath))) {
         return finish(
-            21, QStringLiteral("Active Model registry identity/path mismatch."));
+            21, QStringLiteral("Pinned Model registry identity/path mismatch."));
     }
 
     const ModelPackageInspection package = inspectModelPackage(activeEntry);
@@ -595,23 +595,6 @@ int main(int argc, char** argv) {
                               : error);
     }
 
-    ModelLoadService productionLoader(registryPath);
-    const PersistedActiveModelInspection inspection =
-        productionLoader.inspectPersistedActive();
-    if (!inspection.loadable ||
-        inspection.id != QLatin1String(ExpectedRegistryEntryId) ||
-        inspection.displayName != QLatin1String(ExpectedModelName) ||
-        inspection.modelSha256 != QLatin1String(ExpectedOnnxSha256) ||
-        (inspection.plannedDevice != QStringLiteral("GPU") &&
-         inspection.plannedDevice != QStringLiteral("CPU")) ||
-        !expectedClasses(inspection.classes)) {
-        return finish(
-            25,
-            inspection.error.isEmpty()
-                ? QStringLiteral("Active Model loader inspection mismatch.")
-                : inspection.error);
-    }
-
     const QString temporaryPackage =
         QDir(temporary.path()).filePath("active-model-package");
     const QString temporaryRegistry =
@@ -643,11 +626,15 @@ int main(int argc, char** argv) {
     int rewrittenActiveCount = 0;
     for (qsizetype index = 0; index < temporaryEntries.size(); ++index) {
         QJsonObject entry = temporaryEntries.at(index).toObject();
-        if (!entry.value("active").toBool())
-            continue;
-        entry.insert("package_path", temporaryPackage);
+        const bool pinnedEntry =
+            registryString(entry, QStringLiteral("registry_entry_id")) ==
+            QLatin1String(ExpectedRegistryEntryId);
+        entry.insert("active", pinnedEntry);
+        if (pinnedEntry) {
+            entry.insert("package_path", temporaryPackage);
+            ++rewrittenActiveCount;
+        }
         temporaryEntries.replace(index, entry);
-        ++rewrittenActiveCount;
     }
     registryObject->insert("entries", temporaryEntries);
     QFile temporaryRegistryFile(temporaryRegistry);
@@ -668,6 +655,21 @@ int main(int argc, char** argv) {
     }
 
     ModelLoadService loader(temporaryRegistry);
+    const PersistedActiveModelInspection inspection =
+        loader.inspectPersistedActive();
+    if (!inspection.loadable ||
+        inspection.id != QLatin1String(ExpectedRegistryEntryId) ||
+        inspection.displayName != QLatin1String(ExpectedModelName) ||
+        inspection.modelSha256 != QLatin1String(ExpectedOnnxSha256) ||
+        (inspection.plannedDevice != QStringLiteral("GPU") &&
+         inspection.plannedDevice != QStringLiteral("CPU")) ||
+        !expectedClasses(inspection.classes)) {
+        return finish(
+            25,
+            inspection.error.isEmpty()
+                ? QStringLiteral("Pinned Model loader inspection mismatch.")
+                : inspection.error);
+    }
     const PersistedActiveCheckpointInspection checkpointInspection =
         loader.inspectAndMigratePersistedActiveCheckpoint();
     const QString temporaryMetadataHash = fileSha256(temporaryMetadata);

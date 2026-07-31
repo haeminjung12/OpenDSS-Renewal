@@ -111,7 +111,14 @@ Rectangle {
                         id: modelListView
                         visible: root.hasDynamicModelRows
                         width: parent.width
-                        height: contentHeight
+                        height: Math.min(
+                                    contentHeight,
+                                    Math.max(
+                                        0,
+                                        modelListScroll.availableHeight
+                                        - modelList.y - Constants.spacing))
+                        clip: true
+                        reuseItems: true
                         model: root.modelRows
                         delegate: Button {
                             required property int index

@@ -15,6 +15,9 @@
 namespace desktop_app::v2::training {
 namespace {
 
+constexpr qsizetype kMaximumProcessMessageBytes = 1024 * 1024;
+constexpr qsizetype kMaximumStandardErrorBytes = 64 * 1024;
+
 bool writeJsonFile(const QString &path, const QJsonObject &object, QString *error)
 {
     QSaveFile file(path);
@@ -403,18 +406,40 @@ void TrainingService::setState(TrainingState state)
 void TrainingService::consumeStandardOutput()
 {
     outputBuffer_.append(process_.readAllStandardOutput());
+    const auto rejectOversizedMessage = [this] {
+        if (protocolError_.isEmpty()) {
+            protocolError_ = QStringLiteral(
+                "Trainer process message exceeded the maximum allowed size.");
+        }
+        outputBuffer_.clear();
+        if (process_.state() != QProcess::NotRunning) {
+            process_.terminate();
+            killTimer_.start();
+        }
+        emit changed();
+    };
     qsizetype newline = -1;
     while ((newline = outputBuffer_.indexOf('\n')) >= 0) {
+        if (newline > kMaximumProcessMessageBytes) {
+            rejectOversizedMessage();
+            return;
+        }
         const QByteArray line = outputBuffer_.left(newline).trimmed();
         outputBuffer_.remove(0, newline + 1);
         if (!line.isEmpty())
             processOutputLine(line);
     }
+    if (outputBuffer_.size() > kMaximumProcessMessageBytes)
+        rejectOversizedMessage();
 }
 
 void TrainingService::consumeStandardError()
 {
-    standardError_.append(QString::fromUtf8(process_.readAllStandardError()));
+    QByteArray tail = standardError_.toUtf8();
+    tail.append(process_.readAllStandardError());
+    if (tail.size() > kMaximumStandardErrorBytes)
+        tail = tail.right(kMaximumStandardErrorBytes);
+    standardError_ = QString::fromUtf8(tail);
     emit changed();
 }
 
@@ -467,12 +492,12 @@ void TrainingService::finish(int exitCode, QProcess::ExitStatus exitStatus)
     }
 
     QString failure;
-    if (exitStatus != QProcess::NormalExit || exitCode != 0)
+    if (!protocolError_.isEmpty())
+        failure = protocolError_;
+    else if (exitStatus != QProcess::NormalExit || exitCode != 0)
         failure = trainerError_.isEmpty()
             ? QStringLiteral("Trainer exited with code %1.").arg(exitCode)
             : trainerError_;
-    else if (!protocolError_.isEmpty())
-        failure = protocolError_;
     else if (runFinished_.isEmpty())
         failure = QStringLiteral("Trainer did not report a successful run_finished event.");
 

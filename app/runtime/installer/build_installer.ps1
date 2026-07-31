@@ -9,10 +9,9 @@ param(
     [string]$OnnxDir = "C:\onnxruntime-gpu",
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
     [string]$ModelsDir = "",
+    [string]$PreparedDatasetRoot = "",
     [string]$TrainerWheelPath = $env:OPENDSS_TRAINER_WHEEL,
-    [string]$WheelBuildPython = (
-        Join-Path $env:LOCALAPPDATA "OpenDSS\training-venv-gpu\Scripts\python.exe"
-    ),
+    [string]$WheelBuildPython = "",
     [string]$OutputDir = "",
     [string]$PortableOutputDir = "",
     [string]$NiInstaller = "",
@@ -25,6 +24,30 @@ param(
 $SourceRoot = (Resolve-Path -LiteralPath $SourceRoot).Path
 $RepoRoot = (Resolve-Path -LiteralPath (Join-Path $SourceRoot "..\..")).Path
 $RepoParent = Split-Path -Parent $RepoRoot
+$applicationMainPath =
+    Join-Path $SourceRoot "Desktop_app_v2\App\main.cpp"
+$applicationMain = Get-Content -LiteralPath $applicationMainPath -Raw
+$appVersionMatches = [regex]::Matches(
+    $applicationMain,
+    'QCoreApplication::setApplicationVersion\s*\(\s*QStringLiteral\s*\(\s*"(?<version>[0-9]+(?:\.[0-9]+){1,3})"\s*\)\s*\)\s*;')
+if ($appVersionMatches.Count -ne 1) {
+    throw (
+        "Expected exactly one numeric v2 application version in " +
+        "${applicationMainPath}; found $($appVersionMatches.Count).")
+}
+$appVersion = $appVersionMatches[0].Groups["version"].Value
+
+if (-not $WheelBuildPython) {
+    $gpuWheelPython = Join-Path $env:LOCALAPPDATA (
+        "OpenDSS\training-venv-gpu\Scripts\python.exe")
+    $cpuWheelPython = Join-Path $env:LOCALAPPDATA (
+        "OpenDSS\training-venv-cpu\Scripts\python.exe")
+    $WheelBuildPython = if (Test-Path -LiteralPath $gpuWheelPython -PathType Leaf) {
+        $gpuWheelPython
+    } else {
+        $cpuWheelPython
+    }
+}
 
 if (-not $ModelsDir) { $ModelsDir = Join-Path $SourceRoot "models" }
 if (-not $OutputDir) { $OutputDir = Join-Path $RepoParent "artifacts\internal-release\installer" }
@@ -95,6 +118,7 @@ $packageDir = & $packageScript `
     -OnnxDir $OnnxDir `
     -VcpkgBin $VcpkgBin `
     -ModelsDir $ModelsDir `
+    -PreparedDatasetRoot $PreparedDatasetRoot `
     -TrainerWheelPath $TrainerWheelPath `
     -WheelBuildPython $WheelBuildPython `
     -OutputDir $PortableOutputDir `
@@ -129,8 +153,10 @@ $defineSource = "/DSourceDir=`"$packageDir`""
 $defineOut = "/DOutputDir=`"$OutputDir`""
 $defineVcRedist = "/DVcRedist=`"$VcRedist`""
 $defineVcVersion = "/DVcRedistVersion=`"$vcVersion`""
+$defineAppVersion = "/DAppVersion=`"$appVersion`""
 
-& $InnoSetup $defineSource $defineOut $defineVcRedist $defineVcVersion $issPath
+& $InnoSetup $defineSource $defineOut $defineVcRedist $defineVcVersion `
+    $defineAppVersion $issPath
 if ($LASTEXITCODE -ne 0) {
     throw "Inno Setup failed with exit code $LASTEXITCODE"
 }
@@ -141,6 +167,7 @@ $installerFile = Get-Item -LiteralPath $installerPath
 if ($installerFile.Length -le $vcFile.Length) { throw "Installer is too small to contain the validated VC++ runtime payload." }
 $evidence = [ordered]@{
     schema_version = "opendss-installer-evidence-v1"
+    application_version = $appVersion
     installer = [ordered]@{ path = $installerPath; size = $installerFile.Length; product_version = $installerFile.VersionInfo.ProductVersion; sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath).Hash }
     vc_redist = [ordered]@{ path = $VcRedist; size = $vcFile.Length; product_version = $vcVersion; sha256 = $vcSha256; signature_status = [string]$vcSignature.Status; signer = $vcSignature.SignerCertificate.Subject }
     training_bootstrap = [ordered]@{
@@ -148,6 +175,12 @@ $evidence = [ordered]@{
             Join-Path $packageDir "training\bootstrap\windows-py312-gpu-cu130-downloads.json")).Hash
         lock_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
             Join-Path $packageDir "training\bootstrap\windows-py312-gpu-cu130.lock")).Hash
+        cuda_inventory_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
+            Join-Path $packageDir "training\bootstrap\windows-py312-gpu-cu130-inventory.json")).Hash
+        cpu_lock_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
+            Join-Path $packageDir "training\bootstrap\windows-py312-cpu.lock")).Hash
+        cpu_inventory_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
+            Join-Path $packageDir "training\bootstrap\windows-py312-cpu-inventory.json")).Hash
         embedded_trainer_wheel_sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (
             Join-Path $packageDir "training\bootstrap\droplet_trainer-0.2.0-py3-none-any.whl")).Hash
     }

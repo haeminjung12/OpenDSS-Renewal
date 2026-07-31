@@ -76,9 +76,17 @@ class ConvertPytorchModelPackageTest(unittest.TestCase):
         self.assertTrue((output / "model.onnx").is_file())
         self.assertTrue((output / "checkpoint.pth").is_file())
         metadata = json.loads((output / "metadata.json").read_text(encoding="utf-8"))
+        package_checkpoint = torch.load(
+            output / "checkpoint.pth", map_location="cpu", weights_only=True
+        )
         self.assertEqual(metadata["schema_version"], "model-metadata-v2")
         self.assertEqual(metadata["status"], "trained")
         self.assertEqual(metadata["architecture"]["id"], "mobilenet_v3_small")
+        self.assertEqual(package_checkpoint["config"]["classes"], ["0", "1", "2"])
+        self.assertEqual(
+            package_checkpoint["class_ids"],
+            package_checkpoint["config"]["classes"],
+        )
 
     def test_unsafe_custom_pickle_fails_closed_without_output(self) -> None:
         checkpoint = self.root / "unsafe.pth"

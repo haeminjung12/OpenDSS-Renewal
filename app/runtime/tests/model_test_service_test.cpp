@@ -179,6 +179,13 @@ int runFakeModelTestProcess(const QStringList& arguments) {
     const QJsonObject request =
         QJsonDocument::fromJson(input.readLine().toUtf8()).object();
     const QJsonArray items = request.value("items").toArray();
+    if (qEnvironmentVariableIntValue(
+            "OPENDSS_MODEL_TEST_FAKE_OVERSIZED_OUTPUT") == 1) {
+        const QByteArray oversized(1024 * 1024 + 1, 'x');
+        std::cout.write(oversized.constData(), oversized.size());
+        std::cout.flush();
+        return 5;
+    }
     output << QJsonDocument(
                   QJsonObject{{"schema_version", 1},
                               {"event", "ready"},
@@ -475,6 +482,40 @@ void testStopTerminatesUnresponsiveProcess() {
             qPrintable(error));
 }
 
+void testOversizedProcessMessageRejected() {
+    stage = "production-process-oversized-output";
+    QTemporaryDir temporary;
+    const auto fixture = makeDataset(temporary.path(), true, false, 3);
+    const QString packagePath = copyBundledModelPackage(temporary.path());
+    const QString registryPath =
+        QDir(temporary.path()).filePath("registry/model_registry.json");
+    writeJson(
+        registryPath,
+        QJsonObject{
+            {"schema_version", "model-registry-v3-simple"},
+            {"entries",
+             QJsonArray{QJsonObject{{"registry_entry_id", "real-active"},
+                                    {"display_name", "Registry Display Name"},
+                                    {"package_path", QDir::cleanPath(packagePath)},
+                                    {"active", true}}}}});
+    require(qputenv("OPENDSS_MODEL_TEST_FAKE_OVERSIZED_OUTPUT", "1"),
+            "set fake oversized output");
+
+    OperationCoordinator operations;
+    ModelLoadService loader(registryPath);
+    ModelTestService service(
+        operations, &loader, {}, {},
+        QCoreApplication::applicationFilePath(), temporary.path());
+    QString error;
+    const bool ran = service.run(
+        {fixture.datasetJson,
+         QDir(temporary.path()).filePath("oversized-output-result"), "2.0"},
+        &error);
+    qunsetenv("OPENDSS_MODEL_TEST_FAKE_OVERSIZED_OUTPUT");
+    require(!ran && error.contains("maximum", Qt::CaseInsensitive),
+            qPrintable(error));
+}
+
 void testConflictsAndSetupFailures() {
     stage = "setup";
     QTemporaryDir temporary;
@@ -683,6 +724,7 @@ int main(int argc, char** argv) {
     testCheckpointProvenanceMigration();
     testProductionProcessCommitsBatchBeforeStop();
     testStopTerminatesUnresponsiveProcess();
+    testOversizedProcessMessageRejected();
     testConflictsAndSetupFailures();
     testRuntimeFailuresAndStop();
     testConcurrentRunRejected();

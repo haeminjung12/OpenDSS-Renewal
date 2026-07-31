@@ -1364,10 +1364,23 @@ opendss_configure_offscreen_test(
 )
 opendss_deploy_qualified_cuda(model_test_service_test)
 
-set(OPENDSS_TEST_INSTALLER_PYTHON
-  "$ENV{LOCALAPPDATA}/OpenDSS/training-venv-gpu/Scripts/python.exe"
-  CACHE FILEPATH "Installer-owned OpenDSS Python used by Model Test validation"
-)
+if(NOT DEFINED OPENDSS_TEST_INSTALLER_PYTHON)
+  set(_opendss_test_gpu_python
+    "$ENV{LOCALAPPDATA}/OpenDSS/training-venv-gpu/Scripts/python.exe"
+  )
+  set(_opendss_test_cpu_python
+    "$ENV{LOCALAPPDATA}/OpenDSS/training-venv-cpu/Scripts/python.exe"
+  )
+  if(EXISTS "${_opendss_test_gpu_python}")
+    set(_opendss_test_default_python "${_opendss_test_gpu_python}")
+  else()
+    set(_opendss_test_default_python "${_opendss_test_cpu_python}")
+  endif()
+  set(OPENDSS_TEST_INSTALLER_PYTHON
+    "${_opendss_test_default_python}"
+    CACHE FILEPATH "Installer-owned OpenDSS Python used by Model Test validation"
+  )
+endif()
 if(NOT EXISTS "${OPENDSS_TEST_INSTALLER_PYTHON}")
   message(FATAL_ERROR
     "Model Test Python validation requires the installer-owned OpenDSS runtime at "

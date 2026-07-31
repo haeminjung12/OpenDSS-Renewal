@@ -60,7 +60,7 @@ Rectangle {
             fillMode: root.actualPixels ? Image.Pad : Image.PreserveAspectFit
             asynchronous: true
             cache: false
-            visible: root.source.toString() !== ""
+            visible: root.source.toString() !== "" && status !== Image.Error
 
             Item {
                 id: overlayLayer
@@ -83,6 +83,6 @@ Rectangle {
         color: Constants.surfaceColor
         font: Constants.headingFont
         horizontalAlignment: Text.AlignHCenter
-        visible: root.source.toString() === ""
+        visible: root.source.toString() === "" || image.status === Image.Error
     }
 }

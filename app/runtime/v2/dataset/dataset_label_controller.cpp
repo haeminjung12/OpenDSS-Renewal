@@ -95,12 +95,13 @@ QVariant DatasetLabelController::data(const QModelIndex &index, int role) const
 
 QHash<int, QByteArray> DatasetLabelController::roleNames() const
 {
-    return {
+    static const QHash<int, QByteArray> roles{
         {RecordIdRole, QByteArrayLiteral("recordId")},
         {CropUrlRole, QByteArrayLiteral("cropUrl")},
         {StateRole, QByteArrayLiteral("state")},
         {SelectedRole, QByteArrayLiteral("selected")},
     };
+    return roles;
 }
 
 QString DatasetLabelController::presentation() const

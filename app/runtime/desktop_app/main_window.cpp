@@ -6838,6 +6838,8 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 },
                 Qt::QueuedConnection);
         });
+        QObject::connect(
+            thread, &QThread::finished, thread, &QObject::deleteLater);
         QObject::connect(thread, &QThread::finished, this, [=]() {
             if (result->ok) {
                 statusLabel->setText(QString("Dataset prepared: %1").arg(result->collectionDir));
@@ -6854,7 +6856,6 @@ int MainWindow::runSetupAndEventLoop(QApplication& app, QSettings& runtimeSettin
                 logMessage(QString("Data Collection post-processing failed: %1").arg(result->errorMessage));
                 QMessageBox::critical(this, "Preparing Dataset Failed", result->errorMessage);
             }
-            thread->deleteLater();
         });
         thread->start();
     };

@@ -6,6 +6,7 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QEventLoop>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonObject>
@@ -122,9 +123,32 @@ QString trainingPythonExecutable()
     if (localAppData.isEmpty())
         return {};
 
-    const QString installerOwned =
-        QDir(localAppData).filePath(QStringLiteral("OpenDSS/training-venv-gpu/Scripts/python.exe"));
-    return QFileInfo(installerOwned).isFile() ? installerOwned : QString();
+    const QDir appData(localAppData);
+    const QDir installRoot(
+        appData.filePath(QStringLiteral("OpenDSS")));
+    QFile selectionFile(
+        installRoot.filePath(QStringLiteral("training-runtime-selection.txt")));
+    if (selectionFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        const QString environmentName =
+            QString::fromUtf8(selectionFile.readAll()).trimmed();
+        if (environmentName == QStringLiteral("training-venv-gpu")
+            || environmentName == QStringLiteral("training-venv-cpu")) {
+            const QString selected = installRoot.filePath(
+                environmentName + QStringLiteral("/Scripts/python.exe"));
+            if (QFileInfo(selected).isFile())
+                return selected;
+        }
+    }
+
+    // Pre-marker installs use the established deterministic GPU-first order.
+    const QString gpuEnvironment = appData.filePath(
+        QStringLiteral("OpenDSS/training-venv-gpu/Scripts/python.exe"));
+    if (QFileInfo(gpuEnvironment).isFile())
+        return gpuEnvironment;
+
+    const QString cpuEnvironment = appData.filePath(
+        QStringLiteral("OpenDSS/training-venv-cpu/Scripts/python.exe"));
+    return QFileInfo(cpuEnvironment).isFile() ? cpuEnvironment : QString();
 }
 
 QJsonObject provisionalFastDetectorSettings(const FastEventConfig &config)

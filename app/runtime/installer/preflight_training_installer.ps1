@@ -22,6 +22,9 @@ $catalogPath = Join-Path $training (
 $lockPath = Join-Path $training "requirements\windows-py312-gpu-cu130.lock"
 $inventoryPath = Join-Path $training (
     "requirements\windows-py312-gpu-cu130-inventory.json")
+$cpuLockPath = Join-Path $training "requirements\windows-py312-cpu.lock"
+$cpuInventoryPath = Join-Path $training (
+    "requirements\windows-py312-cpu-inventory.json")
 $provisionerPath = Join-Path $training (
     "scripts\windows\provision-training-runtime.ps1")
 $wheelBuilderPath = Join-Path $training (
@@ -30,6 +33,7 @@ $packagePath = Join-Path $source "scripts\package_portable.ps1"
 $checkPath = Join-Path $source "scripts\check_package.ps1"
 $buildPath = Join-Path $source "installer\build_installer.ps1"
 $issPath = Join-Path $source "installer\installer.iss"
+$mainPath = Join-Path $source "Desktop_app_v2\App\main.cpp"
 
 $checks = [System.Collections.ArrayList]::new()
 $errors = [System.Collections.ArrayList]::new()
@@ -86,8 +90,15 @@ if (-not $AcceptedExecutablePath -or -not $AcceptedExecutableSha256) {
 }
 
 try {
+    foreach ($cpuInput in @($cpuLockPath, $cpuInventoryPath)) {
+        if (-not (Test-Path -LiteralPath $cpuInput -PathType Leaf)) {
+            throw "CPU fallback bootstrap input is missing: $cpuInput"
+        }
+    }
     $catalog = Get-Content -LiteralPath $catalogPath -Raw | ConvertFrom-Json
     $inventory = Get-Content -LiteralPath $inventoryPath -Raw | ConvertFrom-Json
+    $cpuInventory =
+        Get-Content -LiteralPath $cpuInventoryPath -Raw | ConvertFrom-Json
     if ([string]$catalog.schema_version -ne
         "opendss-training-bootstrap-downloads-v1") {
         throw "Unexpected catalog schema."
@@ -101,6 +112,27 @@ try {
     if ([string]$catalog.python.filename -ne
         [string]$inventory.python.installer_file) {
         throw "CPython filename differs from inventory."
+    }
+    if ([string]$cpuInventory.python.version -ne "3.12.10" -or
+        [string]$cpuInventory.python.architecture -ne "64bit" -or
+        [string]$cpuInventory.runtime.environment_name -ne
+            "training-venv-cpu" -or
+        [string]$cpuInventory.runtime.onnxruntime_distribution -ne
+            "onnxruntime" -or
+        $cpuInventory.distributions.PSObject.Properties.Name -contains
+            "onnxruntime-gpu") {
+        throw "CPU fallback inventory is not the accepted CPU contract."
+    }
+    $cpuLockText = Get-Content -LiteralPath $cpuLockPath -Raw
+    $cpuLockEntries = @(
+        Get-Content -LiteralPath $cpuLockPath |
+            Where-Object { $_ -match "==" }
+    )
+    if ($cpuLockEntries.Count -ne 37 -or
+        $cpuLockText -notmatch "(?m)^onnxruntime==1[.]25[.]1 " -or
+        $cpuLockText -match "(?m)^onnxruntime-gpu==" -or
+        $cpuLockText -notmatch "(?m)^torch==2[.]10[.]0[+]cpu ") {
+        throw "CPU fallback lock is not the accepted 37-distribution CPU lock."
     }
     $pythonUri = [Uri]([string]$catalog.python.url)
     if ($pythonUri.Scheme -ne "https" -or
@@ -196,6 +228,8 @@ try {
     } else {
         $staged = (Resolve-Path -LiteralPath $PackageDir).Path
         foreach ($pair in @(
+            @($cpuLockPath, (Join-Path $staged "training\bootstrap\$(Split-Path -Leaf $cpuLockPath)")),
+            @($cpuInventoryPath, (Join-Path $staged "training\bootstrap\$(Split-Path -Leaf $cpuInventoryPath)")),
             @($catalogPath, (Join-Path $staged "training\bootstrap\$(Split-Path -Leaf $catalogPath)")),
             @($lockPath, (Join-Path $staged "training\bootstrap\$(Split-Path -Leaf $lockPath)")),
             @($inventoryPath, (Join-Path $staged "training\bootstrap\$(Split-Path -Leaf $inventoryPath)")),
@@ -215,17 +249,57 @@ try {
 try {
     $provisioner = Get-Content -LiteralPath $provisionerPath -Raw
     foreach ($marker in @(
-        ".candidate-", ".backup-", "Move-Item -LiteralPath `$runtimeCandidate",
+        ".candidate-", ".backup-",
         "Move-Item -LiteralPath `$environmentCandidate", "} catch {",
         "Move-Item -LiteralPath `$runtimeBackup -Destination `$runtime",
         "Move-Item -LiteralPath `$environmentBackup -Destination `$environment",
-        "Remove-ScopedDirectory"
+        "Remove-ScopedDirectory",
+        "ValidateSet(`"Auto`", `"cpu`", `"cuda`")",
+        "training-venv-cpu",
+        "Test-CudaAvailable",
+        "training-download-cache",
+        "Get-VerifiedDownload",
+        "Test-ExactPython",
+        "training-runtime-selection.txt",
+        "Move-Item -LiteralPath `$selectionCandidate -Destination `$selectionPath",
+        "Move-Item -LiteralPath `$selectionBackup -Destination `$selectionPath"
     )) {
         if (-not $provisioner.Contains($marker)) {
             throw "Transactional provisioner marker is absent: $marker"
         }
     }
+    if ($provisioner.Contains(
+            "Remove-ScopedDirectory -Path `$alternateEnvironment")) {
+        throw "Provisioner still deletes the valid alternate CPU/GPU environment."
+    }
+    $pythonVerificationIndex = $provisioner.IndexOf(
+        "if (-not (Test-ExactPython -Python `$runtimePython))",
+        [System.StringComparison]::Ordinal)
+    $dependencyDownloadIndex = $provisioner.IndexOf(
+        "Get-VerifiedDownload -Uri ([string]`$entry.url)",
+        [System.StringComparison]::Ordinal)
+    if ($pythonVerificationIndex -lt 0 -or $dependencyDownloadIndex -lt 0 -or
+        $pythonVerificationIndex -ge $dependencyDownloadIndex) {
+        throw "Python verification must precede dependency acquisition."
+    }
     $installer = Get-Content -LiteralPath $issPath -Raw
+    $buildInstaller = Get-Content -LiteralPath $buildPath -Raw
+    $main = Get-Content -LiteralPath $mainPath -Raw
+    $appVersionMatches = [regex]::Matches(
+        $main,
+        'QCoreApplication::setApplicationVersion\s*\(\s*QStringLiteral\s*\(\s*"(?<version>[0-9]+(?:\.[0-9]+){1,3})"\s*\)\s*\)\s*;')
+    if ($appVersionMatches.Count -ne 1) {
+        throw "The v2 application must expose exactly one numeric application version."
+    }
+    if ($installer.Contains('#define AppVersion "') -or
+        -not $installer.Contains("#ifndef AppVersion") -or
+        -not $buildInstaller.Contains('$defineAppVersion = "/DAppVersion=') -or
+        -not $buildInstaller.Contains(
+            '$appVersionMatches = [regex]::Matches(')) {
+        throw (
+            "Installer version must be derived from the v2 application " +
+            "rather than independently hard-coded.")
+    }
     $stageMarkers = @(
         "StageWelcome = 'Welcome'",
         "StagePrerequisiteCheck = 'Prerequisite Check'",
@@ -261,7 +335,13 @@ try {
         "ExitCode = 10",
         "Training compute: ",
         "CUDA",
-        "CPU fallback"
+        "CPU fallback",
+        "training-venv-cpu",
+        "training-runtime-selection.txt",
+        '" -ComputeProfile Auto -CheckOutput "',
+        "ComputeStatus := 'CPU'",
+        "SW_SHOW, ewWaitUntilTerminated",
+        "follow the OpenDSS Training Setup console for live progress"
     )) {
         if (-not $installer.Contains($marker)) {
             throw "Installer lifecycle marker is absent: $marker"
@@ -270,10 +350,23 @@ try {
     foreach ($forbiddenMarker in @(
         "RaiseException('The OpenDSS training bootstrap could not be started.')",
         "RaiseException(Format('The OpenDSS training runtime download or verification failed",
-        "ort.get_available_providers() else 1)"
+        "ort.get_available_providers() else 1)",
+        "TrainingProvisionerParameters, '', SW_HIDE"
     )) {
         if ($installer.Contains($forbiddenMarker)) {
             throw "Training failure still raises an installer-rollback exception: $forbiddenMarker"
+        }
+    }
+    foreach ($progressMarker in @(
+        '$Host.UI.RawUI.WindowTitle = "OpenDSS Training Setup"',
+        "Downloading or verifying",
+        "Creating isolated",
+        "Installing hash-locked training dependencies",
+        "Verifying installed package inventory and compute readiness",
+        "Publishing the verified"
+    )) {
+        if (-not $provisioner.Contains($progressMarker)) {
+            throw "Provisioner progress marker is absent: $progressMarker"
         }
     }
     $packageScript = Get-Content -LiteralPath $packagePath -Raw
@@ -281,7 +374,10 @@ try {
     foreach ($marker in @(
         "AcceptedExecutablePath",
         "AcceptedExecutableSha256",
-        "Packaged OpenDSS.exe differs from the accepted v2 executable"
+        "Packaged OpenDSS.exe differs from the accepted v2 executable",
+        "PreparedDatasetRoot",
+        "windows-py312-cpu.lock",
+        "windows-py312-cpu-inventory.json"
     )) {
         if (-not $packageScript.Contains($marker)) {
             throw "Accepted executable packaging marker is absent: $marker"
@@ -290,9 +386,26 @@ try {
     if (-not $checkScript.Contains("two local weights per architecture")) {
         throw "Exact bundled-weight validation marker is absent."
     }
+    if (-not $checkScript.Contains("Windows GUI subsystem") -or
+        -not $checkScript.Contains("found subsystem")) {
+        throw "Packaged executable GUI-subsystem validation is absent."
+    }
+    foreach ($marker in @(
+        "training-runtime-selection.txt",
+        "training-venv-gpu/Scripts/python.exe",
+        "training-venv-cpu/Scripts/python.exe"
+    )) {
+        if (-not $main.Contains($marker)) {
+            throw "V2 runtime path-selection marker is absent: $marker"
+        }
+    }
+    if ($main.Contains("waitForFinished(") -or
+        $main.Contains("QProcess process")) {
+        throw "V2 runtime path discovery must not synchronously launch Python."
+    }
     Add-Result -Name "installer lifecycle and packaging contract" `
         -Status "pass" -Detail (
-            "Five stages are ordered; prerequisites/actions, recoverable Training, factual final verification, accepted EXE identity, and two weights per architecture are present.")
+            "Version $($appVersionMatches[0].Groups['version'].Value) is derived from the v2 application; five stages, visible raw Training progress, recoverable Training, factual final verification, accepted EXE identity, and two weights per architecture are present.")
 } catch {
     Add-Failure -Name "installer lifecycle and packaging contract" -Detail $_.Exception.Message
 }

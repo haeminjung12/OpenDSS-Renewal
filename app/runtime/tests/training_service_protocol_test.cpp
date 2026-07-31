@@ -108,6 +108,15 @@ int runFakeTrainer(const QStringList &arguments)
         });
         return 7;
     }
+    if (device == QStringLiteral("fake-oversized-output")) {
+        const QByteArray oversizedError(128 * 1024, 'e');
+        std::cerr.write(oversizedError.constData(), oversizedError.size());
+        std::cerr << "bounded stderr tail marker\n" << std::flush;
+        const QByteArray oversizedMessage(1024 * 1024 + 1, 'x');
+        std::cout.write(oversizedMessage.constData(), oversizedMessage.size());
+        std::cout.flush();
+        return 8;
+    }
 
     emitFragmentedJson(QJsonObject{
         {QStringLiteral("event"), QStringLiteral("stage_started")},
@@ -561,12 +570,30 @@ int main(int argc, char **argv)
         return fail(16, QStringLiteral("Trainer failure or stderr evidence mismatch."));
     }
 
+    const QString oversizedOutput =
+        QDir(temporaryDirectory.path()).filePath(QStringLiteral("oversized-output"));
+    if (!service.start(
+            requestFor(datasetPath, oversizedOutput, repositoryRoot,
+                       TrainingProfile::Faster,
+                       QStringLiteral("fake-oversized-output")),
+            &error)
+        || !waitForTerminalState(service, 5000)
+        || service.state() != TrainingState::Failed
+        || !service.lastError().contains(QStringLiteral("maximum"),
+                                         Qt::CaseInsensitive)
+        || service.standardError().toUtf8().size() > 64 * 1024
+        || !service.standardError().contains(
+            QStringLiteral("bounded stderr tail marker"))
+        || !datasetWriteAvailable(operations, datasetPath)) {
+        return fail(17, QStringLiteral("Oversized trainer output was not bounded."));
+    }
+
     const QString cancelOutput = QDir(temporaryDirectory.path()).filePath(QStringLiteral("cancel"));
     if (!service.start(
             requestFor(datasetPath, cancelOutput, repositoryRoot, TrainingProfile::Faster,
                        QStringLiteral("fake-cancel")),
             &error)) {
-        return fail(17, QStringLiteral("Could not start cancellation fixture: ") + error);
+        return fail(18, QStringLiteral("Could not start cancellation fixture: ") + error);
     }
     QElapsedTimer startTimer;
     startTimer.start();
@@ -579,7 +606,7 @@ int main(int argc, char **argv)
     if (!waitForTerminalState(service, 7000) || service.state() != TrainingState::Interrupted
         || !service.standardError().contains(QStringLiteral("fake cancel stderr evidence"))
         || !datasetWriteAvailable(operations, datasetPath)) {
-        return fail(18, QStringLiteral("Cancellation did not finish as Interrupted with stderr evidence."));
+        return fail(19, QStringLiteral("Cancellation did not finish as Interrupted with stderr evidence."));
     }
 
     return 0;

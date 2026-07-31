@@ -10,16 +10,27 @@ param(
     [string]$CudaRuntimeDir = "$env:LOCALAPPDATA\OpenDSS\training-venv-gpu\Lib\site-packages\torch\lib",
     [string]$VcpkgBin = "C:\vcpkg\installed\x64-windows\bin",
     [string]$ModelsDir = "",
+    [string]$PreparedDatasetRoot = "",
     [string]$TrainerWheelPath = $env:OPENDSS_TRAINER_WHEEL,
-    [string]$WheelBuildPython = (
-        Join-Path $env:LOCALAPPDATA "OpenDSS\training-venv-gpu\Scripts\python.exe"
-    ),
+    [string]$WheelBuildPython = "",
     [string]$OutputDir = "",
     [switch]$CopyNidaq,
     [switch]$SkipPackageCheck,
     [switch]$NoManifest,
     [string]$NidaqBin = "C:\Program Files (x86)\National Instruments\Shared\ExternalCompilerSupport\C\lib64\msvc"
 )
+
+if (-not $WheelBuildPython) {
+    $gpuWheelPython = Join-Path $env:LOCALAPPDATA (
+        "OpenDSS\training-venv-gpu\Scripts\python.exe")
+    $cpuWheelPython = Join-Path $env:LOCALAPPDATA (
+        "OpenDSS\training-venv-cpu\Scripts\python.exe")
+    $WheelBuildPython = if (Test-Path -LiteralPath $gpuWheelPython -PathType Leaf) {
+        $gpuWheelPython
+    } else {
+        $cpuWheelPython
+    }
+}
 
 function Copy-FilteredTree {
     param(
@@ -74,7 +85,12 @@ $RepoParent = Split-Path -Parent $RepoRoot
 
 if (-not $ModelsDir) { $ModelsDir = Join-Path $SourceRoot "models" }
 if (-not $OutputDir) { $OutputDir = Join-Path $RepoParent "artifacts\internal-release" }
-$preparedDatasetRoot = Join-Path $RepoRoot "datasets\prepared"
+if (-not $PreparedDatasetRoot) {
+    $PreparedDatasetRoot = Join-Path $RepoRoot "datasets\prepared"
+}
+$preparedDatasetRoot =
+    $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath(
+        $PreparedDatasetRoot)
 $requiredDatasetDirs = @(
     "droplet_target_nontarget_binary_starter",
     "droplet_target_nontarget_3class_starter"
@@ -88,6 +104,8 @@ $requiredTrainerFiles = @(
     "droplet_trainer\cli.py",
     "scripts\windows\build-training-bootstrap-wheel.ps1",
     "scripts\windows\provision-training-runtime.ps1",
+    "requirements\windows-py312-cpu.lock",
+    "requirements\windows-py312-cpu-inventory.json",
     "requirements\windows-py312-gpu-cu130-downloads.json",
     "requirements\windows-py312-gpu-cu130.lock",
     "requirements\windows-py312-gpu-cu130-inventory.json"
@@ -340,6 +358,8 @@ foreach ($onlineSetupFile in @(
     "requirements\windows-py312-cpu.txt",
     "requirements\windows-py312-gpu-cu128.txt",
     "requirements\windows-py312-common-constraints.txt",
+    "requirements\windows-py312-cpu.lock",
+    "requirements\windows-py312-cpu-inventory.json",
     "requirements\windows-py312-gpu-cu130-downloads.json",
     "requirements\windows-py312-gpu-cu130-inventory.json",
     "requirements\windows-py312-gpu-cu130.lock",
@@ -353,6 +373,8 @@ foreach ($onlineSetupFile in @(
 $bootstrapOut = Join-Path $packageDir "training\bootstrap"
 New-Item -ItemType Directory -Path $bootstrapOut -Force | Out-Null
 foreach ($bootstrapFile in @(
+    "windows-py312-cpu.lock",
+    "windows-py312-cpu-inventory.json",
     "windows-py312-gpu-cu130-downloads.json",
     "windows-py312-gpu-cu130.lock",
     "windows-py312-gpu-cu130-inventory.json"

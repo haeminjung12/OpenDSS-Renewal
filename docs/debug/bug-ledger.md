@@ -42,7 +42,7 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 
 ### DBG-003 — Packaged Python provisioner is stale and fails PowerShell 5.1 inventory verification
 
-- Status: `triaged — source fix reported, packaging verification pending`
+- Status: `source fix integrated — Release build/53-test gate passes; rebuilt-installer HIL pending`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: the packaged provisioner verifies all 37 locked distributions under Windows PowerShell 5.1.
@@ -50,16 +50,16 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Smallest reliable reproduction: run the packaged provisioner inventory check under Windows PowerShell 5.1.
 - Observations: corrected scripts are reported at `C:\OpenDSS\provision-training-runtime.ps1`, Google Drive, and the supplied installer evidence folder.
 - Hypotheses: installer payload was built before the corrected provisioner was incorporated.
-- Accepted root cause: pending repository/package comparison.
-- Changed files: none in this worktree.
-- Regression and verification evidence: local successful CPU provisioning is reported; rebuilt-installer verification is absent.
+- Accepted root cause: inventory enumeration relied on PowerShell array-wrapping behavior instead of iterating the distribution object's properties.
+- Changed files: `training/python/scripts/windows/provision-training-runtime.ps1` enumerates `distributions.PSObject.Properties`; packaging/preflight sources now carry and validate both CPU and CUDA inventories.
+- Regression and verification evidence: five PowerShell parsers pass; installer preflight reports zero errors and only provisional external package/executable inputs. Rebuilt online installer verification remains pending.
 - Protected-asset impact: training provisioning/export environment; preserve the qualified trainer and export mechanics.
-- Remaining risk and rollback: local fixes may diverge from repository source; no worktree code changed.
-- Exact next action: compare packaged, evidence-folder, and worktree provisioner versions and reproduce the PowerShell 5.1 inventory path.
+- Remaining risk and rollback: online PowerShell 5.1 provisioning/package verification is still pending. Reverting the provisioner and package/preflight changes restores the prior GPU-only inventory path.
+- Exact next action: run the integrated package/installer gate, including PowerShell 5.1 CPU and CUDA inventory verification.
 
 ### DBG-004 — Stale Python registrations make a failed install appear successful
 
-- Status: `triaged — reproduction pending`
+- Status: `ownership-safe source fix integrated — Release build/53-test gate passes; installer HIL pending`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: Python detection requires a valid Python 3.12.10 x64 runtime at the intended target.
@@ -67,16 +67,16 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Smallest reliable reproduction: stale registered/missing-target Python scenario described in the installation incident log.
 - Observations: local recovery repaired the registration and copied a verified runtime.
 - Hypotheses: detection trusts registration/installer exit code instead of validating executable, version, architecture, and target.
-- Accepted root cause: pending controlled reproduction.
-- Changed files: none in this worktree.
-- Regression and verification evidence: incident log records the failure and local recovery; installer regression remains pending.
+- Accepted root cause: the provisioner did not require an exact, runnable installer-owned Python 3.12.10 x64 runtime before accepting registration/installer success and acquiring dependencies.
+- Changed files: the provisioner now validates the canonical runtime before reuse, repairs only an OpenDSS-owned registration, may copy an exact verified 3.12.10 x64 registered runtime into the isolated root, refuses to modify stale unowned global Python, and publishes only after exact validation.
+- Regression and verification evidence: PowerShell syntax/preflight and Inno compilation pass. Controlled stale-registration installer HIL remains pending.
 - Protected-asset impact: training provisioning only; trainer behavior must remain unchanged.
-- Remaining risk and rollback: Windows Installer behavior may depend on elevation policy.
-- Exact next action: reproduce with an isolated stale-registration fixture or disposable test machine.
+- Remaining risk and rollback: Windows Installer repair/uninstall behavior may depend on elevation policy. Rollback removes only newly installer-owned runtime/registration state and restores any prior owned runtime.
+- Exact next action: exercise owned-stale, unowned-stale, and clean-install cases on a disposable Windows installer target.
 
 ### DBG-005 — Installer rollback leaves registry and partial-install artifacts
 
-- Status: `triaged — reproduction pending`
+- Status: `transactional rollback source fix integrated — Release build/53-test gate passes; failure-injection HIL pending`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: failed installation rolls back owned registrations, candidates, environment paths, and partial artifacts without damaging a previously working Python/runtime.
@@ -84,16 +84,16 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Smallest reliable reproduction: interrupt or fail provisioning after Python registration but before environment completion.
 - Observations: Windows Installer removal returned error 1603 in the reported managed environment.
 - Hypotheses: rollback order and ownership tracking are incomplete and do not account for MSI removal failure.
-- Accepted root cause: none yet.
-- Changed files: none.
-- Regression and verification evidence: incident log only.
+- Accepted root cause: runtime, environment, registration, and selected-profile publication did not share one ownership-aware rollback transaction.
+- Changed files: the provisioner now uses scoped runtime/environment/selection candidates and backups, atomically publishes the environment selection, restores prior owned state on failure, removes only newly owned registration state, and preserves valid alternate CPU/GPU environments.
+- Regression and verification evidence: transactional markers, path containment, parsers, installer preflight, and Inno compilation pass; installer failure-injection HIL remains pending.
 - Protected-asset impact: training provisioning; preserve working installations during rollback.
-- Remaining risk and rollback: cleanup may require elevation and must not remove unrelated user Python.
-- Exact next action: inventory exact installer-owned artifacts at each failure boundary.
+- Remaining risk and rollback: an MSI uninstall can still return an external Windows Installer error; cleanup refuses to touch unrelated global Python and reports that rollback warning.
+- Exact next action: inject failures at runtime, environment, and selection publication boundaries and inventory exact owned artifacts afterward.
 
 ### DBG-006 — Installer performs provisioning stages in the wrong order
 
-- Status: `triaged — source fix reported, installer verification pending`
+- Status: `source fix integrated — Release build/53-test gate passes; rebuilt-installer verification pending`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: install and verify Python first, create and verify the training environment second, then install the remaining application payload; verified downloads should survive safe retries.
@@ -101,16 +101,16 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Smallest reliable reproduction: run the original provisioner on a machine where Python installation fails.
 - Observations: supplied local source reports reordered provisioning and a SHA-256-verified persistent download cache.
 - Hypotheses: installer transaction boundaries were organized around payload acquisition rather than validated prerequisites.
-- Accepted root cause: pending worktree/package comparison.
-- Changed files: none in this worktree.
-- Regression and verification evidence: standalone corrected run reported successful; rebuilt installer unverified.
+- Accepted root cause: dependency acquisition occurred before exact Python validation and used an attempt-scoped temporary wheelhouse.
+- Changed files: the provisioner validates/reuses or installs Python first, then acquires dependencies into a hash-verified persistent per-profile cache, creates/verifies the environment, and publishes it last.
+- Regression and verification evidence: preflight proves Python verification precedes dependency downloads; cache hash checks, script parsers, and installer compilation pass. Full online cache-reuse validation remains pending.
 - Protected-asset impact: training environment only.
 - Remaining risk and rollback: stage boundaries must preserve a previously working Python and environment.
-- Exact next action: map current installer stage order and failure rollback boundaries.
+- Exact next action: run clean and retry installer cases and prove verified cache reuse.
 
 ### DBG-007 — Installer lacks reliable GPU selection and CPU fallback
 
-- Status: `triaged — source fix reported, installer verification pending`
+- Status: `CPU/GPU path fix integrated — Release build/53-test gate passes; hardware installer HIL pending`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: compatible CUDA hardware selects the pinned GPU environment; unavailable or incompatible CUDA selects the pinned CPU environment, and the application discovers either environment.
@@ -118,16 +118,16 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Smallest reliable reproduction: run Auto provisioning without usable NVIDIA/CUDA access.
 - Observations: supplied local changes add `Auto|cpu|cuda`, a CPU lock/inventory, and CPU environment discovery; the existing installed app required a temporary GPU-to-CPU junction.
 - Hypotheses: compute profile and environment path were hard-coded.
-- Accepted root cause: pending source and rebuilt-package verification.
-- Changed files: none in this worktree.
-- Regression and verification evidence: local CPU run reported Python 3.12.10, 37 packages, PyTorch CPU, CUDA unavailable, and CPUExecutionProvider.
+- Accepted root cause: the provisioner, package payload, v2 application, tests, and build scripts hard-coded the GPU environment and omitted the CPU lock/inventory from the installer contract.
+- Changed files: provisioning now supports `Auto|cpu|cuda`, packages both locked profiles, publishes `training-runtime-selection.txt`, preserves alternate valid environments, and makes v2/installer/build/test discovery resolve canonical GPU or CPU paths without junctions.
+- Regression and verification evidence: CPU lock/inventory hashes are `02CC2764...A0CC` and `D76236DA...5B09`; five PowerShell parsers, installer preflight, Inno compilation, and focused Release desktop build pass. Full CPU/CUDA provisioning and hardware Auto selection remain pending.
 - Protected-asset impact: ONNX and training mechanics are protected; provider selection must retain qualified behavior.
-- Remaining risk and rollback: CUDA 13+ path and upgrade from GPU-only installs remain unverified.
-- Exact next action: verify both CPU and CUDA selection paths from the integrated installer payload.
+- Remaining risk and rollback: real `nvidia-smi` CUDA 13 detection and online CPU/CUDA provisioning remain unverified. Reverting the source changes restores GPU-only discovery; installed environments are preserved.
+- Exact next action: verify CPU, CUDA, stale-GPU/valid-CPU fallback, and upgrade paths from the integrated installer payload.
 
 ### DBG-008 — Installer and application version metadata disagree
 
-- Status: `triaged — reproduction documented`
+- Status: `application-derived metadata fix verified in corrected real-v2 installer`
 - Priority: `P2`
 - Accountable owner: Debug Lead
 - Expected: installer and application version metadata derive from one release version.
@@ -135,16 +135,16 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Smallest reliable reproduction: compare installer identity with the installed application's displayed version.
 - Observations: documented in the Full GUI verification summary.
 - Hypotheses: independent hard-coded version sources.
-- Accepted root cause: none yet.
-- Changed files: none.
-- Regression and verification evidence: user verification report only.
+- Accepted root cause: `Desktop_app_v2/App/main.cpp` reports application version `2.0`, while `installer.iss` independently hard-codes installer version `0.9.0`.
+- Changed files: `app/runtime/installer/build_installer.ps1`, `app/runtime/installer/installer.iss`, and `app/runtime/installer/preflight_training_installer.ps1`.
+- Regression and verification evidence: focused preflight requires one numeric v2 application version, rejects an independently hard-coded installer version, and verifies the build define. The corrected actual-v2 installer reports ProductVersion `2.0` and SHA-256 `342C401E...455E`; complete preflight passes with zero errors or remaining inputs. Evidence is in `docs/debug/evidence/DBG-008-009-013-final-installer-20260730.md`.
 - Protected-asset impact: none.
-- Remaining risk and rollback: packaging-only risk; no code changed.
-- Exact next action: locate all version sources and select the canonical release owner.
+- Remaining risk and rollback: the extraction intentionally fails loudly if the v2 application stops exposing one numeric `setApplicationVersion` value. Reverting the build/preflight/installer changes restores the independent literal.
+- Exact next action: retain the compiled metadata evidence and include the fix in the accepted debug integration/commit.
 
 ### DBG-009 — Installer progress text does not reflect the active provisioning stage
 
-- Status: `triaged — reproduction pending`
+- Status: `corrected visible raw-progress fix packaged — real-installer HIL pending`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: installer text updates as work progresses, including downloading Python, installing Python, verifying Python, creating the environment, downloading/installing dependencies, verifying the environment, and installing the remaining application.
@@ -152,46 +152,166 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Smallest reliable reproduction: run a fresh installation and compare the visible status text with the provisioner log and process activity.
 - Observations: the provisioner reportedly emits textual stages, but the installer UI does not surface them accurately.
 - Hypotheses: the installer launches provisioning as one opaque step or does not relay stage events/output to its progress UI.
-- Accepted root cause: none yet.
-- Changed files: none.
-- Regression and verification evidence: user-observed Full GUI installation behavior.
+- Accepted root cause: `RunTrainingProvisioner` launches PowerShell with `SW_HIDE` and waits for completion, so the provisioner's existing stage and package output is deliberately hidden while the installer displays one static message.
+- Changed files: `app/runtime/installer/installer.iss` launches the provisioner with a visible window and directs users to it; `training/python/scripts/windows/provision-training-runtime.ps1` titles the console and emits explicit milestones; preflight enforces both behaviors.
+- Regression and verification evidence: PowerShell parsers pass; preflight requires the corrected combined argument construction; actual-v2 package and Inno compilation pass; source and packaged provisioner SHA-256 both equal `EAE5F021...80F6`; complete preflight has zero errors/remaining inputs; final Plan Guardian returns `PASS`. Evidence is in `docs/debug/evidence/DBG-008-009-013-final-installer-20260730.md`.
+- Validator finding: the first compiled fixture contained a stray quote between `-ComputeProfile Auto` and `-CheckOutput`, which would have made the provisioner reject the combined argument. The corrected source keeps both switches in one syntactically valid Pascal string and preflight now requires that exact construction; the corrected installer must replace the earlier artifact.
 - Protected-asset impact: none; status reporting must not alter training or provisioning mechanics.
-- Remaining risk and rollback: presentation-only changes must not interfere with cancellation, rollback, or process output handling.
-- Exact next action: trace status messages from the provisioning script through the installer UI and identify the first stage that is not displayed.
+- Remaining risk and rollback: a real installer run must confirm that the console opens visibly, remains usable during long provisioning, and closes appropriately on success/failure. The installer still waits for the same process and reads the same exit code, so transaction behavior is unchanged. Rollback restores `SW_HIDE` and removes the presentation-only milestone messages.
+- Exact next action: run `C:\b\odss-debug-lead-hil\DBG-008-009-installer-final\OpenDSSSetup.exe` on the intended verification target and observe the Training console through success or failure.
 
 ### DBG-010 — Locked pretrained checkpoint is incompatible with the Model Test backend
 
-- Status: `reproduced — protected-boundary scope decision pending`
+- Status: `one-time canonical checkpoint migration verified — Release build and 53/53 tests pass`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: a locked pretrained Model Package accepted by OpenDSS completes the real installed-Python Model Test readiness handshake with matching checkpoint identity, classes, item count, and device.
 - Observed: `model_test_controller_test` reaches the real Python backend but fails with `Model Test Python readiness is invalid.` A direct isolated handshake returns `{"schema_version":1,"event":"run_failed","error":"Active checkpoint class/config metadata is invalid."}`.
 - Smallest reliable reproduction: run the installed canonical Python with `-I -m droplet_trainer model-test-process --checkpoint <locked MobileNet checkpoint>` and send one valid three-class protocol request.
 - Observations: the locked checkpoint SHA-256 is `0542C4955EBCBE74FBA96169967241A9453B2AF135F241097B5CFAE774DD1E35`. It contains `config`, `history`, `identity`, `model_state`, and `optimizer_updates`; `config.classes` is `["0","1","2"]`, but no top-level `class_ids` exists.
-- Hypotheses: the qualified pretrained artifact predates the current Model Test checkpoint schema, or the backend dropped intentional legacy-schema support.
+- Hypotheses: the qualified pretrained artifact predates the current Model Test checkpoint schema.
 - Accepted root cause: `droplet_trainer.model_test_batch_backend.load_active_checkpoint` requires nonempty top-level `class_ids` plus `config`, while the locked pretrained checkpoint records the class IDs only as `config.classes`; the backend returns `run_failed` before readiness.
-- Changed files: none for the production defect. Test-fixture corrections expose the real failure without bypassing it.
-- Regression and verification evidence: the direct installed-Python handshake and final integrated CTest failure are deterministic. `model_test_service_test`, `model_test_batch_backend_python_test`, ONNX conversion, Model Library, and Training tests otherwise pass.
-- Protected-asset impact: model preprocessing/inference, Python training, checkpoint/export mechanics, and ONNX behavior are protected. Do not add legacy compatibility or replace/re-export qualified checkpoints without characterization, hash/provenance updates, regression comparison, justification, and rollback.
-- Remaining risk and rollback: actual Model Test operation can fail for an otherwise accepted pretrained package. No production change exists to roll back.
-- Exact next action: choose a separately authorized fix: re-export/provision a qualified checkpoint in the current contract, or characterize and approve narrowly scoped backend compatibility for `config.classes`.
+- Changed files: both bundled pretrained `checkpoint.pth` assets now add only top-level `class_ids`; their `metadata.json` checkpoint hashes are renewed. `app/runtime/scripts/convert_pytorch_model_package.py` and its focused test enforce the one canonical schema for future converted packages. The strict backend and trainer are unchanged.
+- Regression and verification evidence: MobileNet migrated from `0542C495...1E35` to `4A8F704B...53EA`; all 244 model-state tensors retain content hash `6A8837FA...2E2E`. EfficientNet migrated from `242ED863...D1C5` to `7496BB0D...4135`; all 360 model-state tensors retain content hash `E04D1B4B...544E`. For both, prior payload values are recursively equal, the only added key is `class_ids=["0","1","2"]`, and the strict installed-Python backend loads the result. ONNX hashes remain MobileNet `FEDB774C...18CD` and EfficientNet `5812FEC3...1044`. Qualified converter tests pass 2/2 and focused backend tests pass 2/2. Per explicit user direction, no prediction comparison was run.
+- Protected-asset impact: checkpoint/export mechanics are protected. The user authorized migrating every bundled legacy checkpoint to the one current schema and rejected a permanent compatibility fallback. Weights and ONNX artifacts must remain unchanged.
+- Remaining risk and rollback: the migrated checkpoint binaries are intentionally Git-ignored local release assets, so packaging must carry the physical migrated files and their new accepted hashes explicitly. Recoverable originals are under `C:\b\odss-debug-lead-hil\artifact-backups\DBG-010`; restoring those files and metadata rolls back the migration.
+- Exact next action: preserve the passing Release/53-test evidence and migrated package assets; originals remain available for rollback. The user explicitly waived prediction comparison.
 
 ### DBG-011 — Representative Model Test dataset provenance hash has drifted
 
-- Status: `reproduced — provenance decision pending`
+- Status: `re-audit accepted — focused and full Release verification pass`
 - Priority: `P1 verification blocker`
 - Accountable owner: Debug Lead
-- Expected: the representative production dataset used by the registered Release test retains audited `dataset.json` SHA-256 `E6BCEA0F2F7E192008381329E4D8C355BA2AE2F0BAF867FEADA0F60F255F1C72`.
-- Observed: the current external `dataset.json` SHA-256 is `58500D725D1E185667225835915DAC64473EB790896B561D6DB892CFBAF9233B`, so `model_test_production_model_representative_test` stops before inference.
+- Expected: the representative production dataset used by the registered Release test is pinned to its currently accepted, freshly reconciled `dataset.json` identity.
+- Observed: the test retained the superseded SHA-256 `E6BCEA0F2F7E192008381329E4D8C355BA2AE2F0BAF867FEADA0F60F255F1C72` while the reviewed current dataset is `58500D725D1E185667225835915DAC64473EB790896B561D6DB892CFBAF9233B`, so the test stopped before inference.
 - Smallest reliable reproduction: run registered Release test `model_test_production_model_representative_test` against `C:\Users\goals\OneDrive\Documents\OpenDropletSortingSuite\datasets\prepared\droplet_target_nontarget_3class_starter`.
 - Observations: the audit manifest hash still matches its locked value. No matching copy of the expected `dataset.json` hash was found in the supplied dataset tree, Downloads, OpenDSS artifacts, or `E:\OpenDSS`.
-- Hypotheses: the external dataset metadata changed after its audit, or the expected hash references a prior version no longer present locally.
-- Accepted root cause: none; the file drift is proven, but its provenance is unresolved.
-- Changed files: none.
-- Regression and verification evidence: the final full CTest run passed 51/53 tests; this test failed only on the exact dataset hash comparison.
+- Hypotheses: the external dataset metadata was regenerated after applying a reviewed label.
+- Accepted root cause: the test contract pinned a superseded serialization from before `legacy-row-000208` adopted its already-recorded reviewed label `2`. Dataset identity/schema, all 3,620 included record IDs, crop paths, and image hashes, and all 5 rejected records remain stable.
+- Changed files: `app/runtime/tests/model_test_production_model_probe.cpp` renews only the expected `dataset.json` SHA-256; `docs/debug/evidence/DBG-011-dataset-reaudit-20260730.md` records the acceptance evidence.
+- Regression and verification evidence: the prior full CTest run failed this test only on the exact dataset hash comparison. The fresh reconciliation accepts current hash `58500D72...9233B`, preserves audit-manifest hash `1583ED3D...61ADF`, and records class-count movement from `3142/387/91` to `3142/386/92` caused solely by the reviewed label. The focused representative test passes in 7.19 seconds and the subsequent full Release CTest pass also passes it in 7.30 seconds.
 - Protected-asset impact: external scientific dataset provenance; do not overwrite user data or update the accepted hash without restoration or re-audit.
-- Remaining risk and rollback: representative production Model Test acceptance cannot proceed against an unaudited dataset identity. No production change exists to roll back.
-- Exact next action: restore the audited `dataset.json` or explicitly authorize a fresh audit of the current file and its dependent evidence.
+- Remaining risk and rollback: no remaining test blocker is attributed to dataset provenance. Rollback is restoring the prior expected hash; external dataset contents were not modified.
+- Exact next action: retain the passing evidence and close with the integrated debug batch after its remaining independent gates.
+
+### DBG-012 — Representative Model Test depends on the user's mutable Active Model selection
+
+- Status: `test isolation fix verified — focused and full Release verification pass`
+- Priority: `P1 verification blocker`
+- Accountable owner: Debug Lead
+- Expected: the registered representative test validates its explicitly pinned qualified model without changing or depending on the user's current Active Model selection.
+- Observed: after the `DBG-011` hash gate passed, the test failed because the user had legitimately activated `ImageNet-MobileNet-UAT-20260728` while the test expects `Pre-trained MobileNetV3-Small - Faster copy2`.
+- Smallest reliable reproduction: keep exactly one valid but different Active Model in the external registry and run `model_test_production_model_representative_test`.
+- Observations: the pinned model entry remains present and its package path is intact. The test already copies model artifacts and registry data into a disposable temporary root before execution.
+- Hypotheses: the probe accidentally treated mutable user selection as immutable test provenance.
+- Accepted root cause: the probe selected the external registry's `active` entry rather than locating its pinned registry entry by stable ID, then propagated that mutable state into the temporary registry.
+- Changed files: `app/runtime/tests/model_test_production_model_probe.cpp` selects the pinned entry by ID and marks only that copied entry active in the disposable registry.
+- Regression and verification evidence: pre-fix focused test passed the renewed dataset hash and failed at `Active Model registry identity/path mismatch`. After the fix, the focused test passes in 7.19 seconds and the full Release CTest run passes the same test in 7.30 seconds while leaving the external registry hash unchanged.
+- Protected-asset impact: test isolation only; no model artifact, registry, Python backend, inference mechanic, or external user state is modified.
+- Remaining risk and rollback: the test still depends on the pinned model package remaining available at its qualified path. Rollback is reverting the test-only selection change.
+- Exact next action: retain the passing evidence and close with the integrated debug batch after its remaining independent gates.
+
+### DBG-013 — Command prompt appears when OpenDSS launches
+
+- Status: `v2 GUI-subsystem build/package verification passes — installed-launch HIL pending`
+- Priority: `P2`
+- Accountable owner: Debug Lead
+- Expected: launching OpenDSS displays only the GUI and does not open a command-prompt window.
+- Observed: the user reports that a command prompt starts alongside the program.
+- Smallest reliable reproduction: launch the same OpenDSS shortcut or executable that produced the reported prompt and inspect its executable path, parent/child processes, and PE subsystem.
+- Observations: the first inspected `C:\b\odss-debug-lead-hil\desktop_app\Release\OpenDSS.exe` is subsystem `2`, but its CMake cache proves it is the legacy target (`BUILD_QT_GUI=ON`, `BUILD_QT_GUI_V2=OFF`) and therefore was not valid DBG-013 evidence. The v2 target lacked an explicit Windows GUI classification, while the legacy target set `WIN32_EXECUTABLE ON`. The only machine-wide OpenDSS Start Menu shortcut also targets a deleted temporary installer-smoke directory.
+- Hypotheses: the reported prompt came from a v2 executable linked as a console application.
+- Accepted root cause: the v2 executable target did not explicitly request the Windows GUI subsystem, and package validation checked executable identity but did not reject a console-subsystem v2 artifact.
+- Changed files: `app/runtime/Desktop_app_v2/CMakeLists.txt` declares the target `WIN32`; `app/runtime/scripts/check_package.ps1` rejects packaged `OpenDSS.exe` unless its PE subsystem is `2`; installer preflight requires that guard.
+- Regression and verification evidence: actual-v2 Release build passes with `BUILD_QT_GUI=OFF`, `BUILD_QT_GUI_V2=ON`; executable and packaged executable hashes match `1C0463C8...B8EB`; both PE subsystem checks report `2`; complete preflight and final Plan Guardian pass. Installed Start Menu launch remains pending. Evidence: `docs/debug/evidence/DBG-008-009-013-final-installer-20260730.md`.
+- Protected-asset impact: none expected.
+- Remaining risk and rollback: the stale smoke-test shortcut is a separate installed-state artifact that a clean installer run must replace. Rollback removes `WIN32` and the package guard.
+- Exact next action: build the actual v2 target, prove PE subsystem `2`, package it through the guarded path, install it, and verify Start Menu launch creates no console window.
+
+### DBG-014 — Model Test and Training child-process output buffers are unbounded
+
+- Status: `verified — integrated Release/CTest gate passed; committed for push and awaiting acceptance`
+- Priority: `P1 reliability`
+- Accountable owner: Debug Lead
+- Expected: Model Test and Training consume newline-delimited child-process output with bounded application memory and retain only a bounded diagnostic stderr tail.
+- Observed: Model Test accumulates stdout until a newline with no maximum line or buffer size; Training accumulates stdout and all stderr without size limits for the life of the process.
+- Smallest reliable reproduction: a child process emits an oversized stdout line without a newline and sustained stderr; the current service buffers grow with the emitted byte count instead of rejecting the malformed protocol.
+- Observations: the five-minute Model Test timeout bounds elapsed time but not bytes accumulated before expiry. Normal trainer output is newline-delimited JSON plus human-readable stderr.
+- Hypotheses: both services omitted explicit protocol-message and diagnostic-tail limits.
+- Accepted root cause: both services omitted explicit byte ceilings for child-process protocol messages, and Training retained the complete stderr stream.
+- Changed files: `app/runtime/v2/model_test/model_test_service.cpp`, `app/runtime/v2/training/training_service.cpp`, `app/runtime/tests/model_test_service_test.cpp`, and `app/runtime/tests/training_service_protocol_test.cpp`.
+- Regression and verification evidence: pre-fix oversized-output fixtures failed; focused service tests pass; final Release build and 53/53 CTest pass. See `docs/debug/evidence/DBG-014-018-simple-fix-gate-20260731.md`.
+- Protected-asset impact: trainer mechanics remain unchanged; only C++ child-process protocol consumption and diagnostic retention are in scope.
+- Remaining risk and rollback: a future valid JSONL protocol message above 1 MiB would require an explicit contract revision; rollback restores the prior unbounded buffers and removes the two oversized-output fixtures.
+- Exact next action: await user acceptance.
+
+### DBG-015 — Model Library disables ListView virtualization
+
+- Status: `verified — integrated Release/CTest gate passed; committed for push and awaiting acceptance`
+- Priority: `P2 performance`
+- Accountable owner: Debug Lead
+- Expected: the Model Library list owns a bounded viewport and instantiates only visible/cached delegates as the library grows.
+- Observed: `ModelLibraryWorkspace.ui.qml` places a `ListView` inside a `ScrollView` and binds the view height to `contentHeight`, expanding it to the complete model collection.
+- Smallest reliable reproduction: populate a large dynamic model list and observe the view height and instantiated row count scale with the full model count rather than the viewport.
+- Observations: Qt virtualizes a bounded `ListView`; binding its height to its total content defeats that behavior.
+- Hypotheses: the outer `ScrollView` was retained after dynamic model rows were introduced.
+- Accepted root cause: binding the dynamic `ListView` height to its complete `contentHeight` eliminated the bounded viewport required for Qt delegate virtualization.
+- Changed files: `app/runtime/Desktop_app_v2/Desktop_app_v2Content/ModelLibraryWorkspace.ui.qml` and `app/runtime/Desktop_app_v2/tests/qml/tst_ShellSingleImage.qml`.
+- Regression and verification evidence: the 100-row QML regression proves the view stays smaller than its content and does not instantiate the last delegate; Shell passes 55/55 and the full v2 CTest gate passes 2/2. See `docs/debug/evidence/DBG-014-018-simple-fix-gate-20260731.md`.
+- Protected-asset impact: none; presentation and scrolling only.
+- Remaining risk and rollback: extremely large real libraries still need ordinary GUI usability observation; rollback restores the expanding height binding and removes the bounded-list assertion.
+- Exact next action: await user acceptance.
+
+### DBG-016 — Legacy collection post-processing thread can leak on window teardown
+
+- Status: `verified — integrated Release/CTest gate passed; committed for push and awaiting acceptance`
+- Priority: `P2 reliability`
+- Accountable owner: Debug Lead
+- Expected: every `QThread::create()` object is released after completion even if `MainWindow` is destroyed before the worker finishes.
+- Observed: the unparented post-processing thread is deleted only from `finished` handlers that use `MainWindow` as their connection context; destroying the window disconnects those handlers.
+- Smallest reliable reproduction: start collection post-processing, destroy `MainWindow` before completion, and observe that the thread's independent `finished -> deleteLater` cleanup connection is absent.
+- Observations: UI result delivery correctly uses guarded `QPointer` values; only thread-object cleanup needs an owner-independent connection.
+- Hypotheses: cleanup and UI delivery were combined under the window lifetime.
+- Accepted root cause: thread-object cleanup was coupled to `MainWindow`'s connection context even though the unparented thread can outlive the window.
+- Changed files: `app/runtime/desktop_app/main_window.cpp`.
+- Regression and verification evidence: the owner-independent `finished -> deleteLater` topology is present; the legacy `desktop_app` Release target builds; the final integrated Release build and 53/53 CTest pass. See `docs/debug/evidence/DBG-014-018-simple-fix-gate-20260731.md`.
+- Protected-asset impact: legacy post-processing behavior remains unchanged; only `QThread` object lifetime is in scope.
+- Remaining risk and rollback: teardown during a real long-running legacy post-processing job was not manually exercised; rollback removes the independent cleanup connection and restores the prior context-bound cleanup.
+- Exact next action: await user acceptance.
+
+### DBG-017 — Full-size viewer hides image-load failures
+
+- Status: `verified — integrated Release/CTest gate passed; committed for push and awaiting acceptance`
+- Priority: `P2 presentation`
+- Accountable owner: Debug Lead
+- Expected: a failed dynamic image load exposes an error/placeholder state instead of hiding the placeholder behind a nonempty source URL.
+- Observed: `FullSizeImageViewerForm.ui.qml` makes the image visible whenever `source` is nonempty and does not expose or handle `Image.Error`.
+- Smallest reliable reproduction: set a nonempty invalid provider/file URL and observe that the normal empty-state predicate becomes false even though the image fails to load.
+- Observations: the shared viewer is consumed by Capture, Live, Sequence Test, Sequence Viewer, and Label.
+- Hypotheses: visibility was based on source presence before asynchronous failure handling was required.
+- Accepted root cause: image and placeholder visibility depended only on nonempty source text and ignored asynchronous `Image.Error`.
+- Changed files: `app/runtime/Desktop_app_v2/Desktop_app_v2Content/FullSizeImageViewerForm.ui.qml` and `app/runtime/Desktop_app_v2/tests/qml/tst_ShellSingleImage.qml`.
+- Regression and verification evidence: invalid-source QML regression proves the failed image is hidden and the placeholder is visible; Shell passes 55/55 and the full v2 CTest gate passes 2/2. See `docs/debug/evidence/DBG-014-018-simple-fix-gate-20260731.md`.
+- Protected-asset impact: no acquisition, detector, crop, inference, or persistence behavior changes; viewer presentation only.
+- Remaining risk and rollback: unusual decoder failures may differ in timing but use the same Qt error state; rollback restores source-only visibility and removes the invalid-source assertion.
+- Exact next action: await user acceptance.
+
+### DBG-018 — Dataset label role map is rebuilt on every query
+
+- Status: `verified — integrated Release/CTest gate passed; committed for push and awaiting acceptance`
+- Priority: `P3 quality`
+- Accountable owner: Debug Lead
+- Expected: the fixed dataset-label role-name mapping is immutable and reused without repeated construction.
+- Observed: `DatasetLabelModel::roleNames()` constructs the same four-entry `QHash` on each call.
+- Smallest reliable reproduction: call `roleNames()` repeatedly and observe a fresh fixed map is constructed for every invocation.
+- Observations: role identities and names are constant for the lifetime of the process.
+- Hypotheses: the map was written inline for clarity without caching.
+- Accepted root cause: the fixed mapping is reconstructed instead of stored once.
+- Changed files: `app/runtime/v2/dataset/dataset_label_controller.cpp`.
+- Regression and verification evidence: the exact four role IDs/names remain covered by `dataset_label_controller_test`; focused 3/3 and final integrated 53/53 CTest gates pass. See `docs/debug/evidence/DBG-014-018-simple-fix-gate-20260731.md`.
+- Protected-asset impact: none; model role values and names must remain byte-for-byte identical.
+- Remaining risk and rollback: negligible because the mapping is byte-identical; rollback restores inline construction.
+- Exact next action: await user acceptance.
 
 ## Bug record format
 

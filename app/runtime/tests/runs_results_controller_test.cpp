@@ -415,7 +415,8 @@ void testRootControllerBootstrapContract()
     const QByteArray labelSource = labelForm.readAll();
     require(!labelSource.contains("id: pageSpinBox") &&
                 !labelSource.contains("id: imagesPerPageSelector") &&
-                labelSource.contains("id: cropGridScroll"),
+                labelSource.contains("GridView {") &&
+                labelSource.contains("id: cropGridHost"),
             "Label form removes unsupported pagination while preserving grid scrolling");
 }
 

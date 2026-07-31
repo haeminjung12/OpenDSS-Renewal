@@ -1485,8 +1485,11 @@ qt_add_executable(model_test_controller_test
   ../v2/model_test/model_test_writer.cpp
   ../v2/operation/operation_coordinator.cpp
 )
+file(TO_CMAKE_PATH "$ENV{LOCALAPPDATA}/OpenDSS" OPENDSS_TEST_WORKING_DIRECTORY)
 target_compile_definitions(model_test_controller_test PRIVATE
   OPENDSS_TEST_RUNTIME_DIR="${CMAKE_CURRENT_SOURCE_DIR}/.."
+  OPENDSS_TEST_INSTALLER_PYTHON="${OPENDSS_TEST_INSTALLER_PYTHON}"
+  OPENDSS_TEST_WORKING_DIRECTORY="${OPENDSS_TEST_WORKING_DIRECTORY}"
 )
 target_include_directories(model_test_controller_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..

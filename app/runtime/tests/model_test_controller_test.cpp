@@ -74,6 +74,14 @@ void writeJson(const QString& path, const QJsonObject& object) {
     require(file.write(data) == data.size(), "write JSON fixture");
 }
 
+QString testPythonExecutable() {
+    return QString::fromUtf8(OPENDSS_TEST_INSTALLER_PYTHON);
+}
+
+QString testWorkingDirectory() {
+    return QDir(QString::fromUtf8(OPENDSS_TEST_WORKING_DIRECTORY)).absolutePath();
+}
+
 QString copyBundledModelPackage(const QString& parent) {
     const QDir source(
         QDir(QString::fromUtf8(OPENDSS_TEST_RUNTIME_DIR))
@@ -84,7 +92,9 @@ QString copyBundledModelPackage(const QString& parent) {
     require(QFile::copy(source.filePath("metadata.json"),
                         destination.filePath("metadata.json")) &&
                 QFile::copy(source.filePath("model.onnx"),
-                            destination.filePath("model.onnx")),
+                            destination.filePath("model.onnx")) &&
+                QFile::copy(source.filePath("checkpoint.pth"),
+                            destination.filePath("checkpoint.pth")),
             "copy bundled model package");
     return packagePath;
 }
@@ -186,7 +196,8 @@ void testValidationAndCompletedResult() {
             "set deterministic preflight CUDA override");
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
-    ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    ModelTestController controller(operations, loader, QStringLiteral("2.0"),
+                                   testPythonExecutable(), testWorkingDirectory());
     require(!controller.openOutputFolder() &&
                 controller.actionError().contains("unavailable") &&
                 controller.presentation() == "empty",
@@ -322,7 +333,8 @@ void testImmediateStop() {
             "set deterministic stop preflight CUDA override");
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
-    ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    ModelTestController controller(operations, loader, QStringLiteral("2.0"),
+                                   testPythonExecutable(), testWorkingDirectory());
     controller.setDatasetManifestUrl(
         QUrl::fromLocalFile(makeDataset(temporary.path())));
     controller.setOutputFolderUrl(QUrl::fromLocalFile(temporary.path()));
@@ -377,7 +389,8 @@ void testFailedPartialRecovery() {
             "set deterministic failed preflight CUDA override");
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
-    ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    ModelTestController controller(operations, loader, QStringLiteral("2.0"),
+                                   testPythonExecutable(), testWorkingDirectory());
     controller.setDatasetManifestUrl(
         QUrl::fromLocalFile(makeDataset(temporary.path(), true)));
     const QString outputParent =
@@ -429,7 +442,8 @@ void testRegistryMutationRefresh() {
             "set deterministic refresh CUDA override");
     OperationCoordinator operations;
     ModelLoadService loader(registryPath);
-    ModelTestController controller(operations, loader, QStringLiteral("2.0"));
+    ModelTestController controller(operations, loader, QStringLiteral("2.0"),
+                                   testPythonExecutable(), testWorkingDirectory());
     int changedCount = 0;
     QObject::connect(&controller, &ModelTestController::changed,
                      [&changedCount] { ++changedCount; });

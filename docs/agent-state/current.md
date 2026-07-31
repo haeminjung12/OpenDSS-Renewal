@@ -6,11 +6,11 @@ State format: `1`
 - Mode: `debug`
 - User-facing Lead: `Debug Lead`
 - Checkpoint branch: `codex/debug-lead`
-- Checkpoint commit: `eda6c768795aecdf258ccd34290eac7e703928a2`
+- Checkpoint commit: `94067b759e631e4e965ba433ad9cf8e497dec9d0`
 - Active ID: `DBG-001`
-- Status: `DBG-001 committed and HIL verified; DBG-002 focused fix verified and integration pending`
-- Dirty paths at checkpoint: `app/runtime/v2/sequence/image_sequence_capture_service.{h,cpp}`, `app/runtime/tests/image_sequence_capture_service_test.cpp`, `docs/agent-state/current.md`, `docs/debug/bug-ledger.md`
-- Updated: `2026-07-30T18:41:45-05:00`
+- Status: `DBG-001 and DBG-002 integrated; Release build passed and 51/53 tests pass; closure held on unrelated DBG-010 and DBG-011 gate blockers`
+- Dirty paths at checkpoint: `app/runtime/tests/CMakeLists.txt`, `app/runtime/tests/model_load_activation_test.cpp`, `app/runtime/tests/model_test_controller_test.cpp`, `app/runtime/tests/model_test_service_test.cpp`, `app/runtime/tests/runs_results_controller_test.cpp`, `docs/agent-state/current.md`, `docs/debug/bug-ledger.md`
+- Updated: `2026-07-30T20:09:26-05:00`
 
 ## Accepted decisions
 
@@ -25,6 +25,7 @@ State format: `1`
 - Shared policy `G-2026-07-30.3` and delegation rule `G-MODEL-001` are adopted for all remaining work.
 - User-authoritative detector invariant: every acquired image must pass through the event detector in order before first/last occurrence, trajectory, crop, or ONNX-routing decisions. Sampled preview delivery is not valid detector input; optional sequence persistence is a separate concern.
 - The first batch will use a current-code headless characterization harness, informed by the proven legacy `sequence_headless` pipeline, to measure acquisition, detector, and persistence throughput independently; it must not become a parallel production implementation.
+- `DBG-010` and `DBG-011` were discovered by the combined Release gate and are not silently added to the `DBG-001`/`DBG-002` production-fix scope.
 
 ## Accepted evidence
 
@@ -48,12 +49,23 @@ State format: `1`
 - After the fix, Release service-path characterization passes exact acquired/service/detector counts: 270/270/270 at 2304×2304 and 2,800/2,800/2,800 at 1152×288, with zero gaps, ordering errors, pixel-ID errors, or pre-service coalescing.
 - Physical USB HIL drained and detector-completed 3,554/3,554 ROI frames at 710.858 fps and 316/316 full frames at 63.309 fps with zero gaps, duplicates, ordering errors, or DCAM overrun. Average full-frame detector service time was 7.804 ms, mathematically supporting 128.140 fps versus the 89.1 fps CoaXPress specification and 100 fps headroom target.
 - The isolated `DBG-002` fix passes its focused Release build and regression test; it reports queue rejection immediately and finalizes the affected sequence as Failed with factual attempted/saved/rejected counts and rates.
+- `DBG-002` is integrated at commit `c17e72e393116f05430644c293450cba1921ea74`.
+- Integration build repairs are committed at `ebf1a0e3a59058bb8baa5f990f2a93a981760ffd` (preserve the camera CLI and DAQ test seams) and `94067b759e631e4e965ba433ad9cf8e497dec9d0` (propagate the NI-DAQmx runtime link).
+- The previously started combined build was stopped at the user's request before storage consolidation; no completed full-build or full-test result is accepted from that attempt.
+- A fresh combined Plan Guardian returned `PASS` against `eda6c76`, `c17e72e`, `ebf1a0e`, and `94067b7`.
+- The integrated Release build at `C:\b\odss-debug-lead-hil` passed, including `OpenDSS.exe`, camera/DCAM, sequence, detector, ONNX, and DAQ-linked targets.
+- The first full CTest run passed 44/53 tests and exposed nine failures unrelated to the `DBG-001`/`DBG-002` commits. Narrow test-contract repairs and restoration of ignored model assets from exact locked hashes resolved seven failures.
+- The final full CTest run passed 51/53 tests in 128.39 seconds. All camera, detector, crop, dataset capture, sequence capture/reporting, Live, Sequence, DAQ, ONNX conversion, Model Library, Training, and repaired Results tests passed.
+- Qualified ignored assets were restored locally with exact metadata hashes: pretrained EfficientNet checkpoint `242ED863...1C5`, pretrained MobileNet checkpoint `0542C495...E35`, ImageNet EfficientNet weights `7F5810BC...4934`, and ImageNet MobileNet weights `047DCFF4...F4E1F`.
+- Canonical Python-backed tests were characterized using reversible junctions from `%LOCALAPPDATA%\OpenDSS\python-3.12.10` and `training-venv-gpu` to their preserved `validation-backup-20260729T130643Z-cc618378` directories. These junctions remain present because automated removal was policy-blocked; they are evidence scaffolding, not an installer fix.
 
 ## Blockers
 
 - Live droplet recall and GUI/persistence throughput remain unverified; the short HIL scene contained no detected droplets. CoaXPress capacity is a user-authorized mathematical check, not a physical CoaXPress HIL run.
 - Installer local fixes have not yet been reconciled with this worktree or a rebuilt installer.
+- `DBG-010`: the real Model Test Python handshake rejects the locked pretrained checkpoint because it lacks the top-level `class_ids` required by the current backend; this is a protected model/inference boundary and needs separately authorized correction.
+- `DBG-011`: the representative production `dataset.json` hash is `58500D72...9233B`, not the audited `E6BCEA0F...F1C72`; provenance must be restored or explicitly re-audited before changing the expected hash.
 
 ## Exact next action
 
-Pass the corrected combined Plan Guardian gate, commit the verified `DBG-002` three-file fix, and perform the single full Release build/test gate for the first integration batch.
+Run a fresh Plan Guardian against the post-gate test-only diff and new bug records. Do not close `DBG-001`/`DBG-002` or alter protected Model Test behavior until the user chooses whether to authorize `DBG-010` and how to resolve `DBG-011` provenance.

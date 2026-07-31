@@ -8,7 +8,7 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 
 ### DBG-001 — Record Dataset misses most droplets
 
-- Status: `fix committed and HIL verified — combined full build pending`
+- Status: `fix committed and HIL verified — Release build and relevant tests pass; batch closure held by DBG-010/DBG-011`
 - Priority: `P0 — blocks experiments`
 - Accountable owner: Debug Lead
 - Expected: Every acquired image passes through the event detector in order. Only then may the system decide first/last occurrence, trajectory, crop creation, or ONNX routing; Record Dataset writes one correctly centered crop per qualifying detected event.
@@ -21,11 +21,11 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Regression and verification evidence: the two supplied manifests, 1,087 corresponding TIFF frames, and 16 corresponding crop records were reconciled; queue and consumer integrity counters exclude dataset writer loss. The pre-fix Release regression measured 259/270 and 257/2,800 detector completions. After the fix, Release service characterization passes exact acquired/service/detector counts of 270/270/270 at 2304×2304 and 2,800/2,800/2,800 at 1152×288 with zero gaps, ordering errors, pixel-ID errors, or pre-service coalescing. Physical USB HIL drained and detector-completed 3,554/3,554 ROI frames at 710.858 fps and 316/316 full frames at 63.309 fps with zero gaps, duplicates, ordering errors, or DCAM overrun. Full-frame average detector service time was 7.804 ms, mathematically supporting 128.140 fps versus the 89.1 fps CoaXPress specification and 100 fps headroom target. Focused Release camera service, controller, DCAM adapter, and characterization tests pass. Evidence: `docs/debug/evidence/DBG-001-real-dcam-headless-20260730.md`.
 - Protected-asset impact: detector and camera-acquisition behavior are protected; characterization evidence is required before behavioral change. Detector delivery must remain an ordered all-acquired-frame path and must not depend on a sampled preview or optional sequence-persistence path.
 - Remaining risk and rollback: the short HIL scenes contained no detected droplets, so live droplet recall remains unaccepted; GUI and persistence throughput are not measured. CoaXPress capacity is a user-authorized mathematical check rather than physical CoaXPress HIL. Rollback is `git revert eda6c768795aecdf258ccd34290eac7e703928a2`.
-- Exact next action: integrate the verified `DBG-002` reporting fix and run the single combined full Release build/test gate.
+- Exact next action: preserve the passing build/relevant-test evidence and hold closure pending disposition of `DBG-010` and `DBG-011`.
 
 ### DBG-002 — Capture integrity reports missing frames without adequate user warning
 
-- Status: `focused fix verified — integration commit and combined full build pending`
+- Status: `fix integrated — Release build and relevant tests pass; batch closure held by DBG-010/DBG-011`
 - Priority: `P1`
 - Accountable owner: Debug Lead
 - Expected: lossless capture saves all attempted frames or clearly reports degraded/failed capture with saved, rejected, and attempted counts.
@@ -34,11 +34,11 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Observations: two different integrity mechanisms are present and must not be conflated. `source_frame_gaps` measures discontinuities in raw DCAM delivery IDs and alone does not prove camera loss. Queue rejection is application dispatcher loss. Vendor HCImageLive evidence at `C:\Users\goals\AppData\Local\Temp\codex-clipboard-d792c9e4-759b-459b-b523-6ccb01061f31.png` shows 2304×2304, 8-bit, Fast mode, 1.0 ms exposure operating at 63.33 fps; this is the equivalent-settings attempted-throughput acceptance baseline.
 - Hypotheses: high-resolution producer throughput exceeds the bounded recorder consumer; hardware throughput remains unmeasured.
 - Accepted root cause: Image Sequence queue rejection is only logged and counted; `offerFrame` still reports success, and `stopWithReason` marks the sequence completed without elevating rejected handoffs to a degraded or failed user-visible outcome.
-- Changed files: the canonical worktree changes `app/runtime/v2/sequence/image_sequence_capture_service.{h,cpp}` and `app/runtime/tests/image_sequence_capture_service_test.cpp`.
+- Changed files: commit `c17e72e393116f05430644c293450cba1921ea74` changes `app/runtime/v2/sequence/image_sequence_capture_service.{h,cpp}` and `app/runtime/tests/image_sequence_capture_service_test.cpp`.
 - Regression and verification evidence: `sourceGapCompletion` continues to characterize source-gap semantics. A deterministic blocked-writer overflow regression now proves rejection reports degraded state immediately, finalizes as Failed, retains recovery metadata, does not publish `sequence.json`, and reports attempted/saved/rejected counts and rates separately. Focused Release target build passed; `image_sequence_capture_service_test` passed 1/1 in 0.51 s; scoped diff check passed. Vendor hardware throughput remains to be exercised.
 - Protected-asset impact: camera acquisition and persistence are protected; no behavior change without regression and throughput evidence.
-- Remaining risk and rollback: the combined full Release build/test gate is pending. Throughput loss is now reported factually but this fix does not increase persistence throughput. Rollback is reversion of the three-file reporting/regression change.
-- Exact next action: pass the corrected combined Plan Guardian gate, commit the three-file fix, and run the single full Release build/test gate.
+- Remaining risk and rollback: throughput loss is now reported factually but this fix does not increase persistence throughput. The integrated Release build and every relevant capture test pass; full-suite closure is held only by `DBG-010` and `DBG-011`. Rollback is `git revert c17e72e393116f05430644c293450cba1921ea74`.
+- Exact next action: preserve the passing build/relevant-test evidence and hold closure pending disposition of `DBG-010` and `DBG-011`.
 
 ### DBG-003 — Packaged Python provisioner is stale and fails PowerShell 5.1 inventory verification
 
@@ -158,6 +158,40 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Protected-asset impact: none; status reporting must not alter training or provisioning mechanics.
 - Remaining risk and rollback: presentation-only changes must not interfere with cancellation, rollback, or process output handling.
 - Exact next action: trace status messages from the provisioning script through the installer UI and identify the first stage that is not displayed.
+
+### DBG-010 — Locked pretrained checkpoint is incompatible with the Model Test backend
+
+- Status: `reproduced — protected-boundary scope decision pending`
+- Priority: `P1`
+- Accountable owner: Debug Lead
+- Expected: a locked pretrained Model Package accepted by OpenDSS completes the real installed-Python Model Test readiness handshake with matching checkpoint identity, classes, item count, and device.
+- Observed: `model_test_controller_test` reaches the real Python backend but fails with `Model Test Python readiness is invalid.` A direct isolated handshake returns `{"schema_version":1,"event":"run_failed","error":"Active checkpoint class/config metadata is invalid."}`.
+- Smallest reliable reproduction: run the installed canonical Python with `-I -m droplet_trainer model-test-process --checkpoint <locked MobileNet checkpoint>` and send one valid three-class protocol request.
+- Observations: the locked checkpoint SHA-256 is `0542C4955EBCBE74FBA96169967241A9453B2AF135F241097B5CFAE774DD1E35`. It contains `config`, `history`, `identity`, `model_state`, and `optimizer_updates`; `config.classes` is `["0","1","2"]`, but no top-level `class_ids` exists.
+- Hypotheses: the qualified pretrained artifact predates the current Model Test checkpoint schema, or the backend dropped intentional legacy-schema support.
+- Accepted root cause: `droplet_trainer.model_test_batch_backend.load_active_checkpoint` requires nonempty top-level `class_ids` plus `config`, while the locked pretrained checkpoint records the class IDs only as `config.classes`; the backend returns `run_failed` before readiness.
+- Changed files: none for the production defect. Test-fixture corrections expose the real failure without bypassing it.
+- Regression and verification evidence: the direct installed-Python handshake and final integrated CTest failure are deterministic. `model_test_service_test`, `model_test_batch_backend_python_test`, ONNX conversion, Model Library, and Training tests otherwise pass.
+- Protected-asset impact: model preprocessing/inference, Python training, checkpoint/export mechanics, and ONNX behavior are protected. Do not add legacy compatibility or replace/re-export qualified checkpoints without characterization, hash/provenance updates, regression comparison, justification, and rollback.
+- Remaining risk and rollback: actual Model Test operation can fail for an otherwise accepted pretrained package. No production change exists to roll back.
+- Exact next action: choose a separately authorized fix: re-export/provision a qualified checkpoint in the current contract, or characterize and approve narrowly scoped backend compatibility for `config.classes`.
+
+### DBG-011 — Representative Model Test dataset provenance hash has drifted
+
+- Status: `reproduced — provenance decision pending`
+- Priority: `P1 verification blocker`
+- Accountable owner: Debug Lead
+- Expected: the representative production dataset used by the registered Release test retains audited `dataset.json` SHA-256 `E6BCEA0F2F7E192008381329E4D8C355BA2AE2F0BAF867FEADA0F60F255F1C72`.
+- Observed: the current external `dataset.json` SHA-256 is `58500D725D1E185667225835915DAC64473EB790896B561D6DB892CFBAF9233B`, so `model_test_production_model_representative_test` stops before inference.
+- Smallest reliable reproduction: run registered Release test `model_test_production_model_representative_test` against `C:\Users\goals\OneDrive\Documents\OpenDropletSortingSuite\datasets\prepared\droplet_target_nontarget_3class_starter`.
+- Observations: the audit manifest hash still matches its locked value. No matching copy of the expected `dataset.json` hash was found in the supplied dataset tree, Downloads, OpenDSS artifacts, or `E:\OpenDSS`.
+- Hypotheses: the external dataset metadata changed after its audit, or the expected hash references a prior version no longer present locally.
+- Accepted root cause: none; the file drift is proven, but its provenance is unresolved.
+- Changed files: none.
+- Regression and verification evidence: the final full CTest run passed 51/53 tests; this test failed only on the exact dataset hash comparison.
+- Protected-asset impact: external scientific dataset provenance; do not overwrite user data or update the accepted hash without restoration or re-audit.
+- Remaining risk and rollback: representative production Model Test acceptance cannot proceed against an unaudited dataset identity. No production change exists to roll back.
+- Exact next action: restore the audited `dataset.json` or explicitly authorize a fresh audit of the current file and its dependent evidence.
 
 ## Bug record format
 

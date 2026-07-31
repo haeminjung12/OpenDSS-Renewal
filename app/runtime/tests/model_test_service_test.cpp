@@ -164,7 +164,7 @@ QString copyBundledModelPackage(const QString& parent) {
                         destination.filePath("metadata.json")) &&
                 QFile::copy(source.filePath("model.onnx"),
                             destination.filePath("model.onnx")) &&
-                QFile::copy(source.filePath("model.onnx"),
+                QFile::copy(source.filePath("checkpoint.pth"),
                             destination.filePath("checkpoint.pth")),
             "copy bundled model package");
     return packagePath;
@@ -319,8 +319,11 @@ void testCheckpointProvenanceMigration() {
                                      {"active", true}}}}});
 
     ModelLoadService loader(registryPath);
-    const QJsonObject before =
-        QJsonDocument::fromJson(bytes(metadataPath)).object();
+    QJsonObject before = QJsonDocument::fromJson(bytes(metadataPath)).object();
+    QJsonObject legacyArtifact = before.value("artifact").toObject();
+    legacyArtifact.remove("checkpoint_sha256");
+    before.insert("artifact", legacyArtifact);
+    writeJson(metadataPath, before);
     require(!before.value("artifact")
                  .toObject()
                  .contains("checkpoint_sha256"),

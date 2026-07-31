@@ -516,6 +516,7 @@ int main(int argc, char** argv) {
     liveConfig.metadataPath = "selected-row-metadata.json";
     liveConfig.outputDir = temp.path().toStdString();
     liveConfig.daq = DaqConfig{};
+    liveConfig.daq.channel.clear();
     std::string pipelineError;
     if (emptyPipeline.configureInstalled(liveConfig, pipelineError) ||
         emptyPipeline.isReady() || !emptyPipeline.loadedModelId().empty()) {

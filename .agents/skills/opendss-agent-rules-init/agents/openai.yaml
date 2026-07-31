@@ -1,0 +1,6 @@
+interface:
+  display_name: "OpenDSS Implementation Resume"
+  short_description: "Resume an Implementation Lead from verified state"
+  default_prompt: "Use $opendss-agent-rules-init to resume this OpenDSS Implementation Lead at a session boundary."
+policy:
+  allow_implicit_invocation: false

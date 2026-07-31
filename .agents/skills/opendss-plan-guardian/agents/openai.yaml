@@ -1,0 +1,6 @@
+interface:
+  display_name: "OpenDSS Plan Guardian"
+  short_description: "Run one read-only plan-fidelity gate"
+  default_prompt: "Use $opendss-plan-guardian for the current OpenDSS integration or closure gate."
+policy:
+  allow_implicit_invocation: false

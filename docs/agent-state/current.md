@@ -2,15 +2,15 @@
 
 State format: `1`
 
-- Policy revision: `ODSS-2026-07-30.2`
+- Policy revision: `ODSS-2026-07-30.3`
 - Mode: `debug`
 - User-facing Lead: `Debug Lead`
 - Checkpoint branch: `codex/debug-lead`
-- Checkpoint commit: `94067b759e631e4e965ba433ad9cf8e497dec9d0`
+- Checkpoint commit: `8291810d8828a82ee69b68db4736fdfce42b3914`
 - Active ID: `DBG-001`
 - Status: `DBG-001 and DBG-002 integrated; Release build passed and 51/53 tests pass; closure held on unrelated DBG-010 and DBG-011 gate blockers`
-- Dirty paths at checkpoint: `app/runtime/tests/CMakeLists.txt`, `app/runtime/tests/model_load_activation_test.cpp`, `app/runtime/tests/model_test_controller_test.cpp`, `app/runtime/tests/model_test_service_test.cpp`, `app/runtime/tests/runs_results_controller_test.cpp`, `docs/agent-state/current.md`, `docs/debug/bug-ledger.md`
-- Updated: `2026-07-30T20:09:26-05:00`
+- Dirty paths at checkpoint: `docs/agent-state/current.md`
+- Updated: `2026-07-30T20:19:15-05:00`
 
 ## Accepted decisions
 
@@ -26,6 +26,8 @@ State format: `1`
 - User-authoritative detector invariant: every acquired image must pass through the event detector in order before first/last occurrence, trajectory, crop, or ONNX-routing decisions. Sampled preview delivery is not valid detector input; optional sequence persistence is a separate concern.
 - The first batch will use a current-code headless characterization harness, informed by the proven legacy `sequence_headless` pipeline, to measure acquisition, detector, and persistence throughput independently; it must not become a parallel production implementation.
 - `DBG-010` and `DBG-011` were discovered by the combined Release gate and are not silently added to the `DBG-001`/`DBG-002` production-fix scope.
+- Shared policy `G-2026-07-30.4` and repository policy `ODSS-2026-07-30.3` are adopted at policy commits `6fb552e` and `8291810`.
+- Workers may investigate `DBG-010` and `DBG-011` independently, but the Debug Lead must present their evidence and options to the user and receive confirmation before choosing or implementing a resolution.
 
 ## Accepted evidence
 
@@ -53,6 +55,7 @@ State format: `1`
 - Integration build repairs are committed at `ebf1a0e3a59058bb8baa5f990f2a93a981760ffd` (preserve the camera CLI and DAQ test seams) and `94067b759e631e4e965ba433ad9cf8e497dec9d0` (propagate the NI-DAQmx runtime link).
 - The previously started combined build was stopped at the user's request before storage consolidation; no completed full-build or full-test result is accepted from that attempt.
 - A fresh combined Plan Guardian returned `PASS` against `eda6c76`, `c17e72e`, `ebf1a0e`, and `94067b7`.
+- A fresh post-gate Plan Guardian returned `PASS` for the test-only repairs and separation of `DBG-010`/`DBG-011`.
 - The integrated Release build at `C:\b\odss-debug-lead-hil` passed, including `OpenDSS.exe`, camera/DCAM, sequence, detector, ONNX, and DAQ-linked targets.
 - The first full CTest run passed 44/53 tests and exposed nine failures unrelated to the `DBG-001`/`DBG-002` commits. Narrow test-contract repairs and restoration of ignored model assets from exact locked hashes resolved seven failures.
 - The final full CTest run passed 51/53 tests in 128.39 seconds. All camera, detector, crop, dataset capture, sequence capture/reporting, Live, Sequence, DAQ, ONNX conversion, Model Library, Training, and repaired Results tests passed.
@@ -68,4 +71,4 @@ State format: `1`
 
 ## Exact next action
 
-Run a fresh Plan Guardian against the post-gate test-only diff and new bug records. Do not close `DBG-001`/`DBG-002` or alter protected Model Test behavior until the user chooses whether to authorize `DBG-010` and how to resolve `DBG-011` provenance.
+Run OpenDSS Debug Resume once for the adopted policy state, then assign bounded read-only investigations for `DBG-010` and `DBG-011`. Present findings and options to the user before choosing or implementing either resolution.

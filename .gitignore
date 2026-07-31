@@ -16,8 +16,13 @@ session_log.txt
 # Local agent/index state
 .grepai/
 graphify-out/
-.agents/
-AGENTS.md
+.agents/*
+!.agents/skills/
+!.agents/skills/**
+.codex/*
+!.codex/config.toml
+!.codex/agents/
+!.codex/agents/*.toml
 WORKSPACE_ORCHESTRATION_RULE_V2.md
 docs/agent-operating-rules.md
 docs/agent-tasks/

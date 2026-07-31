@@ -1,0 +1,6 @@
+interface:
+  display_name: "OpenDSS Debug Resume"
+  short_description: "Resume a Debug Lead from verified ledger state"
+  default_prompt: "Use $opendss-debug-init to resume this OpenDSS Debug Lead at a session boundary."
+policy:
+  allow_implicit_invocation: false

@@ -6,11 +6,11 @@ State format: `1`
 - Mode: `implementation`
 - User-facing Lead: `Implementation Lead`
 - Checkpoint branch: `codex/v2-shell-single-image-slice`
-- Checkpoint commit: `864f97d09e12688a03864696b7fcf2207e5c808d`
+- Checkpoint commit: `2001d66` (authorized integrated product-source commit)
 - Active ID: `AE-1+DBG-020`
-- Status: `DBG-019/020 and one-shot Auto Exposure integrated; final Plan Guardian PASS; commit/package pending`
-- Dirty paths at checkpoint: integrated DBG-019/020 production, test, evidence, and ledger paths; v2 Auto Exposure controller/provider/QML/test paths; legacy Auto label/precision path; native-window test environment fix; implementation authority/state paths; pre-existing untracked `.worktrees/`
-- Updated: `2026-07-31T17:52:03-05:00`
+- Status: `COMPLETE — integrated, committed, verified, and packaged; awaiting user manual acceptance`
+- Dirty paths at checkpoint: pre-existing untracked `.worktrees/` only; preserved and excluded
+- Updated: `2026-07-31T18:04:30-05:00`
 
 ## Accepted decisions
 
@@ -46,6 +46,11 @@ State format: `1`
 - Focused `camera_controller_test` passed 1/1, including no-frame preservation and accepted one-shot calculation/readback.
 - Final actual-v2 CTest passed 2/2; QML totals are 56 passed, 0 failed. The native-window runtime-path test passed with the deterministic Qt environment.
 - Fresh final-diff Plan Guardian: `PASS`; scope, authority, protected boundaries, detector invariant, declined non-goals, and accepted evidence align.
+- Authorized integrated product-source commit: `2001d66` (`Integrate high-rate sequence spooling and auto exposure`).
+- Final portable directory: `C:\b\d13\manual-test-20260731\ae1-dbg020-final-portable\OpenDSS_20260731_175800`; guarded package manifest status `pass`; packaged launch smoke remained running after five seconds.
+- Final executable: `C:\b\d13\manual-test-20260731\ae1-dbg020-final-portable\OpenDSS_20260731_175800\OpenDSS.exe`; SHA-256 `9B146F358F5B51688F2C51E361712EC0D1AE566EC2491E4176B294A39B77AC49`.
+- Final portable ZIP: `C:\b\d13\manual-test-20260731\OpenDSS_Standalone_2.0_AE1_DBG-020_FINAL.zip`; 1,237,298,496 bytes; SHA-256 `0974314808166AFE43A6A9E1E70C30A08BFF45FE848E699282BDE3A90E2C8699`.
+- Streamed archive verification found 8,934 entries, matched the embedded executable hash, and confirmed replacement instructions plus both every-frame camera diagnostic files.
 
 ## Blockers
 
@@ -53,4 +58,4 @@ State format: `1`
 
 ## Exact next action
 
-Commit the authorized integrated batch, then create and verify the executable and portable ZIP with replacement instructions.
+Await user manual acceptance of the delivered executable and portable ZIP. Do not reopen DBG-014 through DBG-020 or add declined checksum/crash-resume features.

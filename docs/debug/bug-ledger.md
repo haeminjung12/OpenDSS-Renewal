@@ -315,7 +315,7 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 
 ### DBG-019 — Full-frame Image Sequence persistence rejects frames at sustained 8-bit Fast throughput
 
-- Status: `implemented, verified, and integrated by the authorized Implementation Lead; final integrated commit/package pending`
+- Status: `implemented, verified, integrated in product-source commit 2001d66, and packaged; awaiting user manual acceptance`
 - Priority: `P1 experiment blocker`
 - Accountable owner: Debug Lead
 - Expected: Image Sequence records every accepted source frame at the required full-frame 8-bit Fast acquisition rate, with zero persistence handoff loss; if the system cannot sustain the configured rate, it must not silently claim a complete sequence.
@@ -332,11 +332,11 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Regression and verification evidence: the focused Release service test passed 1/1. Production-default real-camera HIL acquired, detector-completed, and saved 188/188/188 Mono8 full frames at 63.309 fps with zero gaps, duplicates, ordering errors, queue rejections, or consumer failures and queue high-water 11/16; Pillow fully decoded all 188 TIFFs. Report SHA-256 is `4C872F4F...45A0` and manifest SHA-256 is `3E523BA0...115A`. A fresh Plan Guardian returned `PASS`; the primary Release build and 53/53 CTest passed, and the actual-v2 Release build plus 2/2 CTest passed, including 55/55 QML checks. The guarded standalone package check also passed; packaged executable SHA-256 is `F4BF2AB...775A`, ZIP SHA-256 is `4485A76B...D31E`, and the archive contains the migration instructions. Full hashes and prior boundary runs are recorded in `docs/debug/evidence/DBG-019-persistence-characterization-20260731.md`.
 - Protected-asset impact: background persistence mechanics are protected. Any behavioral or concurrency change requires consumer/target mapping, characterization, representative full-frame fixtures, before/after throughput, equivalent hardware evidence, and rollback.
 - Remaining risk and rollback: the available physical USB source remained at 63.309 fps and did not reproduce the original manifest-reported 84.72 fps. The user explicitly accepts truthful persistence skips when a faster transport or slower computer exceeds writer capacity. Current production conversion still downconverts Mono16 to Grayscale8, and this fix does not claim native-16-bit zero-loss persistence at 89.1 fps. Rollback restores the removed readability-probe block and include.
-- Exact next action: include the verified DBG-019 batch in the authorized integrated commit; retain truthful persistence rejection and the unchanged every-acquired-frame detector invariant.
+- Exact next action: await user manual acceptance; retain truthful persistence rejection and the unchanged every-acquired-frame detector invariant.
 
 ### DBG-020 — Per-frame TIFF publication cannot sustain high-rate ROI persistence
 
-- Status: `implemented, verified, and integrated by the authorized Implementation Lead; final integrated commit/package pending`
+- Status: `implemented, verified, integrated in product-source commit 2001d66, and packaged; awaiting user manual acceptance`
 - Priority: `P1 high-rate experiment blocker`
 - Accountable owner: Debug Lead
 - Expected: Image Sequence retains every acquired frame for both high-resolution and low-resolution Fast streams while persistence output remains 8-bit, without blocking or dropping ordered detector input.
@@ -351,7 +351,7 @@ The Debug Lead owns this ledger. Workers return evidence to the Debug Lead and d
 - Regression and verification evidence: focused Release service/controller tests pass. Production real-camera HIL preserves exact acquired = detector-completed = saved counts with zero gaps, ordering faults, queue rejection, or consumer failure at 44×144 input8/output8 (4,240 frames at 1,416.814 fps), 2304×2304 input16/output8 (94 frames at 31.601 fps), and 2304×2304 input8/output8 (189 frames at 63.309 fps). The corrected 44×144 persistence handoff high-water mark is 3/16. The renewed Plan Guardian passed; primary Release/CTest passed 53/53, actual-v2 Release/CTest passed 2/2, and QML passed 56/56. The guarded standalone package check passed. Packaged `OpenDSS.exe` SHA-256 is `3A5BFA2913E0223B2C02F053779D4A45829864BD0ED74916BBA2B899A959363E`; final ZIP SHA-256 is `64BF5037E97BEB0DCBBB95696B9A98C373E839E003732AE0FBB7E0926F0486D8`. The archive includes replacement instructions and a ready-to-run actual-camera diagnostic whose pass condition requires exact acquired = detector-completed = accepted = saved counts plus zero gaps, duplicates, ordering faults, queue rejections, and consumer failures.
 - Protected-asset impact: the proposed production change affects protected Image Sequence persistence only. Camera/DCAM acquisition, detector ordering/completion, viewer preview policy, ONNX, training/export, and unrelated persistence remain excluded.
 - Remaining risk and rollback: three-second `QFile` runs can benefit from OS caching and do not physically qualify an unavailable 89.1 fps transport or every slower storage device. Bounded buffering cannot make indefinitely slow storage sustain a faster stream. Per-frame checksums and automatic crash/failure resume are user-declined non-goals. Rollback restores the prior per-frame TIFF consumer and synchronous Stop path.
-- Exact next action: commit the authorized integrated batch, then deliver the verified executable, standalone ZIP, replacement instructions, and every-frame real-camera diagnostic for user manual acceptance.
+- Exact next action: await user manual acceptance of the delivered executable, standalone ZIP, replacement instructions, and every-frame real-camera diagnostic.
 
 ## Bug record format
 

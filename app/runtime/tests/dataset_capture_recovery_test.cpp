@@ -1,5 +1,6 @@
 #include "../v2/dataset/dataset_capture_service.h"
 #include "../detection/droplet_detector.h"
+#include "../detection/droplet_frame_processor.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -28,6 +29,11 @@ class FakeDetector final : public IDropletDetector {
         value.detected = calls <= 2;
         value.eventEntered = calls == 1;
         value.bbox = {2, 3, 12, 20};
+        if (calls == 1) {
+            value.enteredTrackCount = 2;
+            value.enteredTracks[0] = {101, 0, 0.0, {2, 3, 12, 20}, {}};
+            value.enteredTracks[1] = {102, 0, 0.0, {14, 2, 10, 18}, {}};
+        }
         return value;
     }
     int calls = 0;
@@ -47,6 +53,10 @@ class GateDetector final : public IDropletDetector {
         value.detected = eventEntered_;
         value.eventEntered = eventEntered_;
         value.bbox = {2, 3, 12, 20};
+        if (eventEntered_) {
+            value.enteredTrackCount = 1;
+            value.enteredTracks[0] = {1, 0, 0.0, value.bbox, {}};
+        }
         return value;
     }
     void waitUntilEntered() {
@@ -148,7 +158,8 @@ int main(int argc, char** argv) {
 
     OperationCoordinator operations;
     FakeDetector detector;
-    DatasetCaptureService manual(operations, detector, [&] { return now; });
+    DropletFrameProcessor manualProcessor(detector);
+    DatasetCaptureService manual(operations, manualProcessor, [&] { return now; });
     if (!check(manual.start(request(temporary.path(), "manual"), &error), error) ||
         !check(manual.offerFrame(frame(), meta(1), 1000.0, &error), error) ||
         !check(manual.offerFrame(frame(), meta(3), 1000.0, &error), error))
@@ -158,6 +169,10 @@ int main(int argc, char** argv) {
     if (!check(paused, error.isEmpty() ? "Manual pause failed: " + manual.snapshot().error : error))
         return 2;
     const QString manualFolder = manual.snapshot().folder;
+    if (!check(!QFileInfo(QDir(manualFolder).filePath("sequence/frame_00000001.tif")).exists() &&
+                   QFileInfo(QDir(manualFolder).filePath("sequence.frames.partial")).isFile(),
+               "Dataset full frames were published before stop finalization"))
+        return 30;
     now = 5'000'000'000;
     if (!check(manual.resume(&error), error) ||
         !check(manual.offerFrame(frame(), meta(10), 1000.0, &error), error) ||
@@ -165,7 +180,7 @@ int main(int argc, char** argv) {
         return 3;
     const auto manualManifest =
         DatasetManifestV2::load(QDir(manualFolder).filePath("dataset.json"), &error);
-    if (!check(manualManifest && manualManifest->data().records.size() == 1 &&
+    if (!check(manualManifest && manualManifest->data().records.size() == 2 &&
                    manualManifest->data().records.front().sourceFrameIndex == 1 &&
                    manualManifest->data().classes.isEmpty() &&
                    manualManifest->data().labels.isEmpty() &&
@@ -182,15 +197,18 @@ int main(int argc, char** argv) {
                    "Numbered TIFF is unreadable: " + path))
             return 5;
     }
-    if (!check(QFileInfo(QDir(manualFolder).filePath("crops/droplet_000001.png")).isFile(),
-               "Exactly one event-entered crop was not written") ||
+    if (!check(detector.calls == 3 &&
+                   QFileInfo(QDir(manualFolder).filePath("crops/droplet_000001.png")).isFile() &&
+                   QFileInfo(QDir(manualFolder).filePath("crops/droplet_000002.png")).isFile(),
+               "Two same-frame entered crops were not written from one detector call") ||
         !check(operations.snapshot().lifecycle == OperationLifecycle::Idle,
                "Completed capture retained its operation lease"))
         return 6;
 
     OperationCoordinator lockOperations;
     FakeDetector lockDetector;
-    DatasetCaptureService lockCapture(lockOperations, lockDetector, [&] { return now; });
+    DropletFrameProcessor lockProcessor(lockDetector);
+    DatasetCaptureService lockCapture(lockOperations, lockProcessor, [&] { return now; });
     if (!check(lockCapture.start(request(temporary.path(), "identity-lock"), &error), error))
         return 26;
     const QString lockedDataset =
@@ -214,7 +232,8 @@ int main(int argc, char** argv) {
     auto blocker =
         blockedOperations.acquire(OperationKind::ModelTest, ResourceLock::Model);
     FakeDetector blockedDetector;
-    DatasetCaptureService blockedCapture(blockedOperations, blockedDetector, [&] { return now; });
+    DropletFrameProcessor blockedProcessor(blockedDetector);
+    DatasetCaptureService blockedCapture(blockedOperations, blockedProcessor, [&] { return now; });
     if (!check(blocker.acquired()
                    && !blockedCapture.start(request(temporary.path(), "blocked-start"), &error)
                    && !QFileInfo::exists(QDir(temporary.path()).filePath("blocked-start")),
@@ -225,7 +244,8 @@ int main(int argc, char** argv) {
     OperationCoordinator timedOperations;
     FakeDetector timedDetector;
     now = 0;
-    DatasetCaptureService timed(timedOperations, timedDetector, [&] { return now; });
+    DropletFrameProcessor timedProcessor(timedDetector);
+    DatasetCaptureService timed(timedOperations, timedProcessor, [&] { return now; });
     if (!check(timed.start(request(temporary.path(), "timed", 0.1), &error), error) ||
         !check(timed.offerFrame(frame(), meta(1), 500.0, &error), error))
         return 7;
@@ -238,7 +258,8 @@ int main(int argc, char** argv) {
     OperationCoordinator interruptedOperations;
     FakeDetector interruptedDetector;
     now = 0;
-    DatasetCaptureService interrupted(interruptedOperations, interruptedDetector,
+    DropletFrameProcessor interruptedProcessor(interruptedDetector);
+    DatasetCaptureService interrupted(interruptedOperations, interruptedProcessor,
                                       [&] { return now; });
     if (!check(interrupted.start(request(temporary.path(), "interrupted"), &error), error) ||
         !check(interrupted.offerFrame(frame(), meta(1), 500.0, &error), error) ||
@@ -252,21 +273,23 @@ int main(int argc, char** argv) {
     collision.close();
     if (!check(interrupted.offerFrame(frame(), meta(2), 500.0, &error), error))
         return 11;
-    interrupted.pause(&error);
+    if (!check(!interrupted.stop(&error), "Colliding final output incorrectly completed Dataset"))
+        return 31;
     const auto interruptedState = interrupted.snapshot();
     const auto interruptedManifest =
         DatasetManifestV2::load(QDir(interruptedFolder).filePath("dataset.json"), &error);
     if (!check(interruptedState.lifecycle == OperationLifecycle::Interrupted &&
                    interruptedManifest &&
                    interruptedManifest->data().provenance.status == "interrupted" &&
-                   interruptedManifest->data().provenance.sequence.integrity.consumerFailures.count >= 1 &&
+                   QFileInfo(QDir(interruptedFolder).filePath("sequence.frames.partial")).isFile() &&
                    interruptedOperations.snapshot().lifecycle == OperationLifecycle::Idle,
-               "Interrupted capture did not preserve recoverable canonical data"))
+               "Interrupted finalization did not preserve recoverable Dataset data"))
         return 12;
 
     OperationCoordinator emptyOperations;
     FakeDetector emptyDetector;
-    DatasetCaptureService empty(emptyOperations, emptyDetector, [&] { return now; });
+    DropletFrameProcessor emptyProcessor(emptyDetector);
+    DatasetCaptureService empty(emptyOperations, emptyProcessor, [&] { return now; });
     if (!check(empty.start(request(temporary.path(), "empty"), &error), error))
         return 13;
     const QString emptyFolder = empty.snapshot().folder;
@@ -279,7 +302,8 @@ int main(int argc, char** argv) {
 
     OperationCoordinator overflowOperations;
     GateDetector overflowDetector(false);
-    DatasetCaptureService overflow(overflowOperations, overflowDetector, [&] { return now; });
+    DropletFrameProcessor overflowProcessor(overflowDetector);
+    DatasetCaptureService overflow(overflowOperations, overflowProcessor, [&] { return now; });
     if (!check(overflow.start(request(temporary.path(), "overflow"), &error), error) ||
         !check(overflow.offerFrame(frame(), meta(1), 500.0, &error), error))
         return 15;
@@ -303,7 +327,8 @@ int main(int argc, char** argv) {
 
     OperationCoordinator queuedFailureOperations;
     GateDetector queuedFailureDetector(true);
-    DatasetCaptureService queuedFailure(queuedFailureOperations, queuedFailureDetector,
+    DropletFrameProcessor queuedFailureProcessor(queuedFailureDetector);
+    DatasetCaptureService queuedFailure(queuedFailureOperations, queuedFailureProcessor,
                                         [&] { return now; });
     if (!check(queuedFailure.start(request(temporary.path(), "queued-failure"), &error), error))
         return 19;
@@ -338,7 +363,8 @@ int main(int argc, char** argv) {
     FakeDetector scopeDetector;
     QString scopeFolder;
     {
-        DatasetCaptureService scoped(scopeOperations, scopeDetector, [&] { return now; });
+        DropletFrameProcessor scopeProcessor(scopeDetector);
+        DatasetCaptureService scoped(scopeOperations, scopeProcessor, [&] { return now; });
         if (!check(scoped.start(request(temporary.path(), "scope-exit"), &error), error) ||
             !check(scoped.offerFrame(frame(), meta(1), 500.0, &error), error) ||
             !check(scoped.pause(&error), error))

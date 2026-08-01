@@ -135,6 +135,8 @@ add_test(
 
 add_executable(opendss_detector_characterization_test
   detector_characterization_test.cpp
+  ../crops/crop_service.cpp
+  ../detection/droplet_frame_processor.cpp
 )
 
 target_include_directories(opendss_detector_characterization_test PRIVATE
@@ -339,11 +341,14 @@ set_tests_properties(sequence_manifest_v2_test PROPERTIES TIMEOUT 15)
 
 qt_add_executable(image_sequence_capture_service_test
   image_sequence_capture_service_test.cpp
+  ../crops/crop_service.cpp
   ../desktop_app/json_persistence.cpp
+  ../detection/droplet_frame_processor.cpp
   ../v2/camera/camera_service.cpp
   ../v2/camera/frame_conversion.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/sequence/image_sequence_capture_service.cpp
+  ../v2/persistence/frame_persistence_service.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
   ../v2/state/application_state_store.cpp
 )
@@ -352,10 +357,12 @@ target_include_directories(image_sequence_capture_service_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
   ${DCAM_SDK_DIR}/inc
+  ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(image_sequence_capture_service_test PRIVATE
   Qt6::Core
   Qt6::Gui
+  ${OpenCV_LIBS}
 )
 add_test(
   NAME image_sequence_capture_service_test
@@ -375,9 +382,11 @@ qt_add_executable(capture_workflow_controller_test
   ../v2/camera/frame_conversion.cpp
   ../v2/dataset/dataset_capture_service.cpp
   ../v2/dataset/dataset_manifest_v2.cpp
+  ../detection/droplet_frame_processor.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/sequence/capture_workflow_controller.cpp
   ../v2/sequence/image_sequence_capture_service.cpp
+  ../v2/persistence/frame_persistence_service.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
   ../v2/state/application_state_store.cpp
 )
@@ -470,8 +479,10 @@ qt_add_executable(dataset_capture_recovery_test
   dataset_capture_recovery_test.cpp
   ../crops/crop_service.cpp
   ../desktop_app/json_persistence.cpp
+  ../detection/droplet_frame_processor.cpp
   ../v2/dataset/dataset_capture_service.cpp
   ../v2/dataset/dataset_manifest_v2.cpp
+  ../v2/persistence/frame_persistence_service.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/state/application_state_store.cpp
 )
@@ -479,6 +490,7 @@ target_include_directories(dataset_capture_recovery_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
   ${CMAKE_CURRENT_SOURCE_DIR}/../desktop_app
   ${DCAM_SDK_DIR}/inc
+  ${OpenCV_INCLUDE_DIRS}
 )
 target_link_libraries(dataset_capture_recovery_test PRIVATE
   Qt6::Core
@@ -845,8 +857,29 @@ target_link_libraries(opendss_real_dcam_pipeline_headless PRIVATE
   ${OpenCV_LIBS}
 )
 
+qt_add_executable(opendss_dbg021_bounded_detector_replay
+  dbg021_bounded_detector_replay.cpp
+  ../crops/crop_service.cpp
+  ../detection/droplet_detector_adapters.cpp
+  ../detection/droplet_frame_processor.cpp
+  ../event_detector.cpp
+  ../fast_event_detector.cpp
+)
+set_target_properties(opendss_dbg021_bounded_detector_replay PROPERTIES
+  WIN32_EXECUTABLE FALSE
+)
+target_include_directories(opendss_dbg021_bounded_detector_replay PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(opendss_dbg021_bounded_detector_replay PRIVATE
+  Qt6::Core
+  ${OpenCV_LIBS}
+)
+
 qt_add_executable(opendss_dbg019_sequence_persistence_headless
   dbg019_sequence_persistence_headless.cpp
+  ../crops/crop_service.cpp
   ../dcam_camera.cpp
   ../desktop_app/json_persistence.cpp
   ../detection/droplet_detector_adapters.cpp
@@ -856,7 +889,9 @@ qt_add_executable(opendss_dbg019_sequence_persistence_headless
   ../v2/camera/dcam_camera_device.cpp
   ../v2/camera/frame_conversion.cpp
   ../v2/operation/operation_coordinator.cpp
+  ../detection/droplet_frame_processor.cpp
   ../v2/sequence/image_sequence_capture_service.cpp
+  ../v2/persistence/frame_persistence_service.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
   ../v2/state/application_state_store.cpp
 )
@@ -1044,6 +1079,7 @@ qt_add_executable(sequence_test_service_test
   sequence_test_service_test.cpp
   ../crops/crop_service.cpp
   ../desktop_app/json_persistence.cpp
+  ../detection/droplet_frame_processor.cpp
   ../inference/onnx_inference_adapter.cpp
   ../metadata_loader.cpp
   ../onnx_classifier.cpp
@@ -1082,6 +1118,7 @@ opendss_configure_offscreen_test(
 qt_add_executable(sequence_test_production_model_probe
   sequence_test_production_model_probe.cpp
   ../crops/crop_service.cpp
+  ../detection/droplet_frame_processor.cpp
   ../desktop_app/app_utils.cpp
   ../desktop_app/json_persistence.cpp
   ../desktop_app/model_registry_service.cpp
@@ -1118,6 +1155,7 @@ opendss_deploy_qualified_cuda(sequence_test_production_model_probe)
 qt_add_executable(sequence_test_controller_test
   sequence_test_controller_test.cpp
   ../crops/crop_service.cpp
+  ../detection/droplet_frame_processor.cpp
   ../desktop_app/json_persistence.cpp
   ../inference/onnx_inference_adapter.cpp
   ../metadata_loader.cpp
@@ -1168,6 +1206,7 @@ qt_add_executable(live_sorting_service_test
   ../metadata_loader.cpp
   ../onnx_classifier.cpp
   ../v2/decision/decision_service.cpp
+  ../detection/droplet_frame_processor.cpp
   ../v2/live/live_sorting_service.cpp
   ../v2/model/model_load_service.cpp
   ../v2/operation/operation_coordinator.cpp
@@ -1175,6 +1214,7 @@ qt_add_executable(live_sorting_service_test
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
+  ../v2/persistence/frame_persistence_service.cpp
 )
 target_include_directories(live_sorting_service_test PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/..
@@ -1206,6 +1246,7 @@ opendss_configure_offscreen_test(
 qt_add_executable(live_sorting_controller_test
   live_sorting_controller_test.cpp
   ../crops/crop_service.cpp
+  ../detection/droplet_frame_processor.cpp
   ../desktop_app/app_utils.cpp
   ../desktop_app/json_persistence.cpp
   ../desktop_app/model_registry_service.cpp
@@ -1222,6 +1263,7 @@ qt_add_executable(live_sorting_controller_test
   ../v2/live/live_sorting_service.cpp
   ../v2/model/model_load_service.cpp
   ../v2/operation/operation_coordinator.cpp
+  ../v2/persistence/frame_persistence_service.cpp
   ../v2/routing/observed_route_tracker.cpp
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp

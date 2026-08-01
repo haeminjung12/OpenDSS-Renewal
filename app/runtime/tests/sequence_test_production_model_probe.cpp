@@ -1,6 +1,7 @@
 #include "../v2/model/model_load_service.h"
 #include "../desktop_app/model_registry_service.h"
 #include "../detection/droplet_detector.h"
+#include "../detection/droplet_frame_processor.h"
 #include "../v2/operation/operation_coordinator.h"
 #include "../v2/sequence/sequence_manifest_v2.h"
 #include "../v2/sequence_test/sequence_test_service.h"
@@ -165,9 +166,10 @@ int main(int argc, char** argv) {
         loaded->frames.push_back({index, frame});
 
     ProbeDetector detector;
+    DropletFrameProcessor processor(detector);
     desktop_app::v2::OperationCoordinator operations;
     desktop_app::v2::sequence_test::SequenceTestService service(
-        operations, detector, &loader);
+        operations, processor, &loader);
     desktop_app::v2::sequence_test::SequenceTestRequest request;
     request.sequenceJson = sequenceJson;
     request.frozenManifestBytes = fileBytes(sequenceJson);

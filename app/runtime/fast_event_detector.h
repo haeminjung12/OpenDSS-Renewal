@@ -1,6 +1,7 @@
 #pragma once
 
 #include <atomic>
+#include <array>
 #include <cstddef>
 #include <deque>
 #include <vector>
@@ -23,6 +24,17 @@ struct FastEventConfig {
     int gapFireShift = 0; // <=0 means auto
 };
 
+constexpr std::size_t kFastEventTrackCapacity = 3;
+constexpr std::size_t kFastEventCandidateCapacity = 16;
+
+struct FastEventTrackObservation {
+    int trackId = 0;
+    int missedFrames = 0;
+    double area = 0.0;
+    cv::Rect bbox;
+    cv::Point2f centroid = {0.0f, 0.0f};
+};
+
 struct FastEventResult {
     bool detected = false;
     bool fired = false;
@@ -33,6 +45,13 @@ std::size_t rejectedCount = 0;
     cv::Rect bbox;
     cv::Point2f centroid = {0.0f, 0.0f};
     cv::Mat mask;
+    std::array<FastEventTrackObservation, kFastEventTrackCapacity> visibleTracks{};
+    std::size_t visibleTrackCount = 0;
+    std::array<FastEventTrackObservation, kFastEventTrackCapacity> enteredTracks{};
+    std::size_t enteredTrackCount = 0;
+    std::array<int, kFastEventTrackCapacity> endedTrackIds{};
+    std::size_t endedTrackCount = 0;
+    bool capacityExceeded = false;
 };
 
 class FastEventDetector {
@@ -56,6 +75,15 @@ class FastEventDetector {
         int maxFrames = 0;
     };
 
+    struct TrackState {
+        bool active = false;
+        int id = 0;
+        int missedFrames = 0;
+        double area = 0.0;
+        cv::Rect bbox;
+        cv::Point2f centroid = {0.0f, 0.0f};
+    };
+
     void updateDerivedParams(const cv::Size& fullSize, const cv::Size& scaledSize);
     bool updateRollingBackground(const cv::Mat& gray8Scaled);
     cv::Mat toGray8Fast(const cv::Mat& src) const;
@@ -72,10 +100,8 @@ class FastEventDetector {
     cv::Mat morphKernel_;
     std::vector<double> rejectedAreas_;
 
-    bool triggered_ = false;
-    int noDetectCount_ = 0;
-    bool hasLastDet_ = false;
-    cv::Point2f lastCentroid_ = {0.0f, 0.0f};
+    std::array<TrackState, kFastEventTrackCapacity> tracks_{};
+    int nextTrackId_ = 1;
 
     double areaScale_ = 1.0;
     std::atomic<int> minimumContourArea_{100};

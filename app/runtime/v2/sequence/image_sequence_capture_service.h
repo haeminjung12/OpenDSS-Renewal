@@ -13,9 +13,15 @@
 #include <mutex>
 #include <optional>
 
+class DropletFrameProcessor;
+
 namespace desktop_app::v2 {
 
 class CameraService;
+
+namespace persistence {
+class FramePersistenceService;
+}
 
 namespace sequence {
 
@@ -39,8 +45,6 @@ struct ImageSequenceCaptureSnapshot {
     QString error;
 };
 
-class ImageSequenceSpool;
-
 class ImageSequenceCaptureService final {
   public:
     using MonotonicNow = std::function<qint64()>;
@@ -48,6 +52,7 @@ class ImageSequenceCaptureService final {
     using FrameWriter = std::function<bool(const QImage&, const QString&, QString*)>;
 
     ImageSequenceCaptureService(CameraService& camera, OperationCoordinator& operations,
+                                DropletFrameProcessor& processor,
                                 MonotonicNow monotonicNow,
                                 FrameConverter frameConverter = {},
                                 FrameWriter frameWriter = {});
@@ -76,6 +81,7 @@ class ImageSequenceCaptureService final {
 
     CameraService& camera_;
     OperationCoordinator& operations_;
+    DropletFrameProcessor& processor_;
     MonotonicNow monotonicNow_;
     FrameConverter frameConverter_;
     FrameWriter frameWriter_;
@@ -109,7 +115,7 @@ class ImageSequenceCaptureService final {
     int bitDepth_ = 0;
     double nominalFps_ = 0.0;
 
-    std::unique_ptr<ImageSequenceSpool> spool_;
+    std::unique_ptr<persistence::FramePersistenceService> spool_;
     LiveFrameDispatcher dispatcher_;
 };
 

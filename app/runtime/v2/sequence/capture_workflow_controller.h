@@ -10,7 +10,7 @@
 #include <future>
 #include <memory>
 
-class IDropletDetector;
+class DropletFrameProcessor;
 
 namespace desktop_app::v2 {
 
@@ -44,7 +44,7 @@ public:
     CaptureWorkflowController(CameraService &cameraService,
                               CameraController &cameraController,
                               OperationCoordinator &operations,
-                              IDropletDetector &detector,
+                              DropletFrameProcessor &processor,
                               MonotonicNow monotonicNow,
                               CameraSettingsProvider cameraSettingsProvider,
                               QString opendssVersion,
@@ -99,7 +99,7 @@ private:
     CameraService &cameraService_;
     CameraController &cameraController_;
     OperationCoordinator &operations_;
-    IDropletDetector &detector_;
+    DropletFrameProcessor &processor_;
     MonotonicNow monotonicNow_;
     CameraSettingsProvider cameraSettingsProvider_;
     QString opendssVersion_;

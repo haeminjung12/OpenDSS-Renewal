@@ -6,8 +6,7 @@
 #include "../routing/observed_route_tracker.h"
 #include "../run/run_writer_v2.h"
 #include "../sequence/sequence_manifest_v2.h"
-#include "../../crops/crop_service.h"
-#include "../../detection/droplet_detector.h"
+#include "../../detection/droplet_frame_processor.h"
 
 #include <QBuffer>
 #include <QDateTime>
@@ -24,6 +23,7 @@
 #include <QUuid>
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <exception>
@@ -244,6 +244,7 @@ void reportProgress(const ProgressCallback& callback,
 }
 
 struct PendingEvent {
+    int trackId = 0;
     run::RunEvent event;
     QByteArray cropBytes;
     std::optional<double> lastY;
@@ -272,14 +273,14 @@ private:
 } // namespace
 
 SequenceTestService::SequenceTestService(OperationCoordinator& operations,
-                                         IDropletDetector& detector,
+                                         DropletFrameProcessor& processor,
                                          ModelLoadService* modelLoader,
                                          ModelProvider modelProvider,
                                          HitPulseCallback hitPulse,
                                          DaqReadinessGate daqReadinessGate,
                                          DaqSettingsProvider daqSettingsProvider)
     : operations_(operations),
-      detector_(detector),
+      processor_(processor),
       modelLoader_(modelLoader),
       modelProvider_(std::move(modelProvider)),
       hitPulse_(std::move(hitPulse)),
@@ -361,7 +362,11 @@ bool SequenceTestService::resetDecisionBoundary() {
     if (!configurationReady_)
         return false;
     std::lock_guard boundaryLock(boundaryMutex_);
-    currentBoundary_.boundaryY = -1.0;
+    if (currentBoundary_.imageHeight <= 0)
+        return false;
+    currentBoundary_ = routing::centeredHitBoundary(
+        currentBoundary_.imageWidth, currentBoundary_.imageHeight,
+        currentBoundary_.hitSide);
     return true;
 }
 
@@ -596,28 +601,28 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         return false;
     }
 
-    detector_.reset();
+    processor_.reset();
     elapsed.start();
     const auto scheduleStart = std::chrono::steady_clock::now();
     qint64 eventNumber = 0;
     QString failureReason = QStringLiteral("processing_failed");
-    std::optional<PendingEvent> pending;
+    std::array<std::optional<PendingEvent>, kDropletTrackCapacity> pending;
 
-    const auto resolvePendingDecision = [&]() -> bool {
-        if (!pending || pending->decisionResolved)
+    const auto resolvePendingDecision = [&](PendingEvent& item) -> bool {
+        if (item.decisionResolved)
             return true;
         const auto decision = decision::DecisionService::decide(
-            pending->routing.triggerMode, pending->event.predictedClassId,
-            pending->routing.hitClassId, &localError);
+            item.routing.triggerMode, item.event.predictedClassId,
+            item.routing.hitClassId, &localError);
         if (!decision)
             return false;
-        pending->event.decision = *decision;
-        pending->decisionResolved = true;
+        item.event.decision = *decision;
+        item.decisionResolved = true;
 
-        if (pending->event.decision == run::Route::Waste) {
-            pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
-        } else if (!pending->routing.physicalDaqOutputEnabled) {
-            pending->event.daqPulseStatus =
+        if (item.event.decision == run::Route::Waste) {
+            item.event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
+        } else if (!item.routing.physicalDaqOutputEnabled) {
+            item.event.daqPulseStatus =
                 run::DaqPulseStatus::SuppressedNotIssued;
         } else {
             localError.clear();
@@ -633,7 +638,7 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
             if (!dispatchPulse) {
                 localError =
                     QStringLiteral("Stop was requested before DAQ Hit output dispatch.");
-                pending->event.daqPulseStatus =
+                item.event.daqPulseStatus =
                     run::DaqPulseStatus::SuppressedNotIssued;
                 qWarning().noquote()
                     << "Sequence Test DAQ Hit output suppressed:" << localError;
@@ -665,27 +670,28 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                     localError =
                         QStringLiteral("DAQ Hit output was suppressed without a reason.");
                 }
-                pending->event.daqPulseStatus = pulseStatus;
+                item.event.daqPulseStatus = pulseStatus;
                 if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued) {
                     qWarning().noquote()
                         << "Sequence Test DAQ Hit output suppressed:" << localError;
                 } else if (pulseStatus == run::DaqPulseStatus::Failed) {
-                    pending->pulseError =
+                    item.pulseError =
                         localError.isEmpty()
                             ? QStringLiteral("The Sequence Test DAQ Hit output failed.")
                             : localError;
                     failureReason = QStringLiteral("daq_pulse_failed");
-                    pending->pulseFailed = true;
+                    item.pulseFailed = true;
                 }
             }
         }
         return true;
     };
 
-    const auto finalizePending = [&]() -> bool {
-        if (!pending)
+    const auto finalizePending = [&](std::optional<PendingEvent>& slot) -> bool {
+        if (!slot)
             return true;
-        if (!resolvePendingDecision())
+        PendingEvent& item = *slot;
+        if (!resolvePendingDecision(item))
             return false;
         run::HitBoundarySnapshot boundary;
         {
@@ -693,18 +699,18 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
             boundary = currentBoundary_;
         }
         routing::ObservedRouteTracker route(std::move(boundary));
-        if (pending->lastY)
-            route.addSample(*pending->lastY);
-        pending->event.observedRoute = route.finalize();
+        if (item.lastY)
+            route.addSample(*item.lastY);
+        item.event.observedRoute = route.finalize();
 
-        if (!writer->appendEvent(pending->event, pending->cropBytes, &localError)) {
-            if (pending->pulseFailed && localError != pending->pulseError)
-                localError = pending->pulseError + QStringLiteral(" ") + localError;
+        if (!writer->appendEvent(item.event, item.cropBytes, &localError)) {
+            if (item.pulseFailed && localError != item.pulseError)
+                localError = item.pulseError + QStringLiteral(" ") + localError;
             return false;
         }
-        const bool pulseFailed = pending->pulseFailed;
-        const QString pulseError = pending->pulseError;
-        pending.reset();
+        const bool pulseFailed = item.pulseFailed;
+        const QString pulseError = item.pulseError;
+        slot.reset();
         if (pulseFailed) {
             localError = pulseError;
             return false;
@@ -731,9 +737,22 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         image = image.convertToFormat(QImage::Format_Grayscale8);
         cv::Mat frame(image.height(), image.width(), CV_8UC1, image.bits(),
                       image.bytesPerLine());
-        const DropletDetectionFrame detection = detector_.processFrame(frame);
+        const DropletFrameProcessingResult processing = processor_.process(frame);
+        const DropletDetectionFrame& detection = processing.detection;
         if (stopRequested())
             break;
+        if (detection.capacityExceeded) {
+            localError = QStringLiteral("Droplet track capacity was exceeded.");
+            processingOk = false;
+            break;
+        }
+        if (processing.cropFailed) {
+            localError = processing.cropError.isEmpty()
+                             ? QStringLiteral("Could not create a Droplet Crop.")
+                             : processing.cropError;
+            processingOk = false;
+            break;
+        }
 
         for (std::size_t index = 0; index < detection.rejectedCount; ++index) {
             if (!detection.rejectedAreas ||
@@ -759,8 +778,12 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
         if (!processingOk)
             break;
 
-        if (detection.eventEntered) {
-            if (!finalizePending()) {
+        for (std::size_t index = 0; index < processing.enteredCropCount; ++index) {
+            const DropletEnteredCrop& entered = processing.enteredCrops[index];
+            const auto slot = std::find_if(
+                pending.begin(), pending.end(), [](const auto& value) { return !value; });
+            if (slot == pending.end()) {
+                localError = QStringLiteral("Droplet track capacity was exceeded.");
                 processingOk = false;
                 break;
             }
@@ -769,32 +792,28 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                 QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
             const QString detectionTimestamp =
                 QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-            desktop_app::DatasetCrop crop;
-            if (!desktop_app::CropService::makeDatasetCrop(
-                    frame, detection.bbox, &crop, &localError)) {
-                processingOk = false;
-                break;
-            }
-            pending.emplace();
+            slot->emplace();
+            PendingEvent& item = **slot;
+            item.trackId = entered.trackId;
             {
                 std::lock_guard lock(configurationMutex_);
-                pending->routing = currentRouting_;
+                item.routing = currentRouting_;
             }
-            pending->event.eventId = eventId;
-            pending->event.detectionTimestamp = detectionTimestamp;
-            pending->event.sourceFrameIndex = frameIndex;
-            pending->event.cropPath =
+            item.event.eventId = eventId;
+            item.event.detectionTimestamp = detectionTimestamp;
+            item.event.sourceFrameIndex = frameIndex;
+            item.event.cropPath =
                 QStringLiteral("crops/droplet_%1.png")
                     .arg(eventNumber, 6, 10, QLatin1Char('0'));
-            pending->cropBytes = pngBytes(crop.image, &localError);
-            if (pending->cropBytes.isEmpty()) {
+            item.cropBytes = pngBytes(entered.crop.image, &localError);
+            if (item.cropBytes.isEmpty()) {
                 processingOk = false;
                 break;
             }
             if (model) {
                 QElapsedTimer inferenceTimer;
                 inferenceTimer.start();
-                auto result = model->classify(crop.image, &localError);
+                auto result = model->classify(entered.crop.image, &localError);
                 const double inferenceMs =
                     static_cast<double>(inferenceTimer.nsecsElapsed()) /
                     1'000'000.0;
@@ -815,26 +834,52 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
                     if (result->scores[index] > result->scores[bestIndex])
                         bestIndex = index;
                 }
-                pending->event.predictedClassId =
+                item.event.predictedClassId =
                     model->snapshot.classes.at(bestIndex).id;
-                pending->event.scores = result->scores;
-                pending->event.inferenceTimeMs = inferenceMs;
+                item.event.scores = result->scores;
+                item.event.inferenceTimeMs = inferenceMs;
             }
-        } else if (!detection.detected && pending) {
-            if (!resolvePendingDecision()) {
-                processingOk = false;
-                break;
-            }
-            if ((pending->pulseFailed || detection.lifecycleEnded) &&
-                !finalizePending()) {
+        }
+        if (!processingOk)
+            break;
+        for (auto& slot : pending) {
+            if (!slot)
+                continue;
+            const bool stillVisible = std::any_of(
+                detection.visibleTracks.begin(),
+                detection.visibleTracks.begin() + detection.visibleTrackCount,
+                [&](const DropletTrackObservation& visible) {
+                    return visible.trackId == slot->trackId;
+                });
+            if (!stillVisible && !resolvePendingDecision(*slot)) {
                 processingOk = false;
                 break;
             }
         }
-        if (pending && detection.detected && std::isfinite(detection.centroid.y) &&
-            detection.centroid.y >= 0.0) {
-            pending->lastY = detection.centroid.y;
+        if (!processingOk)
+            break;
+        for (std::size_t index = 0; index < detection.visibleTrackCount; ++index) {
+            const DropletTrackObservation& visible = detection.visibleTracks[index];
+            if (!std::isfinite(visible.centroid.y) || visible.centroid.y < 0.0)
+                continue;
+            for (auto& slot : pending) {
+                if (slot && slot->trackId == visible.trackId)
+                    slot->lastY = visible.centroid.y;
+            }
         }
+        for (std::size_t index = 0; index < detection.endedTrackCount; ++index) {
+            const int endedTrackId = detection.endedTrackIds[index];
+            for (auto& slot : pending) {
+                if (slot && slot->trackId == endedTrackId && !finalizePending(slot)) {
+                    processingOk = false;
+                    break;
+                }
+            }
+            if (!processingOk)
+                break;
+        }
+        if (!processingOk)
+            break;
         ++processedFrames;
         const double progressSeconds =
             static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0;
@@ -845,8 +890,14 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
             {processedFrames, sequenceData.frameCount, progressSeconds,
              lastProgressAchievedFps});
     }
-    if (processingOk && !finalizePending())
-        processingOk = false;
+    if (processingOk) {
+        for (auto& slot : pending) {
+            if (!finalizePending(slot)) {
+                processingOk = false;
+                break;
+            }
+        }
+    }
 
     bool stopped = false;
     {

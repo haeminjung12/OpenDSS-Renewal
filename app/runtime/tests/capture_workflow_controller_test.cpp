@@ -5,6 +5,7 @@
 #include "v2/sequence/capture_workflow_controller.h"
 #include "v2/state/application_state_store.h"
 #include "detection/droplet_detector.h"
+#include "detection/droplet_frame_processor.h"
 
 #include <QCoreApplication>
 #include <QDebug>
@@ -55,8 +56,9 @@ int main(int argc, char **argv)
     CameraPreviewImageProvider previewProvider;
     CameraController cameraController(cameraService, previewProvider);
     IdleDetector detector;
+    DropletFrameProcessor processor(detector);
     sequence::CaptureWorkflowController controller(
-        cameraService, cameraController, operations, detector, [] { return 0; },
+        cameraService, cameraController, operations, processor, [] { return 0; },
         [] { return QJsonObject{}; }, QStringLiteral("2"));
 
     bool ok = check(controller.captureStartAvailable(),

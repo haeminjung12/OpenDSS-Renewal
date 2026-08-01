@@ -1,8 +1,8 @@
 #include "dataset_capture_service.h"
 
-#include "../../crops/crop_service.h"
-#include "../../detection/droplet_detector.h"
+#include "../../detection/droplet_frame_processor.h"
 #include "../../desktop_app/json_persistence.h"
+#include "../persistence/frame_persistence_service.h"
 
 #include <QCryptographicHash>
 #include <QDateTime>
@@ -142,10 +142,10 @@ void logFinalIntegrity(const sequence::SequenceIntegrity& value) {
 } // namespace
 
 DatasetCaptureService::DatasetCaptureService(OperationCoordinator& operations,
-                                             IDropletDetector& detector,
+                                             DropletFrameProcessor& processor,
                                              MonotonicNow monotonicNow)
     : operations_(operations),
-      detector_(detector),
+      processor_(processor),
       monotonicNow_(std::move(monotonicNow)),
       dispatcher_([this](const QImage& image, const FrameMeta& meta, double fps,
                          std::uint64_t handoffId, LiveFrameDispatcher::Membership membership) {
@@ -205,10 +205,14 @@ bool DatasetCaptureService::start(const DatasetCaptureRequest& request, QString*
     }
     const QString now = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
     const QString partial = QDir(folder).filePath("dataset.partial.json");
+    const QString spoolPath = QDir(folder).filePath("sequence.frames.partial");
     QString persistenceError;
     if (!desktop_app::writeJsonObjectAtomically(
             partial, QJsonObject{{"schema_version", "opendss.dataset.partial.v1"},
-                                 {"status", "in_progress"}, {"created_at", now}},
+                                 {"status", "in_progress"},
+                                 {"persistence_bit_depth", 8},
+                                 {"spool_file", QFileInfo(spoolPath).fileName()},
+                                 {"created_at", now}},
             &persistenceError)) {
         QDir(folder).removeRecursively();
         return setError(error, persistenceError), false;
@@ -222,7 +226,12 @@ bool DatasetCaptureService::start(const DatasetCaptureRequest& request, QString*
         return setError(error, acquired.fault ? acquired.fault->reason
                                              : "Dataset Capture resources are in use."), false;
     }
-    detector_.reset();
+    auto spool = std::make_unique<persistence::FramePersistenceService>();
+    if (!spool->start(spoolPath, &persistenceError)) {
+        QDir(folder).removeRecursively();
+        return setError(error, persistenceError), false;
+    }
+    processor_.reset();
     if (!acquired.lease.transition(OperationLifecycle::Running)) {
         QDir(folder).removeRecursively();
         return setError(error, "Dataset Capture could not enter Running state."), false;
@@ -239,10 +248,12 @@ bool DatasetCaptureService::start(const DatasetCaptureRequest& request, QString*
     sequenceFolder_ = QFileInfo(sequenceFolder).absoluteFilePath();
     cropsFolder_ = QFileInfo(cropsFolder).absoluteFilePath();
     partialPath_ = partial;
+    spoolPath_ = spoolPath;
     createdAt_ = now;
     startedAt_ = now;
     activeStartedNs_ = monotonicNow_();
     acceptingOffers_ = true;
+    spool_ = std::move(spool);
     return true;
 }
 
@@ -290,7 +301,6 @@ bool DatasetCaptureService::offerFrame(const QImage& image, const FrameMeta& met
 void DatasetCaptureService::consumeFrame(const QImage& image, const FrameMeta& meta,
                                          double fps, std::uint64_t handoffId,
                                          LiveFrameDispatcher::Membership) {
-    QString framePath;
     qint64 frameIndex = 0;
     {
         std::lock_guard lock(mutex_);
@@ -300,16 +310,14 @@ void DatasetCaptureService::consumeFrame(const QImage& image, const FrameMeta& m
             throw std::runtime_error("format changed");
         }
         frameIndex = savedFrameCount_ + 1;
-        framePath = QDir(sequenceFolder_)
-                        .filePath(QString("frame_%1.tif").arg(frameIndex, 8, 10, QLatin1Char('0')));
     }
-    QString writeError;
-    if (!writeImage(image, framePath, "TIFF", &writeError)) {
+    QString spoolError;
+    if (!spool_ || !spool_->append(image, meta, handoffId, &spoolError)) {
         std::lock_guard lock(mutex_);
-        error_ = writeError;
+        error_ = spoolError.isEmpty() ? "Dataset Capture spooling failed." : spoolError;
         qWarning().noquote() << "Dataset Capture consumer failure handoff"
-                             << handoffId << "-" << handoffId << ":" << writeError;
-        throw std::runtime_error("frame write failed");
+                             << handoffId << "-" << handoffId << ":" << error_;
+        throw std::runtime_error("frame spool failed");
     }
     {
         std::lock_guard lock(mutex_);
@@ -325,21 +333,26 @@ void DatasetCaptureService::consumeFrame(const QImage& image, const FrameMeta& m
 
     cv::Mat frame(image.height(), image.width(), CV_8UC1,
                   const_cast<uchar*>(image.constBits()), image.bytesPerLine());
-    const DropletDetectionFrame detection = detector_.processFrame(frame);
-    std::optional<DatasetRecord> record;
-    if (detection.eventEntered) {
-        desktop_app::DatasetCrop crop;
+    const DropletFrameProcessingResult processed = processor_.process(frame);
+    if (processed.detection.capacityExceeded) {
+        std::lock_guard lock(mutex_);
+        error_ = "Detector track capacity exceeded.";
+        throw std::runtime_error("track capacity exceeded");
+    }
+    if (processed.cropFailed) {
+        std::lock_guard lock(mutex_);
+        error_ = processed.cropError;
+        throw std::runtime_error("crop failed");
+    }
+    QVector<DatasetRecord> records;
+    records.reserve(static_cast<qsizetype>(processed.enteredCropCount));
+    for (std::size_t entryIndex = 0; entryIndex < processed.enteredCropCount; ++entryIndex) {
+        const desktop_app::DatasetCrop& crop = processed.enteredCrops[entryIndex].crop;
         QString cropError;
-        if (!desktop_app::CropService::makeDatasetCrop(frame, detection.bbox, &crop,
-                                                       &cropError)) {
-            std::lock_guard lock(mutex_);
-            error_ = cropError;
-            throw std::runtime_error("crop failed");
-        }
         qint64 cropIndex = 0;
         {
             std::lock_guard lock(mutex_);
-            cropIndex = records_.size() + 1;
+            cropIndex = records_.size() + records.size() + 1;
         }
         const QString eventId = QString::number(cropIndex);
         const QString cropPath = QDir(cropsFolder_)
@@ -347,14 +360,13 @@ void DatasetCaptureService::consumeFrame(const QImage& image, const FrameMeta& m
                                                    .arg(cropIndex, 6, 10,
                                                         QLatin1Char('0')));
         const QImage cropImage(crop.image.data, crop.image.cols, crop.image.rows,
-                               crop.image.step,
-                               QImage::Format_Grayscale8);
+                               crop.image.step, QImage::Format_Grayscale8);
         if (!writeImage(cropImage, cropPath, "PNG", &cropError)) {
             std::lock_guard lock(mutex_);
             error_ = cropError;
             throw std::runtime_error("crop write failed");
         }
-        record = DatasetRecord{
+        records.push_back(DatasetRecord{
             QUuid::createUuid().toString(QUuid::WithoutBraces),
             "crops/" + QFileInfo(cropPath).fileName(),
             hashFile(cropPath),
@@ -363,11 +375,11 @@ void DatasetCaptureService::consumeFrame(const QImage& image, const FrameMeta& m
             QDateTime::currentDateTime().toString(Qt::ISODateWithMs),
             QRect(crop.sourceRect.x, crop.sourceRect.y, crop.sourceRect.width,
                   crop.sourceRect.height),
-            frameIndex};
+            frameIndex});
     }
     std::lock_guard lock(mutex_);
-    if (record)
-        records_.push_back(std::move(*record));
+    for (DatasetRecord& record : records)
+        records_.push_back(std::move(record));
 }
 
 bool DatasetCaptureService::pause(QString* error) {
@@ -447,14 +459,63 @@ bool DatasetCaptureService::finish(const QString& reason, QString* error) {
         }
         return failAndRelease("consumer_failure", message, error);
     }
+    QString spoolError;
+    if (!spool_ || !spool_->stop(&spoolError))
+        return failAndRelease("spool_write_error",
+                              spoolError.isEmpty() ? "Dataset Capture spool writing failed."
+                                                   : spoolError,
+                              error);
+    const auto spoolMetrics = spool_->metrics();
+    qint64 capturedFrames = 0;
+    {
+        std::lock_guard lock(mutex_);
+        capturedFrames = savedFrameCount_;
+    }
+    if (spoolMetrics.acceptedFrames != capturedFrames ||
+        spoolMetrics.persistedFrames != capturedFrames)
+        return failAndRelease(
+            "spool_integrity_error",
+            QString("Dataset Capture spool count mismatch: captured %1, accepted %2, persisted %3.")
+                .arg(capturedFrames)
+                .arg(spoolMetrics.acceptedFrames)
+                .arg(spoolMetrics.persistedFrames),
+            error);
+    if (capturedFrames == 0)
+        return failAndRelease("no_frames", "No valid frames were captured.", error);
+    QString finalizationError;
+    if (!finalizeSpool(&finalizationError))
+        return failAndRelease("finalization_error", finalizationError, error);
     if (!saveManifest("completed", reason, error))
         return failAndRelease("manifest_error", error ? *error : "Manifest save failed.", error);
+    if (!QFile::remove(spoolPath_))
+        return failAndRelease("spool_cleanup_error",
+                              "The completed Dataset Capture spool could not be removed.", error);
     QFile::remove(partialPath_);
     std::lock_guard lock(mutex_);
     lease_.transition(OperationLifecycle::Completed);
     lease_.release();
     lifecycle_ = OperationLifecycle::Completed;
     return true;
+}
+
+bool DatasetCaptureService::finalizeSpool(QString* error) {
+    qint64 totalFrames = 0;
+    int width = 0;
+    int height = 0;
+    {
+        std::lock_guard lock(mutex_);
+        totalFrames = savedFrameCount_;
+        width = width_;
+        height = height_;
+    }
+    qint64 savedFrames = 0;
+    qint64 failedOutputIndex = 0;
+    if (!spool_->finalize(sequenceFolder_, totalFrames, width, height,
+                          persistence::FramePersistenceService::writeTiffWithoutReplace,
+                          &savedFrames, &failedOutputIndex, error))
+        return false;
+    return savedFrames == totalFrames ||
+           (setError(error, "Dataset Capture finalization frame count mismatch."), false);
 }
 
 bool DatasetCaptureService::saveManifest(const QString& status, const QString& reason,
@@ -497,6 +558,8 @@ bool DatasetCaptureService::failAndRelease(const QString& reason, const QString&
                                            QString* error) {
     dispatcher_.closeDatasetBoundary();
     dispatcher_.stopAndDrain();
+    if (spool_)
+        spool_->stop(nullptr);
     bool hasFrames = false;
     {
         std::lock_guard lock(mutex_);

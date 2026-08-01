@@ -1,4 +1,5 @@
 #include "../detection/droplet_detector.h"
+#include "../detection/droplet_frame_processor.h"
 #include "../v2/model/model_load_service.h"
 #include "../v2/operation/operation_coordinator.h"
 #include "../v2/run/run_manifest_v2.h"
@@ -62,8 +63,13 @@ void require(bool condition, const char* message) {
 
 class FakeDetector final : public IDropletDetector {
 public:
+    FakeDetector() : processor(*this) {}
+
     QVector<DropletDetectionFrame> results;
     std::function<void(int)> onProcess;
+    DropletFrameProcessor processor;
+
+    operator DropletFrameProcessor&() { return processor; }
 
     void reset() override { index_ = 0; }
     int backgroundFramesRemaining() const override { return 0; }
@@ -90,6 +96,18 @@ DropletDetectionFrame detection(bool detected, bool entered, float y,
     value.rejectedCount = rejectedCount;
     value.bbox = {1, 1, 4, 4};
     value.centroid = {3.0f, y};
+    if (detected) {
+        value.visibleTracks[0] = {1, 0, value.area, value.bbox, value.centroid};
+        value.visibleTrackCount = 1;
+    }
+    if (entered) {
+        value.enteredTracks[0] = {1, 0, value.area, value.bbox, value.centroid};
+        value.enteredTrackCount = 1;
+    }
+    if (!detected && lifecycleEnded) {
+        value.endedTrackIds[0] = 1;
+        value.endedTrackCount = 1;
+    }
     return value;
 }
 
@@ -425,6 +443,62 @@ void productionModelPreparationRequestsCpu() {
     require(!service.run(value, &error) &&
                 sequenceTestRequestedDevice == QStringLiteral("cpu"),
             "Production Sequence Test did not explicitly request CPU inference.");
+}
+
+void twoTracksHaveIndependentCropsInferenceAndRoutes() {
+    QTemporaryDir temporary;
+    const QString sequenceRoot = QDir(temporary.path()).filePath("sequence");
+    const QString output = QDir(temporary.path()).filePath("runs");
+    require(QDir().mkpath(output), "Could not create two-track output.");
+    const QString manifest = makeSequence(sequenceRoot, 3, {1, 2, 3});
+
+    FakeDetector detector;
+    DropletDetectionFrame entered;
+    entered.detected = true;
+    entered.visibleTracks[0] = {11, 0, 1.0, {1, 1, 4, 4}, {3.0f, 2.0f}};
+    entered.visibleTracks[1] = {22, 0, 1.0, {2, 2, 4, 4}, {4.0f, 6.0f}};
+    entered.visibleTrackCount = 2;
+    entered.enteredTracks[0] = entered.visibleTracks[0];
+    entered.enteredTracks[1] = entered.visibleTracks[1];
+    entered.enteredTrackCount = 2;
+    DropletDetectionFrame visible = entered;
+    visible.enteredTrackCount = 0;
+    DropletDetectionFrame ended;
+    ended.endedTrackIds[0] = 11;
+    ended.endedTrackIds[1] = 22;
+    ended.endedTrackCount = 2;
+    detector.results = {entered, visible, ended};
+
+    int inferences = 0;
+    sequence_test::ModelProvider provider = [&](QString*) {
+        sequence_test::PreparedModel model;
+        model.snapshot = {QStringLiteral("model-id"), QStringLiteral("Model"),
+                          QString(64, QLatin1Char('a')),
+                          {{QStringLiteral("c0"), QStringLiteral("Class 0")},
+                           {QStringLiteral("c1"), QStringLiteral("Class 1")}}};
+        model.classify = [&](const cv::Mat&, QString*) {
+            ++inferences;
+            sequence_test::ModelInferenceResult result;
+            result.scores = {0.1, 0.9};
+            return std::optional(result);
+        };
+        return std::optional(model);
+    };
+    OperationCoordinator operations;
+    sequence_test::SequenceTestService service(operations, detector, nullptr, provider);
+    auto value = request(manifest, output);
+    value.triggerMode = run::TriggerMode::ClassBased;
+    value.useActiveModel = true;
+    value.hitClassId = QStringLiteral("c1");
+    QString error;
+    require(service.run(value, &error), qPrintable(error));
+    const auto data = loadRun(output);
+    require(inferences == 2 && data.events.size() == 2 &&
+                data.events.at(0).observedRoute == run::Route::Waste &&
+                data.events.at(1).observedRoute == run::Route::Hit &&
+                data.events.at(0).predictedClassId == QStringLiteral("c1") &&
+                data.events.at(1).predictedClassId == QStringLiteral("c1"),
+            "Two tracks did not retain independent crop, inference, and route lifecycle.");
 }
 
 void daqOffRequiresNoReadinessOrOwnership() {
@@ -1313,6 +1387,7 @@ int main(int argc, char** argv) {
     lifecycleAndBoundaryReplacement();
     finalizationClosesConfigurationCommitGate();
     classBasedModel();
+    twoTracksHaveIndependentCropsInferenceAndRoutes();
     productionModelPreparationRequestsCpu();
     daqOffRequiresNoReadinessOrOwnership();
     daqOnPreflightAndLockConflict();

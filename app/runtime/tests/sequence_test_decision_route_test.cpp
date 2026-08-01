@@ -27,6 +27,13 @@ run::Route observed(run::HitSide side, std::optional<double> y) {
 } // namespace
 
 int main() {
+    const auto centered = routing::centeredHitBoundary(
+        13, 7, run::HitSide::NegativeY);
+    require(centered.boundaryY == 3.5 && centered.imageWidth == 13 &&
+                centered.imageHeight == 7 &&
+                centered.hitSide == run::HitSide::NegativeY,
+            "Centered Hit Boundary helper is incorrect.");
+
     QString error;
     require(decision::DecisionService::decide(run::TriggerMode::EveryDroplet,
                                                std::nullopt, std::nullopt, &error) ==

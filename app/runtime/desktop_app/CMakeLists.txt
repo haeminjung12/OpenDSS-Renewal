@@ -44,10 +44,12 @@ if (NOT ONNXRUNTIME_INCLUDE_DIR OR NOT ONNXRUNTIME_LIB)
 endif()
 
 set(OPENDSS_RUNTIME_SOURCES
+  ../crops/crop_service.cpp
   ../dataset_capture_session.cpp
   ../cli_runner.cpp
   ../dcam_camera.cpp
   ../detection/droplet_detector_adapters.cpp
+  ../detection/droplet_frame_processor.cpp
   ../event_detector.cpp
   ../daq_trigger.cpp
   ../fast_event_detector.cpp
@@ -67,6 +69,8 @@ target_include_directories(opendss_runtime
     ${ONNXRUNTIME_INCLUDE_DIR}
     ${OpenCV_INCLUDE_DIRS}
 )
+
+target_link_libraries(opendss_runtime PUBLIC Qt6::Gui)
 
 add_executable(desktop_app
   main.cpp

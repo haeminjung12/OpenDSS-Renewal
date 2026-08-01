@@ -5,6 +5,14 @@
 
 namespace desktop_app::v2::routing {
 
+run::HitBoundarySnapshot centeredHitBoundary(int imageWidth, int imageHeight,
+                                             run::HitSide hitSide) {
+    const double boundaryY = imageWidth > 0 && imageHeight > 0
+                                 ? static_cast<double>(imageHeight) * 0.5
+                                 : -1.0;
+    return {boundaryY, hitSide, imageWidth, imageHeight};
+}
+
 ObservedRouteTracker::ObservedRouteTracker(run::HitBoundarySnapshot boundary)
     : boundary_(std::move(boundary)) {}
 

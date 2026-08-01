@@ -4,6 +4,8 @@
 #include "v2/sequence/image_sequence_capture_service.h"
 #include "v2/sequence/sequence_manifest_v2.h"
 #include "v2/state/application_state_store.h"
+#include "detection/droplet_detector.h"
+#include "detection/droplet_frame_processor.h"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -16,12 +18,14 @@
 #include <QTemporaryDir>
 #include <QThread>
 
+#include <algorithm>
 #include <cstdio>
 #include <chrono>
 #include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <vector>
 
 using namespace desktop_app::v2;
 using namespace desktop_app::v2::sequence;
@@ -67,10 +71,33 @@ class CameraDevice final : public ICameraDevice {
     }
 };
 
+class IdleDetector final : public IDropletDetector {
+  public:
+    void reset() override {}
+    int backgroundFramesRemaining() const override { return 0; }
+    DropletDetectionFrame processFrame(const cv::Mat&) override { return {}; }
+};
+
+class RecordingDetector final : public IDropletDetector {
+  public:
+    void reset() override { calls = 0; }
+    int backgroundFramesRemaining() const override { return 0; }
+    DropletDetectionFrame processFrame(const cv::Mat&) override {
+        ++calls;
+        order.push_back('D');
+        return {};
+    }
+
+    int calls = 0;
+    std::vector<char> order;
+};
+
 struct Fixture {
     ApplicationStateStore store;
     std::unique_ptr<CameraService> camera;
     OperationCoordinator operations;
+    IdleDetector detector;
+    DropletFrameProcessor processor{detector};
     qint64 now = 0;
 
     Fixture() {
@@ -136,7 +163,7 @@ bool manualCompletion() {
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; });
     QString error;
     if (!check(service.start(request(root.path()), &error), "Manual sequence must start.") ||
         !check(service.offerFrame(frame(1), 25.0, &error), "Manual frame must be offered.") ||
@@ -166,7 +193,7 @@ bool timedPauseCompletion() {
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; });
     QString error;
     if (!service.start(request(root.path(), 2.0), &error) ||
         !service.offerFrame(frame(10), 20.0, &error))
@@ -205,7 +232,7 @@ bool sourceGapCompletion() {
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; });
     QString error;
     if (!service.start(request(root.path()), &error) ||
         !service.offerFrame(frame(1), 30.0, &error) ||
@@ -231,7 +258,7 @@ bool input16PersistsAs8Bit() {
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; });
     QString error;
     if (!service.start(request(root.path()), &error) ||
         !service.offerFrame(frame16(1), 31.6, &error) || !service.stop(&error)) {
@@ -249,6 +276,38 @@ bool input16PersistsAs8Bit() {
                  "Image Sequence manifest must report the persisted 8-bit format.");
 }
 
+bool processorRunsForEveryAcceptedFrameBeforePersistence() {
+    QTemporaryDir root;
+    Fixture fixture;
+    RecordingDetector detector;
+    DropletFrameProcessor processor(detector);
+    ImageSequenceCaptureService service(
+        *fixture.camera, fixture.operations, processor, [&] { return fixture.now; }, {},
+        [&](const QImage& image, const QString& target, QString* error) {
+            detector.order.push_back('P');
+            QImageWriter writer(target, "tiff");
+            if (writer.write(image))
+                return true;
+            if (error)
+                *error = writer.errorString();
+            return false;
+        });
+    QString error;
+    bool offered = service.start(request(root.path()), &error);
+    for (quint64 delivery = 1; offered && delivery <= 3; ++delivery)
+        offered = service.offerFrame(frame(delivery), 25.0, &error);
+    if (!offered || !service.stop(&error))
+        return check(false, "Processor ordering fixture must complete.");
+
+    const auto firstPersistence = std::find(detector.order.cbegin(), detector.order.cend(), 'P');
+    return check(detector.calls == 3,
+                 "Detector must process each offered and accepted ordered frame exactly once.") &&
+           check(firstPersistence != detector.order.cend() &&
+                     std::all_of(detector.order.cbegin(), firstPersistence,
+                                 [](char stage) { return stage == 'D'; }),
+                 "Detection must precede deferred sequence persistence.");
+}
+
 bool deferredFinalizationDoesNotThrottleCapture() {
     QTemporaryDir root;
     Fixture fixture;
@@ -257,7 +316,7 @@ bool deferredFinalizationDoesNotThrottleCapture() {
     bool writerEntered = false;
     bool releaseWriter = false;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; }, {},
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; }, {},
         [&](const QImage& image, const QString& target, QString* error) {
             {
                 std::unique_lock lock(writerMutex);
@@ -345,7 +404,7 @@ bool pauseOfferRace() {
     bool release = false;
     bool blockFirst = true;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; },
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; },
         [&](const CameraFrame& input, QString* error) {
             std::unique_lock lock(gateMutex);
             if (blockFirst) {
@@ -394,7 +453,8 @@ bool zeroFrameFailure() {
     QTemporaryDir manualRoot;
     Fixture manualFixture;
     ImageSequenceCaptureService manual(
-        *manualFixture.camera, manualFixture.operations, [&] { return manualFixture.now; });
+        *manualFixture.camera, manualFixture.operations, manualFixture.processor,
+        [&] { return manualFixture.now; });
     QString error;
     if (!manual.start(request(manualRoot.path()), &error))
         return check(false, "Zero-frame manual fixture must start.");
@@ -418,7 +478,8 @@ bool zeroFrameFailure() {
     QTemporaryDir timedRoot;
     Fixture timedFixture;
     ImageSequenceCaptureService timed(
-        *timedFixture.camera, timedFixture.operations, [&] { return timedFixture.now; });
+        *timedFixture.camera, timedFixture.operations, timedFixture.processor,
+        [&] { return timedFixture.now; });
     if (!timed.start(request(timedRoot.path(), 1.0), &error))
         return check(false, "Zero-frame timed fixture must start.");
     const QString timedFolder = timed.snapshot().folder;
@@ -439,7 +500,7 @@ bool startConflicts() {
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; });
     QString error;
     bool ok = check(service.start(request(root.path()), &error), "First start must succeed.") &&
               check(!service.start(request(root.path()), &error), "Double start must fail.") &&
@@ -450,7 +511,7 @@ bool startConflicts() {
     auto held = conflictedFixture.operations.acquire(OperationKind::Training,
                                                      ResourceLock::Storage);
     ImageSequenceCaptureService conflicted(
-        *conflictedFixture.camera, conflictedFixture.operations,
+        *conflictedFixture.camera, conflictedFixture.operations, conflictedFixture.processor,
         [&] { return conflictedFixture.now; });
     ok &= check(held.acquired() && !conflicted.start(request(root.path()), &error),
                 "Conflicting operation must block Image Sequence start.");
@@ -462,7 +523,7 @@ bool writeFailure() {
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; });
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; });
     QString error;
     if (!service.start(request(root.path()), &error))
         return check(false, "Write-failure sequence must start.");
@@ -510,7 +571,7 @@ bool queuedWriteFailureRange() {
     QTemporaryDir root;
     Fixture fixture;
     ImageSequenceCaptureService service(
-        *fixture.camera, fixture.operations, [&] { return fixture.now; }, {},
+        *fixture.camera, fixture.operations, fixture.processor, [&] { return fixture.now; }, {},
         [](const QImage& image, const QString& target, QString* error) {
             if (target.endsWith(QStringLiteral("frame_00000002.tif"))) {
                 if (error)
@@ -555,7 +616,8 @@ bool queuedWriteFailureRange() {
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const auto previousHandler = qInstallMessageHandler(messageHandler);
-    const bool ok = manualCompletion() && input16PersistsAs8Bit() && timedPauseCompletion() &&
+    const bool ok = manualCompletion() && input16PersistsAs8Bit() &&
+                    processorRunsForEveryAcceptedFrameBeforePersistence() && timedPauseCompletion() &&
                     sourceGapCompletion() && deferredFinalizationDoesNotThrottleCapture() &&
                     pauseOfferRace() && zeroFrameFailure() && startConflicts() &&
                     writeFailure() && queuedWriteFailureRange();

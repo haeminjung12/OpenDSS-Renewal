@@ -1,4 +1,5 @@
 #include "detection/droplet_detector_adapters.h"
+#include "detection/droplet_frame_processor.h"
 #include "v2/camera/camera_service.h"
 #include "v2/camera/dcam_camera_device.h"
 #include "v2/camera/frame_conversion.h"
@@ -819,6 +820,7 @@ int main(int argc, char **argv)
     FastEventConfig detectorConfig{};
     FastEventDetectorAdapter detector(detectorConfig);
     detector.reset();
+    DropletFrameProcessor processor(detector);
 
     bool commandSuccess = false;
     QString commandError;
@@ -877,7 +879,7 @@ int main(int argc, char **argv)
     if (writerMode != QStringLiteral("production"))
         persistenceWriter = diagnosticWriter(writerMode, writerMetrics);
     ImageSequenceCaptureService sequence(
-        *camera, operations, nowNs, persistenceConverter,
+        *camera, operations, processor, nowNs, persistenceConverter,
         persistenceWriter);
     const QString spoolPath = QDir(outputRoot).absoluteFilePath(
         QStringLiteral("DBG-020-%1.partial").arg(QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss")));

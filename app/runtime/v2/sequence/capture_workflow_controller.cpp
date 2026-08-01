@@ -36,7 +36,7 @@ CaptureWorkflowController::CaptureWorkflowController(
     CameraService &cameraService,
     CameraController &cameraController,
     OperationCoordinator &operations,
-    IDropletDetector &detector,
+    DropletFrameProcessor &processor,
     MonotonicNow monotonicNow,
     CameraSettingsProvider cameraSettingsProvider,
     QString opendssVersion,
@@ -45,7 +45,7 @@ CaptureWorkflowController::CaptureWorkflowController(
     , cameraService_(cameraService)
     , cameraController_(cameraController)
     , operations_(operations)
-    , detector_(detector)
+    , processor_(processor)
     , monotonicNow_(std::move(monotonicNow))
     , cameraSettingsProvider_(std::move(cameraSettingsProvider))
     , opendssVersion_(std::move(opendssVersion))
@@ -214,7 +214,7 @@ bool CaptureWorkflowController::startSequence(const QString &name,
     }
 
     sequenceService_ = std::make_unique<ImageSequenceCaptureService>(
-        cameraService_, operations_, monotonicNow_);
+        cameraService_, operations_, processor_, monotonicNow_);
     activeCaptureFps_ = stableNominalFps();
     ImageSequenceCaptureRequest request;
     request.saveRoot = sequenceLocation_;
@@ -291,7 +291,7 @@ bool CaptureWorkflowController::startDataset(const QString &name,
     }
 
     datasetService_ = std::make_unique<dataset::DatasetCaptureService>(
-        operations_, detector_, monotonicNow_);
+        operations_, processor_, monotonicNow_);
     activeCaptureFps_ = stableNominalFps();
     dataset::DatasetCaptureRequest request;
     request.saveRoot = datasetLocation_;

@@ -45,4 +45,6 @@ class EventDetectorAdapter final : public IDropletDetector {
     bool includeMask_ = false;
     bool eventActive_ = false;
     int noDetectionFrames_ = 0;
+    int activeTrackId_ = 0;
+    int nextTrackId_ = 1;
 };

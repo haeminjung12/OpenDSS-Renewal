@@ -32,6 +32,26 @@ endif()
 
 include(qds)
 
+if (WIN32)
+    get_target_property(_opendss_qmake Qt6::qmake IMPORTED_LOCATION)
+    get_filename_component(_opendss_qt_bin "${_opendss_qmake}" DIRECTORY)
+    set(_opendss_windeployqt "${_opendss_qt_bin}/windeployqt.exe")
+    if (NOT EXISTS "${_opendss_windeployqt}")
+        message(FATAL_ERROR "windeployqt.exe not found: ${_opendss_windeployqt}")
+    endif()
+
+    add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+        COMMAND "${_opendss_windeployqt}"
+            --force
+            --compiler-runtime
+            --qmldir "${CMAKE_CURRENT_SOURCE_DIR}/Desktop_app_v2Content"
+            --dir "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+            "$<TARGET_FILE:${CMAKE_PROJECT_NAME}>"
+        COMMENT "Deploying the configured Qt runtime beside ${CMAKE_PROJECT_NAME}"
+        VERBATIM
+    )
+endif()
+
 set_source_files_properties(
     ${CMAKE_CURRENT_SOURCE_DIR}/Desktop_app_v2Content/FullSizeImageViewer.qml
     PROPERTIES

@@ -1,6 +1,6 @@
 # OpenDSS Repository Agent Policy
 
-Ruleset revision: `ODSS-2026-07-30.4`
+Ruleset revision: `ODSS-2026-07-30.5`
 
 This file contains common OpenDSS authority, ownership, safety, and coordination rules. Global policy controls universal inspection, logging, verification, and shared-rule maintenance. Mode-specific procedures live in repository skills.
 
@@ -22,6 +22,7 @@ This file contains common OpenDSS authority, ownership, safety, and coordination
 - **O-RESUME-001** — On a new Lead chat, handoff, replacement Lead, or compaction, run exactly one appropriate initializer, then read only canonical state and the active slice or bug record.
 - **O-ESCALATE-001** — Load more policy, Git history, authority, index, or protected-asset evidence only for a named mismatch, conflict, unexpected dirty path, protected boundary, or material environment change.
 - **O-WORKER-PREFLIGHT-001** — Temporary workers consume the Lead's verified task packet. They do not rerun full Lead initialization unless the packet conflicts with their observed root, mode, HEAD, or dirty paths.
+- **O-INDEX-001** — Leads and workers do not create or refresh Graphify/grepai indexes for routine implementation or debugging. A worker may do so only when its Lead task packet explicitly names the unresolved question, records why targeted inspection failed, and authorizes that exact index action. A missing graph is a reason to continue targeted inspection, not to inventory the repository.
 - For Qt work, use `qtDocumentation` for current Qt API/version evidence and `qtCreator` when live Qt Creator state is relevant. Their availability does not require a routine startup probe.
 - Do not start or refresh Graphify/grepai merely because a session began. Use semantic indexes only when substantial or conceptually unclear investigation justifies them.
 

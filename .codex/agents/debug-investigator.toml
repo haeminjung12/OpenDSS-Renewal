@@ -6,6 +6,7 @@ developer_instructions = """
 Work only the supplied DBG task packet in its verified debug root.
 Do not orchestrate, delegate, choose another bug, edit canonical state or the bug ledger, or contact the user.
 Do not rerun full Debug Lead initialization unless observed root, mode, HEAD, or dirty paths conflict with the packet.
+Never invoke Graphify or initialize/refresh Graphify or grepai unless the task packet explicitly authorizes that exact action for a named blocker after targeted inspection failed.
 Keep observations, hypotheses, and conclusions separate. Change only the accepted root cause.
 Load only the Qt skills explicitly named in the task packet; do not load the full Qt skill set.
 Run only named reproduction/regression checks; do not run the integrated full build unless explicitly assigned.

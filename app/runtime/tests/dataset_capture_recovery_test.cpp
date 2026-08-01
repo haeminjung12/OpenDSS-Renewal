@@ -116,7 +116,8 @@ bool check(bool value, const QString& message) {
 }
 
 DatasetCaptureRequest request(const QString& root, const QString& name,
-                              std::optional<double> duration = {}) {
+                              std::optional<double> duration = {},
+                              bool saveFullImageSequence = true) {
     DatasetCaptureRequest value;
     value.saveRoot = root;
     value.name = name;
@@ -127,6 +128,7 @@ DatasetCaptureRequest request(const QString& root, const QString& name,
     value.cameraSettings = {{"camera", "fake"}};
     value.detectionSettings = {{"detector", "fake"}};
     value.programSettings = {{"program", "test"}};
+    value.saveFullImageSequence = saveFullImageSequence;
     return value;
 }
 
@@ -204,6 +206,25 @@ int main(int argc, char** argv) {
         !check(operations.snapshot().lifecycle == OperationLifecycle::Idle,
                "Completed capture retained its operation lease"))
         return 6;
+
+    OperationCoordinator cropOnlyOperations;
+    FakeDetector cropOnlyDetector;
+    DropletFrameProcessor cropOnlyProcessor(cropOnlyDetector);
+    DatasetCaptureService cropOnly(cropOnlyOperations, cropOnlyProcessor, [&] { return now; });
+    if (!check(cropOnly.start(request(temporary.path(), "crop-only", {}, false), &error) &&
+                   cropOnly.offerFrame(frame(), meta(1), 1000.0, &error) &&
+                   cropOnly.stop(&error), error))
+        return 32;
+    const QString cropOnlyFolder = cropOnly.snapshot().folder;
+    const auto cropOnlyManifest =
+        DatasetManifestV2::load(QDir(cropOnlyFolder).filePath("dataset.json"), &error);
+    if (!check(cropOnlyManifest &&
+                   cropOnlyManifest->data().records.front().sourceFrameIndex == 1 &&
+                   QFileInfo(QDir(cropOnlyFolder).filePath("crops/droplet_000001.png")).isFile() &&
+                   !QFileInfo(QDir(cropOnlyFolder).filePath("sequence")).exists() &&
+                   !QFileInfo(QDir(cropOnlyFolder).filePath("sequence.frames.partial")).exists(),
+               "Crop-only capture did not retain crops without sequence output: " + error))
+        return 33;
 
     OperationCoordinator lockOperations;
     FakeDetector lockDetector;

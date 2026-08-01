@@ -30,6 +30,7 @@ struct DatasetCaptureRequest {
     QJsonObject cameraSettings;
     QJsonObject detectionSettings;
     QJsonObject programSettings;
+    bool saveFullImageSequence = true;
 };
 
 struct DatasetCaptureSnapshot {

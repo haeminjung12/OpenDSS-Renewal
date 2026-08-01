@@ -1229,12 +1229,12 @@ Camera unavailable; Ready with blank Duration; Ready with Duration; Starting; Ru
 |---|---|
 | **Design purpose** | Create one model-independent Dataset while visibly separating fixed processing from editable user choices. |
 | **Main user goal** | Record full frames and save one initially Unlabeled Droplet Crop per detected droplet. |
-| **Ready panel** | Dataset Name; Experiment Type; Notes; optional Duration; Save Location; concise fixed-processing explanation; Start Droplet Dataset Capture. |
+| **Ready panel** | Dataset Name; Experiment Type; Notes; optional Duration; Save Location; default-checked **Save Full Image Sequence** checkbox; concise fixed-processing explanation; Start Droplet Dataset Capture. |
 | **Running panel** | Status; active elapsed time; Full Frames; Detected Droplets; Droplet Crops; Pause; Stop. |
 | **Paused panel** | Paused status; frozen active counters; explanation that preview continues while frame writing, detection, and Droplet Crop creation stop; Resume; Stop. |
 | **Completed panel** | Final counts; Dataset location; Open in Label; Open Folder; Start New Droplet Dataset Capture. |
 | **Required hardware/artifact** | Camera Streaming; loadable fixed qualified processing configuration; writable Dataset location; global operation slot. No model or DAQ. |
-| **Output** | `dataset.json`, full-frame Image Sequence, and one 64 × 64 grayscale PNG Droplet Crop per completed detection, initially Unlabeled. |
+| **Output** | `dataset.json` and one 64 × 64 grayscale PNG Droplet Crop per completed detection, initially Unlabeled. When **Save Full Image Sequence** is checked, also save the full-frame Image Sequence and its existing `capture.sequence` object; when unchecked, create no full-frame sequence files and write `capture.sequence: null`. No separate persistence flag is stored. |
 | **Direct disabled reasons** | **Another operation is active** → **Camera unavailable** → **Processing configuration unavailable** → **Output folder is not writable**. |
 | **Applicable presentations** | Unavailable, Ready, Starting, Running, Paused, Stopping, Completed, Interrupted, Failed. |
 | **Next likely action** | Open in Label. |
@@ -1249,6 +1249,7 @@ Experiment Type       [________________________]
 Notes                  [________________________]
 Duration               [____________]  optional
 Save Location          [ path________________ ] [ Browse ]
+[x] Save Full Image Sequence
 
 Processing
 Fixed qualified detection and Droplet Crop processing.
@@ -1277,6 +1278,7 @@ If detection and persisted crop counts differ transiently because of queued writ
 ### Interaction and visual behavior
 
 - Droplet Dataset Capture MUST never show Active Model, Predicted Class, Class Score, Decision, Hit Class, Decision Boundary controls, Observed Route, or DAQ controls.
+- **Save Full Image Sequence** defaults checked and is editable only before Start. Unchecking it disables only full-frame sequence persistence and records `capture.sequence: null`; detection, source-frame identity, Droplet Crop creation and persistence, counters, Pause/Resume, recovery, and all other `dataset.json` content remain unchanged and truthful.
 - Every newly persisted crop begins as Unlabeled. No automatic label, scientific acceptance, or candidate rejection appears.
 - Pause stops full-frame writes, detection, and Droplet Crop creation while the live preview continues.
 - The Camera panel section locks from Starting through Stopping. The DAQ section remains independently editable when available and idle.

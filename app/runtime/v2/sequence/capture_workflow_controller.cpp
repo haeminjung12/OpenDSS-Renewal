@@ -264,7 +264,8 @@ void CaptureWorkflowController::newSequence()
 bool CaptureWorkflowController::startDataset(const QString &name,
                                              const QString &experimentType,
                                              const QString &notes,
-                                             const QString &duration)
+                                             const QString &duration,
+                                             bool saveFullImageSequence)
 {
     datasetActionError_.clear();
     if (!captureStartAvailable()) {
@@ -299,6 +300,7 @@ bool CaptureWorkflowController::startDataset(const QString &name,
     request.experimentType = experimentType;
     request.notes = notes;
     request.durationSeconds = durationSeconds;
+    request.saveFullImageSequence = saveFullImageSequence;
     request.opendssVersion = opendssVersion_;
     request.cameraSettings = cameraSettingsProvider_ ? cameraSettingsProvider_() : QJsonObject{};
     if (!datasetService_->start(request, &datasetActionError_)) {

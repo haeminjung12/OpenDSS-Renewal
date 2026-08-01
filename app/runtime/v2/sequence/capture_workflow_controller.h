@@ -79,7 +79,8 @@ public:
     Q_INVOKABLE bool startDataset(const QString &name = {},
                                   const QString &experimentType = {},
                                   const QString &notes = {},
-                                  const QString &duration = {});
+                                  const QString &duration = {},
+                                  bool saveFullImageSequence = true);
     Q_INVOKABLE bool pauseOrResumeDataset();
     Q_INVOKABLE bool stopDataset();
     Q_INVOKABLE void newDataset();

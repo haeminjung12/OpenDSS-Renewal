@@ -124,6 +124,7 @@ Rectangle {
     property alias datasetExperimentTypeField: datasetExperimentTypeField
     property alias datasetNotesField: datasetNotesField
     property alias datasetDurationField: datasetDurationField
+    property alias datasetSaveFullImageSequenceCheckBox: datasetSaveFullImageSequenceCheckBox
     property alias startCameraButton: startCameraButton
     property alias cameraDeviceSelector: cameraDeviceSelector
     property alias cameraResolutionSelector: cameraResolutionSelector
@@ -662,6 +663,7 @@ Rectangle {
                                 AppTextField { id: datasetLocationField; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: root.datasetLocationText; width: parent.width - datasetBrowseButton.width - 6; height: Constants.appStandardControlHeight }
                                 AppButton { id: datasetBrowseButton; enabled: root.datasetPresentation !== "running" && root.datasetPresentation !== "paused"; text: qsTr("Browse"); height: Constants.appStandardControlHeight }
                             }
+                            CheckBox { id: datasetSaveFullImageSequenceCheckBox; visible: root.datasetPresentation === "ready"; enabled: root.datasetPresentation === "ready"; checked: true; text: qsTr("Save Full Image Sequence") }
                             Text { text: qsTr("Fixed qualified processing is used; detector, crop, and timing settings are not editable."); color: Constants.mutedTextColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                             AppButton { id: datasetStartButton; visible: root.datasetPresentation === "ready"; text: qsTr("Start Droplet Dataset Capture"); visualRole: "primary"; enabled: root.datasetPresentation === "ready" && root.cameraStatus === qsTr("Streaming") && root.captureStartsAvailable && !root.otherCaptureHeadingsDisabled; width: parent.width; height: Constants.appPrimaryButtonHeight }
                             Row { visible: root.datasetPresentation === "running" || root.datasetPresentation === "paused"; width: parent.width; spacing: 6

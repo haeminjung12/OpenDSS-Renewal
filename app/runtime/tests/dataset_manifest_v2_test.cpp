@@ -110,6 +110,10 @@ int main(int argc, char** argv) {
                    loaded->counts().byClass.value("1").toInt() == 1,
                "Complete Dataset provenance/count/source-index round trip failed: " + error))
         return 2;
+    const QJsonObject defaultRoot = QJsonDocument::fromJson(bytes(path)).object();
+    if (!check(!defaultRoot.value("capture").toObject().contains("save_full_image_sequence"),
+               "Default full-sequence Dataset emitted an unnecessary persistence flag"))
+        return 37;
     if (!check(loaded->trainingSamples(&error).size() == 1 && error.isEmpty(),
                "Training join rejected valid reviewed crop: " + error))
         return 3;
@@ -211,6 +215,23 @@ int main(int argc, char** argv) {
     if (!check(!DatasetManifestV2::save(path, invalid, &error),
                "Out-of-range source frame was accepted"))
         return 5;
+    DatasetManifestData cropOnly = original;
+    cropOnly.provenance.sequence.folder.clear();
+    if (!check(DatasetManifestV2::save(path, cropOnly, &error), error))
+        return 38;
+    const auto cropOnlyLoaded = DatasetManifestV2::load(path, &error);
+    const QJsonObject cropOnlyCapture = QJsonDocument::fromJson(bytes(path)).object()
+                                         .value("capture").toObject();
+    if (!check(cropOnlyLoaded && !cropOnlyCapture.contains("save_full_image_sequence") &&
+                   cropOnlyCapture.contains("sequence") && cropOnlyCapture.value("sequence").isNull() &&
+                   cropOnlyLoaded->data().records.front().sourceFrameIndex == 3,
+               "Crop-only Dataset manifest did not round trip truthfully: " + error))
+        return 39;
+    if (!check(DatasetManifestV2::save(path, cropOnlyLoaded->data(), &error), error) ||
+        !check(QJsonDocument::fromJson(bytes(path)).object()
+                    .value("capture").toObject().value("sequence").isNull(),
+               "Crop-only Dataset load-save round trip did not retain null sequence metadata"))
+        return 40;
     invalid = original;
     invalid.records.front().cropRect = QRect(120, 90, 20, 20);
     if (!check(!DatasetManifestV2::save(path, invalid, &error),

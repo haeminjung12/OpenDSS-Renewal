@@ -456,6 +456,7 @@ Item {
         property int pauseSequenceCallCount: 0
         property int stopSequenceCallCount: 0
         property int startDatasetCallCount: 0
+        property bool lastStartDatasetSaveFullImageSequence: true
         property int pauseDatasetCallCount: 0
         property int stopDatasetCallCount: 0
 
@@ -470,6 +471,7 @@ Item {
             pauseSequenceCallCount = 0
             stopSequenceCallCount = 0
             startDatasetCallCount = 0
+            lastStartDatasetSaveFullImageSequence = true
             pauseDatasetCallCount = 0
             stopDatasetCallCount = 0
         }
@@ -489,8 +491,9 @@ Item {
             return true
         }
         function newSequence() { sequencePresentation = "ready" }
-        function startDataset() {
+        function startDataset(name, experimentType, notes, duration, saveFullImageSequence) {
             ++startDatasetCallCount
+            lastStartDatasetSaveFullImageSequence = saveFullImageSequence
             datasetPresentation = "running"
             return true
         }
@@ -2784,6 +2787,7 @@ Item {
         compare(shell.form.datasetExperimentTypeField.text, "Experiment B")
         compare(shell.form.datasetNotesField.text, "Dataset notes")
         compare(shell.form.datasetDurationField.text, "20")
+        verify(shell.form.datasetSaveFullImageSequenceCheckBox.checked)
         verify(shell.form.continuousSineWaveButton !== null)
 
         shell.form.sequenceFrameCount = 37
@@ -3595,6 +3599,7 @@ Item {
         shell.mockState.datasetOpen = true
         shell.form.datasetStartButton.clicked()
         compare(captureWorkflowController.startDatasetCallCount, 1)
+        verify(captureWorkflowController.lastStartDatasetSaveFullImageSequence)
         compare(shell.form.datasetPresentation, "running")
         shell.form.datasetPauseButton.clicked()
         compare(captureWorkflowController.pauseDatasetCallCount, 1)

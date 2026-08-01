@@ -316,58 +316,66 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
     }
 
     auto& sequenceData = provenance.sequence;
+    const bool sequencePresent = capture.contains("sequence");
+    const bool hasSequence = capture.value("sequence").isObject();
     if (legacyCropOnly) {
         if (!nullish(capture.value("sequence")))
             return fail(error, "Legacy crop-only sequence provenance must be null."),
                    std::nullopt;
-    } else {
-    if (!capture.value("sequence").isObject())
+    } else if (!sequencePresent) {
+        return fail(error, "capture.sequence must be an object or null."), std::nullopt;
+    } else if (capture.value("sequence").isNull()) {
+        sequenceData = {};
+        sequenceData.folder.clear();
+        sequenceData.frameFilenamePattern.clear();
+    } else if (!hasSequence) {
         return fail(error, "capture.sequence must be an object."), std::nullopt;
-    const auto sequence = capture.value("sequence").toObject();
-    if (!only(sequence, {"folder", "frame_filename_pattern", "frame_count", "image",
-                         "nominal_fps", "integrity"}, "capture.sequence", error) ||
-        !string(sequence, "folder", sequenceData.folder, false, error) ||
-        !string(sequence, "frame_filename_pattern", sequenceData.frameFilenamePattern,
-                false, error) ||
-        sequenceData.folder != "sequence" ||
-        sequenceData.frameFilenamePattern != "sequence/frame_%08d.tif" ||
-        !integer(sequence, "frame_count", sequenceData.frameCount, error))
-        return fail(error, "Dataset sequence folder or frame pattern is not canonical."),
-               std::nullopt;
-    if (!sequence.value("image").isObject() || !sequence.value("integrity").isObject())
-        return fail(error, "Dataset sequence image and integrity must be objects."),
-               std::nullopt;
-    const auto image = sequence.value("image").toObject();
-    if (!only(image, {"width", "height", "bit_depth"}, "capture.sequence.image", error))
-        return std::nullopt;
-    qint64 width = 0, height = 0, bitDepth = 0;
-    if (!integer(image, "width", width, error) || !integer(image, "height", height, error) ||
-        !integer(image, "bit_depth", bitDepth, error))
-        return std::nullopt;
-    const auto fpsValue = sequence.value("nominal_fps");
-    if (sequenceData.frameCount > 0 &&
-        (width <= 0 || height <= 0 || bitDepth <= 0 || !fpsValue.isDouble() ||
-         !std::isfinite(fpsValue.toDouble()) || fpsValue.toDouble() <= 0))
-        return fail(error, "Nonempty Dataset sequence requires positive image data and FPS."),
-               std::nullopt;
-    if (width > (std::numeric_limits<int>::max)() ||
-        height > (std::numeric_limits<int>::max)() ||
-        bitDepth > (std::numeric_limits<int>::max)())
-        return fail(error, "Dataset sequence image dimensions are too large."), std::nullopt;
-    sequenceData.imageWidth = static_cast<int>(width);
-    sequenceData.imageHeight = static_cast<int>(height);
-    sequenceData.bitDepth = static_cast<int>(bitDepth);
-    sequenceData.nominalFps = fpsValue.toDouble();
-    const auto integrity = sequence.value("integrity").toObject();
-    if (!only(integrity, {"source_frame_gaps", "queue_rejections", "consumer_failures"},
-              "capture.sequence.integrity", error) ||
-        !category(integrity.value("source_frame_gaps"), "source_frame_gaps",
-                  sequenceData.integrity.sourceFrameGaps, error) ||
-        !category(integrity.value("queue_rejections"), "queue_rejections",
-                  sequenceData.integrity.queueRejections, error) ||
-        !category(integrity.value("consumer_failures"), "consumer_failures",
-                  sequenceData.integrity.consumerFailures, error))
-        return std::nullopt;
+    } else {
+        const auto sequence = capture.value("sequence").toObject();
+        if (!only(sequence, {"folder", "frame_filename_pattern", "frame_count", "image",
+                             "nominal_fps", "integrity"}, "capture.sequence", error) ||
+            !string(sequence, "folder", sequenceData.folder, false, error) ||
+            !string(sequence, "frame_filename_pattern", sequenceData.frameFilenamePattern,
+                    false, error) ||
+            sequenceData.folder != "sequence" ||
+            sequenceData.frameFilenamePattern != "sequence/frame_%08d.tif" ||
+            !integer(sequence, "frame_count", sequenceData.frameCount, error))
+            return fail(error, "Dataset sequence folder or frame pattern is not canonical."),
+                   std::nullopt;
+        if (!sequence.value("image").isObject() || !sequence.value("integrity").isObject())
+            return fail(error, "Dataset sequence image and integrity must be objects."),
+                   std::nullopt;
+        const auto image = sequence.value("image").toObject();
+        if (!only(image, {"width", "height", "bit_depth"}, "capture.sequence.image", error))
+            return std::nullopt;
+        qint64 width = 0, height = 0, bitDepth = 0;
+        if (!integer(image, "width", width, error) || !integer(image, "height", height, error) ||
+            !integer(image, "bit_depth", bitDepth, error))
+            return std::nullopt;
+        const auto fpsValue = sequence.value("nominal_fps");
+        if (sequenceData.frameCount > 0 &&
+            (width <= 0 || height <= 0 || bitDepth <= 0 || !fpsValue.isDouble() ||
+             !std::isfinite(fpsValue.toDouble()) || fpsValue.toDouble() <= 0))
+            return fail(error, "Nonempty Dataset sequence requires positive image data and FPS."),
+                   std::nullopt;
+        if (width > (std::numeric_limits<int>::max)() ||
+            height > (std::numeric_limits<int>::max)() ||
+            bitDepth > (std::numeric_limits<int>::max)())
+            return fail(error, "Dataset sequence image dimensions are too large."), std::nullopt;
+        sequenceData.imageWidth = static_cast<int>(width);
+        sequenceData.imageHeight = static_cast<int>(height);
+        sequenceData.bitDepth = static_cast<int>(bitDepth);
+        sequenceData.nominalFps = fpsValue.toDouble();
+        const auto integrity = sequence.value("integrity").toObject();
+        if (!only(integrity, {"source_frame_gaps", "queue_rejections", "consumer_failures"},
+                  "capture.sequence.integrity", error) ||
+            !category(integrity.value("source_frame_gaps"), "source_frame_gaps",
+                      sequenceData.integrity.sourceFrameGaps, error) ||
+            !category(integrity.value("queue_rejections"), "queue_rejections",
+                      sequenceData.integrity.queueRejections, error) ||
+            !category(integrity.value("consumer_failures"), "consumer_failures",
+                      sequenceData.integrity.consumerFailures, error))
+            return std::nullopt;
     }
 
     if (!capture.value("crop_settings").isObject())
@@ -469,7 +477,8 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
                         error) ||
                 !timestamp(object, "timestamp", value.timestamp, error) ||
                 !sha(value.cropSha256) || value.sourceFrameIndex < 1 ||
-                value.sourceFrameIndex > sequenceData.frameCount)
+                (hasSequence &&
+                 value.sourceFrameIndex > sequenceData.frameCount))
                 return fail(error,
                             "Neutral record identity, hash, or source frame is invalid."),
                        std::nullopt;
@@ -487,8 +496,9 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
                 !integer(rect, "width", rectWidth, error) ||
                 !integer(rect, "height", rectHeight, error) ||
                 rectWidth <= 0 || rectHeight <= 0 ||
-                x + rectWidth > sequenceData.imageWidth ||
-                y + rectHeight > sequenceData.imageHeight)
+                (hasSequence &&
+                 (x + rectWidth > sequenceData.imageWidth ||
+                  y + rectHeight > sequenceData.imageHeight)))
                 return fail(
                            error,
                            "Crop rectangle must be within source image dimensions."),
@@ -567,6 +577,7 @@ bool DatasetManifestV2::save(const QString& path, const DatasetManifestData& dat
     const auto& s = p.sequence;
     const bool legacyCropOnly =
         p.provenanceMode == QStringLiteral("legacy_crop_only");
+    const bool hasSequence = !legacyCropOnly && !s.folder.isEmpty();
     QJsonArray classes, records, labels;
     for (const auto& value : data.classes)
         classes.push_back(QJsonObject{{"id", value.id}, {"name", value.name}});
@@ -636,19 +647,6 @@ bool DatasetManifestV2::save(const QString& path, const DatasetManifestData& dat
              {"stop_reason", legacyCropOnly
                                  ? QJsonValue(QJsonValue::Null)
                                  : QJsonValue(p.stopReason)},
-             {"sequence", legacyCropOnly
-                              ? QJsonValue(QJsonValue::Null)
-                              : QJsonValue(QJsonObject{
-                                    {"folder", s.folder},
-                                    {"frame_filename_pattern",
-                                     s.frameFilenamePattern},
-                                    {"frame_count", s.frameCount},
-                                    {"image",
-                                     QJsonObject{{"width", s.imageWidth},
-                                                 {"height", s.imageHeight},
-                                                 {"bit_depth", s.bitDepth}}},
-                                    {"nominal_fps", s.nominalFps},
-                                    {"integrity", integrity}})},
              {"crop_settings", QJsonObject{
                   {"width", p.crop.width}, {"height", p.crop.height},
                   {"pixel_format", p.crop.pixelFormat}, {"file_format", p.crop.fileFormat},
@@ -668,6 +666,19 @@ bool DatasetManifestV2::save(const QString& path, const DatasetManifestData& dat
                                       : QJsonValue(p.programSettings)}}},
         {"counts", countsJson(derive(data))}, {"classes", classes},
         {"records", records}, {"labels", labels}};
+    auto capture = root.value("capture").toObject();
+    capture.insert("sequence", hasSequence
+                                   ? QJsonValue(QJsonObject{
+                                       {"folder", s.folder},
+                                       {"frame_filename_pattern", s.frameFilenamePattern},
+                                       {"frame_count", s.frameCount},
+                                       {"image", QJsonObject{{"width", s.imageWidth},
+                                                              {"height", s.imageHeight},
+                                                              {"bit_depth", s.bitDepth}}},
+                                       {"nominal_fps", s.nominalFps},
+                                       {"integrity", integrity}})
+                                   : QJsonValue(QJsonValue::Null));
+    root.insert("capture", capture);
     if (!p.provenanceMode.isEmpty())
         root.insert("provenance_mode", p.provenanceMode);
     if (!fromJsonObject(root, path, error))

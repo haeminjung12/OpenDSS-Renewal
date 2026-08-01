@@ -197,23 +197,28 @@ bool DatasetCaptureService::start(const DatasetCaptureRequest& request, QString*
     const QString folder = createUniqueFolder(request.saveRoot, displayName);
     if (folder.isEmpty())
         return setError(error, "Could not create a unique Dataset folder."), false;
-    const QString sequenceFolder = QDir(folder).filePath("sequence");
+    const QString sequenceFolder = request.saveFullImageSequence
+                                       ? QDir(folder).filePath("sequence")
+                                       : QString{};
     const QString cropsFolder = QDir(folder).filePath("crops");
-    if (!QDir().mkpath(sequenceFolder) || !QDir().mkpath(cropsFolder)) {
+    if ((!sequenceFolder.isEmpty() && !QDir().mkpath(sequenceFolder)) ||
+        !QDir().mkpath(cropsFolder)) {
         QDir(folder).removeRecursively();
         return setError(error, "Could not create Dataset folders."), false;
     }
     const QString now = QDateTime::currentDateTime().toString(Qt::ISODateWithMs);
     const QString partial = QDir(folder).filePath("dataset.partial.json");
-    const QString spoolPath = QDir(folder).filePath("sequence.frames.partial");
+    const QString spoolPath = request.saveFullImageSequence
+                                  ? QDir(folder).filePath("sequence.frames.partial")
+                                  : QString{};
+    QJsonObject partialData{{"schema_version", "opendss.dataset.partial.v1"},
+                            {"status", "in_progress"},
+                            {"persistence_bit_depth", 8},
+                            {"created_at", now}};
+    if (request.saveFullImageSequence)
+        partialData.insert("spool_file", QFileInfo(spoolPath).fileName());
     QString persistenceError;
-    if (!desktop_app::writeJsonObjectAtomically(
-            partial, QJsonObject{{"schema_version", "opendss.dataset.partial.v1"},
-                                 {"status", "in_progress"},
-                                 {"persistence_bit_depth", 8},
-                                 {"spool_file", QFileInfo(spoolPath).fileName()},
-                                 {"created_at", now}},
-            &persistenceError)) {
+    if (!desktop_app::writeJsonObjectAtomically(partial, partialData, &persistenceError)) {
         QDir(folder).removeRecursively();
         return setError(error, persistenceError), false;
     }
@@ -226,8 +231,10 @@ bool DatasetCaptureService::start(const DatasetCaptureRequest& request, QString*
         return setError(error, acquired.fault ? acquired.fault->reason
                                              : "Dataset Capture resources are in use."), false;
     }
-    auto spool = std::make_unique<persistence::FramePersistenceService>();
-    if (!spool->start(spoolPath, &persistenceError)) {
+    std::unique_ptr<persistence::FramePersistenceService> spool;
+    if (request.saveFullImageSequence)
+        spool = std::make_unique<persistence::FramePersistenceService>();
+    if (spool && !spool->start(spoolPath, &persistenceError)) {
         QDir(folder).removeRecursively();
         return setError(error, persistenceError), false;
     }
@@ -312,7 +319,8 @@ void DatasetCaptureService::consumeFrame(const QImage& image, const FrameMeta& m
         frameIndex = savedFrameCount_ + 1;
     }
     QString spoolError;
-    if (!spool_ || !spool_->append(image, meta, handoffId, &spoolError)) {
+    if (request_.saveFullImageSequence &&
+        (!spool_ || !spool_->append(image, meta, handoffId, &spoolError))) {
         std::lock_guard lock(mutex_);
         error_ = spoolError.isEmpty() ? "Dataset Capture spooling failed." : spoolError;
         qWarning().noquote() << "Dataset Capture consumer failure handoff"
@@ -460,19 +468,22 @@ bool DatasetCaptureService::finish(const QString& reason, QString* error) {
         return failAndRelease("consumer_failure", message, error);
     }
     QString spoolError;
-    if (!spool_ || !spool_->stop(&spoolError))
+    if (request_.saveFullImageSequence && (!spool_ || !spool_->stop(&spoolError)))
         return failAndRelease("spool_write_error",
                               spoolError.isEmpty() ? "Dataset Capture spool writing failed."
                                                    : spoolError,
                               error);
-    const auto spoolMetrics = spool_->metrics();
+    const auto spoolMetrics = request_.saveFullImageSequence
+                                  ? spool_->metrics()
+                                  : persistence::FramePersistenceService::Metrics{};
     qint64 capturedFrames = 0;
     {
         std::lock_guard lock(mutex_);
         capturedFrames = savedFrameCount_;
     }
-    if (spoolMetrics.acceptedFrames != capturedFrames ||
-        spoolMetrics.persistedFrames != capturedFrames)
+    if (request_.saveFullImageSequence &&
+        (spoolMetrics.acceptedFrames != capturedFrames ||
+         spoolMetrics.persistedFrames != capturedFrames))
         return failAndRelease(
             "spool_integrity_error",
             QString("Dataset Capture spool count mismatch: captured %1, accepted %2, persisted %3.")
@@ -483,11 +494,11 @@ bool DatasetCaptureService::finish(const QString& reason, QString* error) {
     if (capturedFrames == 0)
         return failAndRelease("no_frames", "No valid frames were captured.", error);
     QString finalizationError;
-    if (!finalizeSpool(&finalizationError))
+    if (request_.saveFullImageSequence && !finalizeSpool(&finalizationError))
         return failAndRelease("finalization_error", finalizationError, error);
     if (!saveManifest("completed", reason, error))
         return failAndRelease("manifest_error", error ? *error : "Manifest save failed.", error);
-    if (!QFile::remove(spoolPath_))
+    if (request_.saveFullImageSequence && !QFile::remove(spoolPath_))
         return failAndRelease("spool_cleanup_error",
                               "The completed Dataset Capture spool could not be removed.", error);
     QFile::remove(partialPath_);
@@ -537,12 +548,16 @@ bool DatasetCaptureService::saveManifest(const QString& status, const QString& r
         data.provenance.requestedDurationSeconds = request_.durationSeconds;
         data.provenance.stopReason = reason;
         data.provenance.status = status;
-        data.provenance.sequence.frameCount = savedFrameCount_;
-        data.provenance.sequence.imageWidth = width_;
-        data.provenance.sequence.imageHeight = height_;
-        data.provenance.sequence.bitDepth = bitDepth_;
-        data.provenance.sequence.nominalFps = fps_;
-        data.provenance.sequence.integrity = integrityLocked();
+        if (request_.saveFullImageSequence) {
+            data.provenance.sequence.frameCount = savedFrameCount_;
+            data.provenance.sequence.imageWidth = width_;
+            data.provenance.sequence.imageHeight = height_;
+            data.provenance.sequence.bitDepth = bitDepth_;
+            data.provenance.sequence.nominalFps = fps_;
+            data.provenance.sequence.integrity = integrityLocked();
+        } else {
+            data.provenance.sequence.folder.clear();
+        }
         data.provenance.cameraSettings = request_.cameraSettings;
         data.provenance.detectionSettings = request_.detectionSettings;
         data.provenance.programSettings = request_.programSettings;
@@ -550,7 +565,8 @@ bool DatasetCaptureService::saveManifest(const QString& status, const QString& r
     }
     if (!DatasetManifestV2::save(QDir(folder_).filePath("dataset.json"), data, error))
         return false;
-    logFinalIntegrity(data.provenance.sequence.integrity);
+    if (request_.saveFullImageSequence)
+        logFinalIntegrity(data.provenance.sequence.integrity);
     return true;
 }
 

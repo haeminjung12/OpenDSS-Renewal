@@ -1342,7 +1342,8 @@ Item {
                     screen.datasetNameField.text,
                     screen.datasetExperimentTypeField.text,
                     screen.datasetNotesField.text,
-                    screen.datasetDurationField.text)
+                    screen.datasetDurationField.text,
+                    screen.datasetSaveFullImageSequenceCheckBox.checked)
             } else {
                 state.startDataset()
             }

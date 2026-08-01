@@ -1,18 +1,16 @@
-# OpenDSS v2 functional slice — production stabilization and integration
+# OpenDSS v2 implementation slice — optional Dataset Capture sequence saving
 
 ## Status
 
-**State:** Integration release candidate; independent artifact validation pending  
-**Branch:** `codex/functional-orchestrator`  
-**Base:** `1e80f3b`  
-**Integration owner:** FUNCTIONAL orchestrator, sole writer
+**State:** READY — completed SAVESEQ/QT deployment batch; no active implementation assigned
+**Branch:** `codex/v2-shell-single-image-slice`
+**Checkpoint commit:** `7c5ea81bcb9db020500c83e41abfa56abaa070eb`
+**Integration owner:** Implementation Lead
 
-The user explicitly authorized completing the recovered production stabilization
-diff, final GUI/controller wiring, focused fixes, build and runtime validation,
-independent read-only review, commit, and push to `renewal/main`. This instruction
-supersedes the former headless-only boundary for this slice. Visual redesign,
-dataset rebuilding, model-integrity weakening, and unrelated refactoring remain
-out of scope.
+The Debug Lead handoff through DBG-021 is adopted. `SAVESEQ-001` adds only one
+default-checked Dataset Capture option controlling full-frame Image Sequence
+persistence; Droplet Crop capture remains enabled in both states. The broader
+ledger below remains historical evidence and does not reopen completed work.
 
 ## Active coordination ledger
 
@@ -72,6 +70,8 @@ out of scope.
 | `UAT-CAMERA-001` | User/documentation authority; DESIGN/FUNCTIONAL Camera owners | FULL SLICE RELEASED after master/lock publication | New/default live Camera state uses exactly 8-bit; a legacy live-Camera profile missing Bit Depth resolves to 8-bit. Explicit supported saved-profile values remain unchanged. Loaded frames/sequences retain native bit depth. Inventory the smallest owning state/presentation/migration seams; do not alter unrelated image decoding or saved explicit values. |
 | `UAT-CAMERA-BLK-001` | User decision owner | RESOLVED/CLOSED by `UAT-CAMERA-001` | Live-Camera scope, missing-field migration, explicit saved values, and loaded-file native-bit-depth behavior are decided. |
 | `UAT-AUTO-EXPOSURE-001` | User/documentation authority; Implementation Lead | AE-1 COMPLETE — integrated in product-source commit `2001d66`, verified, and packaged; awaiting user manual acceptance | Include the minimal one-shot Auto Exposure implementation: one `Auto` button beside the existing manual Exposure input, successful update of the same input with no more than two decimal places, and failure that preserves the prior usable exposure. Reuse the existing camera/exposure path. Continuous auto exposure, extra settings, new abstractions, protected DCAM behavior changes, and unrelated refactoring remain excluded. This user decision supersedes the prior removal decision. |
+| `SAVESEQ-001` | User/documentation authority; Implementation Lead | COMPLETE — implemented; focused Release build/CTest passed | Add one default-checked **Save Full Image Sequence** checkbox to Droplet Dataset Capture. Checked saves `dataset.json`, Droplet Crops, and the full-frame Image Sequence. Unchecked saves `dataset.json` and Droplet Crops only; it does not create full-frame sequence files and records `capture.sequence: null` without a separate persistence flag. Preserve detection, crop creation/persistence, source-frame identity, counters, pause/resume, recovery, the shared `DropletFrameProcessor` detector/crop API, the shared `FramePersistenceService` acquisition/save API, `centeredHitBoundary`, per-droplet route tracking, combined Qt/MCP/agents configuration, DBG-019/020/021 evidence, and existing QML fixes. No new service, abstraction, CMake target, DAQ, camera rerun, Graphify, or grepai was added. Merged/partial droplets such as Event 29 remain excluded. |
+| `QTDEPLOY-001` | User authority; Implementation Lead | COMPLETE — clean rebuild and local-runtime launch verification passed | The Windows v2 executable target now runs its exact configured `windeployqt` after every relink, deploying matching Qt runtime, plugins, compiler runtime, and required QML imports beside the executable. Future builds no longer depend on PATH ordering or load Qt DLLs from MiKTeX or unrelated installations. Packaging, qualified CUDA/ONNX deployment, product behavior, hardware, and tests remain unchanged. |
 | `UAT-LUT-001` | User/documentation authority; DESIGN protected-form owner; FUNCTIONAL accessibility assertion owner | RELEASED after master/lock publication | Visible section title is exactly `LUT`. Remove displayed numeric values beneath it while retaining existing preview-only LUT behavior and existing accessible control names/roles/current values. No LUT algorithm, persistence, or Camera mechanic change. |
 | `UAT-DAQ-UI-PERF-001` | User/documentation authority; FUNCTIONAL diagnosis/correction owner; VALIDATION responsiveness/safety owner | RELEASED after master/lock publication | Voltage, frequency, duration, and delay `+`/`−` interactions remain responsive. Coalesce intermediate edits and apply asynchronously through the existing DAQ owner; guarantee the final exact accepted value. Failed/rejected apply restores the last successfully applied value with a direct reason. Preserve units/ranges/steps, ownership/active-run locks, waveform, limits, Stop-to-zero, and all safety behavior. One scoped performance comparison and directly relevant DAQ tests; HIL only if a changed hardware seam requires it. |
 | `UAT-CONFIG-002` | User/documentation authority; DESIGN protected-form owner; FUNCTIONAL binding/test owner | RELEASED after master/lock publication | Rename the sole visible detector control to exactly `Minimum Size`; present label, integer value, `px²`, and Set on one line. Underlying threshold, mapping, `100 px²` default/legacy conversion, profile semantics, active-run behavior, and no-Run-provenance rules remain unchanged. Adjust owning-panel default width only if supported-layout evidence proves clipping, and then only by the smallest amount. |
@@ -168,6 +168,7 @@ After publication:
 
 ## Next gate
 
-Push the exact reviewed correction, hand its immutable commit hash and unchanged
-executable path to Validation, and close the slice after `VG-001` records final
-acceptance against that hash.
+No implementation is assigned. A new Implementation Lead initializes once,
+adopts this checkpoint, preserves the listed user-owned dirty paths, and waits
+for explicit user direction without running builds, tests, cleanup, packaging,
+DAQ, camera, Graphify, grepai, staging, or commits.

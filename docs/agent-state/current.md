@@ -3,18 +3,25 @@
 State format: `1`
 
 - Policy revision: `ODSS-2026-07-30.5`
-- Mode: `debug`
-- User-facing Lead: `Debug Lead`
-- Checkpoint branch: `codex/debug-lead`
-- Checkpoint commit: `0619022da0edcd963d5f6733e2ae7c5c532d03be`
-- Active ID: `DBG-021`
-- Status: `DBG-019 through DBG-021 debug checkpoint committed and ready for Implementation worker adoption`
-- Dirty paths at checkpoint: `none`
-- Updated: `2026-08-01T13:33:14-05:00`
+- Mode: `implementation`
+- User-facing Lead: `Implementation Lead`
+- Checkpoint branch: `codex/v2-shell-single-image-slice`
+- Checkpoint commit: `7c5ea81bcb9db020500c83e41abfa56abaa070eb`
+- Active ID: `IDLE`
+- Status: `READY — SAVESEQ-001 and QTDEPLOY-001 complete; no new implementation work assigned`
+- Dirty paths at checkpoint: user-owned `.codex/agents/debug-investigator.toml`, `.codex/agents/implementation-worker.toml`, `AGENTS.md`, and untracked `.worktrees/`; preserved and excluded
+- Updated: `2026-08-01T16:03:14.2244337-05:00`
 
 ## Accepted decisions
 
-- The Debug Lead is the sole user-facing agent for OpenDSS debugging.
+- The Implementation Lead is the sole user-facing agent for `SAVESEQ-001`.
+- `QTDEPLOY-001` is user-authorized after the raw v2 build repeatedly loaded incompatible Qt DLLs from PATH. The v2 executable target must deploy its exact configured Qt runtime and required QML modules beside the executable after every relink so later build artifacts launch independently of PATH order.
+- Adopt Debug Lead commits `0619022da0edcd963d5f6733e2ae7c5c532d03be` and `7bba44a4ec167149c387900d83fb3ddb395b2104` in that order while preserving the shared detector/crop, frame-persistence, centered-boundary, per-droplet route, combined configuration, evidence, and QML seams named by the user.
+- Droplet Dataset Capture exposes one default-checked **Save Full Image Sequence** checkbox. Checked saves `dataset.json`, Droplet Crops, and the full-frame Image Sequence; unchecked saves `dataset.json` and Droplet Crops only.
+- `dataset.json` retains the existing `capture.sequence` member: full-sequence captures write the existing sequence object unchanged, while crop-only captures write `capture.sequence: null`. No separate persistence flag is stored.
+- Preserve crop detection, crop persistence, source-frame identity, counters, pause/resume, recovery, and the shared `DropletFrameProcessor` and `FramePersistenceService` APIs. Add no new service or abstraction.
+- Run no Graphify/grepai, DAQ, camera verification, or pre-implementation build. After implementation, run one coherent build/CTest pass only.
+- Merged/partial droplets such as Event 29 remain outside the verified claim.
 - Workers and validators report only to the Debug Lead and do not edit canonical state or the bug ledger.
 - Normally use no more than two internal workers and one validator concurrently.
 - Every accepted bug receives one stable `DBG-*` ID before production changes.
@@ -64,6 +71,14 @@ State format: `1`
 
 ## Verification
 
+- `QTDEPLOY-001` clean Release rebuild of `Desktop_app_v2App` passed in `C:\b\d13\i`; the generated project contains the configured `C:\Qt\6.11.1\msvc2022_64\bin\windeployqt.exe` post-build command for every Windows configuration.
+- The rebuild freshly created local Qt runtime files at 14:55. A hidden launch remained alive and loaded `Qt6Qml.dll`, `Qt6QmlModels.dll`, and `Qt6QuickTemplates2.dll` version 6.11.1 plus qualified `onnxruntime.dll` 1.25 exclusively from the executable's Release folder. The exact validation process was terminated and no app process remains.
+- Portable package `C:\b\d13\portable\OpenDSS_20260801_154812` passed the repository package checker and hidden launch verification. Its `OpenDSS.exe` SHA-256 is `F1682B6551279D09633C56DFE8766DD93C9BECD4D9DB09D0BA24E22C96B3CFE1`; test-only Qt/runtime artifacts are excluded.
+- `C:\b\archive` exists but the retention rule is not currently satisfied: four top-level directories contain CMake builds and the archive is empty. No move or deletion was performed; a future cleanup must classify exact active/latest/fallback/acceptance roles first and must not move `C:\b\opendss-v2-github-newrepo` because it is a repository.
+- `SAVESEQ-001` affected application target `Desktop_app_v2App` built successfully in Release at `C:\b\d13\i` after the final manifest correction.
+- Focused CTest `ShellSingleImage` passed 1/1 in 2.49 seconds with the installed Qt QML import path supplied. The initial attempt failed before assertions because QtQuick Controls/Dialogs imports were not on the test environment path.
+- Consolidated design lock verification passed at SHA-256 `dbefaae0c01d0845cc031396dafe021094049ccd32e2afdd859e0eaa9c2e05e1`.
+- Static diff validation passed. No camera, DAQ, Graphify, grepai, or hardware verification was run.
 - Debug worktree contains the ordered unread-frame acquisition fix at commit `eda6c768795aecdf258ccd34290eac7e703928a2`.
 - Branch is `codex/debug-lead`.
 - A fresh Codex session loaded `G-2026-07-30.2`, `ODSS-2026-07-30.2`, `Debug Lead`, `DBG-INTAKE`, `G-VERIFY-001`, `O-WORKER-BUILD-001`, `O-GATE-001`, and `$opendss-plan-guardian`; `$opendss-debug-init` reported ready.
@@ -151,4 +166,4 @@ State format: `1`
 
 ## Exact next action
 
-Implementation worker adopts checkpoint `0619022da0edcd963d5f6733e2ae7c5c532d03be`, runs `$opendss-agent-rules-init` once in its implementation worktree, preserves the verified shared APIs and evidence, and waits for the user's next explicit implementation scope. Keep merged/partial-component separation, including Event 29, outside the verified claim.
+A new Implementation Lead runs `$opendss-agent-rules-init` exactly once, confirms `Active ID: IDLE`, preserves the listed user-owned dirty paths, and waits for explicit user instructions. Do not build, test, stage, commit, clean, archive, package, run hardware, or modify durable state while idle.

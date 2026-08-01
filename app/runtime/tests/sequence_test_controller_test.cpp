@@ -1,4 +1,5 @@
 #include "../detection/droplet_detector.h"
+#include "../detection/droplet_frame_processor.h"
 #include "../v2/model/model_load_service.h"
 #include "../v2/operation/operation_coordinator.h"
 #include "../v2/run/run_manifest_v2.h"
@@ -163,7 +164,10 @@ run::ModelSnapshot activeModelSnapshot() {
 
 class FakeDetector final : public IDropletDetector {
   public:
+    FakeDetector() : processor(*this) {}
+
     std::function<void(int)> onProcess;
+    DropletFrameProcessor processor;
 
     void reset() override { index_ = 0; }
     int backgroundFramesRemaining() const override { return 0; }
@@ -230,7 +234,7 @@ void derivedBoundarySupportsArbitraryDimensions() {
 
     FakeDetector detector;
     OperationCoordinator operations;
-    SequenceTestService service(operations, detector, nullptr);
+    SequenceTestService service(operations, detector.processor, nullptr);
     qulonglong availableMemory = 1024 * 1024;
     int resultsRefreshes = 0;
     auto controller =
@@ -239,11 +243,11 @@ void derivedBoundarySupportsArbitraryDimensions() {
                 controller.loadToMemory() &&
                 waitUntil([&] { return controller.memoryReady(); }),
             "load arbitrary-size Sequence");
-    require(!controller.canStart() &&
-                controller.errorMessage() ==
-                    QStringLiteral("No Decision Boundary set") &&
+    require(controller.decisionBoundaryDefined() &&
+                controller.decisionBoundaryXRatio() == 0.5 &&
+                controller.decisionBoundaryYRatio() == 0.5 &&
                 controller.decisionBoundarySide() == QStringLiteral("bottom"),
-            "explicit Decision Boundary is required with Bottom is Hit as default");
+            "Decision Boundary defaults to image center with Bottom is Hit");
     placeDecisionBoundary(controller, 0.25, 0.75);
     controller.setTriggerEveryDroplet(true);
     require(controller.canStart() && controller.start() &&
@@ -290,7 +294,7 @@ void selectionLoadingAndImmutableBuffer() {
 
     FakeDetector detector;
     OperationCoordinator operations;
-    SequenceTestService service(operations, detector, nullptr);
+    SequenceTestService service(operations, detector.processor, nullptr);
     qulonglong availableMemory = 128;
     int resultsRefreshes = 0;
     auto controller =
@@ -506,7 +510,7 @@ void modelRoutingAndDaqFacts() {
     };
     SequenceTestService service(
         operations,
-        detector,
+        detector.processor,
         nullptr,
         [](QString*) {
             return std::optional<PreparedModel>(preparedModel());
@@ -630,7 +634,7 @@ void failedRunReasonSurvivesAutomaticPreflightRefresh() {
     FakeDetector detector;
     OperationCoordinator operations;
     SequenceTestService service(
-        operations, detector, nullptr,
+        operations, detector.processor, nullptr,
         [](QString* error) -> std::optional<PreparedModel> {
             if (error) {
                 *error = QStringLiteral(
@@ -694,7 +698,7 @@ void asynchronousStopAndTeardown() {
         detectorChanged.wait(lock, [&] { return release; });
     };
     OperationCoordinator operations;
-    SequenceTestService service(operations, detector, nullptr);
+    SequenceTestService service(operations, detector.processor, nullptr);
     qulonglong availableMemory = 1024 * 1024;
     int resultsRefreshes = 0;
     auto controller =
@@ -751,7 +755,7 @@ void asynchronousStopAndTeardown() {
     };
     OperationCoordinator teardownOperations;
     SequenceTestService teardownService(
-        teardownOperations, teardownDetector, nullptr);
+        teardownOperations, teardownDetector.processor, nullptr);
     int teardownRefreshes = 0;
     auto teardownController = std::make_unique<SequenceTestController>(
         teardownService,
@@ -816,7 +820,7 @@ void latestPreviewTransportIsBounded() {
     };
 
     OperationCoordinator operations;
-    SequenceTestService service(operations, detector, nullptr);
+    SequenceTestService service(operations, detector.processor, nullptr);
     qulonglong availableMemory = 1024 * 1024;
     int resultsRefreshes = 0;
     auto controller =

@@ -2,6 +2,7 @@
 
 #include "../camera/camera_controller.h"
 #include "../camera/frame_conversion.h"
+#include "../routing/observed_route_tracker.h"
 #include "../../desktop_app/frame_types.h"
 #include "../../desktop_app/json_persistence.h"
 
@@ -470,14 +471,19 @@ bool LiveSortingController::setDecisionBoundary(double xRatio, double yRatio) {
 }
 
 void LiveSortingController::resetDecisionBoundary() {
-    if (!decisionBoundaryDefined_)
+    if (facts_.hitBoundary.imageWidth <= 0 || facts_.hitBoundary.imageHeight <= 0)
         return;
+    const run::HitBoundarySnapshot boundary = routing::centeredHitBoundary(
+        facts_.hitBoundary.imageWidth, facts_.hitBoundary.imageHeight,
+        facts_.hitBoundary.hitSide);
     if (snapshot_.lifecycle == OperationLifecycle::Running &&
-        !service_.resetDecisionBoundary()) {
+        !service_.updateDecisionBoundary(boundary)) {
         return;
     }
-    decisionBoundaryDefined_ = false;
-    facts_.hitBoundary.boundaryY = -1.0;
+    facts_.hitBoundary = boundary;
+    decisionBoundaryXRatio_ = 0.5;
+    decisionBoundaryYRatio_ = 0.5;
+    decisionBoundaryDefined_ = true;
     setActionError({});
     emit changed();
 }
@@ -564,6 +570,14 @@ void LiveSortingController::refresh() {
             std::min(decisionBoundaryYRatio_ * facts_.hitBoundary.imageHeight,
                      static_cast<double>(facts_.hitBoundary.imageHeight - 1));
         facts_.hitBoundary.hitSide = boundary.hitSide;
+    } else if (facts_.hitBoundary.imageWidth > 0 &&
+               facts_.hitBoundary.imageHeight > 0) {
+        facts_.hitBoundary = routing::centeredHitBoundary(
+            facts_.hitBoundary.imageWidth, facts_.hitBoundary.imageHeight,
+            facts_.hitBoundary.hitSide);
+        decisionBoundaryXRatio_ = 0.5;
+        decisionBoundaryYRatio_ = 0.5;
+        decisionBoundaryDefined_ = true;
     } else {
         facts_.hitBoundary.boundaryY = -1.0;
     }

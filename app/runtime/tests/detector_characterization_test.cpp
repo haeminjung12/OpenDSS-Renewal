@@ -1,5 +1,6 @@
 #include "../event_detector.h"
 #include "../fast_event_detector.h"
+#include "../detection/droplet_frame_processor.h"
 
 #include <cmath>
 #include <atomic>
@@ -15,7 +16,7 @@ namespace {
 
 constexpr int kWidth = 96;
 constexpr int kHeight = 80;
-const cv::Rect kDropletRect(28, 24, 24, 20);
+const cv::Rect kDropletRect(10, 24, 24, 20);
 
 int failures = 0;
 
@@ -49,6 +50,28 @@ bool sameFastResult(const FastEventResult& lhs, const FastEventResult& rhs) {
         lhs.bbox != rhs.bbox || !samePoint(lhs.centroid, rhs.centroid) ||
         !sameMat(lhs.mask, rhs.mask))
         return false;
+    if (lhs.visibleTrackCount != rhs.visibleTrackCount ||
+        lhs.enteredTrackCount != rhs.enteredTrackCount ||
+        lhs.endedTrackCount != rhs.endedTrackCount ||
+        lhs.capacityExceeded != rhs.capacityExceeded)
+        return false;
+    for (std::size_t index = 0; index < lhs.visibleTrackCount; ++index) {
+        const auto& left = lhs.visibleTracks[index];
+        const auto& right = rhs.visibleTracks[index];
+        if (left.trackId != right.trackId || left.missedFrames != right.missedFrames ||
+            std::abs(left.area - right.area) >= 0.001 || left.bbox != right.bbox ||
+            !samePoint(left.centroid, right.centroid))
+            return false;
+    }
+    for (std::size_t index = 0; index < lhs.enteredTrackCount; ++index) {
+        const auto& left = lhs.enteredTracks[index];
+        const auto& right = rhs.enteredTracks[index];
+        if (left.trackId != right.trackId || left.bbox != right.bbox)
+            return false;
+    }
+    for (std::size_t index = 0; index < lhs.endedTrackCount; ++index)
+        if (lhs.endedTrackIds[index] != rhs.endedTrackIds[index])
+            return false;
     for (std::size_t index = 0; index < lhs.rejectedCount; ++index) {
         if (std::abs(lhs.rejectedAreas[index] - rhs.rejectedAreas[index]) >= 0.001)
             return false;
@@ -69,8 +92,28 @@ cv::Mat droplet8(const cv::Rect& rect = kDropletRect) {
 cv::Mat mixedCandidates8() {
     cv::Mat frame = frame8();
     cv::rectangle(frame, cv::Rect(8, 8, 5, 6), cv::Scalar(200), cv::FILLED);
-    cv::rectangle(frame, cv::Rect(35, 20, 20, 15), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, cv::Rect(16, 20, 20, 15), cv::Scalar(200), cv::FILLED);
     cv::rectangle(frame, cv::Rect(75, 50, 7, 8), cv::Scalar(200), cv::FILLED);
+    return frame;
+}
+
+class ScriptedDetector final : public IDropletDetector {
+  public:
+    DropletDetectionFrame next;
+    int calls = 0;
+
+    void reset() override {}
+    int backgroundFramesRemaining() const override { return 0; }
+    DropletDetectionFrame processFrame(const cv::Mat&) override {
+        ++calls;
+        return next;
+    }
+};
+
+cv::Mat twoCandidates8(const cv::Rect& first, const cv::Rect& second) {
+    cv::Mat frame = frame8();
+    cv::rectangle(frame, first, cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, second, cv::Scalar(200), cv::FILLED);
     return frame;
 }
 
@@ -82,6 +125,37 @@ cv::Mat droplet16(const cv::Rect& rect = kDropletRect) {
     cv::Mat frame = frame16();
     cv::rectangle(frame, rect, cv::Scalar(51200), cv::FILLED);
     return frame;
+}
+
+void verifyFrameProcessor() {
+    ScriptedDetector detector;
+    DropletFrameProcessor processor(detector);
+    detector.next.detected = true;
+    detector.next.visibleTrackCount = 1;
+    detector.next.visibleTracks[0] = {7, 0, 480.0, kDropletRect, {40.0f, 34.0f}};
+    detector.next.enteredTrackCount = 1;
+    detector.next.enteredTracks[0] = detector.next.visibleTracks[0];
+    const DropletFrameProcessingResult entered = processor.process(droplet8());
+    expect(detector.calls == 1 && entered.enteredCropCount == 1 && !entered.cropFailed &&
+               entered.enteredCrops[0].trackId == 7,
+           "frame processor invokes the detector once and creates one crop for one entry");
+
+    detector.next.enteredTrackCount = 0;
+    detector.next.endedTrackCount = 1;
+    detector.next.endedTrackIds[0] = 3;
+    const DropletFrameProcessingResult continuing = processor.process(droplet8());
+    expect(detector.calls == 2 && continuing.detection.visibleTrackCount == 1 &&
+               continuing.detection.visibleTracks[0].trackId == 7 &&
+               continuing.detection.endedTrackCount == 1 &&
+               continuing.detection.endedTrackIds[0] == 3,
+           "frame processor preserves independent visible and ended track observations");
+
+    detector.next.enteredTrackCount = 1;
+    detector.next.enteredTracks[0] = {8, 0, 1.0, cv::Rect(), {0.0f, 0.0f}};
+    detector.next.capacityExceeded = true;
+    const DropletFrameProcessingResult failed = processor.process(frame8());
+    expect(detector.calls == 3 && failed.cropFailed && failed.detection.capacityExceeded,
+           "frame processor propagates crop failure and detector capacity state");
 }
 
 EventDetectorConfig preciseConfig() {
@@ -142,7 +216,7 @@ void characterizePreciseDetector() {
     const EventResult repeated = detector.detect(droplet8(), true);
     expect(first.detected, "precise detector returns a detection with mask requested");
     expect(first.bbox == kDropletRect, "precise detector preserves the synthetic droplet bounding box");
-    expect(samePoint(first.centroid, cv::Point2f(39.5f, 33.5f)),
+    expect(samePoint(first.centroid, cv::Point2f(21.5f, 33.5f)),
            "precise detector reports the synthetic droplet centroid");
     expect(first.area == 435.0, "precise detector contour area is characterized");
     expect(first.mask.type() == CV_8UC1 && first.mask.size() == cv::Size(kWidth, kHeight),
@@ -207,7 +281,7 @@ void characterizeFastDetector() {
     expect(detector.processFrame(droplet8(), first), "fast detector processes the deterministic 8-bit droplet");
     expect(first.detected && first.fired, "fast first detected frame is also a newly entered event");
     expect(first.bbox == kDropletRect, "fast detector preserves the synthetic droplet bounding box");
-    expect(samePoint(first.centroid, cv::Point2f(39.5f, 33.5f)),
+    expect(samePoint(first.centroid, cv::Point2f(21.5f, 33.5f)),
            "fast detector reports the synthetic droplet centroid");
     expect(first.area == 480.0, "fast detector connected-component area is characterized");
     expect(first.mask.type() == CV_8UC1 && cv::countNonZero(first.mask) == 480,
@@ -243,8 +317,8 @@ void characterizeFastDetector() {
     FastEventResult shifted;
     detector.processFrame(droplet8(cv::Rect(kDropletRect.x + 20, kDropletRect.y, kDropletRect.width, kDropletRect.height)),
                           shifted);
-    expect(shifted.detected && shifted.fired,
-           "fast centroid shift after a short gap enters a new event before reset hysteresis completes");
+    expect(shifted.detected && !shifted.fired && shifted.visibleTrackCount == 1,
+           "fast short-gap recovery retains the existing track without a duplicate entry");
 
     detector.reset();
     expect(!detector.isReady(), "fast reset clears background readiness");
@@ -310,7 +384,7 @@ void characterizeFastDetector() {
     FastEventResult mixed;
     expect(mixedDetector.processFrame(mixedCandidates8(), mixed) &&
                mixed.detected && mixed.fired && mixed.area == 300.0 &&
-               mixed.bbox == cv::Rect(35, 20, 20, 15) &&
+               mixed.bbox == cv::Rect(16, 20, 20, 15) &&
                mixed.rejectedCount == 2 && mixed.rejectedAreas != nullptr &&
                mixed.rejectedAreas[0] == 30.0 && mixed.rejectedAreas[1] == 56.0,
            "one accepted result coexists with every ordered undersized candidate");
@@ -333,6 +407,79 @@ void characterizeFastDetector() {
     expect(replayElapsed < std::chrono::seconds(5),
            "bounded mixed-candidate replay has no material hot-path regression");
 
+    FastEventConfig aggregateConfig = cfg;
+    aggregateConfig.maxAreaFrac = 0.1;
+    FastEventDetector aggregateDetector(aggregateConfig);
+    expect(!aggregateDetector.addBackgroundFrame(frame8()) &&
+               aggregateDetector.addBackgroundFrame(frame8()),
+           "aggregate-area detector establishes its background");
+    const cv::Rect aggregateFirst(10, 20, 24, 20);
+    const cv::Rect aggregateSecond(60, 20, 24, 20);
+    FastEventResult aggregate;
+    expect(aggregateDetector.processFrame(twoCandidates8(aggregateFirst, aggregateSecond), aggregate) &&
+               aggregate.detected && aggregate.fired && aggregate.area == 480.0 &&
+               aggregate.bbox == aggregateFirst,
+           "two individually valid components survive an aggregate mask area above the per-component cap");
+
+    FastEventDetector rankSwapDetector(cfg);
+    expect(!rankSwapDetector.addBackgroundFrame(frame8()) &&
+               rankSwapDetector.addBackgroundFrame(frame8()),
+           "rank-swap detector establishes its background");
+    const cv::Rect trackedLarge(10, 24, 20, 15);
+    const cv::Rect remoteSmall(60, 24, 20, 14);
+    const cv::Rect trackedSmall(11, 24, 20, 14);
+    const cv::Rect remoteLarge(60, 24, 20, 15);
+    FastEventResult rankStart;
+    FastEventResult rankSwap;
+    expect(rankSwapDetector.processFrame(twoCandidates8(trackedLarge, remoteSmall), rankStart) &&
+               rankStart.detected && rankStart.fired && rankStart.bbox == trackedLarge &&
+               rankSwapDetector.processFrame(twoCandidates8(trackedSmall, remoteLarge), rankSwap) &&
+               rankSwap.detected && !rankSwap.fired && rankSwap.area == 280.0 &&
+               rankSwap.bbox == trackedSmall,
+           "an uninterrupted active track keeps the nearest component across a size-rank swap");
+
+    FastEventDetector gapSelectionDetector(cfg);
+    expect(!gapSelectionDetector.addBackgroundFrame(frame8()) &&
+               gapSelectionDetector.addBackgroundFrame(frame8()),
+           "gap-selection detector establishes its background");
+    FastEventResult gapSelectionStart;
+    FastEventResult gapSelectionMiss;
+    FastEventResult gapSelectionReentry;
+    expect(gapSelectionDetector.processFrame(droplet8(trackedLarge), gapSelectionStart) &&
+               gapSelectionStart.detected && gapSelectionStart.fired &&
+               gapSelectionDetector.processFrame(frame8(), gapSelectionMiss) &&
+               !gapSelectionMiss.detected && !gapSelectionMiss.lifecycleEnded &&
+               gapSelectionDetector.processFrame(twoCandidates8(trackedSmall, remoteLarge), gapSelectionReentry) &&
+               gapSelectionReentry.detected && !gapSelectionReentry.fired &&
+               gapSelectionReentry.visibleTrackCount == 1 &&
+               gapSelectionReentry.bbox == trackedSmall,
+           "after a short gap, an existing track resumes without switching to a remote candidate");
+
+    FastEventDetector tieDetector(cfg);
+    expect(!tieDetector.addBackgroundFrame(frame8()) && tieDetector.addBackgroundFrame(frame8()),
+           "tie detector establishes its background");
+    FastEventResult tieStart;
+    FastEventResult tie;
+    const cv::Rect tieStartRect(10, 24, 8, 10);
+    const cv::Rect tieFirst(28, 24, 8, 10);
+    const cv::Rect tieSecond(60, 24, 8, 10);
+    expect(tieDetector.processFrame(droplet8(tieStartRect), tieStart) && tieStart.detected &&
+               tieDetector.processFrame(twoCandidates8(tieFirst, tieSecond), tie) &&
+               tie.detected && tie.bbox == tieFirst,
+           "equal-distance equal-area active-track candidates retain the first component label");
+
+    FastEventConfig mergedConfig = cfg;
+    mergedConfig.maxAreaFrac = 0.1;
+    mergedConfig.morphRadius = 1;
+    FastEventDetector mergedDetector(mergedConfig);
+    expect(!mergedDetector.addBackgroundFrame(frame8()) && mergedDetector.addBackgroundFrame(frame8()),
+           "merged-component detector establishes its background");
+    FastEventResult merged;
+    expect(mergedDetector.processFrame(twoCandidates8(cv::Rect(10, 20, 20, 20),
+                                                       cv::Rect(31, 20, 20, 20)), merged) &&
+               !merged.detected && !merged.fired,
+           "a morphologically merged component still fails its own maximum-area rule");
+
     std::atomic<bool> settersDone{false};
     std::thread setter([&] {
         for (int index = 0; index < 2000; ++index)
@@ -354,6 +501,7 @@ void characterizeFastDetector() {
 } // namespace
 
 int main() {
+    verifyFrameProcessor();
     characterizePreciseDetector();
     characterizeFastDetector();
     if (failures != 0) {

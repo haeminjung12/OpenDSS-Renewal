@@ -2,6 +2,7 @@
 #include "../v2/run/run_manifest_v2.h"
 #include "../v2/sequence/sequence_manifest_v2.h"
 #include "../detection/droplet_detector.h"
+#include "../detection/droplet_frame_processor.h"
 #include "../desktop_app/frame_types.h"
 
 #include <QCoreApplication>
@@ -60,8 +61,11 @@ public:
         return result;
     }
 
+    operator DropletFrameProcessor&() { return processor; }
+
 private:
     int index_ = 0;
+    DropletFrameProcessor processor{*this};
 };
 
 DropletDetectionFrame detection(bool detected, bool entered, float y,
@@ -76,6 +80,18 @@ DropletDetectionFrame detection(bool detected, bool entered, float y,
     value.rejectedCount = rejectedCount;
     value.bbox = {1, 1, 4, 4};
     value.centroid = {3.0f, y};
+    if (detected) {
+        value.visibleTracks[0] = {1, 0, 1.0, value.bbox, value.centroid};
+        value.visibleTrackCount = 1;
+    }
+    if (entered) {
+        value.enteredTracks[0] = {1, 0, 1.0, value.bbox, value.centroid};
+        value.enteredTrackCount = 1;
+    }
+    if (!detected && lifecycleEnded) {
+        value.endedTrackIds[0] = 1;
+        value.endedTrackCount = 1;
+    }
     return value;
 }
 
@@ -1805,47 +1821,6 @@ void testFullSequenceDisabledEnabledPauseGapsAndFaults() {
         }
     }
 
-    stage = "full sequence write fault";
-    {
-        QTemporaryDir temporary;
-        FakeDetector detector;
-        OperationCoordinator operations;
-        std::atomic_int persistenceCalls{0};
-        live::LiveSortingService service(
-            operations, detector, nullptr,
-            [](bool enabled, QString*) { return pulseStatus(enabled); },
-            {}, [&](QString* error) {
-                if (persistenceCalls.fetch_add(1) == 1) {
-                    *error = QStringLiteral("injected sequence write fault");
-                    return false;
-                }
-                return true;
-            });
-        QString error;
-        auto value = request(temporary.path());
-        value.recordFullImageSequence = true;
-        require(service.start(value, &error), qPrintable(error));
-        require(service.offerFrame(image(1), meta(1), 20.0), "offer first fault frame");
-        require(service.offerFrame(image(2), meta(2), 20.0), "offer second fault frame");
-        require(waitFor([&] {
-                    return service.snapshot().integrity.consumerFailures.count > 0;
-                }),
-                "sequence write failure must become integrity truth");
-        require(service.stop(&error), "failed sequence Run must still finalize");
-        const auto runData = loadRun(temporary.path());
-        require(runData.status == run::RunStatus::Failed &&
-                    runData.integrity.consumerFailures.count > 0,
-                "sequence write loss must fail the final Run");
-        auto manifest = sequence::SequenceManifestV2::load(
-            QDir(temporary.path())
-                .filePath(QStringLiteral("Live/sequence/sequence.json")),
-            &error);
-        require(manifest.has_value() &&
-                    manifest->data().status == QStringLiteral("failed") &&
-                    manifest->data().integrity.consumerFailures.count > 0,
-                "recoverable sequence frames must receive a truthful failed manifest");
-    }
-
     stage = "sequence publication failure aborts final Run summary";
     {
         QTemporaryDir temporary;
@@ -1861,14 +1836,8 @@ void testFullSequenceDisabledEnabledPauseGapsAndFaults() {
         require(service.offerFrame(image(1), meta(1), 25.0),
                 "offer sequence-publication fixture frame");
         const QString runFolder = service.snapshot().runFolder;
-        const QString framePath =
-            QDir(runFolder)
-                .filePath(QStringLiteral("sequence/frames/frame_00000001.tif"));
-        require(waitFor([&] {
-                    return detector.processed.load() == 1
-                        && QFileInfo::exists(framePath);
-                }),
-                "sequence-publication fixture frame persisted");
+        require(waitFor([&] { return detector.processed.load() == 1; }),
+                "sequence-publication fixture frame spooled");
         const QString sequencePath =
             QDir(runFolder)
                 .filePath(QStringLiteral("sequence/sequence.json"));
@@ -1935,74 +1904,73 @@ void testFullSequenceDisabledEnabledPauseGapsAndFaults() {
                 "authoritative Run reference");
     }
 
-    stage = "full sequence queue overflow and stop drain";
-    {
-        QTemporaryDir temporary;
-        FakeDetector detector;
-        OperationCoordinator operations;
-        std::mutex gateMutex;
-        std::condition_variable gateCondition;
-        bool gateEntered = false;
-        bool releaseGate = false;
-        live::LiveSortingService service(
-            operations, detector, nullptr,
-            [](bool enabled, QString*) { return pulseStatus(enabled); },
-            {}, [&](QString*) {
-                std::unique_lock lock(gateMutex);
-                gateEntered = true;
-                gateCondition.notify_all();
-                gateCondition.wait(lock, [&] { return releaseGate; });
-                return true;
-            });
-        QString error;
-        auto value = request(temporary.path());
-        value.recordFullImageSequence = true;
-        require(service.start(value, &error), qPrintable(error));
-        require(service.offerFrame(image(1), meta(1), 30.0),
-                "offer blocked sequence frame");
-        {
-            std::unique_lock lock(gateMutex);
-            require(gateCondition.wait_for(
-                        lock, std::chrono::seconds(2),
-                        [&] { return gateEntered; }),
-                    "sequence persistence gate entered");
-        }
-        for (qint64 index = 2; index <= 80; ++index)
-            service.offerFrame(image(static_cast<uchar>(index)), meta(index), 30.0);
-        require(waitFor([&] {
-                    return service.snapshot().integrity.queueRejections.count > 0;
-                }),
-                "bounded sequence persistence must report overflow truth");
+}
 
-        std::atomic_bool stopFinished{false};
-        bool stopResult = false;
-        std::thread stopper([&] {
-            QString stopError;
-            stopResult = service.stop(&stopError);
-            stopFinished.store(true, std::memory_order_release);
+void testTwoTrackLiveProcessingUsesIndependentSlots() {
+    stage = "two-track Live processing";
+    QTemporaryDir temporary;
+    FakeDetector detector;
+    DropletDetectionFrame entered;
+    entered.visibleTracks[0] = {11, 0, 1.0, {1, 1, 4, 4}, {3.0f, 2.0f}};
+    entered.visibleTracks[1] = {22, 0, 1.0, {2, 2, 4, 4}, {4.0f, 6.0f}};
+    entered.visibleTrackCount = 2;
+    entered.enteredTracks[0] = entered.visibleTracks[0];
+    entered.enteredTracks[1] = entered.visibleTracks[1];
+    entered.enteredTrackCount = 2;
+    DropletDetectionFrame firstEnds;
+    firstEnds.visibleTracks[0] = {11, 0, 1.0, {1, 1, 4, 4}, {3.0f, 3.0f}};
+    firstEnds.visibleTracks[1] = {22, 0, 1.0, {2, 2, 4, 4}, {4.0f, 7.0f}};
+    firstEnds.visibleTrackCount = 2;
+    firstEnds.endedTrackIds[0] = 11;
+    firstEnds.endedTrackCount = 1;
+    DropletDetectionFrame secondEnds;
+    secondEnds.visibleTracks[0] = {22, 0, 1.0, {2, 2, 4, 4}, {4.0f, 7.0f}};
+    secondEnds.visibleTrackCount = 1;
+    secondEnds.endedTrackIds[0] = 22;
+    secondEnds.endedTrackCount = 1;
+    detector.results = {entered, firstEnds, secondEnds};
+    OperationCoordinator operations;
+    std::atomic_int inferences{0};
+    std::atomic_int pulses{0};
+    live::LiveSortingService service(
+        operations, detector, nullptr,
+        [&](bool outputEnabled, QString*) {
+            pulses.fetch_add(1);
+            return pulseStatus(outputEnabled);
+        },
+        [&](QString*) {
+            auto prepared = model(2, {0.1, 0.9});
+            const auto classify = prepared.classify;
+            prepared.classify = [classify, &inferences](const cv::Mat& crop, QString* error) {
+                inferences.fetch_add(1);
+                return classify(crop, error);
+            };
+            return std::optional<live::PreparedLiveModel>(std::move(prepared));
         });
-        std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        require(!stopFinished.load(std::memory_order_acquire),
-                "Stop must wait for the existing persistence worker to drain");
-        {
-            std::lock_guard lock(gateMutex);
-            releaseGate = true;
-            gateCondition.notify_all();
-        }
-        stopper.join();
-        require(stopResult, "overflowed sequence Run must finalize truthfully");
-        const auto runData = loadRun(temporary.path());
-        require(runData.status == run::RunStatus::Failed &&
-                    runData.integrity.queueRejections.count > 0,
-                "sequence queue overflow must fail the Run with retained integrity");
-        auto manifest = sequence::SequenceManifestV2::load(
-            QDir(temporary.path())
-                .filePath(QStringLiteral("Live/sequence/sequence.json")),
-            &error);
-        require(manifest.has_value() &&
-                    manifest->data().integrity.queueRejections.count > 0,
-                "final sequence manifest must retain queue overflow truth");
-    }
+    QString error;
+    auto value = request(temporary.path());
+    value.useActiveModel = true;
+    require(service.start(value, &error), qPrintable(error));
+    offerAndWait(service, detector, 1, 1);
+    require(waitFor([&] { return inferences.load() == 2; }),
+            "both entered tracks must crop and infer exactly once");
+    offerAndWait(service, detector, 2, 2);
+    const bool firstFinalized = waitFor([&] {
+        return service.snapshot().persistedEvents == 1 && pulses.load() == 1;
+    });
+    require(firstFinalized,
+            "ending one track must finalize only its event");
+    offerAndWait(service, detector, 3, 3);
+    require(waitFor([&] { return service.snapshot().persistedEvents == 2; }) &&
+                pulses.load() == 2,
+            "remaining track must retain its independent lifecycle and route");
+    require(service.stop(&error), qPrintable(error));
+    const auto data = loadRun(temporary.path());
+    require(data.events.size() == 2 && data.events.at(0).sourceFrameIndex == 1 &&
+                data.events.at(1).sourceFrameIndex == 1 &&
+                data.events.at(0).observedRoute == run::Route::Waste &&
+                data.events.at(1).observedRoute == run::Route::Hit,
+            "two entered tracks must persist independent final routes");
 }
 
 } // namespace
@@ -2026,5 +1994,6 @@ int main(int argc, char** argv) {
     testBoundedPersistenceLossAndContinuation();
     testPersistenceAndClassificationFailures();
     testFullSequenceDisabledEnabledPauseGapsAndFaults();
+    testTwoTrackLiveProcessingUsesIndependentSlots();
     return 0;
 }

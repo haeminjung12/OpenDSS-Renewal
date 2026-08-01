@@ -438,6 +438,7 @@ Item {
         property string sequencePresentation: "ready"
         property string datasetPresentation: "ready"
         property int sequenceFrameCount: 0
+        property int sequenceFinalizedFrameCount: 0
         property int datasetFrameCount: 0
         property int datasetCropCount: 0
         property string sequenceLocation: "C:/OpenDSS/Collections"
@@ -448,6 +449,7 @@ Item {
         property string datasetError: ""
         readonly property bool captureActive:
             sequencePresentation === "running" || sequencePresentation === "paused"
+            || sequencePresentation === "stopping"
             || datasetPresentation === "running" || datasetPresentation === "paused"
         property bool captureStartAvailable: !captureActive
         property int startSequenceCallCount: 0
@@ -461,6 +463,7 @@ Item {
             sequencePresentation = "ready"
             datasetPresentation = "ready"
             sequenceFrameCount = 0
+            sequenceFinalizedFrameCount = 0
             datasetFrameCount = 0
             datasetCropCount = 0
             startSequenceCallCount = 0
@@ -3591,6 +3594,23 @@ Item {
         shell.form.datasetStopButton.clicked()
         compare(captureWorkflowController.stopDatasetCallCount, 1)
         compare(shell.form.datasetPresentation, "completed")
+    }
+
+    function test_sequenceFinalizingPresentation() {
+        shell.captureWorkflowController = captureWorkflowController
+        shell.mockState.imageSequenceOpen = true
+        shell.form.sequenceFrameCount = 120
+        captureWorkflowController.sequenceFinalizedFrameCount = 47
+        captureWorkflowController.sequencePresentation = "stopping"
+        wait(0)
+
+        compare(shell.form.sequenceStatusText.text, "Finalizing TIFFs: 47 of 120")
+        verify(!shell.form.sequenceNameField.enabled)
+        verify(!shell.form.sequenceExperimentTypeField.enabled)
+        verify(!shell.form.sequenceNotesField.enabled)
+        verify(!shell.form.sequenceDurationField.enabled)
+        verify(!shell.form.sequenceLocationField.enabled)
+        verify(!shell.form.sequenceBrowseButton.enabled)
     }
 
     function test_trainingWeightsAndSequenceViewerViewActions() {

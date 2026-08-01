@@ -1,5 +1,6 @@
 #include "sequence_test_controller.h"
 
+#include "../routing/observed_route_tracker.h"
 #include "../sequence/sequence_manifest_v2.h"
 
 #include <QDebug>
@@ -534,9 +535,10 @@ bool SequenceTestController::selectSequence(const QUrl& sequenceJson) {
     frameFilenamePattern_ = data.frameFilenamePattern;
     imageWidth_ = data.imageWidth;
     imageHeight_ = data.imageHeight;
-    hitBoundary_ = {-1.0, run::HitSide::PositiveY,
-                    imageWidth_, imageHeight_};
-    decisionBoundaryDefined_ = false;
+    hitBoundary_ = routing::centeredHitBoundary(imageWidth_, imageHeight_);
+    decisionBoundaryXRatio_ = 0.5;
+    decisionBoundaryYRatio_ = 0.5;
+    decisionBoundaryDefined_ = true;
     recordedFps_ = data.nominalFps;
     requestedProcessingFps_ = data.nominalFps;
     cameraSettings_ = data.cameraSettings;
@@ -840,14 +842,18 @@ bool SequenceTestController::setDecisionBoundary(double xRatio, double yRatio) {
 }
 
 void SequenceTestController::resetDecisionBoundary() {
-    if (!decisionBoundaryDefined_)
+    if (imageWidth_ <= 0 || imageHeight_ <= 0)
         return;
+    const run::HitBoundarySnapshot boundary = routing::centeredHitBoundary(
+        imageWidth_, imageHeight_, hitBoundary_.hitSide);
     if (presentation_ == QStringLiteral("running") &&
-        !service_.resetDecisionBoundary()) {
+        !service_.updateDecisionBoundary(boundary)) {
         return;
     }
-    decisionBoundaryDefined_ = false;
-    hitBoundary_.boundaryY = -1.0;
+    hitBoundary_ = boundary;
+    decisionBoundaryXRatio_ = 0.5;
+    decisionBoundaryYRatio_ = 0.5;
+    decisionBoundaryDefined_ = true;
     updatePreflight();
     emit changed();
 }

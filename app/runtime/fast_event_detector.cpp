@@ -1,6 +1,7 @@
 #include "fast_event_detector.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <vector>
 
@@ -35,16 +36,31 @@ cv::Mat computeMean8(const std::vector<cv::Mat>& frames) {
     return mean;
 }
 
-FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAreaByFrac,
-                                   int maxArea, int margin, int diffThresh, int minBbox,
-                                   const cv::Mat& morphKernel,
-                                   std::vector<double>& rejectedAreas,
-                                   double inverseScale, double areaScale,
-                                   const cv::Size& sourceSize, int sourceMargin,
-                                   int sourceMinBbox) {
-    FastEventResult det;
+struct Candidate {
+    int label = 0;
+    double area = 0.0;
+    cv::Rect bbox;
+    cv::Point2f centroid = {0.0f, 0.0f};
+};
+
+struct CandidateFrame {
+    cv::Mat mask;
+    std::array<Candidate, kFastEventCandidateCapacity> candidates{};
+    std::size_t count = 0;
+    bool capacityExceeded = false;
+};
+
+CandidateFrame detectCandidatesFromDiffFast(const cv::Mat& diff8, int minArea,
+                                            int minAreaByFrac, int maxArea, int margin,
+                                            int diffThresh, int minBbox,
+                                            const cv::Mat& morphKernel,
+                                            std::vector<double>& rejectedAreas,
+                                            double inverseScale, double areaScale,
+                                            const cv::Size& sourceSize, int sourceMargin,
+                                            int sourceMinBbox) {
+    CandidateFrame result;
     if (diff8.empty())
-        return det;
+        return result;
 
     cv::Mat mask;
     cv::threshold(diff8, mask, diffThresh, 255, cv::THRESH_BINARY);
@@ -54,18 +70,15 @@ FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAre
     }
 
     int nonZero = cv::countNonZero(mask);
-    if (nonZero < minAreaByFrac || nonZero > maxArea) {
-        return det;
+    if (nonZero < minAreaByFrac) {
+        return result;
     }
-    det.mask = mask;
+    result.mask = mask;
 
     cv::Mat labels, stats, centroids;
     int count = cv::connectedComponentsWithStats(mask, labels, stats, centroids, 8, CV_32S);
     if (count <= 1)
-        return det;
-
-    int bestIdx = -1;
-    int bestArea = 0;
+        return result;
     for (int i = 1; i < count; ++i) {
         int area = stats.at<int>(i, cv::CC_STAT_AREA);
         if (area < minAreaByFrac || area > maxArea)
@@ -88,22 +101,27 @@ FastEventResult detectFromDiffFast(const cv::Mat& diff8, int minArea, int minAre
             }
             continue;
         }
-        if (area > bestArea) {
-            bestArea = area;
-            bestIdx = i;
-            det.bbox = bbox;
+        const cv::Rect sourceBbox = scaleRect(bbox, inverseScale);
+        if (sourceBbox.width < sourceMinBbox || sourceBbox.height < sourceMinBbox ||
+            !isInsideFrame(sourceBbox, sourceSize, sourceMargin))
+            continue;
+        if (result.count == result.candidates.size()) {
+            result.capacityExceeded = true;
+            continue;
         }
+        Candidate& candidate = result.candidates[result.count++];
+        candidate.label = i;
+        candidate.area = static_cast<double>(area) / areaScale;
+        candidate.bbox = sourceBbox;
+        candidate.centroid = cv::Point2f(
+            static_cast<float>(centroids.at<double>(i, 0) * inverseScale),
+            static_cast<float>(centroids.at<double>(i, 1) * inverseScale));
     }
+    return result;
+}
 
-    if (bestIdx < 0) {
-        det.mask.release();
-        return det;
-    }
-    det.detected = true;
-    det.area = static_cast<double>(bestArea);
-    det.centroid.x = static_cast<float>(centroids.at<double>(bestIdx, 0));
-    det.centroid.y = static_cast<float>(centroids.at<double>(bestIdx, 1));
-    return det;
+FastEventTrackObservation observation(int id, int missedFrames, const Candidate& candidate) {
+    return {id, missedFrames, candidate.area, candidate.bbox, candidate.centroid};
 }
 } // namespace
 
@@ -130,10 +148,8 @@ void FastEventDetector::reset() {
     rolling_.frames.clear();
     rolling_.sum.release();
     bgStack_.clear();
-    triggered_ = false;
-    noDetectCount_ = 0;
-    hasLastDet_ = false;
-    lastCentroid_ = cv::Point2f(0.0f, 0.0f);
+    tracks_ = {};
+    nextTrackId_ = 1;
 
     if (cfg_.scale <= 0.0 || cfg_.scale > 1.0) {
         cfg_.scale = 1.0;
@@ -141,6 +157,7 @@ void FastEventDetector::reset() {
     cfg_.minAreaFrac = std::max(0.0, std::min(cfg_.minAreaFrac, 1.0));
     cfg_.maxAreaFrac = std::max(0.0, std::min(cfg_.maxAreaFrac, 1.0));
     cfg_.bgFrames = std::max(1, cfg_.bgFrames);
+    cfg_.resetFrames = std::max(1, cfg_.resetFrames);
 
     if (cfg_.bgUpdateFrames < 0)
         cfg_.bgUpdateFrames = 0;
@@ -301,62 +318,132 @@ bool FastEventDetector::processFrame(const cv::Mat& gray8In, FastEventResult& ou
     const int minAreaScaled = std::max(
         1, static_cast<int>(std::ceil(
                minimumContourArea_.load(std::memory_order_acquire) * areaScale_)));
-    FastEventResult det = detectFromDiffFast(
+    CandidateFrame candidates = detectCandidatesFromDiffFast(
         diff8, minAreaScaled, minAreaByFracScaled_,
         std::max(maxAreaScaled_, minAreaScaled), marginScaled_,
         cfg_.diffThresh, minBboxScaled_, morphKernel_, rejectedAreas_,
         1.0 / cfg_.scale, areaScale_, gray8.size(), cfg_.margin, cfg_.minBbox);
 
-    if (det.detected && cfg_.scale != 1.0) {
-        det.bbox = scaleRect(det.bbox, 1.0 / cfg_.scale);
-        det.area = det.area / areaScale_;
-        det.centroid.x = static_cast<float>(det.centroid.x / cfg_.scale);
-        det.centroid.y = static_cast<float>(det.centroid.y / cfg_.scale);
-        if (det.bbox.width < cfg_.minBbox || det.bbox.height < cfg_.minBbox) {
-            det = FastEventResult{};
-        } else if (!isInsideFrame(det.bbox, gray8.size(), cfg_.margin)) {
-            det = FastEventResult{};
-        }
-    }
-
-    bool fired = false;
-    bool lifecycleEnded = false;
-    if (det.detected) {
-        bool gapReentry = (noDetectCount_ > 0);
-        bool gapFire = false;
-        if (triggered_ && gapReentry && hasLastDet_ && gapFireShift_ > 0) {
-            double dx = static_cast<double>(det.centroid.x - lastCentroid_.x);
-            double dy = static_cast<double>(det.centroid.y - lastCentroid_.y);
-            double dist = std::sqrt(dx * dx + dy * dy);
-            if (dist >= static_cast<double>(gapFireShift_)) {
-                gapFire = true;
+    std::array<bool, kFastEventCandidateCapacity> matched{};
+    for (TrackState& track : tracks_) {
+        if (!track.active)
+            continue;
+        int selected = -1;
+        double selectedDistanceSquared = 0.0;
+        for (std::size_t candidateIndex = 0; candidateIndex < candidates.count;
+             ++candidateIndex) {
+            if (matched[candidateIndex])
+                continue;
+            const Candidate& candidate = candidates.candidates[candidateIndex];
+            const int extent = (std::max)(
+                (std::max)(track.bbox.width, track.bbox.height),
+                (std::max)(candidate.bbox.width, candidate.bbox.height));
+            const double backwardAllowance = static_cast<double>(extent) * 0.5;
+            if (candidate.centroid.x < track.centroid.x - backwardAllowance)
+                continue;
+            const double maximumDisplacement = static_cast<double>(extent) * 2.0;
+            const double dx = static_cast<double>(candidate.centroid.x - track.centroid.x);
+            const double dy = static_cast<double>(candidate.centroid.y - track.centroid.y);
+            const double distanceSquared = dx * dx + dy * dy;
+            if (distanceSquared > maximumDisplacement * maximumDisplacement)
+                continue;
+            if (selected < 0 || distanceSquared < selectedDistanceSquared ||
+                (distanceSquared == selectedDistanceSquared &&
+                 candidate.label < candidates.candidates[selected].label)) {
+                selected = static_cast<int>(candidateIndex);
+                selectedDistanceSquared = distanceSquared;
             }
         }
-
-        noDetectCount_ = 0;
-        if (!triggered_ || gapFire) {
-            fired = true;
-            triggered_ = true;
-        }
-        lastCentroid_ = det.centroid;
-        hasLastDet_ = true;
-    } else if (triggered_) {
-        noDetectCount_++;
-        if (noDetectCount_ >= cfg_.resetFrames) {
-            triggered_ = false;
-            noDetectCount_ = 0;
-            lifecycleEnded = true;
+        if (selected >= 0) {
+            const Candidate& candidate = candidates.candidates[selected];
+            matched[static_cast<std::size_t>(selected)] = true;
+            track.area = candidate.area;
+            track.bbox = candidate.bbox;
+            track.centroid = candidate.centroid;
+            track.missedFrames = 0;
+        } else if (++track.missedFrames >= cfg_.resetFrames) {
+            if (out.endedTrackCount < out.endedTrackIds.size())
+                out.endedTrackIds[out.endedTrackCount++] = track.id;
+            track = TrackState{};
         }
     }
 
-    if (cfg_.bgUpdateFrames > 0 && !triggered_ && !det.detected) {
+    const int entryRight = static_cast<int>(std::ceil(gray8.cols * 0.20));
+    for (std::size_t candidateIndex = 0; candidateIndex < candidates.count; ++candidateIndex) {
+        if (matched[candidateIndex])
+            continue;
+        const Candidate& candidate = candidates.candidates[candidateIndex];
+        if (candidate.bbox.x >= entryRight || candidate.bbox.x + candidate.bbox.width <= 0)
+            continue;
+        TrackState* slot = nullptr;
+        for (TrackState& track : tracks_) {
+            if (!track.active) {
+                slot = &track;
+                break;
+            }
+        }
+        if (!slot) {
+            candidates.capacityExceeded = true;
+            continue;
+        }
+        slot->active = true;
+        slot->id = nextTrackId_++;
+        slot->missedFrames = 0;
+        slot->area = candidate.area;
+        slot->bbox = candidate.bbox;
+        slot->centroid = candidate.centroid;
+        if (out.enteredTrackCount < out.enteredTracks.size())
+            out.enteredTracks[out.enteredTrackCount++] = observation(slot->id, 0, candidate);
+    }
+
+    for (const TrackState& track : tracks_) {
+        if (!track.active || track.missedFrames != 0)
+            continue;
+        if (out.visibleTrackCount < out.visibleTracks.size()) {
+            out.visibleTracks[out.visibleTrackCount++] =
+                {track.id, track.missedFrames, track.area, track.bbox, track.centroid};
+        }
+    }
+
+    FastEventResult det;
+    det.mask = candidates.mask;
+    det.visibleTracks = out.visibleTracks;
+    det.visibleTrackCount = out.visibleTrackCount;
+    det.enteredTracks = out.enteredTracks;
+    det.enteredTrackCount = out.enteredTrackCount;
+    det.endedTrackIds = out.endedTrackIds;
+    det.endedTrackCount = out.endedTrackCount;
+    det.capacityExceeded = candidates.capacityExceeded;
+    det.detected = det.visibleTrackCount > 0;
+    det.fired = det.enteredTrackCount > 0;
+    det.lifecycleEnded = det.endedTrackCount > 0;
+    if (det.enteredTrackCount > 0) {
+        const FastEventTrackObservation& primary = det.enteredTracks[0];
+        det.area = primary.area;
+        det.bbox = primary.bbox;
+        det.centroid = primary.centroid;
+    } else if (det.visibleTrackCount > 0) {
+        const FastEventTrackObservation& primary = det.visibleTracks[0];
+        det.area = primary.area;
+        det.bbox = primary.bbox;
+        det.centroid = primary.centroid;
+    }
+    if (!det.detected)
+        det.mask.release();
+
+    bool anyTrackActive = false;
+    for (const TrackState& track : tracks_) {
+        if (track.active) {
+            anyTrackActive = true;
+            break;
+        }
+    }
+    if (cfg_.bgUpdateFrames > 0 && !anyTrackActive && candidates.count == 0) {
         updateRollingBackground(gray8Scaled);
     }
 
-    det.fired = fired;
-det.lifecycleEnded = lifecycleEnded;
-det.rejectedAreas = rejectedAreas_.empty() ? nullptr : rejectedAreas_.data();
-det.rejectedCount = rejectedAreas_.size();
+    det.rejectedAreas = rejectedAreas_.empty() ? nullptr : rejectedAreas_.data();
+    det.rejectedCount = rejectedAreas_.size();
     out = det;
     return true;
 }

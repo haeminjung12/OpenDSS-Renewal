@@ -8,10 +8,15 @@
 #include <QString>
 
 #include <functional>
+#include <memory>
 #include <mutex>
 #include <optional>
 
-class IDropletDetector;
+class DropletFrameProcessor;
+
+namespace desktop_app::v2::persistence {
+class FramePersistenceService;
+}
 
 namespace desktop_app::v2::dataset {
 
@@ -41,7 +46,7 @@ class DatasetCaptureService final {
   public:
     using MonotonicNow = std::function<qint64()>;
 
-    DatasetCaptureService(OperationCoordinator& operations, IDropletDetector& detector,
+    DatasetCaptureService(OperationCoordinator& operations, DropletFrameProcessor& processor,
                           MonotonicNow monotonicNow);
     ~DatasetCaptureService() noexcept;
 
@@ -58,6 +63,7 @@ class DatasetCaptureService final {
     void consumeFrame(const QImage& image, const FrameMeta& meta, double fps,
                       std::uint64_t handoffId, LiveFrameDispatcher::Membership membership);
     bool finish(const QString& reason, QString* error);
+    bool finalizeSpool(QString* error);
     bool failAndRelease(const QString& reason, const QString& message, QString* error);
     void refreshFailure();
     bool saveManifest(const QString& status, const QString& reason, QString* error);
@@ -65,7 +71,7 @@ class DatasetCaptureService final {
     sequence::SequenceIntegrity integrityLocked() const;
 
     OperationCoordinator& operations_;
-    IDropletDetector& detector_;
+    DropletFrameProcessor& processor_;
     MonotonicNow monotonicNow_;
     mutable std::mutex mutex_;
     OperationLease lease_;
@@ -77,6 +83,7 @@ class DatasetCaptureService final {
     QString sequenceFolder_;
     QString cropsFolder_;
     QString partialPath_;
+    QString spoolPath_;
     QString createdAt_;
     QString startedAt_;
     QString error_;
@@ -94,6 +101,7 @@ class DatasetCaptureService final {
     std::uint64_t lastAcceptedHandoff_ = 0;
     sequence::SequenceLossCategory sourceGaps_;
     QVector<DatasetRecord> records_;
+    std::unique_ptr<persistence::FramePersistenceService> spool_;
     LiveFrameDispatcher dispatcher_;
 };
 

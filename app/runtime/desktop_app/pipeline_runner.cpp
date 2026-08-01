@@ -49,31 +49,6 @@ std::string PipelineRunner::toLowerAscii(const std::string& s) {
     return out;
 }
 
-cv::Rect PipelineRunner::makeSquareRect(const cv::Rect& bbox, const cv::Size& size) {
-    if (bbox.width <= 0 || bbox.height <= 0 || size.width <= 0 || size.height <= 0) {
-        return cv::Rect();
-    }
-    int side = (std::max)(bbox.width, bbox.height);
-    side = (std::min)(side, (std::min)(size.width, size.height));
-    int cx = bbox.x + bbox.width / 2;
-    int cy = bbox.y + bbox.height / 2;
-    int x = cx - side / 2;
-    int y = cy - side / 2;
-    if (x < 0)
-        x = 0;
-    if (y < 0)
-        y = 0;
-    if (x + side > size.width)
-        x = size.width - side;
-    if (y + side > size.height)
-        y = size.height - side;
-    if (x < 0)
-        x = 0;
-    if (y < 0)
-        y = 0;
-    return cv::Rect(x, y, side, side);
-}
-
 bool PipelineRunner::init(const PipelineConfig& cfg, std::string& err) {
     if (cfg.detectorOnly)
         return init(cfg, nullptr, err);
@@ -101,6 +76,7 @@ bool PipelineRunner::init(const PipelineConfig& cfg, std::unique_ptr<OnnxInferen
     resolvedTargetDisplayLabel_.clear();
 
     detector_ = std::make_unique<FastEventDetectorAdapter>(cfg_.detect);
+    processor_ = std::make_unique<DropletFrameProcessor>(*detector_);
     if (cfg_.detectorOnly) {
         ready_ = true;
         return true;
@@ -159,7 +135,7 @@ void PipelineRunner::installInference(std::unique_ptr<OnnxInferenceAdapter> cand
 
 void PipelineRunner::reset() {
     if (detector_) {
-        detector_->reset();
+        processor_->reset();
     }
     frameCounter_ = 0;
 }
@@ -167,6 +143,7 @@ void PipelineRunner::reset() {
 void PipelineRunner::clear() {
     trigger_.shutdown();
     cfg_ = PipelineConfig{};
+    processor_.reset();
     detector_.reset();
     ready_ = false;
     triggerReady_ = false;
@@ -184,9 +161,9 @@ bool PipelineRunner::isTriggerReady() const {
 }
 
 int PipelineRunner::backgroundFramesRemaining() const {
-    if (!detector_)
+    if (!processor_)
         return 0;
-    return detector_->backgroundFramesRemaining();
+    return processor_->backgroundFramesRemaining();
 }
 
 bool PipelineRunner::fireTrigger(std::string& err) {
@@ -239,15 +216,14 @@ std::string PipelineRunner::loadedMetadataSha256() const {
     return classifier_ ? classifier_->metadataSha256() : std::string();
 }
 
-bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
-    out = PipelineEvent{};
-    if (!ready_ || !detector_)
+bool PipelineRunner::processFrameBatch(const cv::Mat& gray8In, std::vector<PipelineEvent>& out) {
+    out.clear();
+    if (!ready_ || !processor_)
         return false;
     if (gray8In.empty())
         return false;
 
     frameCounter_++;
-    out.frameNumber = frameCounter_;
     if (cfg_.frameSkip > 0 && (frameCounter_ % (cfg_.frameSkip + 1)) != 0) {
         return false;
     }
@@ -259,74 +235,92 @@ bool PipelineRunner::processFrame(const cv::Mat& gray8In, PipelineEvent& out) {
         }
         gray8.convertTo(gray8, CV_8U);
     }
-    out.frameWidth = gray8.cols;
-    out.frameHeight = gray8.rows;
-
-    const DropletDetectionFrame det = detector_->processFrame(gray8);
-    out.detected = det.detected;
-    out.fired = det.eventEntered;
-    out.area = det.area;
-    out.bbox = det.bbox;
-    out.centroid = det.centroid;
+    const DropletFrameProcessingResult result = processor_->process(gray8);
+    const DropletDetectionFrame& det = result.detection;
+    PipelineEvent base;
+    base.frameNumber = frameCounter_;
+    base.frameWidth = gray8.cols;
+    base.frameHeight = gray8.rows;
+    base.detected = det.detected;
+    base.fired = det.eventEntered;
+    base.area = det.area;
+    base.bbox = det.bbox;
+    base.centroid = det.centroid;
 
     if (cfg_.detectorOnly) {
+        out.push_back(std::move(base));
         return true;
     }
 
-    if (!det.eventEntered)
-        return true;
-
-    cv::Rect bbox = det.bbox & cv::Rect(0, 0, gray8.cols, gray8.rows);
-    cv::Rect squareRect = makeSquareRect(bbox, gray8.size());
-    if (squareRect.width <= 0 || squareRect.height <= 0) {
+    if (result.enteredCropCount == 0) {
+        out.push_back(std::move(base));
         return true;
     }
-    out.cropRect = squareRect;
 
-    cv::Mat crop = gray8(squareRect);
-    ClassificationResult cls = classifier_ ? classifier_->classify(crop) : ClassificationResult{};
-    out.label = cls.label;
-    out.predictedIndex = cls.index;
-    out.scores = cls.scores;
-    out.classified = true;
-    if (!cls.scores.empty()) {
-        auto bestIt = std::max_element(cls.scores.begin(), cls.scores.end());
-        out.score = (bestIt != cls.scores.end()) ? *bestIt : 0.0f;
+    for (std::size_t index = 0; index < result.enteredCropCount; ++index) {
+        const DropletEnteredCrop& entered = result.enteredCrops[index];
+        PipelineEvent event = base;
+        const DropletTrackObservation& observation = det.enteredTracks[index];
+        event.fired = true;
+        event.area = observation.area;
+        event.bbox = observation.bbox;
+        event.centroid = observation.centroid;
+        event.cropRect = entered.crop.sourceRect;
+        const cv::Mat& crop = entered.crop.image;
+        ClassificationResult cls = classifier_ ? classifier_->classify(crop) : ClassificationResult{};
+        event.label = cls.label;
+        event.predictedIndex = cls.index;
+        event.scores = cls.scores;
+        event.classified = true;
+        if (!cls.scores.empty()) {
+            auto bestIt = std::max_element(cls.scores.begin(), cls.scores.end());
+            event.score = (bestIt != cls.scores.end()) ? *bestIt : 0.0f;
+        }
+
+        if (!cls.label.empty()) {
+            event.shouldTrigger = liveSortShouldTrigger(cls.label, resolvedTargetClassId_, cfg_.sortNonTarget);
+            if (triggerReady_ && event.shouldTrigger) {
+                event.triggered = true;
+                std::string trigErr;
+                event.triggerOk = fireTrigger(trigErr);
+                event.triggerError = trigErr;
+            }
+        }
+
+        if (!cfg_.outputDir.empty()) {
+            fs::path basePath(cfg_.outputDir);
+            fs::create_directories(basePath);
+            std::string labelName = sanitizeLabel(event.label.empty() ? "unclassified" : event.label);
+            fs::path labelDir = basePath / labelName;
+            fs::create_directories(labelDir);
+            std::string name = "event_frame_" + std::to_string(frameCounter_) + "_track_" +
+                               std::to_string(entered.trackId) + "_label_" + labelName;
+            if (cfg_.saveCrop) {
+                fs::path outPath = labelDir / (name + ".png");
+                cv::imwrite(outPath.string(), crop);
+                event.cropPath = outPath.string();
+            }
+            if (cfg_.saveOverlay) {
+                cv::Mat overlay;
+                cv::cvtColor(gray8, overlay, cv::COLOR_GRAY2BGR);
+                cv::rectangle(overlay, event.cropRect, cv::Scalar(0, 255, 0), 2);
+                fs::path outPath = labelDir / (name + "_overlay.png");
+                cv::imwrite(outPath.string(), overlay);
+                event.overlayPath = outPath.string();
+            }
+        }
+        out.push_back(std::move(event));
     }
 
-    if (!cls.label.empty()) {
-        out.shouldTrigger = liveSortShouldTrigger(cls.label, resolvedTargetClassId_, cfg_.sortNonTarget);
-        if (triggerReady_ && out.shouldTrigger) {
-            out.triggered = true;
-            std::string trigErr;
-            out.triggerOk = fireTrigger(trigErr);
-            out.triggerError = trigErr;
-        }
-    }
+    return true;
+}
 
-    if (!cfg_.outputDir.empty()) {
-        fs::path base(cfg_.outputDir);
-        fs::create_directories(base);
-        std::string labelName = sanitizeLabel(out.label.empty() ? "unclassified" : out.label);
-        fs::path labelDir = base / labelName;
-        fs::create_directories(labelDir);
-        std::string name = "event_frame_" + std::to_string(frameCounter_) + "_label_" + labelName;
-        if (cfg_.saveCrop) {
-            cv::Mat resized;
-            cv::resize(crop, resized, cv::Size(cfg_.cropSize, cfg_.cropSize), 0, 0, cv::INTER_AREA);
-            fs::path outPath = labelDir / (name + ".png");
-            cv::imwrite(outPath.string(), resized);
-            out.cropPath = outPath.string();
-        }
-        if (cfg_.saveOverlay) {
-            cv::Mat overlay;
-            cv::cvtColor(gray8, overlay, cv::COLOR_GRAY2BGR);
-            cv::rectangle(overlay, squareRect, cv::Scalar(0, 255, 0), 2);
-            fs::path outPath = labelDir / (name + "_overlay.png");
-            cv::imwrite(outPath.string(), overlay);
-            out.overlayPath = outPath.string();
-        }
+bool PipelineRunner::processFrame(const cv::Mat& gray8, PipelineEvent& out) {
+    std::vector<PipelineEvent> events;
+    if (!processFrameBatch(gray8, events)) {
+        out = PipelineEvent{};
+        return false;
     }
-
+    out = events.empty() ? PipelineEvent{} : std::move(events.front());
     return true;
 }

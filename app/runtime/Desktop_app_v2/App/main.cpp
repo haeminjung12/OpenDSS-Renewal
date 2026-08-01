@@ -28,6 +28,7 @@
 
 #include "autogen/environment.h"
 #include "../../detection/droplet_detector_adapters.h"
+#include "../../detection/droplet_frame_processor.h"
 #include "../../desktop_app/model_registry_service.h"
 #include "../../desktop_app/pipeline_runner.h"
 #include "../../onnx_classifier.h"
@@ -51,6 +52,7 @@
 #include "../../v2/settings/settings_repository.h"
 #include "../../v2/results/run_repository.h"
 #include "../../v2/results/runs_results_controller.h"
+#include "../../v2/routing/observed_route_tracker.h"
 #include "../../v2/sequence/sequence_viewer_controller.h"
 #include "../../v2/sequence/sequence_viewer_image_provider.h"
 #include "../../v2/sequence/capture_workflow_controller.h"
@@ -300,6 +302,7 @@ int main(int argc, char *argv[])
 
     const FastEventConfig fastEventConfig{};
     FastEventDetectorAdapter fastDetector(fastEventConfig);
+    DropletFrameProcessor dropletFrameProcessor(fastDetector);
     const QJsonObject detectorSettings =
         provisionalFastDetectorSettings(fastEventConfig);
     const QJsonObject cropSettings{
@@ -326,7 +329,7 @@ int main(int argc, char *argv[])
     int latestCameraHeight = 0;
     int latestCameraBitDepth = 0;
     desktop_app::v2::sequence::CaptureWorkflowController captureWorkflowController(
-        *cameraService, cameraController, operationCoordinator, fastDetector,
+        *cameraService, cameraController, operationCoordinator, dropletFrameProcessor,
         [] {
             return std::chrono::duration_cast<std::chrono::nanoseconds>(
                        std::chrono::steady_clock::now().time_since_epoch())
@@ -355,11 +358,11 @@ int main(int argc, char *argv[])
         settingsController.captureDatasetOutputRoot().toLocalFile());
 
     desktop_app::v2::live::LiveSortingService liveSortingService(
-        operationCoordinator, fastDetector, &modelLoadService, hitPulse, {}, {},
+        operationCoordinator, dropletFrameProcessor, &modelLoadService, hitPulse, {}, {},
         {}, daqReadiness,
         [&daqService] { return daqService.settingsSnapshot(); });
     desktop_app::v2::sequence_test::SequenceTestService sequenceTestService(
-        operationCoordinator, fastDetector, &modelLoadService, {}, hitPulse,
+        operationCoordinator, dropletFrameProcessor, &modelLoadService, {}, hitPulse,
         daqReadiness,
         [&daqService] { return daqService.settingsSnapshot(); });
 
@@ -448,10 +451,8 @@ int main(int argc, char *argv[])
                 ? latestCameraBitDepth
                 : cameraController.bitDepth().section(QLatin1Char('-'), 0, 0).toInt();
             if (width > 0 && height > 0) {
-                facts.hitBoundary = {
-                    -1.0,
-                    desktop_app::v2::run::HitSide::PositiveY,
-                    width, height};
+                facts.hitBoundary = desktop_app::v2::routing::centeredHitBoundary(
+                    width, height);
             }
             facts.detectorSettings = detectorSettings;
             facts.cropSettings = cropSettings;

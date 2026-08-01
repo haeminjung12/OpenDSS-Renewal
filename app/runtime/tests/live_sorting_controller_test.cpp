@@ -7,6 +7,7 @@
 #include "../v2/run/run_manifest_v2.h"
 #include "../v2/state/application_state_store.h"
 #include "../detection/droplet_detector.h"
+#include "../detection/droplet_frame_processor.h"
 #include "../desktop_app/json_persistence.h"
 
 #include <QCoreApplication>
@@ -128,6 +129,8 @@ public:
         return pixels_;
     }
 
+    operator DropletFrameProcessor&() { return processor_; }
+
     std::atomic_int processed{0};
     std::atomic_bool rejectNext{false};
 
@@ -135,6 +138,7 @@ private:
     const double rejectedAreas_[2]{30.0, 56.0};
     mutable std::mutex mutex_;
     QVector<int> pixels_;
+    DropletFrameProcessor processor_{*this};
 };
 
 live::PreparedLiveModel preparedModel() {
@@ -430,15 +434,15 @@ int main(int argc, char** argv) {
     ok &= check(controller->primaryAction() && waitForIdle(camera) &&
                     waitFor([&] { return controller->cameraStreaming(); }),
                 "Ready primary action must start Camera streaming.");
-    ok &= check(!controller->decisionBoundaryDefined() &&
-                    !controller->startSortingEnabled() &&
-                    controller->disabledReason() ==
-                        QStringLiteral("No Decision Boundary set") &&
+    ok &= check(controller->decisionBoundaryDefined() &&
+                    controller->startSortingEnabled() &&
+                    controller->decisionBoundaryXRatio() == 0.5 &&
+                    controller->decisionBoundaryYRatio() == 0.5 &&
                     controller->setDecisionBoundary(0.25, 0.75) &&
                     controller->decisionBoundaryDefined() &&
                     controller->decisionBoundaryXRatio() == 0.25 &&
                     controller->decisionBoundaryYRatio() == 0.75,
-                "Live requires explicit source-relative Decision Boundary placement.");
+                "Live defaults the Decision Boundary to the image center and permits replacement.");
     ok &= check(controller->presentation() == QStringLiteral("ready") &&
                     controller->startSortingEnabled(),
                 "DAQ OFF must permit a technically ready Live start.");
@@ -662,6 +666,7 @@ int main(int argc, char** argv) {
                 "Responsive lifecycle fixture Run must start.");
     controlled->pixel = 55;
     controlled->timestampNs = 3'000'000'000;
+    detector.rejectNext.store(true, std::memory_order_release);
     controlled->delivery = 6;
     ok &= check(waitForPersistenceBlock(),
                 "Responsive Pause fixture must block persistence drain.");
@@ -686,6 +691,7 @@ int main(int argc, char** argv) {
     armPersistenceBlock();
     controlled->pixel = 66;
     controlled->timestampNs = 3'040'000'000;
+    detector.rejectNext.store(true, std::memory_order_release);
     controlled->delivery = 7;
     ok &= check(waitForPersistenceBlock(),
                 "Responsive Stop fixture must block persistence drain.");
@@ -706,6 +712,7 @@ int main(int argc, char** argv) {
                 "Timed completion fixture Run must start.");
     controlled->pixel = 77;
     controlled->timestampNs = 4'000'000'000;
+    detector.rejectNext.store(true, std::memory_order_release);
     controlled->delivery = 8;
     ok &= check(waitForPersistenceBlock(),
                 "Timed completion fixture must block final drain.");
@@ -729,6 +736,7 @@ int main(int argc, char** argv) {
     ok &= check(controller->startSorting(), "Teardown fixture Run must start.");
     controlled->pixel = 88;
     controlled->timestampNs = 5'000'000'000;
+    detector.rejectNext.store(true, std::memory_order_release);
     controlled->delivery = 9;
     ok &= check(waitForPersistenceBlock(),
                 "Teardown fixture must own a blocked service action.");

@@ -2,12 +2,14 @@
 
 #include "../decision/decision_service.h"
 #include "../model/model_load_service.h"
+#include "../persistence/frame_persistence_service.h"
 #include "../routing/observed_route_tracker.h"
 #include "../run/run_writer_v2.h"
 #include "../sequence/sequence_manifest_v2.h"
 #include "../../crops/crop_service.h"
 #include "../../desktop_app/live_frame_dispatcher.h"
 #include "../../detection/droplet_detector.h"
+#include "../../detection/droplet_frame_processor.h"
 
 #include <QBuffer>
 #include <QDateTime>
@@ -26,6 +28,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <array>
 #include <cmath>
 #include <condition_variable>
 #include <deque>
@@ -184,13 +187,11 @@ void addRange(run::RunIntegritySeries& series, qint64 first, qint64 last) {
 struct PersistenceItem {
     std::optional<run::RunEvent> event;
     QByteArray cropBytes;
-    QImage sequenceFrame;
-    FrameMeta sequenceMeta;
-    double sequenceFps = 0.0;
     qint64 sourceIndex = 0;
 };
 
 struct PendingEvent {
+    int trackId = 0;
     run::RunEvent event;
     QByteArray cropBytes;
     std::optional<double> lastY;
@@ -225,57 +226,6 @@ bool publishWithoutReplace(const QString& temporaryPath,
     return false;
 }
 
-bool writeTiffWithoutReplace(const QImage& image, const QString& target,
-                             QString* error) {
-    if (QFileInfo::exists(target)) {
-        setError(error, QStringLiteral("A sequence frame already exists."));
-        return false;
-    }
-    if (!QDir().mkpath(QFileInfo(target).absolutePath())) {
-        setError(error, QStringLiteral("Could not create the sequence frames folder."));
-        return false;
-    }
-    QString temporaryPath;
-    {
-        QTemporaryFile temporary(
-            QDir(QFileInfo(target).absolutePath())
-                .filePath(QStringLiteral(".live-frame-XXXXXX.tmp")));
-        if (!temporary.open()) {
-            setError(error,
-                     QStringLiteral("Could not create a temporary sequence frame."));
-            return false;
-        }
-        {
-            QImageWriter imageWriter(&temporary, "tiff");
-            if (!imageWriter.write(image)) {
-                setError(error, imageWriter.errorString().isEmpty()
-                                    ? QStringLiteral(
-                                          "Could not write a TIFF sequence frame.")
-                                    : imageWriter.errorString());
-                return false;
-            }
-        }
-        if (!temporary.flush()) {
-            setError(error,
-                     QStringLiteral("Could not flush a TIFF sequence frame."));
-            return false;
-        }
-        temporaryPath = temporary.fileName();
-        temporary.close();
-        temporary.setAutoRemove(false);
-    }
-    if (!publishWithoutReplace(temporaryPath, target, error)) {
-        QFile::remove(temporaryPath);
-        return false;
-    }
-    QImageReader reader(target);
-    if (!reader.canRead()) {
-        setError(error, QStringLiteral("The published TIFF sequence frame is unreadable."));
-        return false;
-    }
-    return true;
-}
-
 sequence::SequenceLossCategory sequenceCategory(
     const run::RunIntegritySeries& source) {
     sequence::SequenceLossCategory result;
@@ -303,14 +253,14 @@ QString sequenceStatus(run::RunStatus status) {
 
 class LiveSortingService::Impl final {
 public:
-    Impl(OperationCoordinator& operations, IDropletDetector& detector,
+    Impl(OperationCoordinator& operations, DropletFrameProcessor& frameProcessor,
          ModelLoadService* modelLoader, HitPulseCallback pulse,
          LiveModelProvider modelProvider, PersistenceGate persistenceGate,
          DispatcherStartGate dispatcherStartGate,
          DaqReadinessGate daqReadinessGate,
          DaqSettingsProvider daqSettingsProvider)
         : operations(operations),
-          detector(detector),
+          frameProcessor(frameProcessor),
           modelLoader(modelLoader),
           pulse(std::move(pulse)),
           modelProvider(std::move(modelProvider)),
@@ -481,8 +431,38 @@ public:
             setError(error, localError);
             return false;
         }
+        std::unique_ptr<persistence::FramePersistenceService> spool;
+        QString spoolPath;
+        if (value.recordFullImageSequence) {
+            const QString sequenceFolder =
+                QDir(folder).filePath(QStringLiteral("sequence"));
+            if (!QDir().mkpath(sequenceFolder)) {
+                writer->finalize(run::RunStatus::Failed,
+                                 QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
+                                 QStringLiteral("sequence_spool_start_failed"), 0.0, nullptr);
+                writer.reset();
+                lease.transition(OperationLifecycle::Failed);
+                lease.release();
+                setError(error, QStringLiteral("Could not create the Live Image Sequence folder."));
+                return false;
+            }
+            spoolPath = QDir(sequenceFolder).filePath(QStringLiteral("frames.partial"));
+            spool = std::make_unique<persistence::FramePersistenceService>();
+            if (!spool->start(spoolPath, &localError)) {
+                writer->finalize(run::RunStatus::Failed,
+                                 QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs),
+                                 QStringLiteral("sequence_spool_start_failed"), 0.0, nullptr);
+                writer.reset();
+                lease.transition(OperationLifecycle::Failed);
+                lease.release();
+                setError(error, localError);
+                return false;
+            }
+        }
 
         request = value;
+        sequenceSpool = std::move(spool);
+        sequenceSpoolPath = spoolPath;
         {
             std::lock_guard configurationLock(configurationMutex);
             currentRouting = {value.triggerMode, value.hitClassId,
@@ -493,8 +473,8 @@ public:
         }
         model = std::move(prepared);
         runFolder = folder;
-        detector.reset();
-        pending.reset();
+        frameProcessor.reset();
+        pendingEvents = {};
         eventNumber = 0;
         persistedEvents.store(0);
         rejectedEvents.store(0);
@@ -512,6 +492,7 @@ public:
         sequenceHeight = 0;
         sequenceBitDepth = 0;
         sequenceNominalFps = 0.0;
+        sequenceHandoffId = 0;
         haveDelivered = false;
         elapsedBeforeCurrentRun = 0.0;
         activeElapsed.start();
@@ -720,7 +701,11 @@ public:
         if (!configurationUpdatesOpen)
             return false;
         std::lock_guard boundaryLock(boundaryMutex);
-        currentBoundary.boundaryY = -1.0;
+        if (currentBoundary.imageHeight <= 0)
+            return false;
+        currentBoundary = routing::centeredHitBoundary(
+            currentBoundary.imageWidth, currentBoundary.imageHeight,
+            currentBoundary.hitSide);
         return true;
     }
 
@@ -851,16 +836,32 @@ private:
         cv::Mat frame(image.height(), image.width(), CV_8UC1, image.bits(),
                       image.bytesPerLine());
         if (request.recordFullImageSequence) {
-            PersistenceItem item;
-            item.sequenceFrame = image;
-            item.sequenceMeta = meta;
-            item.sequenceFps = fps;
-            item.sourceIndex = frameIndex(meta);
-            enqueue(std::move(item));
+            QString spoolError;
+            if (!sequenceSpool ||
+                !sequenceSpool->append(image, meta, ++sequenceHandoffId, &spoolError)) {
+                consumerFault(frameIndex(meta),
+                              spoolError.isEmpty()
+                                  ? QStringLiteral("Live Image Sequence spooling failed.")
+                                  : spoolError);
+            }
+            ++sequenceFrameCount;
+            if (sequenceFrameCount == 1) {
+                sequenceWidth = image.width();
+                sequenceHeight = image.height();
+                sequenceBitDepth = 8;
+            }
+            if (std::isfinite(fps) && fps > 0.0)
+                sequenceNominalFps = fps;
         }
         if (!processingAllowed.load(std::memory_order_acquire))
             return;
-        const DropletDetectionFrame detection = detector.processFrame(frame);
+        const DropletFrameProcessingResult frameResult = frameProcessor.process(frame);
+        const DropletDetectionFrame& detection = frameResult.detection;
+        if (detection.capacityExceeded)
+            consumerFault(frameIndex(meta),
+                          QStringLiteral("Droplet track capacity was exceeded."));
+        if (frameResult.cropFailed)
+            consumerFault(frameIndex(meta), frameResult.cropError);
         if (!processingAllowed.load(std::memory_order_acquire))
             return;
         QString localError;
@@ -886,34 +887,45 @@ private:
             enqueue(std::move(item));
         }
 
-        if (detection.eventEntered) {
-            finalizePending();
+        for (std::size_t index = 0; index < frameResult.enteredCropCount; ++index) {
+            const DropletEnteredCrop& enteredCrop = frameResult.enteredCrops[index];
+            auto slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
+                                     [&](const std::optional<PendingEvent>& value) {
+                                         return value && value->trackId == enteredCrop.trackId;
+                                     });
+            if (slot != pendingEvents.end())
+                consumerFault(frameIndex(meta),
+                              QStringLiteral("Live event track was entered twice."));
+            slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
+                                [](const std::optional<PendingEvent>& value) {
+                                    return !value;
+                                });
+            if (slot == pendingEvents.end())
+                consumerFault(frameIndex(meta),
+                              QStringLiteral("Live event track capacity was exceeded."));
             ++eventNumber;
             const QString eventId =
                 QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
             const QString detectionTimestamp =
                 QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-            desktop_app::DatasetCrop crop;
-            if (!desktop_app::CropService::makeDatasetCrop(
-                    frame, detection.bbox, &crop, &localError)) {
-                consumerFault(frameIndex(meta), localError);
-            }
-            pending.emplace();
+            slot->emplace();
+            PendingEvent& pending = **slot;
+            pending.trackId = enteredCrop.trackId;
             {
                 std::lock_guard lock(configurationMutex);
-                pending->routing = currentRouting;
+                pending.routing = currentRouting;
             }
-            pending->event.eventId = eventId;
-            pending->event.detectionTimestamp = detectionTimestamp;
-            pending->event.sourceFrameIndex = frameIndex(meta);
-            pending->event.cropPath =
+            pending.event.eventId = eventId;
+            pending.event.detectionTimestamp = detectionTimestamp;
+            pending.event.sourceFrameIndex = frameIndex(meta);
+            pending.event.cropPath =
                 QStringLiteral("crops/droplet_%1.png")
                     .arg(eventNumber, 6, 10, QLatin1Char('0'));
-            pending->cropBytes = pngBytes(crop.image, &localError);
-            if (pending->cropBytes.isEmpty())
+            pending.cropBytes = pngBytes(enteredCrop.crop.image, &localError);
+            if (pending.cropBytes.isEmpty())
                 consumerFault(frameIndex(meta), localError);
             if (!processingAllowed.load(std::memory_order_acquire)) {
-                pending.reset();
+                slot->reset();
                 return;
             }
 
@@ -922,10 +934,10 @@ private:
                 inferenceTimer.start();
                 std::optional<LiveInferenceResult> result;
                 if (!reserveExternalCallback(false)) {
-                    pending.reset();
+                    slot->reset();
                     return;
                 }
-                result = model->classify(crop.image, &localError);
+                result = model->classify(enteredCrop.crop.image, &localError);
                 const double inferenceMs =
                     static_cast<double>(inferenceTimer.nsecsElapsed()) /
                     1'000'000.0;
@@ -935,7 +947,7 @@ private:
                                 [](double score) {
                                     return !std::isfinite(score);
                                 })) {
-                    pending.reset();
+                    slot->reset();
                     consumerFault(
                         frameIndex(meta),
                         localError.isEmpty()
@@ -948,32 +960,55 @@ private:
                         result->scores.at(bestIndex))
                         bestIndex = index;
                 }
-                pending->event.predictedClassId =
+                pending.event.predictedClassId =
                     model->snapshot.classes.at(bestIndex).id;
-                pending->event.scores = result->scores;
-                pending->event.inferenceTimeMs = inferenceMs;
+                pending.event.scores = result->scores;
+                pending.event.inferenceTimeMs = inferenceMs;
                 if (!processingAllowed.load(std::memory_order_acquire)) {
-                    pending.reset();
+                    slot->reset();
                     return;
                 }
             }
-        } else if (!detection.detected && pending) {
-            resolvePendingDecision();
-            if (pending->pulseFailed || detection.lifecycleEnded)
-                finalizePending();
         }
-        if (pending && detection.detected && std::isfinite(detection.centroid.y) &&
-            detection.centroid.y >= 0.0) {
-            pending->lastY = detection.centroid.y;
+        for (auto& pending : pendingEvents) {
+            if (!pending)
+                continue;
+            const bool stillVisible = std::any_of(
+                detection.visibleTracks.begin(),
+                detection.visibleTracks.begin() + detection.visibleTrackCount,
+                [&](const DropletTrackObservation& visible) {
+                    return visible.trackId == pending->trackId;
+                });
+            if (!stillVisible)
+                resolvePendingDecision(*pending);
+        }
+        for (std::size_t index = 0; index < detection.visibleTrackCount; ++index) {
+            const DropletTrackObservation& visible = detection.visibleTracks[index];
+            const auto slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
+                                           [&](const std::optional<PendingEvent>& value) {
+                                               return value && value->trackId == visible.trackId;
+                                           });
+            if (slot != pendingEvents.end() && std::isfinite(visible.centroid.y) &&
+                visible.centroid.y >= 0.0)
+                (*slot)->lastY = visible.centroid.y;
+        }
+        for (std::size_t index = 0; index < detection.endedTrackCount; ++index) {
+            const int trackId = detection.endedTrackIds[index];
+            const auto slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
+                                           [&](const std::optional<PendingEvent>& value) {
+                                               return value && value->trackId == trackId;
+                                           });
+            if (slot != pendingEvents.end())
+                finalizePending(*slot);
         }
         if (fatal.load(std::memory_order_acquire))
             throw ConsumerFault{};
     }
 
-    void finalizePending() {
+    void finalizePending(std::optional<PendingEvent>& pending) {
         if (!pending)
             return;
-        resolvePendingDecision();
+        resolvePendingDecision(*pending);
         run::HitBoundarySnapshot boundary;
         {
             std::lock_guard lock(boundaryMutex);
@@ -994,41 +1029,44 @@ private:
             throw ConsumerFault{};
     }
 
-    void resolvePendingDecision() {
-        if (!pending || pending->decisionResolved)
+    void finalizePending() {
+        for (auto& pending : pendingEvents)
+            finalizePending(pending);
+    }
+
+    void resolvePendingDecision(PendingEvent& pending) {
+        if (pending.decisionResolved)
             return;
         QString localError;
         const auto decision = decision::DecisionService::decide(
-            pending->routing.triggerMode, pending->event.predictedClassId,
-            pending->routing.hitClassId, &localError);
+            pending.routing.triggerMode, pending.event.predictedClassId,
+            pending.routing.hitClassId, &localError);
         if (!decision) {
-            const qint64 sourceFrameIndex = pending->event.sourceFrameIndex;
-            pending.reset();
+            const qint64 sourceFrameIndex = pending.event.sourceFrameIndex;
             consumerFault(sourceFrameIndex, localError);
         }
-        pending->event.decision = *decision;
-        pending->decisionResolved = true;
+        pending.event.decision = *decision;
+        pending.decisionResolved = true;
         std::unique_lock pulseLock(pulseMutex);
         if (*decision == run::Route::Waste) {
-            pending->event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
+            pending.event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
         } else if (fatal.load(std::memory_order_acquire) ||
                    !pulseAllowed.load(std::memory_order_acquire) ||
                    !reserveExternalCallback(true)) {
-            pending->event.daqPulseStatus =
+            pending.event.daqPulseStatus =
                 run::DaqPulseStatus::SuppressedNotIssued;
         } else {
             const run::DaqPulseStatus pulseStatus =
-                pulse(pending->routing.physicalDaqOutputEnabled, &localError);
+                pulse(pending.routing.physicalDaqOutputEnabled, &localError);
             if (pulseStatus != run::DaqPulseStatus::Issued &&
                 pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
                 pulseStatus != run::DaqPulseStatus::Failed) {
-                const qint64 sourceFrameIndex = pending->event.sourceFrameIndex;
-                pending.reset();
+                const qint64 sourceFrameIndex = pending.event.sourceFrameIndex;
                 consumerFault(
                     sourceFrameIndex,
                     QStringLiteral("Hit pulse callback returned an invalid status."));
             }
-            pending->event.daqPulseStatus = pulseStatus;
+            pending.event.daqPulseStatus = pulseStatus;
             if (pulseStatus == run::DaqPulseStatus::Failed) {
                 {
                     std::lock_guard lock(stateMutex);
@@ -1038,7 +1076,7 @@ private:
                             : localError;
                 }
                 fatal.store(true, std::memory_order_release);
-                pending->pulseFailed = true;
+                pending.pulseFailed = true;
             }
         }
     }
@@ -1153,15 +1191,6 @@ private:
                     if (accepted && item.event) {
                         accepted = writer->appendEvent(
                             *item.event, item.cropBytes, &localError);
-                    } else if (accepted) {
-                        const QString target =
-                            QDir(runFolder)
-                                .filePath(QStringLiteral("sequence/frames/frame_%1.tif")
-                                              .arg(sequenceFrameCount + 1, 8, 10,
-                                                   QLatin1Char('0')));
-                        accepted =
-                            writeTiffWithoutReplace(item.sequenceFrame, target,
-                                                    &localError);
                     }
                     if (!accepted) {
                         persistenceFailure(item.sourceIndex, localError);
@@ -1183,17 +1212,6 @@ private:
                                 eventsSinceCheckpoint = 0;
                                 lastCheckpoint = std::chrono::steady_clock::now();
                             }
-                        }
-                    } else {
-                        ++sequenceFrameCount;
-                        if (sequenceFrameCount == 1) {
-                            sequenceWidth = item.sequenceMeta.width;
-                            sequenceHeight = item.sequenceMeta.height;
-                            sequenceBitDepth = item.sequenceMeta.bits;
-                        }
-                        if (std::isfinite(item.sequenceFps) &&
-                            item.sequenceFps > 0.0) {
-                            sequenceNominalFps = item.sequenceFps;
                         }
                     }
                 }
@@ -1288,6 +1306,53 @@ private:
 
         run::RunStatus status = requestedStatus;
         QString stopReason = reason;
+        QString localError;
+        if (request.recordFullImageSequence) {
+            bool sequenceReady = sequenceSpool && sequenceSpool->stop(&localError);
+            const auto spoolMetrics = sequenceSpool
+                                          ? sequenceSpool->metrics()
+                                          : persistence::FramePersistenceService::Metrics{};
+            if (sequenceReady &&
+                (spoolMetrics.acceptedFrames != sequenceFrameCount ||
+                 spoolMetrics.persistedFrames != sequenceFrameCount)) {
+                localError =
+                    QStringLiteral("Live Image Sequence spool count mismatch: accepted %1, "
+                                   "persisted %2, expected %3.")
+                        .arg(spoolMetrics.acceptedFrames)
+                        .arg(spoolMetrics.persistedFrames)
+                        .arg(sequenceFrameCount);
+                sequenceReady = false;
+            }
+            qint64 savedFrameCount = 0;
+            qint64 failedOutputIndex = 0;
+            if (sequenceReady &&
+                (!QDir().mkpath(QDir(runFolder).filePath(QStringLiteral("sequence/frames"))) ||
+                 !sequenceSpool->finalize(
+                     QDir(runFolder).filePath(QStringLiteral("sequence/frames")),
+                     sequenceFrameCount, sequenceWidth, sequenceHeight,
+                     persistence::FramePersistenceService::writeTiffWithoutReplace,
+                     &savedFrameCount, &failedOutputIndex, &localError))) {
+                sequenceReady = false;
+            }
+            if (sequenceReady) {
+                sequenceFrameCount = savedFrameCount;
+                if (!QFile::remove(sequenceSpoolPath)) {
+                    localError = QStringLiteral("The completed Live Image Sequence spool could not be removed.");
+                    sequenceReady = false;
+                }
+            }
+            if (!sequenceReady) {
+                recordConsumerFailure(failedOutputIndex > 0 ? failedOutputIndex
+                                                            : positiveFrameIndex());
+                fatal.store(true, std::memory_order_release);
+                status = run::RunStatus::Failed;
+                stopReason = QStringLiteral("sequence_integrity_loss");
+                std::lock_guard lock(stateMutex);
+                diagnostic = localError.isEmpty()
+                                 ? QStringLiteral("Live Image Sequence finalization failed.")
+                                 : localError;
+            }
+        }
         {
             std::lock_guard lock(stateMutex);
             if (fatal.load(std::memory_order_acquire) ||
@@ -1302,7 +1367,6 @@ private:
         }
         const QString endedAt =
             QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-        QString localError;
         if (!checkpointWriter(&localError)) {
             recordConsumerFailure(positiveFrameIndex());
             fatal.store(true, std::memory_order_release);
@@ -1442,7 +1506,7 @@ private:
     static constexpr std::size_t PersistenceCapacity = 16;
 
     OperationCoordinator& operations;
-    IDropletDetector& detector;
+    DropletFrameProcessor& frameProcessor;
     ModelLoadService* modelLoader = nullptr;
     HitPulseCallback pulse;
     LiveModelProvider modelProvider;
@@ -1477,7 +1541,7 @@ private:
     double elapsedBeforeCurrentRun = 0.0;
     QElapsedTimer activeElapsed;
     std::unique_ptr<LiveFrameDispatcher> dispatcher;
-    std::optional<PendingEvent> pending;
+    std::array<std::optional<PendingEvent>, kDropletTrackCapacity> pendingEvents;
     std::optional<run::RunWriterV2> writer;
     std::mutex writerMutex;
     std::mutex pulseMutex;
@@ -1488,10 +1552,13 @@ private:
     std::atomic<qint64> persistedEvents{0};
     std::atomic<qint64> rejectedEvents{0};
     qint64 sequenceFrameCount = 0;
+    std::uint64_t sequenceHandoffId = 0;
     int sequenceWidth = 0;
     int sequenceHeight = 0;
     int sequenceBitDepth = 0;
     double sequenceNominalFps = 0.0;
+    QString sequenceSpoolPath;
+    std::unique_ptr<persistence::FramePersistenceService> sequenceSpool;
 
     std::mutex persistenceMutex;
     std::condition_variable persistenceReady;
@@ -1503,7 +1570,7 @@ private:
 };
 
 LiveSortingService::LiveSortingService(OperationCoordinator& operations,
-                                       IDropletDetector& detector,
+                                       DropletFrameProcessor& frameProcessor,
                                        ModelLoadService* modelLoader,
                                        HitPulseCallback pulse,
                                        LiveModelProvider modelProvider,
@@ -1511,7 +1578,7 @@ LiveSortingService::LiveSortingService(OperationCoordinator& operations,
                                        DispatcherStartGate dispatcherStartGate,
                                        DaqReadinessGate daqReadinessGate,
                                        DaqSettingsProvider daqSettingsProvider)
-    : impl_(std::make_unique<Impl>(operations, detector, modelLoader,
+    : impl_(std::make_unique<Impl>(operations, frameProcessor, modelLoader,
                                   std::move(pulse), std::move(modelProvider),
                                   std::move(persistenceGate),
                                   std::move(dispatcherStartGate),

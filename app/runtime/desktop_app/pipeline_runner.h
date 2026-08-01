@@ -9,6 +9,7 @@
 
 #include "../daq_trigger.h"
 #include "../detection/droplet_detector.h"
+#include "../detection/droplet_frame_processor.h"
 #include "../fast_event_detector.h"
 #include "../metadata_loader.h"
 #include "../inference/onnx_inference_adapter.h"
@@ -69,6 +70,7 @@ class PipelineRunner {
     bool isReady() const;
     bool isTriggerReady() const;
     int backgroundFramesRemaining() const;
+    bool processFrameBatch(const cv::Mat& gray8, std::vector<PipelineEvent>& out);
     bool processFrame(const cv::Mat& gray8, PipelineEvent& out);
     bool fireTrigger(std::string& err);
     const std::vector<std::string>& classLabels() const;
@@ -84,11 +86,10 @@ class PipelineRunner {
 
   private:
     static std::string toLowerAscii(const std::string& s);
-    static cv::Rect makeSquareRect(const cv::Rect& bbox, const cv::Size& size);
-
     PipelineConfig cfg_;
     std::unique_ptr<OnnxInferenceAdapter> classifier_;
     std::unique_ptr<IDropletDetector> detector_;
+    std::unique_ptr<DropletFrameProcessor> processor_;
     DaqTrigger trigger_;
     bool ready_ = false;
     bool triggerReady_ = false;

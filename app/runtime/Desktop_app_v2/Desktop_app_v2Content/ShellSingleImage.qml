@@ -633,6 +633,9 @@ Item {
         sequenceFrameCount: root.captureWorkflowController
                             ? root.captureWorkflowController.sequenceFrameCount
                             : state.sequenceFrameCount
+        sequenceFinalizedFrameCount: root.captureWorkflowController
+                                     ? root.captureWorkflowController.sequenceFinalizedFrameCount
+                                     : state.sequenceFrameCount
         datasetFrameCount: root.captureWorkflowController
                            ? root.captureWorkflowController.datasetFrameCount
                            : state.datasetFrameCount

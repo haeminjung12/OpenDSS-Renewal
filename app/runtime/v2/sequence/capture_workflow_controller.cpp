@@ -9,6 +9,8 @@
 #include <QFileInfo>
 
 #include <cmath>
+#include <chrono>
+#include <exception>
 #include <utility>
 
 namespace desktop_app::v2::sequence {
@@ -34,7 +36,7 @@ CaptureWorkflowController::CaptureWorkflowController(
     CameraService &cameraService,
     CameraController &cameraController,
     OperationCoordinator &operations,
-    IDropletDetector &detector,
+    DropletFrameProcessor &processor,
     MonotonicNow monotonicNow,
     CameraSettingsProvider cameraSettingsProvider,
     QString opendssVersion,
@@ -43,7 +45,7 @@ CaptureWorkflowController::CaptureWorkflowController(
     , cameraService_(cameraService)
     , cameraController_(cameraController)
     , operations_(operations)
-    , detector_(detector)
+    , processor_(processor)
     , monotonicNow_(std::move(monotonicNow))
     , cameraSettingsProvider_(std::move(cameraSettingsProvider))
     , opendssVersion_(std::move(opendssVersion))
@@ -59,6 +61,7 @@ CaptureWorkflowController::CaptureWorkflowController(
 
 CaptureWorkflowController::~CaptureWorkflowController()
 {
+    collectSequenceStop(true);
     QString ignored;
     if (sequenceService_ && isActive(sequenceService_->snapshot().lifecycle))
         sequenceService_->stop(&ignored);
@@ -94,6 +97,11 @@ QString CaptureWorkflowController::datasetPresentation() const
 }
 
 qint64 CaptureWorkflowController::sequenceFrameCount() const
+{
+    return sequenceSnapshot_.capturedFrameCount;
+}
+
+qint64 CaptureWorkflowController::sequenceFinalizedFrameCount() const
 {
     return sequenceSnapshot_.savedFrameCount;
 }
@@ -131,7 +139,8 @@ bool CaptureWorkflowController::captureActive() const
 bool CaptureWorkflowController::captureStartAvailable() const
 {
     const OperationLifecycle lifecycle = operations_.snapshot().lifecycle;
-    return !captureActive() && lifecycle != OperationLifecycle::Starting &&
+    return !captureActive() && !sequenceStopFuture_.valid() &&
+           lifecycle != OperationLifecycle::Starting &&
            lifecycle != OperationLifecycle::Running &&
            lifecycle != OperationLifecycle::Paused &&
            lifecycle != OperationLifecycle::Stopping;
@@ -205,7 +214,7 @@ bool CaptureWorkflowController::startSequence(const QString &name,
     }
 
     sequenceService_ = std::make_unique<ImageSequenceCaptureService>(
-        cameraService_, operations_, monotonicNow_);
+        cameraService_, operations_, processor_, monotonicNow_);
     activeCaptureFps_ = stableNominalFps();
     ImageSequenceCaptureRequest request;
     request.saveRoot = sequenceLocation_;
@@ -227,7 +236,7 @@ bool CaptureWorkflowController::startSequence(const QString &name,
 
 bool CaptureWorkflowController::pauseOrResumeSequence()
 {
-    if (!sequenceService_)
+    if (!sequenceService_ || sequenceStopFuture_.valid())
         return false;
     sequenceActionError_.clear();
     const bool ok = sequenceSnapshot_.lifecycle == OperationLifecycle::Paused
@@ -239,17 +248,12 @@ bool CaptureWorkflowController::pauseOrResumeSequence()
 
 bool CaptureWorkflowController::stopSequence()
 {
-    if (!sequenceService_)
-        return false;
-    sequenceActionError_.clear();
-    const bool ok = sequenceService_->stop(&sequenceActionError_);
-    refresh();
-    return ok;
+    return launchSequenceStop(false);
 }
 
 void CaptureWorkflowController::newSequence()
 {
-    if (isActive(sequenceSnapshot_.lifecycle))
+    if (isActive(sequenceSnapshot_.lifecycle) || sequenceStopFuture_.valid())
         return;
     sequenceService_.reset();
     sequenceSnapshot_ = {};
@@ -287,7 +291,7 @@ bool CaptureWorkflowController::startDataset(const QString &name,
     }
 
     datasetService_ = std::make_unique<dataset::DatasetCaptureService>(
-        operations_, detector_, monotonicNow_);
+        operations_, processor_, monotonicNow_);
     activeCaptureFps_ = stableNominalFps();
     dataset::DatasetCaptureRequest request;
     request.saveRoot = datasetLocation_;
@@ -350,7 +354,8 @@ void CaptureWorkflowController::acceptFrame(const CameraFrame &frame)
     previousTimestampNs_ = frame.monotonicTimestampNs;
 
     QString error;
-    if (sequenceService_ && sequenceSnapshot_.lifecycle == OperationLifecycle::Running) {
+    if (sequenceService_ && !sequenceStopFuture_.valid() &&
+        sequenceSnapshot_.lifecycle == OperationLifecycle::Running) {
         if (!sequenceService_->offerFrame(frame, activeCaptureFps_, &error))
             sequenceActionError_ = error;
     } else if (datasetService_ && datasetSnapshot_.lifecycle == OperationLifecycle::Running) {
@@ -369,15 +374,55 @@ void CaptureWorkflowController::acceptFrame(const CameraFrame &frame)
     }
 }
 
+bool CaptureWorkflowController::launchSequenceStop(bool durationExpired)
+{
+    if (!sequenceService_ || sequenceStopFuture_.valid() ||
+        (sequenceSnapshot_.lifecycle != OperationLifecycle::Running &&
+         sequenceSnapshot_.lifecycle != OperationLifecycle::Paused)) {
+        return false;
+    }
+    sequenceActionError_.clear();
+    ImageSequenceCaptureService *service = sequenceService_.get();
+    try {
+        sequenceStopFuture_ = std::async(std::launch::async, [service, durationExpired] {
+            SequenceStopResult result;
+            result.ok = durationExpired ? service->stopForDuration(&result.error)
+                                        : service->stop(&result.error);
+            return result;
+        });
+    } catch (const std::exception &exception) {
+        sequenceActionError_ = QStringLiteral("Could not start Image Sequence finalization: %1")
+                                   .arg(QString::fromUtf8(exception.what()));
+        emit changed();
+        return false;
+    }
+    emit changed();
+    return true;
+}
+
+void CaptureWorkflowController::collectSequenceStop(bool wait)
+{
+    if (!sequenceStopFuture_.valid())
+        return;
+    if (!wait && sequenceStopFuture_.wait_for(std::chrono::seconds(0)) !=
+                     std::future_status::ready) {
+        return;
+    }
+    const SequenceStopResult result = sequenceStopFuture_.get();
+    if (!result.ok)
+        sequenceActionError_ = result.error;
+}
+
 void CaptureWorkflowController::refresh()
 {
+    collectSequenceStop(false);
     if (sequenceService_) {
-        if (sequenceSnapshot_.lifecycle == OperationLifecycle::Running) {
-            QString error;
-            if (!sequenceService_->pollDuration(&error))
-                sequenceActionError_ = error;
-        }
         sequenceSnapshot_ = sequenceService_->snapshot();
+        if (sequenceSnapshot_.lifecycle == OperationLifecycle::Running &&
+            !sequenceStopFuture_.valid() && sequenceService_->durationExpired()) {
+            launchSequenceStop(true);
+            sequenceSnapshot_ = sequenceService_->snapshot();
+        }
     }
     if (datasetService_) {
         if (datasetSnapshot_.lifecycle == OperationLifecycle::Running) {

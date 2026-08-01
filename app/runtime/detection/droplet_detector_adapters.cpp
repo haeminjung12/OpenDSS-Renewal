@@ -1,6 +1,11 @@
 #include "droplet_detector_adapters.h"
 
 namespace {
+DropletTrackObservation mapTrackObservation(const FastEventTrackObservation& observation) {
+    return {observation.trackId, observation.missedFrames, observation.area,
+            observation.bbox, observation.centroid};
+}
+
 DropletDetectionFrame mapFastResult(const FastEventResult& result) {
     DropletDetectionFrame frame;
     frame.detected = result.detected;
@@ -12,6 +17,15 @@ frame.rejectedCount = result.rejectedCount;
     frame.bbox = result.bbox;
     frame.centroid = result.centroid;
     frame.mask = result.mask;
+    frame.visibleTrackCount = result.visibleTrackCount;
+    for (std::size_t index = 0; index < result.visibleTrackCount; ++index)
+        frame.visibleTracks[index] = mapTrackObservation(result.visibleTracks[index]);
+    frame.enteredTrackCount = result.enteredTrackCount;
+    for (std::size_t index = 0; index < result.enteredTrackCount; ++index)
+        frame.enteredTracks[index] = mapTrackObservation(result.enteredTracks[index]);
+    frame.endedTrackIds = result.endedTrackIds;
+    frame.endedTrackCount = result.endedTrackCount;
+    frame.capacityExceeded = result.capacityExceeded;
     return frame;
 }
 } // namespace
@@ -60,6 +74,8 @@ EventDetectorAdapter::EventDetectorAdapter(const EventDetectorConfig& config, in
 void EventDetectorAdapter::reset() {
     eventActive_ = false;
     noDetectionFrames_ = 0;
+    activeTrackId_ = 0;
+    nextTrackId_ = 1;
 }
 
 int EventDetectorAdapter::backgroundFramesRemaining() const {
@@ -84,6 +100,7 @@ DropletDetectionFrame EventDetectorAdapter::processFrame(const cv::Mat& frame) {
         if (!eventActive_) {
             eventEntered = true;
             eventActive_ = true;
+            activeTrackId_ = nextTrackId_++;
         }
     } else if (eventActive_) {
         noDetectionFrames_++;
@@ -102,6 +119,21 @@ DropletDetectionFrame EventDetectorAdapter::processFrame(const cv::Mat& frame) {
     frameResult.bbox = result.bbox;
     frameResult.centroid = result.centroid;
     frameResult.mask = result.mask;
+    if (detected && activeTrackId_ > 0) {
+        const DropletTrackObservation observation{
+            activeTrackId_, 0, result.area, result.bbox, result.centroid};
+        frameResult.visibleTracks[0] = observation;
+        frameResult.visibleTrackCount = 1;
+        if (eventEntered) {
+            frameResult.enteredTracks[0] = observation;
+            frameResult.enteredTrackCount = 1;
+        }
+    }
+    if (lifecycleEnded && activeTrackId_ > 0) {
+        frameResult.endedTrackIds[0] = activeTrackId_;
+        frameResult.endedTrackCount = 1;
+        activeTrackId_ = 0;
+    }
     return frameResult;
 }
 

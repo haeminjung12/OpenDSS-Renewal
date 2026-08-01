@@ -7,9 +7,10 @@
 #include <QTimer>
 
 #include <functional>
+#include <future>
 #include <memory>
 
-class IDropletDetector;
+class DropletFrameProcessor;
 
 namespace desktop_app::v2 {
 
@@ -24,6 +25,7 @@ class CaptureWorkflowController final : public QObject
     Q_PROPERTY(QString sequencePresentation READ sequencePresentation NOTIFY changed)
     Q_PROPERTY(QString datasetPresentation READ datasetPresentation NOTIFY changed)
     Q_PROPERTY(qint64 sequenceFrameCount READ sequenceFrameCount NOTIFY changed)
+    Q_PROPERTY(qint64 sequenceFinalizedFrameCount READ sequenceFinalizedFrameCount NOTIFY changed)
     Q_PROPERTY(qint64 datasetFrameCount READ datasetFrameCount NOTIFY changed)
     Q_PROPERTY(qint64 datasetCropCount READ datasetCropCount NOTIFY changed)
     Q_PROPERTY(QString sequenceLocation READ sequenceLocation WRITE setSequenceLocation NOTIFY changed)
@@ -42,7 +44,7 @@ public:
     CaptureWorkflowController(CameraService &cameraService,
                               CameraController &cameraController,
                               OperationCoordinator &operations,
-                              IDropletDetector &detector,
+                              DropletFrameProcessor &processor,
                               MonotonicNow monotonicNow,
                               CameraSettingsProvider cameraSettingsProvider,
                               QString opendssVersion,
@@ -52,6 +54,7 @@ public:
     QString sequencePresentation() const;
     QString datasetPresentation() const;
     qint64 sequenceFrameCount() const;
+    qint64 sequenceFinalizedFrameCount() const;
     qint64 datasetFrameCount() const;
     qint64 datasetCropCount() const;
     QString sequenceLocation() const;
@@ -88,13 +91,15 @@ private:
     static QString presentation(OperationLifecycle lifecycle);
     static std::optional<double> parseDuration(const QString &text, QString *error);
     void acceptFrame(const CameraFrame &frame);
+    bool launchSequenceStop(bool durationExpired);
+    void collectSequenceStop(bool wait);
     void refresh();
     double stableNominalFps() const;
 
     CameraService &cameraService_;
     CameraController &cameraController_;
     OperationCoordinator &operations_;
-    IDropletDetector &detector_;
+    DropletFrameProcessor &processor_;
     MonotonicNow monotonicNow_;
     CameraSettingsProvider cameraSettingsProvider_;
     QString opendssVersion_;
@@ -110,6 +115,12 @@ private:
     qint64 previousTimestampNs_ = 0;
     double estimatedFps_ = 100.0;
     double activeCaptureFps_ = 100.0;
+
+    struct SequenceStopResult {
+        bool ok = false;
+        QString error;
+    };
+    std::future<SequenceStopResult> sequenceStopFuture_;
 };
 
 } // namespace sequence

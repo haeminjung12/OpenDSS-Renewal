@@ -17,6 +17,7 @@
 #include "daq_trigger.h"
 #include "dcam_camera.h"
 #include "detection/droplet_detector_adapters.h"
+#include "detection/droplet_frame_processor.h"
 #include "metadata_loader.h"
 #include "onnx_classifier.h"
 
@@ -62,33 +63,6 @@ std::string toLowerAscii(const std::string& input) {
         out.push_back(static_cast<char>(std::tolower(c)));
     }
     return out;
-}
-
-constexpr int kCropSize = 64;
-
-cv::Rect makeSquareRect(const cv::Rect& bbox, const cv::Size& size) {
-    if (bbox.width <= 0 || bbox.height <= 0 || size.width <= 0 || size.height <= 0) {
-        return cv::Rect();
-    }
-    int side = std::max(bbox.width, bbox.height);
-    side = std::min(side, std::min(size.width, size.height));
-    int cx = bbox.x + bbox.width / 2;
-    int cy = bbox.y + bbox.height / 2;
-    int x = cx - side / 2;
-    int y = cy - side / 2;
-    if (x < 0)
-        x = 0;
-    if (y < 0)
-        y = 0;
-    if (x + side > size.width)
-        x = size.width - side;
-    if (y + side > size.height)
-        y = size.height - side;
-    if (x < 0)
-        x = 0;
-    if (y < 0)
-        y = 0;
-    return cv::Rect(x, y, side, side);
 }
 
 int getInt(const Args& args, const std::string& key, int def) {
@@ -499,6 +473,7 @@ int run_cli(int argc, char** argv) {
     auto fpsStart = std::chrono::steady_clock::now();
     IDropletDetector* activeDetector = fastMode ? static_cast<IDropletDetector*>(&fastDetector)
                                                 : static_cast<IDropletDetector*>(&preciseDetector);
+    DropletFrameProcessor processor(*activeDetector);
 
     int timeoutCount = 0;
     while (true) {
@@ -519,8 +494,7 @@ int run_cli(int argc, char** argv) {
         }
 
         cv::Mat gray8 = toGray8(fd.image, fd.meta.bits);
-        const DropletDetectionFrame detection = activeDetector->processFrame(gray8);
-        const bool fired = detection.eventEntered;
+        const DropletFrameProcessingResult result = processor.process(gray8);
 
         fpsCount++;
         auto now = std::chrono::steady_clock::now();
@@ -531,43 +505,38 @@ int run_cli(int argc, char** argv) {
             fpsStart = now;
         }
 
-        if (!fired)
+        if (result.enteredCropCount == 0)
             continue;
 
-        cv::Rect bbox = detection.bbox;
-        bbox &= cv::Rect(0, 0, gray8.cols, gray8.rows);
-        cv::Rect squareRect = makeSquareRect(bbox, gray8.size());
-        if (squareRect.width <= 0 || squareRect.height <= 0)
-            continue;
-        cv::Mat crop = gray8(squareRect).clone();
-        ClassificationResult cls = classifier.classify(crop);
+        for (std::size_t index = 0; index < result.enteredCropCount; ++index) {
+            const DropletEnteredCrop& entered = result.enteredCrops[index];
+            const DropletTrackObservation& observation = result.detection.enteredTracks[index];
+            const cv::Mat& crop = entered.crop.image;
+            ClassificationResult cls = classifier.classify(crop);
+            std::cout << "[Event] frame=" << frameCounter << " track=" << entered.trackId << " label=" << cls.label
+                      << " area=" << observation.area << " bbox=(" << observation.bbox.x << ","
+                      << observation.bbox.y << "," << observation.bbox.width << "," << observation.bbox.height
+                      << ") fps=" << fps << "\n";
 
-        double areaOut = detection.area;
-        std::cout << "[Event] frame=" << frameCounter << " label=" << cls.label << " area=" << areaOut << " bbox=("
-                  << bbox.x << "," << bbox.y << "," << bbox.width << "," << bbox.height << ")"
-                  << " fps=" << fps << "\n";
-
-        if (!outputDir.empty()) {
-            fs::path base = fs::path(outputDir);
-            std::string name = "event_frame_" + std::to_string(frameCounter) + "_label_" + cls.label;
-            cv::Mat resized;
-            cv::resize(crop, resized, cv::Size(kCropSize, kCropSize), 0, 0, cv::INTER_AREA);
-            cv::imwrite((base / (name + ".png")).string(), resized);
-            if (saveOverlay) {
-                cv::Mat overlay;
-                cv::cvtColor(gray8, overlay, cv::COLOR_GRAY2BGR);
-                cv::rectangle(overlay, squareRect, cv::Scalar(0, 255, 0), 2);
-                if (!fastMode && !detection.mask.empty()) {
-                    cv::Mat colorMask;
-                    cv::applyColorMap(detection.mask, colorMask, cv::COLORMAP_JET);
-                    cv::addWeighted(overlay, 0.6, colorMask, 0.4, 0.0, overlay);
+            if (!outputDir.empty()) {
+                fs::path base = fs::path(outputDir);
+                std::string name = "event_frame_" + std::to_string(frameCounter) + "_track_" +
+                                   std::to_string(entered.trackId) + "_label_" + cls.label;
+                cv::imwrite((base / (name + ".png")).string(), crop);
+                if (saveOverlay) {
+                    cv::Mat overlay;
+                    cv::cvtColor(gray8, overlay, cv::COLOR_GRAY2BGR);
+                    cv::rectangle(overlay, entered.crop.sourceRect, cv::Scalar(0, 255, 0), 2);
+                    if (!fastMode && !result.detection.mask.empty()) {
+                        cv::Mat colorMask;
+                        cv::applyColorMap(result.detection.mask, colorMask, cv::COLORMAP_JET);
+                        cv::addWeighted(overlay, 0.6, colorMask, 0.4, 0.0, overlay);
+                    }
+                    cv::imwrite((base / (name + "_overlay.png")).string(), overlay);
                 }
-                cv::imwrite((base / (name + "_overlay.png")).string(), overlay);
             }
-        }
 
-        if (!cls.label.empty() && trigger.isReady()) {
-            if (cls.label == targetClassId) {
+            if (!cls.label.empty() && trigger.isReady() && cls.label == targetClassId) {
                 std::string trigErr;
                 if (!trigger.fire(trigErr)) {
                     std::cout << "Trigger failed: " << trigErr << "\n";

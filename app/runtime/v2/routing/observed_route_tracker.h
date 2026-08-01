@@ -6,6 +6,10 @@
 
 namespace desktop_app::v2::routing {
 
+run::HitBoundarySnapshot centeredHitBoundary(
+    int imageWidth, int imageHeight,
+    run::HitSide hitSide = run::HitSide::PositiveY);
+
 class ObservedRouteTracker final {
 public:
     explicit ObservedRouteTracker(run::HitBoundarySnapshot boundary);

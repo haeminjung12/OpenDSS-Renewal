@@ -11,7 +11,7 @@ namespace {
 
 constexpr int kWidth = 96;
 constexpr int kHeight = 80;
-const cv::Rect kDropletRect(28, 24, 24, 20);
+const cv::Rect kDropletRect(10, 24, 24, 20);
 
 int failures = 0;
 
@@ -45,8 +45,15 @@ cv::Mat droplet8(const cv::Rect& rect = kDropletRect) {
 cv::Mat mixedCandidates8() {
     cv::Mat frame = frame8();
     cv::rectangle(frame, cv::Rect(8, 8, 5, 6), cv::Scalar(200), cv::FILLED);
-    cv::rectangle(frame, cv::Rect(35, 20, 20, 15), cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, cv::Rect(16, 20, 20, 15), cv::Scalar(200), cv::FILLED);
     cv::rectangle(frame, cv::Rect(75, 50, 7, 8), cv::Scalar(200), cv::FILLED);
+    return frame;
+}
+
+cv::Mat twoCandidates8(const cv::Rect& first, const cv::Rect& second) {
+    cv::Mat frame = frame8();
+    cv::rectangle(frame, first, cv::Scalar(200), cv::FILLED);
+    cv::rectangle(frame, second, cv::Scalar(200), cv::FILLED);
     return frame;
 }
 
@@ -102,6 +109,21 @@ DropletDetectionFrame mapFast(const FastEventResult& result) {
     mapped.bbox = result.bbox;
     mapped.centroid = result.centroid;
     mapped.mask = result.mask;
+    mapped.visibleTrackCount = result.visibleTrackCount;
+    mapped.enteredTrackCount = result.enteredTrackCount;
+    mapped.endedTrackCount = result.endedTrackCount;
+    mapped.capacityExceeded = result.capacityExceeded;
+    mapped.endedTrackIds = result.endedTrackIds;
+    for (std::size_t index = 0; index < result.visibleTrackCount; ++index) {
+        const FastEventTrackObservation& source = result.visibleTracks[index];
+        mapped.visibleTracks[index] = {source.trackId, source.missedFrames, source.area,
+                                       source.bbox, source.centroid};
+    }
+    for (std::size_t index = 0; index < result.enteredTrackCount; ++index) {
+        const FastEventTrackObservation& source = result.enteredTracks[index];
+        mapped.enteredTracks[index] = {source.trackId, source.missedFrames, source.area,
+                                       source.bbox, source.centroid};
+    }
     return mapped;
 }
 
@@ -113,6 +135,28 @@ bool sameDetection(const DropletDetectionFrame& lhs, const DropletDetectionFrame
         std::abs(lhs.area - rhs.area) >= 0.001 || lhs.bbox != rhs.bbox ||
         !samePoint(lhs.centroid, rhs.centroid) || !sameMat(lhs.mask, rhs.mask))
         return false;
+    if (lhs.visibleTrackCount != rhs.visibleTrackCount ||
+        lhs.enteredTrackCount != rhs.enteredTrackCount ||
+        lhs.endedTrackCount != rhs.endedTrackCount ||
+        lhs.capacityExceeded != rhs.capacityExceeded)
+        return false;
+    for (std::size_t index = 0; index < lhs.visibleTrackCount; ++index) {
+        const auto& left = lhs.visibleTracks[index];
+        const auto& right = rhs.visibleTracks[index];
+        if (left.trackId != right.trackId || left.missedFrames != right.missedFrames ||
+            std::abs(left.area - right.area) >= 0.001 || left.bbox != right.bbox ||
+            !samePoint(left.centroid, right.centroid))
+            return false;
+    }
+    for (std::size_t index = 0; index < lhs.enteredTrackCount; ++index) {
+        const auto& left = lhs.enteredTracks[index];
+        const auto& right = rhs.enteredTracks[index];
+        if (left.trackId != right.trackId || left.bbox != right.bbox)
+            return false;
+    }
+    for (std::size_t index = 0; index < lhs.endedTrackCount; ++index)
+        if (lhs.endedTrackIds[index] != rhs.endedTrackIds[index])
+            return false;
     for (std::size_t index = 0; index < lhs.rejectedCount; ++index) {
         if (std::abs(lhs.rejectedAreas[index] - rhs.rejectedAreas[index]) >= 0.001)
             return false;
@@ -123,6 +167,8 @@ bool sameDetection(const DropletDetectionFrame& lhs, const DropletDetectionFrame
 struct PreciseCallerState {
     bool eventActive = false;
     int noDetectionFrames = 0;
+    int activeTrackId = 0;
+    int nextTrackId = 1;
 };
 
 DropletDetectionFrame runPreciseDirect(EventDetector& detector, const cv::Mat& frame, bool includeMask,
@@ -143,6 +189,7 @@ DropletDetectionFrame runPreciseDirect(EventDetector& detector, const cv::Mat& f
         if (!state.eventActive) {
             eventEntered = true;
             state.eventActive = true;
+            state.activeTrackId = state.nextTrackId++;
         }
     } else if (state.eventActive) {
         state.noDetectionFrames++;
@@ -161,6 +208,21 @@ DropletDetectionFrame runPreciseDirect(EventDetector& detector, const cv::Mat& f
     mapped.bbox = result.bbox;
     mapped.centroid = result.centroid;
     mapped.mask = result.mask;
+    if (detected && state.activeTrackId > 0) {
+        const DropletTrackObservation observation{
+            state.activeTrackId, 0, result.area, result.bbox, result.centroid};
+        mapped.visibleTracks[0] = observation;
+        mapped.visibleTrackCount = 1;
+        if (eventEntered) {
+            mapped.enteredTracks[0] = observation;
+            mapped.enteredTrackCount = 1;
+        }
+    }
+    if (lifecycleEnded && state.activeTrackId > 0) {
+        mapped.endedTrackIds[0] = state.activeTrackId;
+        mapped.endedTrackCount = 1;
+        state.activeTrackId = 0;
+    }
     return mapped;
 }
 
@@ -216,7 +278,7 @@ void verifyFastParity() {
     expect(sameDetection(mapFast(mixedDirect), mixedWrapped) &&
                mixedWrapped.detected && mixedWrapped.eventEntered &&
                mixedWrapped.area == 300.0 &&
-               mixedWrapped.bbox == cv::Rect(35, 20, 20, 15) &&
+               mixedWrapped.bbox == cv::Rect(16, 20, 20, 15) &&
                mixedWrapped.rejectedCount == 2 &&
                mixedWrapped.rejectedAreas[0] == 30.0 &&
                mixedWrapped.rejectedAreas[1] == 56.0,
@@ -229,6 +291,7 @@ void verifyFastParity() {
         frame8(),
         droplet8(),
         droplet8(),
+        twoCandidates8(kDropletRect, cv::Rect(60, 24, 20, 14)),
         frame8(),
         droplet8(),
         frame8(),

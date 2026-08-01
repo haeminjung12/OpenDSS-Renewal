@@ -16,7 +16,7 @@
 
 #include <opencv2/core.hpp>
 
-class IDropletDetector;
+class DropletFrameProcessor;
 
 namespace desktop_app::v2 {
 class ModelLoadService;
@@ -85,7 +85,7 @@ struct SequenceTestRequest {
 class SequenceTestService final {
 public:
     SequenceTestService(OperationCoordinator& operations,
-                        IDropletDetector& detector,
+                        DropletFrameProcessor& processor,
                         ModelLoadService* modelLoader,
                         ModelProvider modelProvider = {},
                         HitPulseCallback hitPulse = {},
@@ -102,7 +102,7 @@ public:
 
 private:
     OperationCoordinator& operations_;
-    IDropletDetector& detector_;
+    DropletFrameProcessor& processor_;
     ModelLoadService* modelLoader_;
     ModelProvider modelProvider_;
     HitPulseCallback hitPulse_;

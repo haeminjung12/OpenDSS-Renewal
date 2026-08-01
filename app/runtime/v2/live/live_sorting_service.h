@@ -11,6 +11,7 @@
 #include <optional>
 
 class IDropletDetector;
+class DropletFrameProcessor;
 class QImage;
 struct FrameMeta;
 
@@ -74,7 +75,7 @@ struct LiveSortingSnapshot {
 class LiveSortingService final {
 public:
     LiveSortingService(OperationCoordinator& operations,
-                       IDropletDetector& detector,
+                       DropletFrameProcessor& frameProcessor,
                        ModelLoadService* modelLoader,
                        HitPulseCallback pulse,
                        LiveModelProvider modelProvider = {},

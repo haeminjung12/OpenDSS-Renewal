@@ -6,12 +6,11 @@ State format: `1`
 - Mode: `debug`
 - User-facing Lead: `Debug Lead`
 - Checkpoint branch: `codex/debug-lead`
-- Checkpoint commit: `d2491367fb41246000167f1970a510795a1a67bc`
+- Checkpoint commit: `0619022da0edcd963d5f6733e2ae7c5c532d03be`
 - Active ID: `DBG-021`
-- Status: `DBG-021 fixed and verified; awaiting user acceptance and commit authorization`
-- Dirty paths at checkpoint: `app/runtime/Desktop_app_v2/App/CMakeLists.txt; app/runtime/Desktop_app_v2/App/main.cpp; app/runtime/Desktop_app_v2/Desktop_app_v2Content/Screen01.ui.qml; app/runtime/Desktop_app_v2/Desktop_app_v2Content/ShellSingleImage.qml; app/runtime/Desktop_app_v2/tests/qml/tst_ShellSingleImage.qml; app/runtime/cli_runner.cpp; app/runtime/desktop_app/CMakeLists.txt; app/runtime/desktop_app/pipeline_runner.cpp; app/runtime/desktop_app/pipeline_runner.h; app/runtime/detection/droplet_detector.h; app/runtime/detection/droplet_detector_adapters.cpp; app/runtime/detection/droplet_detector_adapters.h; app/runtime/detection/droplet_frame_processor.cpp; app/runtime/detection/droplet_frame_processor.h; app/runtime/fast_event_detector.cpp; app/runtime/fast_event_detector.h; app/runtime/tests/CMakeLists.txt; app/runtime/tests/capture_workflow_controller_test.cpp; app/runtime/tests/dataset_capture_recovery_test.cpp; app/runtime/tests/dbg019_sequence_persistence_headless.cpp; app/runtime/tests/dbg021_bounded_detector_replay.cpp; app/runtime/tests/detector_characterization_test.cpp; app/runtime/tests/detector_contract_parity_test.cpp; app/runtime/tests/image_sequence_capture_service_test.cpp; app/runtime/tests/live_sorting_controller_test.cpp; app/runtime/tests/live_sorting_service_test.cpp; app/runtime/tests/run_dbg020_chunk_spool_hil.ps1; app/runtime/tests/run_dbg020_production_hil.ps1; app/runtime/tests/sequence_test_controller_test.cpp; app/runtime/tests/sequence_test_production_model_probe.cpp; app/runtime/tests/sequence_test_service_test.cpp; app/runtime/v2/dataset/dataset_capture_service.cpp; app/runtime/v2/dataset/dataset_capture_service.h; app/runtime/v2/live/live_sorting_service.cpp; app/runtime/v2/live/live_sorting_service.h; app/runtime/v2/persistence/frame_persistence_service.cpp; app/runtime/v2/persistence/frame_persistence_service.h; app/runtime/v2/sequence/capture_workflow_controller.cpp; app/runtime/v2/sequence/capture_workflow_controller.h; app/runtime/v2/sequence/image_sequence_capture_service.cpp; app/runtime/v2/sequence/image_sequence_capture_service.h; app/runtime/v2/sequence_test/sequence_test_service.cpp; app/runtime/v2/sequence_test/sequence_test_service.h; docs/agent-state/current.md; docs/debug/bug-ledger.md; docs/debug/evidence/DBG-019-persistence-characterization-20260731.md; docs/debug/evidence/DBG-020-chunk-spool-characterization-20260731.md; docs/debug/evidence/DBG-021-bounded-replay-20260801.json; docs/debug/evidence/DBG-021-bounded-replay-20260801.md; docs/debug/evidence/DBG-021-crop-failure-scan-20260801.md; docs/debug/evidence/DBG-021-multidroplet-replay-20260801.json; docs/debug/evidence/DBG-021-multidroplet-replay-20260801.md; docs/debug/evidence/DBG-021-multitrack-prototype-20260801.json; docs/debug/evidence/DBG-021-multitrack-prototype-20260801.md; docs/debug/evidence/DBG-021-production-multitrack-replay-20260801.json; docs/debug/evidence/DBG-021-production-multitrack-replay-20260801.md; docs/debug/evidence/DBG-021-three-droplets-frame-00010400.png`
-- Additional dirty paths from the centered-boundary follow-up: `app/runtime/tests/sequence_test_decision_route_test.cpp; app/runtime/v2/live/live_sorting_controller.cpp; app/runtime/v2/routing/observed_route_tracker.cpp; app/runtime/v2/routing/observed_route_tracker.h; app/runtime/v2/sequence_test/sequence_test_controller.cpp`.
-- Updated: `2026-08-01T13:25:00-05:00`
+- Status: `DBG-019 through DBG-021 debug checkpoint committed and ready for Implementation worker adoption`
+- Dirty paths at checkpoint: `none`
+- Updated: `2026-08-01T13:33:14-05:00`
 
 ## Accepted decisions
 
@@ -152,4 +151,4 @@ State format: `1`
 
 ## Exact next action
 
-Await user acceptance and commit authorization. Keep merged/partial-component separation, including Event 29, outside the verified claim.
+Implementation worker adopts checkpoint `0619022da0edcd963d5f6733e2ae7c5c532d03be`, runs `$opendss-agent-rules-init` once in its implementation worktree, preserves the verified shared APIs and evidence, and waits for the user's next explicit implementation scope. Keep merged/partial-component separation, including Event 29, outside the verified claim.

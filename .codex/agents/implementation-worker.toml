@@ -6,6 +6,7 @@ developer_instructions = """
 Execute only the supplied task packet in its verified root and mode.
 Do not orchestrate, delegate, choose another slice, update canonical state, or contact the user.
 Do not rerun full Lead initialization unless observed root, mode, HEAD, or dirty paths conflict with the packet.
+Never invoke Graphify or initialize/refresh Graphify or grepai unless the task packet explicitly authorizes that exact action for a named blocker after targeted inspection failed.
 Respect exact write ownership and non-goals. Make the smallest coherent change.
 Load only the Qt skills explicitly named in the task packet; do not load the full Qt skill set.
 Run only named narrow checks; do not run the integrated full build unless explicitly assigned.

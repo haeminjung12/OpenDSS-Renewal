@@ -54,6 +54,9 @@ class LiveSortingController final : public QObject {
     Q_PROPERTY(QString diagnostic READ diagnostic NOTIFY changed)
     Q_PROPERTY(bool cameraStreaming READ cameraStreaming NOTIFY changed)
     Q_PROPERTY(bool startSortingEnabled READ startSortingEnabled NOTIFY changed)
+    Q_PROPERTY(bool startNewRunEnabled READ startNewRunEnabled NOTIFY changed)
+    Q_PROPERTY(QString startNewRunDisabledReason READ startNewRunDisabledReason
+                   NOTIFY changed)
     Q_PROPERTY(QString disabledReason READ disabledReason NOTIFY changed)
     Q_PROPERTY(bool decisionBoundaryDefined READ decisionBoundaryDefined NOTIFY changed)
     Q_PROPERTY(double decisionBoundaryXRatio READ decisionBoundaryXRatio NOTIFY changed)
@@ -101,6 +104,8 @@ public:
     QString diagnostic() const;
     bool cameraStreaming() const;
     bool startSortingEnabled() const;
+    bool startNewRunEnabled() const;
+    QString startNewRunDisabledReason() const;
     QString disabledReason() const;
     bool decisionBoundaryDefined() const;
     double decisionBoundaryXRatio() const;
@@ -208,6 +213,7 @@ private:
     bool resultsNotified_ = false;
     bool actionInProgress_ = false;
     bool pollInProgress_ = false;
+    bool stopPending_ = false;
     quint64 lastDeliveryId_ = 0;
     qint64 lastTimestampNs_ = 0;
     qint64 droppedFrames_ = 0;

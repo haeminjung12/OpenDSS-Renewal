@@ -485,16 +485,22 @@ bool DatasetCaptureService::finish(const QString& reason, QString* error) {
     QString finalizationError;
     if (!finalizeSpool(&finalizationError))
         return failAndRelease("finalization_error", finalizationError, error);
-    if (!saveManifest("completed", reason, error))
+    const auto datasetIntegrity = dispatcher_.datasetIntegrity();
+    const bool interrupted = datasetIntegrity.queueRejectedCount > 0;
+    const QString finalStatus = interrupted ? QStringLiteral("interrupted")
+                                            : QStringLiteral("completed");
+    const QString finalReason = interrupted ? QStringLiteral("queue_rejection") : reason;
+    if (!saveManifest(finalStatus, finalReason, error))
         return failAndRelease("manifest_error", error ? *error : "Manifest save failed.", error);
     if (!QFile::remove(spoolPath_))
         return failAndRelease("spool_cleanup_error",
                               "The completed Dataset Capture spool could not be removed.", error);
     QFile::remove(partialPath_);
     std::lock_guard lock(mutex_);
-    lease_.transition(OperationLifecycle::Completed);
+    lease_.transition(interrupted ? OperationLifecycle::Interrupted
+                                  : OperationLifecycle::Completed);
     lease_.release();
-    lifecycle_ = OperationLifecycle::Completed;
+    lifecycle_ = interrupted ? OperationLifecycle::Interrupted : OperationLifecycle::Completed;
     return true;
 }
 
@@ -512,8 +518,15 @@ bool DatasetCaptureService::finalizeSpool(QString* error) {
     qint64 failedOutputIndex = 0;
     if (!spool_->finalize(sequenceFolder_, totalFrames, width, height,
                           persistence::FramePersistenceService::writeTiffWithoutReplace,
-                          &savedFrames, &failedOutputIndex, error))
+                          &savedFrames, &failedOutputIndex, error)) {
+        std::lock_guard lock(mutex_);
+        savedFrameCount_ = savedFrames;
         return false;
+    }
+    {
+        std::lock_guard lock(mutex_);
+        savedFrameCount_ = savedFrames;
+    }
     return savedFrames == totalFrames ||
            (setError(error, "Dataset Capture finalization frame count mismatch."), false);
 }

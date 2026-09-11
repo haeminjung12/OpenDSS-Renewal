@@ -138,6 +138,84 @@ bool invalidInferenceCase() {
                    "invalid inference leaves no pending event");
 }
 
+bool routingSnapshotSurvivesPendingChangeCase() {
+    using namespace desktop_app::v2;
+    run::DropletRunEventProcessor processor;
+    run::ModelSnapshot model;
+    model.classes = {{"c0", "Zero"}, {"c1", "One"}};
+    processor.reset(model, [](const cv::Mat&, QString*) {
+        return std::optional<QVector<double>>{{0.1, 0.9}};
+    });
+
+    QVector<run::CompletedDropletRunEvent> completed;
+    QVector<run::RoutingSnapshot> dispatched;
+    const auto dispatch = [&](const run::RoutingSnapshot& routing, QString*) {
+        dispatched.push_back(routing);
+        return routing.physicalDaqOutputEnabled
+                   ? run::DaqPulseStatus::Issued
+                   : run::DaqPulseStatus::SuppressedNotIssued;
+    };
+    const auto sink = [&](run::CompletedDropletRunEvent event, QString*) {
+        completed.push_back(std::move(event));
+        return true;
+    };
+    const run::RoutingSnapshot initial{
+        run::TriggerMode::ClassBased, QStringLiteral("c0"), false};
+    const run::RoutingSnapshot changed{
+        run::TriggerMode::EveryDroplet, {}, true};
+    const run::HitBoundarySnapshot boundary{50.0, run::HitSide::PositiveY, 100,
+                                            100};
+    QString error;
+    auto first = enteredFrame(1, 40.0);
+    DropletFrameProcessingResult stillVisible;
+    stillVisible.detection.visibleTrackCount = 1;
+    stillVisible.detection.visibleTracks[0].trackId = 1;
+    stillVisible.detection.visibleTracks[0].centroid = {2.0f, 45.0f};
+    if (!require(processor.processFrame(first, 10, initial, boundary, dispatch,
+                                        sink, &error),
+                 "initial routing entry") ||
+        !require(processor.processFrame(stillVisible, 11, initial,
+                                        boundary, dispatch, sink, &error),
+                 "pending routing visibility")) {
+        return false;
+    }
+
+    auto second = enteredFrame(2, 30.0);
+    second.detection.visibleTracks[0].trackId = 1;
+    second.detection.visibleTracks[0].centroid.y = 45.0f;
+    second.enteredCrops[0].trackId = 2;
+    second.detection.visibleTracks[1] = {
+        2, 0, 1.0, second.detection.visibleTracks[0].bbox, {2.0f, 30.0f}};
+    second.detection.visibleTrackCount = 2;
+    if (!require(processor.processFrame(second, 12, changed, boundary, dispatch,
+                                        sink, &error),
+                 "changed routing entry") ||
+        !require(processor.pendingCount() == 2,
+                 "old and new entries remain pending together")) {
+        return false;
+    }
+
+    DropletFrameProcessingResult ended;
+    ended.detection.endedTrackIds[0] = 1;
+    ended.detection.endedTrackIds[1] = 2;
+    ended.detection.endedTrackCount = 2;
+    if (!require(processor.processFrame(ended, 13, changed, boundary, dispatch,
+                                        sink, &error),
+                 "pending entries finalize after routing change")) {
+        return false;
+    }
+    return require(completed.size() == 2, "both pending entries completed") &&
+           require(completed[0].event.decision == run::Route::Waste,
+                   "old entry retains its Class-Based decision") &&
+           require(completed[1].event.decision == run::Route::Hit,
+                   "new entry uses Every-Droplet decision") &&
+           require(dispatched.size() == 1 && dispatched[0].triggerMode ==
+                       run::TriggerMode::EveryDroplet &&
+                       dispatched[0].physicalDaqOutputEnabled,
+                   "pending dispatch uses the new entry routing") &&
+           require(processor.pendingCount() == 0, "pending entries are drained");
+}
+
 bool duplicateAndFlushCase() {
     using namespace desktop_app::v2;
     run::DropletRunEventProcessor processor;
@@ -176,7 +254,9 @@ bool duplicateAndFlushCase() {
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
-    return lifecycleCase() && invalidInferenceCase() && duplicateAndFlushCase()
+    return lifecycleCase() && invalidInferenceCase() &&
+                   routingSnapshotSurvivesPendingChangeCase() &&
+                   duplicateAndFlushCase()
                ? 0
                : 1;
 }

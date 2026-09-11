@@ -658,12 +658,35 @@ int main(int argc, char** argv) {
                     resultsRefreshes == 3,
                 "Frame adaptation faults must fail/finalize truthfully and refresh Results.");
 
-    controller->startNewRun();
+    const QString failedRunFolder = controller->runFolder();
+    QString failedManifestError;
+    const auto failedManifest = run::RunManifestV2::load(
+        QDir(failedRunFolder).filePath(QStringLiteral("run_summary.json")),
+        &failedManifestError);
+    ok &= check(!failedRunFolder.isEmpty() &&
+                    QFile::exists(QDir(failedRunFolder)
+                                      .filePath(QStringLiteral("run_summary.json"))) &&
+                    failedManifest.has_value() &&
+                    failedManifest->data().status == run::RunStatus::Failed,
+                "Failed Live Run evidence must remain available as a Failed artifact.");
+    ok &= check(controller->stopSorting() && controller->stopSorting(),
+                "Stop must be harmless and repeatable after a finalized Live error.");
+    ok &= check(controller->secondaryAction() && resultsRefreshes == 4 &&
+                    refreshedRun == failedRunFolder,
+                "Error Run Summary action must refresh the preserved failed Run.");
+
+    ok &= check(controller->primaryAction() &&
+                    controller->presentation() == QStringLiteral("ready") &&
+                    controller->error().isEmpty(),
+                "Error recovery must expose Start New Run without restarting the application.");
     controller->setDuration(QStringLiteral("30"));
     controller->setRecordFullImageSequence(true);
     armPersistenceBlock();
     ok &= check(controller->startSorting(),
                 "Responsive lifecycle fixture Run must start.");
+    const QString recoveryRunFolder = controller->runFolder();
+    ok &= check(recoveryRunFolder != failedRunFolder,
+                "Reset then Start must create a new Run artifact.");
     controlled->pixel = 55;
     controlled->timestampNs = 3'000'000'000;
     detector.rejectNext.store(true, std::memory_order_release);
@@ -698,6 +721,12 @@ int main(int argc, char** argv) {
     actionTimer.restart();
     ok &= check(controller->stopSorting() && actionTimer.elapsed() < 100,
                 "Stop invokable must return promptly while drain is blocked.");
+    controller->startNewRun();
+    ok &= check(controller->presentation() == QStringLiteral("running") &&
+                    !controller->startNewRunEnabled() &&
+                    controller->startNewRunDisabledReason().contains(
+                        QStringLiteral("cleaning up")),
+                "Start New Run must remain guarded while Stop cleanup is pending.");
     releasePersistenceBlock();
     ok &= check(waitFor([&] {
                     return controller->presentation() ==

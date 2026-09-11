@@ -1906,6 +1906,69 @@ void testFullSequenceDisabledEnabledPauseGapsAndFaults() {
 
 }
 
+void testRoutingChangesWithPendingEvents() {
+    stage = "routing changes with pending events";
+    QTemporaryDir temporary;
+    FakeDetector detector;
+    DropletDetectionFrame first = detection(true, true, 2.0f);
+    DropletDetectionFrame visible = detection(true, false, 6.0f);
+    DropletDetectionFrame second = detection(true, false, 6.0f);
+    second.visibleTracks[1] = {2, 0, 1.0, {2, 2, 4, 4}, {3.0f, 2.0f}};
+    second.visibleTrackCount = 2;
+    second.enteredTracks[0] = second.visibleTracks[1];
+    second.enteredTrackCount = 1;
+    second.eventEntered = true;
+    DropletDetectionFrame ended = detection(false, false, 0.0f);
+    ended.endedTrackIds[0] = 1;
+    ended.endedTrackIds[1] = 2;
+    ended.endedTrackCount = 2;
+    detector.results = {first, visible, second, ended};
+
+    OperationCoordinator operations;
+    std::atomic_int pulses{0};
+    live::LiveSortingService service(
+        operations, detector, nullptr,
+        [&](bool outputEnabled, QString*) {
+            ++pulses;
+            return pulseStatus(outputEnabled);
+        },
+        [prepared = model(2, {0.1, 0.9})](QString*) mutable {
+            return std::optional<live::PreparedLiveModel>(std::move(prepared));
+        },
+        {}, {}, [](QString*) { return true; });
+
+    auto value = request(temporary.path());
+    value.triggerMode = run::TriggerMode::ClassBased;
+    value.hitClassId = QStringLiteral("c0");
+    value.useActiveModel = true;
+    value.daqOutputEnabled = false;
+    QString error;
+    require(service.start(value, &error), qPrintable(error));
+    offerAndWait(service, detector, 1, 1);
+    offerAndWait(service, detector, 2, 2);
+    require(service.updateActiveConfiguration(
+                {run::TriggerMode::EveryDroplet, std::nullopt, true}, &error),
+            qPrintable(error));
+    offerAndWait(service, detector, 3, 3);
+    offerAndWait(service, detector, 4, 4);
+    require(waitFor([&] { return service.snapshot().persistedEvents == 2; }),
+            "old and new decisions persist after routing changes");
+    require(service.stop(&error), qPrintable(error));
+
+    const auto data = loadRun(temporary.path());
+    require(data.events.size() == 2 &&
+                data.events.at(0).decision == run::Route::Waste &&
+                data.events.at(0).daqPulseStatus ==
+                    run::DaqPulseStatus::NotRequested &&
+                data.events.at(1).decision == run::Route::Hit &&
+                data.events.at(1).daqPulseStatus == run::DaqPulseStatus::Issued &&
+                pulses.load() == 1,
+            "pending events retain their entry routing and pulse facts");
+    require(data.routing.triggerMode == run::TriggerMode::EveryDroplet &&
+                !data.routing.hitClassId && data.routing.physicalDaqOutputEnabled,
+            "final routing records the last successfully applied settings");
+}
+
 void testTwoTrackLiveProcessingUsesIndependentSlots() {
     stage = "two-track Live processing";
     QTemporaryDir temporary;
@@ -1982,6 +2045,7 @@ int main(int argc, char** argv) {
     testRejectedEveryDropletSkipsCropInferenceRouteAndPulse();
     testClassBasedTwoAndThreeClass();
     testFinalActiveConfigurationSnapshot();
+    testRoutingChangesWithPendingEvents();
     testStopClosesConfigurationCommitGate();
     testPauseResumeSourceGapAndDuration();
     testBacklogCancellationAtPauseAndStop();

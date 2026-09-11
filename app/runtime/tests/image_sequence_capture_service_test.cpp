@@ -1,6 +1,7 @@
 #include "v2/camera/camera_service.h"
 #include "v2/camera/frame_conversion.h"
 #include "v2/operation/operation_coordinator.h"
+#include "v2/persistence/frame_persistence_service.h"
 #include "v2/sequence/image_sequence_capture_service.h"
 #include "v2/sequence/sequence_manifest_v2.h"
 #include "v2/state/application_state_store.h"
@@ -157,6 +158,91 @@ QJsonObject readJsonObject(const QString& path) {
     if (!file.open(QIODevice::ReadOnly))
         return {};
     return QJsonDocument::fromJson(file.readAll()).object();
+}
+
+bool frameFinalizerOrderingContract() {
+    const QImage expected = [] {
+        QImage image(3, 2, QImage::Format_Grayscale8);
+        for (int y = 0; y != image.height(); ++y)
+            for (int x = 0; x != image.width(); ++x)
+                image.scanLine(y)[x] = static_cast<uchar>(10 + x + y * image.width());
+        return image;
+    }();
+    const auto append = [&](persistence::FramePersistenceService& spool,
+                            std::uint64_t handoffId, QString* error) {
+        FrameMeta meta;
+        meta.width = expected.width();
+        meta.height = expected.height();
+        meta.bits = 8;
+        meta.frameIndex = static_cast<qint64>(handoffId);
+        meta.delivered = static_cast<qint64>(handoffId);
+        return spool.append(expected, meta, handoffId, error);
+    };
+
+    QTemporaryDir gappedRoot;
+    const QString gappedSpool = QDir(gappedRoot.path()).filePath("frames.partial");
+    const QString gappedFrames = QDir(gappedRoot.path()).filePath("frames");
+    if (!check(QDir().mkpath(gappedFrames), "Gapped finalizer fixture must create its output."))
+        return false;
+    persistence::FramePersistenceService gapped;
+    QString error;
+    if (!check(gapped.start(gappedSpool, &error), "Gapped finalizer fixture must start."))
+        return false;
+    for (const std::uint64_t handoffId : {std::uint64_t(1), std::uint64_t(4),
+                                          std::uint64_t(9)}) {
+        if (!check(append(gapped, handoffId, &error),
+                   "Gapped handoff IDs must remain appendable."))
+            return false;
+    }
+    if (!check(gapped.stop(&error), "Gapped finalizer fixture must stop its spool."))
+        return false;
+    qint64 saved = 0;
+    qint64 failed = 0;
+    if (!check(gapped.finalize(gappedFrames, 3, expected.width(), expected.height(),
+                               persistence::FramePersistenceService::writeTiffWithoutReplace,
+                               &saved, &failed, &error),
+               "Strictly increasing gapped handoff IDs must finalize."))
+        return false;
+    if (!check(saved == 3 && failed == 0,
+               "Gapped finalizer fixture must report three contiguous outputs."))
+        return false;
+    for (int outputIndex = 1; outputIndex <= 3; ++outputIndex) {
+        const QString path = QDir(gappedFrames).filePath(
+            QString("frame_%1.tif").arg(outputIndex, 8, 10, QLatin1Char('0')));
+        const QImage actual = QImageReader(path).read();
+        if (!check(actual == expected,
+                   "Contiguous output files must preserve exact gapped-record pixels."))
+            return false;
+    }
+
+    const auto rejectsInvalidOrder = [&](std::initializer_list<std::uint64_t> handoffs) {
+        QTemporaryDir root;
+        const QString spoolPath = QDir(root.path()).filePath("frames.partial");
+        const QString framesPath = QDir(root.path()).filePath("frames");
+        if (!QDir().mkpath(framesPath))
+            return false;
+        persistence::FramePersistenceService spool;
+        QString localError;
+        if (!spool.start(spoolPath, &localError))
+            return false;
+        for (const std::uint64_t handoffId : handoffs) {
+            if (!append(spool, handoffId, &localError))
+                return false;
+        }
+        if (!spool.stop(&localError))
+            return false;
+        qint64 localSaved = 0;
+        qint64 localFailed = 0;
+        const bool finalized = spool.finalize(
+            framesPath, static_cast<qint64>(handoffs.size()), expected.width(), expected.height(),
+            persistence::FramePersistenceService::writeTiffWithoutReplace, &localSaved,
+            &localFailed, &localError);
+        return !finalized && localSaved == 1 && localFailed == 2;
+    };
+    return check(rejectsInvalidOrder({5, 5}),
+                 "Duplicate handoff IDs must be rejected at the second output.") &&
+           check(rejectsInvalidOrder({5, 3}),
+                 "Reversed handoff IDs must be rejected at the second output.");
 }
 
 bool manualCompletion() {
@@ -616,7 +702,8 @@ bool queuedWriteFailureRange() {
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const auto previousHandler = qInstallMessageHandler(messageHandler);
-    const bool ok = manualCompletion() && input16PersistsAs8Bit() &&
+    const bool ok = frameFinalizerOrderingContract() && manualCompletion() &&
+                    input16PersistsAs8Bit() &&
                     processorRunsForEveryAcceptedFrameBeforePersistence() && timedPauseCompletion() &&
                     sourceGapCompletion() && deferredFinalizationDoesNotThrottleCapture() &&
                     pauseOfferRace() && zeroFrameFailure() && startConflicts() &&

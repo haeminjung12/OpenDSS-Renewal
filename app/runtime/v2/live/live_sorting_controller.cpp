@@ -109,6 +109,8 @@ QString LiveSortingController::presentation() const {
 QString LiveSortingController::error() const {
     if (!actionError_.isEmpty())
         return actionError_;
+    if (outcomeCleared_ && !activeLifecycle(snapshot_.lifecycle))
+        return {};
     if (snapshot_.lifecycle == OperationLifecycle::Failed ||
         snapshot_.lifecycle == OperationLifecycle::Interrupted) {
         return snapshot_.diagnostic.isEmpty()
@@ -130,6 +132,21 @@ bool LiveSortingController::cameraStreaming() const {
 bool LiveSortingController::startSortingEnabled() const {
     return !activeLifecycle(snapshot_.lifecycle) &&
            preflightError().isEmpty();
+}
+
+bool LiveSortingController::startNewRunEnabled() const {
+    return !activeLifecycle(snapshot_.lifecycle) && !actionInProgress_ &&
+           !pollInProgress_ && !stopPending_;
+}
+
+QString LiveSortingController::startNewRunDisabledReason() const {
+    if (stopPending_ || snapshot_.lifecycle == OperationLifecycle::Stopping)
+        return QStringLiteral("Live Sorting is still cleaning up the current Run.");
+    if (activeLifecycle(snapshot_.lifecycle))
+        return QStringLiteral("Stop the current Run before starting a new one.");
+    if (actionInProgress_ || pollInProgress_)
+        return QStringLiteral("Live Sorting is finishing the current lifecycle action.");
+    return {};
 }
 
 QString LiveSortingController::disabledReason() const {
@@ -518,7 +535,8 @@ bool LiveSortingController::resumeSorting() {
 
 bool LiveSortingController::stopSorting() {
     if (!activeLifecycle(snapshot_.lifecycle))
-        return false;
+        return snapshot_.lifecycle == OperationLifecycle::Failed ||
+               snapshot_.lifecycle == OperationLifecycle::Interrupted;
     return requestServiceAction(ServiceAction::Stop);
 }
 
@@ -528,9 +546,10 @@ bool LiveSortingController::primaryAction() {
         return pauseSorting();
     if (state == QStringLiteral("paused"))
         return resumeSorting();
-    if (state == QStringLiteral("completed")) {
+    if (state == QStringLiteral("completed") || state == QStringLiteral("error")) {
+        const bool enabled = startNewRunEnabled();
         startNewRun();
-        return true;
+        return enabled;
     }
     if (state != QStringLiteral("ready"))
         return false;
@@ -543,8 +562,8 @@ bool LiveSortingController::secondaryAction() {
         state == QStringLiteral("paused")) {
         return stopSorting();
     }
-    if (state == QStringLiteral("completed")) {
-        if (!resultsRefresh_)
+    if (state == QStringLiteral("completed") || state == QStringLiteral("error")) {
+        if (!resultsRefresh_ || snapshot_.runFolder.trimmed().isEmpty())
             return false;
         resultsRefresh_(snapshot_.runFolder);
         resultsNotified_ = true;
@@ -554,8 +573,10 @@ bool LiveSortingController::secondaryAction() {
 }
 
 void LiveSortingController::startNewRun() {
-    if (activeLifecycle(snapshot_.lifecycle))
+    if (!startNewRunEnabled()) {
+        setActionError(startNewRunDisabledReason());
         return;
+    }
     outcomeCleared_ = true;
     actionError_.clear();
     emit changed();
@@ -869,6 +890,8 @@ bool LiveSortingController::requestServiceAction(ServiceAction action) {
                 pollInProgress_ = false;
             }
             actionInProgress_ = true;
+            if (action == ServiceAction::Stop)
+                stopPending_ = true;
         }
         pendingAction_ = action;
         actionReady_.notify_one();
@@ -936,8 +959,11 @@ void LiveSortingController::completeServiceAction(
     const LiveSortingSnapshot& completedSnapshot) {
     if (action == ServiceAction::PollDuration)
         pollInProgress_ = false;
-    else
+    else {
         actionInProgress_ = false;
+        if (action == ServiceAction::Stop)
+            stopPending_ = false;
+    }
     if (!succeeded)
         actionError_ = error;
     else if (action != ServiceAction::PollDuration)

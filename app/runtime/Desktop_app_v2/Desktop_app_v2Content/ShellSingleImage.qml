@@ -1154,6 +1154,8 @@ Item {
     Binding { target: screen.liveWorkspace; property: "cameraPreviewSource"; value: root.cameraController ? root.cameraController.previewSource : "" }
     Binding { target: screen.liveWorkspace; property: "cameraStreaming"; value: root.liveSortingController ? root.liveSortingController.cameraStreaming : state.cameraStreaming }
     Binding { target: screen.liveWorkspace; property: "startSortingEnabled"; value: root.liveSortingController ? root.liveSortingController.startSortingEnabled : state.liveStartSortingEnabled }
+    Binding { target: screen.liveWorkspace; property: "startNewRunEnabled"; value: root.liveSortingController ? root.liveSortingController.startNewRunEnabled : (!root.effectiveLiveActive && (root.effectiveLivePresentation === "completed" || root.effectiveLivePresentation === "error")) }
+    Binding { target: screen.liveWorkspace; property: "startNewRunDisabledReason"; value: root.liveSortingController ? root.liveSortingController.startNewRunDisabledReason : (root.effectiveLiveActive ? qsTr("Stop the current Run before starting a new one.") : "") }
     Binding { target: screen.liveWorkspace; property: "activeModelText"; value: root.liveSortingController ? root.liveSortingController.activeModelText : state.activeModelText }
     Binding { target: screen.liveWorkspace; property: "hitBoundaryDefined"; value: root.liveSortingController ? root.liveSortingController.decisionBoundaryDefined : root.liveHitBoundaryDefined }
     Binding { target: screen.liveWorkspace; property: "hitBoundaryXRatio"; value: root.liveSortingController ? root.liveSortingController.decisionBoundaryXRatio : root.liveHitBoundaryXRatio }
@@ -2082,12 +2084,15 @@ Item {
     }
 
     Connections { target: screen.liveWorkspace.primaryActionButton; function onClicked() { if (root.liveSortingController) root.liveSortingController.primaryAction(); else state.livePrimaryAction() } }
+    Connections { target: screen.liveWorkspace.resetActionButton; function onClicked() { if (root.liveSortingController) root.liveSortingController.startNewRun(); else state.livePrimaryAction() } }
+    Connections { target: screen.liveWorkspace.stopActionButton; function onClicked() { if (root.liveSortingController) root.liveSortingController.stopSorting(); else state.liveSecondaryAction() } }
     Connections {
         target: screen.liveWorkspace.secondaryActionButton
         function onClicked() {
             if (root.liveSortingController) {
                 if (root.liveSortingController.secondaryAction()
-                        && root.liveSortingController.presentation === "completed")
+                        && (root.liveSortingController.presentation === "completed"
+                            || root.liveSortingController.presentation === "error"))
                     state.selectWorkspace("runs")
             } else {
                 state.liveSecondaryAction()

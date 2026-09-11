@@ -281,8 +281,8 @@ void testValidationEdges() {
             "path traversal rejected");
     RunEvent issued = event("issued", 2, Route::Hit);
     issued.daqPulseStatus = DaqPulseStatus::Issued;
-    require(!writer->appendEvent(issued, "crop", &error),
-            "DAQ-disabled issued pulse rejected");
+    require(writer->appendEvent(issued, "crop", &error),
+            "factual issued pulse is independent of Run-start DAQ setting");
 
     RunManifestData modeled = baseData();
     modeled.model = ModelSnapshot{"m", "m", QString(64, 'b'),

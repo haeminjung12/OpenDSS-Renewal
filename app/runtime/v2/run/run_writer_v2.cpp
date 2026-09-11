@@ -235,32 +235,11 @@ bool validateEventForAppend(const RunManifestData& data, const RunEvent& event,
         if (*event.predictedClassId != data.model->classes.at(bestIndex).id)
             return fail(error, "Predicted Class ID must be the first argmax Class Score.");
     }
-    if (data.routing.triggerMode == TriggerMode::EveryDroplet &&
-        event.decision != Route::Hit) {
-        return fail(error, "Trigger Every Droplet events must have a Hit decision.");
-    }
-    if (data.routing.triggerMode == TriggerMode::ClassBased) {
-        const Route expected = event.predictedClassId == data.routing.hitClassId
-                                   ? Route::Hit
-                                   : Route::Waste;
-        if (event.decision != expected)
-            return fail(error, "Class-Based decision does not match the Hit Class.");
-    }
     if (event.daqPulseStatus == DaqPulseStatus::Requested)
         return fail(error, "Finalized events cannot retain requested DAQ status.");
     if (event.decision == Route::Waste &&
         event.daqPulseStatus != DaqPulseStatus::NotRequested)
         return fail(error, "Waste decisions must use not_requested DAQ status.");
-    if (event.decision == Route::Hit &&
-        !data.routing.physicalDaqOutputEnabled &&
-        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
-        return fail(error, "DAQ-disabled Hit decisions must use suppressed_not_issued.");
-    if (event.decision == Route::Hit &&
-        data.routing.physicalDaqOutputEnabled &&
-        event.daqPulseStatus != DaqPulseStatus::Issued &&
-        event.daqPulseStatus != DaqPulseStatus::Failed &&
-        event.daqPulseStatus != DaqPulseStatus::SuppressedNotIssued)
-        return fail(error, "DAQ-enabled Hit decisions require a final factual pulse status.");
     return true;
 }
 

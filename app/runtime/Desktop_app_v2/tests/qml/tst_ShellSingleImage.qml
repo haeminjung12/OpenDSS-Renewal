@@ -696,6 +696,8 @@ Item {
         property string diagnostic: ""
         property bool cameraStreaming: true
         property bool startSortingEnabled: true
+        property bool startNewRunEnabled: true
+        property string startNewRunDisabledReason: ""
         property string disabledReason: ""
         property bool decisionBoundaryDefined: false
         property real decisionBoundaryXRatio: 0.0
@@ -733,6 +735,8 @@ Item {
         property int minimumContourAreaSetCallCount: 0
         property int primaryActionCallCount: 0
         property int secondaryActionCallCount: 0
+        property int startNewRunCallCount: 0
+        property int stopSortingCallCount: 0
         property int saveProfileCallCount: 0
 
         function reset() {
@@ -741,6 +745,8 @@ Item {
             diagnostic = ""
             cameraStreaming = true
             startSortingEnabled = true
+            startNewRunEnabled = true
+            startNewRunDisabledReason = ""
             disabledReason = ""
             decisionBoundaryDefined = false
             decisionBoundaryXRatio = 0.0
@@ -758,6 +764,8 @@ Item {
             recordFullImageSequence = false
             primaryActionCallCount = 0
             secondaryActionCallCount = 0
+            startNewRunCallCount = 0
+            stopSortingCallCount = 0
             profilePath = ""
             profileStatus = ""
             saveProfileCallCount = 0
@@ -767,6 +775,8 @@ Item {
 
         function primaryAction() { ++primaryActionCallCount; return true }
         function secondaryAction() { ++secondaryActionCallCount; return true }
+        function startNewRun() { ++startNewRunCallCount; presentation = "ready"; error = ""; diagnostic = ""; return true }
+        function stopSorting() { ++stopSortingCallCount; return true }
         function saveProfile() { ++saveProfileCallCount; return true }
         function setMinimumContourArea(area) {
             ++minimumContourAreaSetCallCount
@@ -2099,6 +2109,54 @@ Item {
         compare(shell.form.runsWorkspace.run042RowStatusText, "Live Sorting  |  Stopped")
         compare(shell.form.runsWorkspace.loadedRunStatusText, "Live Sorting  •  Stopped  •  2026-07-23 10:41")
         compare(shell.form.runsWorkspace.loadedRunStopReasonText, "Stop Reason: Stopped by user")
+    }
+
+    function test_liveErrorKeepsRecoveryActionsReachable() {
+        shell.liveSortingController = liveSortingController
+        shell.form.navLiveButton.clicked()
+        liveSortingController.presentation = "error"
+        liveSortingController.error = "Live frame dimensions do not match the Run."
+        liveSortingController.diagnostic = liveSortingController.error
+        liveSortingController.runFolder = "C:/OpenDSS/Runs/Failed-Run"
+        liveSortingController.startNewRunEnabled = true
+        wait(0)
+
+        verify(shell.form.liveWorkspace.runStatusSection.visible)
+        verify(shell.form.liveWorkspace.stopActionButton.visible)
+        verify(shell.form.liveWorkspace.stopActionButton.enabled)
+        verify(shell.form.liveWorkspace.resetActionButton.visible)
+        verify(shell.form.liveWorkspace.resetActionButton.enabled)
+        verify(shell.form.liveWorkspace.secondaryActionButton.visible)
+        verify(shell.form.liveWorkspace.secondaryActionButton.enabled)
+        compare(shell.form.liveWorkspace.errorDetailsText,
+                "Error details: Live frame dimensions do not match the Run.")
+        compare(shell.form.liveWorkspace.actionStatusText,
+                "Live frame dimensions do not match the Run.")
+
+        shell.form.liveWorkspace.stopActionButton.clicked()
+        compare(liveSortingController.stopSortingCallCount, 1)
+        shell.form.liveWorkspace.secondaryActionButton.clicked()
+        compare(liveSortingController.secondaryActionCallCount, 1)
+        compare(shell.form.selectedWorkspace, "runs")
+
+        shell.form.navLiveButton.clicked()
+        liveSortingController.presentation = "running"
+        liveSortingController.startNewRunEnabled = false
+        liveSortingController.startNewRunDisabledReason =
+                "Live Sorting is still cleaning up the current Run."
+        wait(0)
+        verify(shell.form.liveWorkspace.resetActionButton.visible)
+        verify(!shell.form.liveWorkspace.resetActionButton.enabled)
+        compare(shell.form.liveWorkspace.actionStatusText,
+                "Live Sorting is still cleaning up the current Run.")
+
+        liveSortingController.presentation = "error"
+        liveSortingController.startNewRunEnabled = true
+        liveSortingController.startNewRunDisabledReason = ""
+        wait(0)
+        shell.form.liveWorkspace.resetActionButton.clicked()
+        compare(liveSortingController.startNewRunCallCount, 1)
+        compare(liveSortingController.presentation, "ready")
     }
 
     function test_liveStartSortingRequiresSingleImageCameraRelease() {

@@ -8,6 +8,7 @@
 #include <QImageReader>
 #include <QJsonDocument>
 #include <QTemporaryDir>
+#include <QThread>
 
 #include <algorithm>
 #include <condition_variable>
@@ -147,11 +148,68 @@ FrameMeta meta(qint64 delivered) {
     value.delivered = delivered;
     return value;
 }
+
+bool gappedHandoffFinalizationPreservesInterruptedCounts() {
+    QTemporaryDir root;
+    OperationCoordinator operations;
+    GateDetector detector(false);
+    DropletFrameProcessor processor(detector);
+    DatasetCaptureService service(operations, processor, [] { return qint64(0); });
+    QString error;
+    if (!check(service.start(request(root.path(), "gapped-handoff"), &error), error) ||
+        !check(service.offerFrame(frame(), meta(1), 500.0, &error), error))
+        return false;
+    detector.waitUntilEntered();
+    for (qint64 delivered = 2; delivered <= 17; ++delivered) {
+        if (!check(service.offerFrame(frame(), meta(delivered), 500.0, &error), error))
+            return false;
+    }
+    if (!check(service.offerFrame(frame(), meta(18), 500.0, &error), error))
+        return false;
+    detector.release();
+    bool drained = false;
+    for (int attempt = 0; attempt != 100; ++attempt) {
+        if (service.snapshot().savedFrameCount >= 17) {
+            drained = true;
+            break;
+        }
+        QThread::msleep(5);
+    }
+    if (!check(drained, "Gapped handoff fixture did not drain its accepted prefix."))
+        return false;
+    if (!check(service.offerFrame(frame(), meta(19), 500.0, &error), error) ||
+        !check(service.stop(&error), error))
+        return false;
+
+    const auto state = service.snapshot();
+    const auto manifest = DatasetManifestV2::load(
+        QDir(state.folder).filePath("dataset.json"), &error);
+    const QString firstFrame = QDir(state.folder).filePath("sequence/frame_00000001.tif");
+    const QString lastFrame = QDir(state.folder).filePath("sequence/frame_00000018.tif");
+    const QImage first = QImageReader(firstFrame).read();
+    const QImage last = QImageReader(lastFrame).read();
+    return check(state.lifecycle == OperationLifecycle::Interrupted,
+                 "Queue loss must finalize Dataset Capture as interrupted.") &&
+           check(manifest && manifest->data().provenance.status == "interrupted" &&
+                     manifest->data().provenance.stopReason == "queue_rejection" &&
+                     manifest->data().provenance.sequence.frameCount == 18 &&
+                     manifest->data().provenance.sequence.integrity.queueRejections.count == 1,
+                 "Interrupted Dataset manifest must report finalized count and queue loss.") &&
+           check(first == frame() && last == frame(),
+                 "Gapped handoff finalization must preserve exact first/last frame pixels.") &&
+           check(!QFileInfo::exists(QDir(state.folder).filePath("sequence.frames.partial")) &&
+                     !QFileInfo::exists(QDir(state.folder).filePath("dataset.partial.json")),
+                 "Successfully finalized interrupted Dataset must clean only its completed markers.");
+}
 }
 
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     const auto previousHandler = qInstallMessageHandler(captureMessages);
+    if (!gappedHandoffFinalizationPreservesInterruptedCounts()) {
+        qInstallMessageHandler(previousHandler);
+        return 26;
+    }
     QTemporaryDir temporary;
     QString error;
     qint64 now = 0;

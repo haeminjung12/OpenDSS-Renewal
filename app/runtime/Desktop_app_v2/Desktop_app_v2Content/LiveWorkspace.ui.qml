@@ -23,6 +23,8 @@ Item {
     property real smallDropletSelectionEndXRatio: 0.0
     property real smallDropletSelectionEndYRatio: 0.0
     property string serviceDiagnosticText: qsTr("Resolve the current error before continuing.")
+    property bool startNewRunEnabled: false
+    property string startNewRunDisabledReason: qsTr("Stop the current Run before starting a new one.")
     property string runArtifactPath: qsTr("C:/OpenDSS/Runs/Run-042")
     property string elapsedTimeText: qsTr("00:02:18")
     property string persistedEventCountText: qsTr("428")
@@ -31,9 +33,14 @@ Item {
     property string finalOutcomeText: qsTr("User stopped")
     property string outputStatusText: qsTr("Each detected event records a Droplet Crop and factual Droplet Log row.")
     property string profileAvailabilityText: ""
-    property string runSummaryText: root.integrityStatusText !== "" ? root.integrityStatusText : (root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the footer.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the footer.") : qsTr("Pause or Stop this Run from the footer.")))
+    property string runSummaryText: root.integrityStatusText !== "" ? root.integrityStatusText : (root.error ? qsTr("Run failed. Evidence is preserved in the Run artifact.") : (root.completed ? qsTr("Run finalized. Open Run Summary or start a new run from the footer.") : (root.presentation === "paused" ? qsTr("Resume or Stop this Run from the footer.") : qsTr("Pause or Stop this Run from the footer."))))
     property alias primaryActionButton: primaryActionButton
     property alias secondaryActionButton: secondaryActionButton
+    property alias resetActionButton: resetActionButton
+    property alias stopActionButton: stopActionButton
+    property alias runStatusSection: runningSection
+    property alias actionStatusText: actionStatusLabel.text
+    property alias errorDetailsText: errorDetailsLabel.text
     property alias rightPanelToggleButton: rightPanelToggleButton
     property alias setupProfileHeadingButton: setupProfileSection.headingButton
     property alias runInformationHeadingButton: runInformationSection.headingButton
@@ -446,7 +453,7 @@ Item {
                         AppAccordion {
                         id: runningSection
                         width: rightPanelScroll.availableWidth
-                        visible: root.active || root.completed
+                        visible: root.active || root.completed || root.error
                         sectionTitle: qsTr("Run Status")
                         expanded: true
                         headingButton.visible: false
@@ -465,9 +472,11 @@ Item {
                                 anchors.margins: Constants.spacing
                                 spacing: Constants.spacing
 
-                                Text { text: root.presentation === "paused" ? qsTr("Status: Paused") : (root.completed ? qsTr("Status: Completed") : qsTr("Status: Running")); color: Constants.textColor; font: Constants.headingFont }
+                                Text { text: root.error ? qsTr("Status: Error") : (root.presentation === "paused" ? qsTr("Status: Paused") : (root.completed ? qsTr("Status: Completed") : qsTr("Status: Running"))); color: Constants.textColor; font: Constants.headingFont }
                                 Text { visible: root.completed; text: qsTr("Stop reason: %1").arg(root.finalOutcomeText); color: Constants.textColor; font: Constants.smallFont }
                                 Text { visible: root.completed; text: qsTr("Saved location: %1").arg(root.runArtifactPath); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { id: errorDetailsLabel; visible: root.error && root.serviceDiagnosticText !== ""; text: qsTr("Error details: %1").arg(root.serviceDiagnosticText); color: Constants.warningColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
+                                Text { visible: root.error && root.runArtifactPath !== ""; text: qsTr("Failed Run: %1").arg(root.runArtifactPath); color: Constants.textColor; font: Constants.smallFont; wrapMode: Text.WordWrap; width: parent.width }
                                 Text { text: qsTr("Elapsed time: %1").arg(root.elapsedTimeText); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Total Droplets: %1").arg(root.persistedEventCountText); color: Constants.textColor; font: Constants.smallFont }
                                 Text { text: qsTr("Rejected: %1").arg(root.rejectedCountText); color: Constants.textColor; font: Constants.smallFont }
@@ -489,7 +498,8 @@ Item {
                     anchors.bottom: parent.bottom
 
                     Text {
-                        text: root.unavailable ? qsTr("Camera unavailable — restore Configuration to continue.") : (root.error ? root.serviceDiagnosticText : (root.active ? (root.presentation === "paused" ? qsTr("Run paused.") : qsTr("Run in progress.")) : (root.completed ? qsTr("Run complete.") : (root.cameraStreaming ? (root.startSortingEnabled ? qsTr("Ready to start sorting.") : qsTr("Camera streaming — sorting is not ready.")) : qsTr("Start Camera to check sorting readiness.")))))
+                        id: actionStatusLabel
+                        text: root.unavailable ? qsTr("Camera unavailable — restore Configuration to continue.") : (root.error ? root.serviceDiagnosticText : (resetActionButton.visible && !resetActionButton.enabled ? root.startNewRunDisabledReason : (root.active ? (root.presentation === "paused" ? qsTr("Run paused.") : qsTr("Run in progress.")) : (root.completed ? qsTr("Run complete.") : (root.cameraStreaming ? (root.startSortingEnabled ? qsTr("Ready to start sorting.") : qsTr("Camera streaming — sorting is not ready.")) : qsTr("Start Camera to check sorting readiness."))))))
                         color: root.unavailable || root.error ? Constants.warningColor : Constants.textColor
                         font: Constants.smallFont
                         elide: Text.ElideRight
@@ -509,7 +519,7 @@ Item {
                         AppButton {
                             id: primaryActionButton
                             visible: root.active || root.completed || root.presentation === "ready"
-                            width: secondaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width
+                            width: resetActionButton.visible ? (parent.width - parent.spacing * 2) / 3 : (secondaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width)
                             height: Constants.appPrimaryButtonHeight
                             text: root.active ? (root.presentation === "paused" ? qsTr("Resume") : qsTr("Pause")) : (root.completed ? qsTr("Start New Run") : (root.cameraStreaming ? qsTr("Stop Camera") : qsTr("Start Camera")))
                             enabled: !root.unavailable && !root.error
@@ -517,12 +527,30 @@ Item {
                         }
                         AppButton {
                             id: secondaryActionButton
-                            visible: root.active || root.completed || root.presentation === "ready"
-                            width: primaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width
+                            visible: root.active || root.completed || root.error || root.presentation === "ready"
+                            width: resetActionButton.visible ? (parent.width - parent.spacing * 2) / 3 : (primaryActionButton.visible ? (parent.width - parent.spacing) / 2 : parent.width)
                             height: Constants.appPrimaryButtonHeight
-                            text: root.active ? qsTr("Stop") : (root.completed ? qsTr("Open Run Summary") : qsTr("Start Sorting"))
-                            enabled: root.active || root.completed || (root.presentation === "ready" && root.cameraStreaming && root.startSortingEnabled)
+                            text: root.active ? qsTr("Stop") : (root.completed || root.error ? qsTr("Open Run Summary") : qsTr("Start Sorting"))
+                            enabled: root.error ? root.runArtifactPath !== "" : (root.active || root.completed || (root.presentation === "ready" && root.cameraStreaming && root.startSortingEnabled))
                             visualRole: root.active ? "destructive" : "primary"
+                        }
+                        AppButton {
+                            id: resetActionButton
+                            visible: root.active || root.error
+                            width: (parent.width - parent.spacing * 2) / 3
+                            height: Constants.appPrimaryButtonHeight
+                            text: qsTr("Start New Run")
+                            enabled: root.startNewRunEnabled
+                            visualRole: "primary"
+                        }
+                        AppButton {
+                            id: stopActionButton
+                            visible: root.error
+                            width: (parent.width - parent.spacing * 2) / 3
+                            height: Constants.appPrimaryButtonHeight
+                            text: qsTr("Stop")
+                            enabled: true
+                            visualRole: "destructive"
                         }
                     }
                 }

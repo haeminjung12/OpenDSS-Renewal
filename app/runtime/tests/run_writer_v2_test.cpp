@@ -61,6 +61,125 @@ RunEvent event() {
     return value;
 }
 
+RunEvent modeledEvent(const QString& id, const QString& predictedClassId,
+                      Route decision, DaqPulseStatus pulseStatus) {
+    RunEvent value;
+    value.eventId = id;
+    value.detectionTimestamp = "2026-07-24T12:00:00Z";
+    value.sourceFrameIndex = 7;
+    value.cropPath = QStringLiteral("crops/%1.png").arg(id);
+    value.predictedClassId = predictedClassId;
+    value.scores = predictedClassId == QStringLiteral("c0")
+                       ? QVector<double>{0.9, 0.1}
+                       : QVector<double>{0.1, 0.9};
+    value.inferenceTimeMs = 1.0;
+    value.decision = decision;
+    value.observedRoute = Route::Unresolved;
+    value.daqPulseStatus = pulseStatus;
+    return value;
+}
+
+RunManifestData routingData(RunOperation operation,
+                            const RoutingSnapshot& routing) {
+    RunManifestData value = data();
+    value.operation = operation;
+    if (operation == RunOperation::LiveSorting) {
+        value.sourceSequence = {};
+        value.requestedProcessingFps = 0.0;
+        value.achievedProcessingFps = 0.0;
+    }
+    value.model = ModelSnapshot{
+        "model", "Model", QString(64, QLatin1Char('a')),
+        {{"c0", "Zero"}, {"c1", "One"}}};
+    value.routing = routing;
+    return value;
+}
+
+void testEventFactsIgnoreMutableRunSettings() {
+    stage = "event facts and mutable routing";
+    struct Case {
+        RoutingSnapshot initial;
+        RunEvent event;
+        RoutingSnapshot final;
+    };
+    const QVector<Case> cases{
+        {{TriggerMode::ClassBased, QStringLiteral("c0"), false},
+         modeledEvent("class_hit_class_change", "c1", Route::Hit,
+                      DaqPulseStatus::SuppressedNotIssued),
+         {TriggerMode::ClassBased, QStringLiteral("c1"), false}},
+        {{TriggerMode::EveryDroplet, {}, false},
+         modeledEvent("every_to_class", "c0", Route::Waste,
+                      DaqPulseStatus::NotRequested),
+         {TriggerMode::ClassBased, QStringLiteral("c1"), false}},
+        {{TriggerMode::ClassBased, QStringLiteral("c0"), false},
+         modeledEvent("class_to_every", "c1", Route::Hit,
+                      DaqPulseStatus::SuppressedNotIssued),
+         {TriggerMode::EveryDroplet, {}, false}},
+        {{TriggerMode::EveryDroplet, {}, false},
+         modeledEvent("daq_off_to_on", "c1", Route::Hit,
+                      DaqPulseStatus::Issued),
+         {TriggerMode::EveryDroplet, {}, true}},
+        {{TriggerMode::ClassBased, QStringLiteral("c0"), true},
+         modeledEvent("daq_on_to_off", "c1", Route::Hit,
+                      DaqPulseStatus::SuppressedNotIssued),
+         {TriggerMode::ClassBased, QStringLiteral("c1"), false}},
+    };
+
+    for (const RunOperation operation : {RunOperation::SequenceTest,
+                                         RunOperation::LiveSorting}) {
+        for (const auto& testCase : cases) {
+            QTemporaryDir temporary;
+            QString error;
+            const QString root = QDir(temporary.path()).filePath(
+                QStringLiteral("routing"));
+            auto writer = RunWriterV2::start(
+                root, routingData(operation, testCase.initial), &error);
+            require(writer.has_value(), qPrintable(error));
+            require(writer->appendEvent(testCase.event, "crop", &error),
+                    qPrintable(error));
+            const double fps = operation == RunOperation::SequenceTest ? 10.0 : 0.0;
+            require(writer->finalize(
+                        RunStatus::Completed, "2026-07-24T12:00:01Z", "user",
+                        fps, &error, {},
+                        FinalConfigurationSnapshot{testCase.final, {},
+                                                   HitSide::PositiveY}),
+                    qPrintable(error));
+            const auto loaded = RunManifestV2::load(
+                QDir(root).filePath(QStringLiteral("run_summary.json")), &error);
+            require(loaded.has_value(), qPrintable(error));
+            require(loaded->data().events.size() == 1 &&
+                        loaded->data().events.first().decision ==
+                            testCase.event.decision &&
+                        loaded->data().events.first().daqPulseStatus ==
+                            testCase.event.daqPulseStatus &&
+                        loaded->data().routing.triggerMode ==
+                            testCase.final.triggerMode &&
+                        loaded->data().routing.hitClassId ==
+                            testCase.final.hitClassId &&
+                        loaded->data().routing.physicalDaqOutputEnabled ==
+                            testCase.final.physicalDaqOutputEnabled,
+                    "event facts and final settings remain independent");
+
+            QFile summary(QDir(root).filePath(QStringLiteral("run_summary.json")));
+            require(summary.open(QIODevice::ReadOnly), "read final Run summary");
+            const auto document = QJsonDocument::fromJson(summary.readAll());
+            require(document.isObject() &&
+                        document.object().value(QStringLiteral("schema_version")) ==
+                            QString::fromLatin1(RunManifestV2::SchemaVersion),
+                    "routing change must preserve Run schema");
+            QFile csv(QDir(root).filePath(QStringLiteral("events.csv")));
+            require(csv.open(QIODevice::ReadOnly) &&
+                        csv.readLine() ==
+                            QByteArray("event_id,detection_timestamp,source_frame_index,"
+                                       "effective_configuration_id,rejected,crop_path,"
+                                       "predicted_class_id,score_class_0,score_class_1,"
+                                       "score_class_2,decision,observed_route,"
+                                       "daq_pulse_status,inference_time_ms\n"),
+                    "routing change must preserve events.csv schema");
+        }
+    }
+}
+
 void testLivePhysicalOutputStartModes() {
     stage = "Live physical output modes";
     QTemporaryDir temporary;
@@ -427,6 +546,7 @@ void testPostCommitCleanupFailureIsNonfatal() {
 
 int main(int argc, char** argv) {
     QCoreApplication application(argc, argv);
+    testEventFactsIgnoreMutableRunSettings();
     testLivePhysicalOutputStartModes();
     testCompletedAndEscaping();
     testInterruptedAndFailedRecovery();

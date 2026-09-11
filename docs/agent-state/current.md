@@ -6,11 +6,11 @@ State format: `1`
 - Mode: `debug`
 - User-facing Lead: `Debug Lead`
 - Checkpoint branch: `codex/debug-lead`
-- Checkpoint commit: `7bba44a4ec167149c387900d83fb3ddb395b2104`
+- Checkpoint commit: `b33bff847c1893ec8cf2ff43d2b787f30d2a6a51`
 - Active ID: `DBG-INTAKE`
 - Status: `DBG-028 fixed and verified; awaiting the next accepted bug`
-- Dirty paths at checkpoint: `Camera controller/conversion/preview provider; Setup Profile persistence; Camera QML and focused tests; canonical design/state/ledger; deferred consolidation note`
-- Updated: `2026-09-11T10:45:54-05:00`
+- Dirty paths at checkpoint: `none before this handoff-only state update`
+- Updated: `2026-09-11T10:48:42-05:00`
 
 ## Accepted decisions
 
@@ -167,6 +167,7 @@ State format: `1`
 - Centered-boundary verification: affected builds passed, the V2 app compilation passed, and `sequence_test_decision_route_test`, `sequence_test_controller_test`, and `live_sorting_controller_test` passed 3/3. Four stale Live fixtures were updated to block event persistence rather than the superseded full-frame persistence hook.
 - `DBG-028` is fixed: production `CropService` now creates direct 96 x 96 crops; new native Dataset manifests/PNGs and run/Label provenance report 96; historical 64 x 64 Dataset manifests remain readable but native saves reject them. Release crop/Dataset tests passed 3/3, the actual-v2 app and QML test target built against the exact locked ONNX Runtime 1.25.1 CUDA 13 SDK, QML CTest passed 2/2, `git diff --check` passed, and the fresh Plan Guardian returned `PASS`. The completed `DBG-027` offline files remain untouched.
 - A fresh standalone of the current post-DBG-028 Debug Lead tree was rebuilt and package-checked on 2026-09-11. ZIP: `C:\b\d13\standalone-20260911\OpenDSS_Standalone_Current_96x96_20260911.zip`, SHA-256 `AD4F804332268F9C77278EDF4B1425217B9083E11C29804C560F0A0E2A16941C`; enclosed `OpenDSS.exe` SHA-256 `5D517A72A69D285FE2C95E4ED4BA9CF9A9CD3232589EABC5B3FE3D8C68F6432F`. Package manifest status is pass, and the unrelated `binary_transfer.py` is absent.
+- The accumulated verified `DBG-021` through `DBG-028` correction set and standalone delivery record were committed as `b33bff847c1893ec8cf2ff43d2b787f30d2a6a51`; the worktree was clean before this handoff-only checkpoint update.
 
 ## Exact next action
 

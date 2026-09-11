@@ -118,6 +118,8 @@ target_sources(${CMAKE_PROJECT_NAME} PUBLIC
     "../../v2/results/runs_results_controller.h"
     "../../v2/run/run_manifest_v2.cpp"
     "../../v2/run/run_manifest_v2.h"
+    "../../v2/run/droplet_run_event_processor.cpp"
+    "../../v2/run/droplet_run_event_processor.h"
     "../../v2/run/run_writer_v2.cpp"
     "../../v2/run/run_writer_v2.h"
     "../../v2/sequence/sequence_manifest_v2.cpp"

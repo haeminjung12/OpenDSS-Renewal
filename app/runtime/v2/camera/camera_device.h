@@ -28,6 +28,11 @@ struct CameraFrame {
     QByteArray bytes;
 };
 
+struct CameraExposureLimits {
+    double minimumMs = 0.0;
+    double maximumMs = 0.0;
+};
+
 enum class CameraFrameResult {
     Frame,
     NoFrame,
@@ -85,6 +90,13 @@ public:
             *error = QStringLiteral("Camera configuration is not supported.");
         return false;
     }
+    virtual bool readExposureLimits(CameraExposureLimits &limits, QString *error) const
+    {
+        Q_UNUSED(limits);
+        if (error)
+            *error = QStringLiteral("Camera exposure limits are not available.");
+        return false;
+    }
     virtual CameraConfigurationResult applyConfiguration(
         const CameraAppliedSettings &requested,
         CameraAppliedSettings &applied,
@@ -101,4 +113,4 @@ public:
 } // namespace desktop_app::v2
 
 Q_DECLARE_METATYPE(desktop_app::v2::CameraFrame)
-
+Q_DECLARE_METATYPE(desktop_app::v2::CameraExposureLimits)

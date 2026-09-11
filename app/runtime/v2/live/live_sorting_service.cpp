@@ -1,17 +1,15 @@
 #include "live_sorting_service.h"
 
-#include "../decision/decision_service.h"
 #include "../model/model_load_service.h"
 #include "../persistence/frame_persistence_service.h"
 #include "../routing/observed_route_tracker.h"
+#include "../run/droplet_run_event_processor.h"
 #include "../run/run_writer_v2.h"
 #include "../sequence/sequence_manifest_v2.h"
-#include "../../crops/crop_service.h"
 #include "../../desktop_app/live_frame_dispatcher.h"
 #include "../../detection/droplet_detector.h"
 #include "../../detection/droplet_frame_processor.h"
 
-#include <QBuffer>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -20,7 +18,6 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QImageReader>
-#include <QImageWriter>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QTemporaryFile>
@@ -73,22 +70,6 @@ QString uniqueRunFolder(const QString& root, const QString& requestedName) {
         if (!QFileInfo::exists(path))
             return path;
     }
-}
-
-QByteArray pngBytes(const cv::Mat& image, QString* error) {
-    QImage view(image.data, image.cols, image.rows, image.step, QImage::Format_Grayscale8);
-    QByteArray bytes;
-    QBuffer buffer(&bytes);
-    if (!buffer.open(QIODevice::WriteOnly)) {
-        setError(error, QStringLiteral("Could not open the Droplet Crop buffer."));
-        return {};
-    }
-    QImageWriter writer(&buffer, "PNG");
-    if (!writer.write(view)) {
-        setError(error, writer.errorString());
-        return {};
-    }
-    return bytes;
 }
 
 std::optional<QString> metadataModelName(const QString& path, QString* error) {
@@ -188,16 +169,6 @@ struct PersistenceItem {
     std::optional<run::RunEvent> event;
     QByteArray cropBytes;
     qint64 sourceIndex = 0;
-};
-
-struct PendingEvent {
-    int trackId = 0;
-    run::RunEvent event;
-    QByteArray cropBytes;
-    std::optional<double> lastY;
-    run::RoutingSnapshot routing;
-    bool decisionResolved = false;
-    bool pulseFailed = false;
 };
 
 class ConsumerFault final {};
@@ -472,10 +443,23 @@ public:
             configurationUpdatesOpen = true;
         }
         model = std::move(prepared);
+        run::DropletRunEventProcessor::Classifier classifier;
+        if (model) {
+            classifier = [this](const cv::Mat& crop,
+                                QString* classifierError)
+                -> std::optional<QVector<double>> {
+                if (!reserveExternalCallback(false))
+                    return std::nullopt;
+                const auto result = model->classify(crop, classifierError);
+                return result ? std::optional<QVector<double>>(result->scores)
+                              : std::nullopt;
+            };
+        }
+        eventProcessor.reset(model ? std::optional<run::ModelSnapshot>(model->snapshot)
+                                   : std::nullopt,
+                             std::move(classifier));
         runFolder = folder;
         frameProcessor.reset();
-        pendingEvents = {};
-        eventNumber = 0;
         persistedEvents.store(0);
         rejectedEvents.store(0);
         fatal.store(false);
@@ -866,219 +850,98 @@ private:
             return;
         QString localError;
 
-        for (std::size_t index = 0; index < detection.rejectedCount; ++index) {
-            if (!detection.rejectedAreas ||
-                !std::isfinite(detection.rejectedAreas[index]) ||
-                detection.rejectedAreas[index] <= 0.0) {
-                consumerFault(frameIndex(meta),
-                              QStringLiteral("Rejected candidate area is invalid."));
-            }
-            ++eventNumber;
-            PersistenceItem item;
-            item.sourceIndex = frameIndex(meta);
-            run::RunEvent event;
-            event.eventId =
-                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
-            event.detectionTimestamp =
-                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-            event.sourceFrameIndex = item.sourceIndex;
-            event.rejected = 1;
-            item.event = std::move(event);
-            enqueue(std::move(item));
+        run::RoutingSnapshot routing;
+        run::HitBoundarySnapshot boundary;
+        {
+            std::lock_guard configurationLock(configurationMutex);
+            routing = currentRouting;
+            std::lock_guard boundaryLock(boundaryMutex);
+            boundary = currentBoundary;
         }
-
-        for (std::size_t index = 0; index < frameResult.enteredCropCount; ++index) {
-            const DropletEnteredCrop& enteredCrop = frameResult.enteredCrops[index];
-            auto slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
-                                     [&](const std::optional<PendingEvent>& value) {
-                                         return value && value->trackId == enteredCrop.trackId;
-                                     });
-            if (slot != pendingEvents.end())
-                consumerFault(frameIndex(meta),
-                              QStringLiteral("Live event track was entered twice."));
-            slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
-                                [](const std::optional<PendingEvent>& value) {
-                                    return !value;
-                                });
-            if (slot == pendingEvents.end())
-                consumerFault(frameIndex(meta),
-                              QStringLiteral("Live event track capacity was exceeded."));
-            ++eventNumber;
-            const QString eventId =
-                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
-            const QString detectionTimestamp =
-                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-            slot->emplace();
-            PendingEvent& pending = **slot;
-            pending.trackId = enteredCrop.trackId;
-            {
-                std::lock_guard lock(configurationMutex);
-                pending.routing = currentRouting;
-            }
-            pending.event.eventId = eventId;
-            pending.event.detectionTimestamp = detectionTimestamp;
-            pending.event.sourceFrameIndex = frameIndex(meta);
-            pending.event.cropPath =
-                QStringLiteral("crops/droplet_%1.png")
-                    .arg(eventNumber, 6, 10, QLatin1Char('0'));
-            pending.cropBytes = pngBytes(enteredCrop.crop.image, &localError);
-            if (pending.cropBytes.isEmpty())
-                consumerFault(frameIndex(meta), localError);
-            if (!processingAllowed.load(std::memory_order_acquire)) {
-                slot->reset();
+        if (!eventProcessor.processFrame(
+                frameResult, frameIndex(meta), routing, boundary,
+                [this](const run::RoutingSnapshot& eventRouting,
+                       QString* pulseError) {
+                    return dispatchHit(eventRouting, pulseError);
+                },
+                [this](run::CompletedDropletRunEvent completed,
+                       QString*) {
+                    PersistenceItem item;
+                    item.sourceIndex = completed.event.sourceFrameIndex;
+                    item.event = std::move(completed.event);
+                    item.cropBytes = std::move(completed.cropBytes);
+                    enqueue(std::move(item));
+                    return true;
+                },
+                &localError)) {
+            if (!processingAllowed.load(std::memory_order_acquire))
                 return;
-            }
-
-            if (model) {
-                QElapsedTimer inferenceTimer;
-                inferenceTimer.start();
-                std::optional<LiveInferenceResult> result;
-                if (!reserveExternalCallback(false)) {
-                    slot->reset();
-                    return;
-                }
-                result = model->classify(enteredCrop.crop.image, &localError);
-                const double inferenceMs =
-                    static_cast<double>(inferenceTimer.nsecsElapsed()) /
-                    1'000'000.0;
-                if (!result ||
-                    result->scores.size() != model->snapshot.classes.size() ||
-                    std::any_of(result->scores.begin(), result->scores.end(),
-                                [](double score) {
-                                    return !std::isfinite(score);
-                                })) {
-                    slot->reset();
-                    consumerFault(
-                        frameIndex(meta),
-                        localError.isEmpty()
-                            ? QStringLiteral("Model inference result is invalid.")
-                            : localError);
-                }
-                int bestIndex = 0;
-                for (int index = 1; index < result->scores.size(); ++index) {
-                    if (result->scores.at(index) >
-                        result->scores.at(bestIndex))
-                        bestIndex = index;
-                }
-                pending.event.predictedClassId =
-                    model->snapshot.classes.at(bestIndex).id;
-                pending.event.scores = result->scores;
-                pending.event.inferenceTimeMs = inferenceMs;
-                if (!processingAllowed.load(std::memory_order_acquire)) {
-                    slot->reset();
-                    return;
-                }
-            }
+            if (fatal.load(std::memory_order_acquire))
+                throw ConsumerFault{};
+            consumerFault(frameIndex(meta), localError);
         }
-        for (auto& pending : pendingEvents) {
-            if (!pending)
-                continue;
-            const bool stillVisible = std::any_of(
-                detection.visibleTracks.begin(),
-                detection.visibleTracks.begin() + detection.visibleTrackCount,
-                [&](const DropletTrackObservation& visible) {
-                    return visible.trackId == pending->trackId;
-                });
-            if (!stillVisible)
-                resolvePendingDecision(*pending);
-        }
-        for (std::size_t index = 0; index < detection.visibleTrackCount; ++index) {
-            const DropletTrackObservation& visible = detection.visibleTracks[index];
-            const auto slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
-                                           [&](const std::optional<PendingEvent>& value) {
-                                               return value && value->trackId == visible.trackId;
-                                           });
-            if (slot != pendingEvents.end() && std::isfinite(visible.centroid.y) &&
-                visible.centroid.y >= 0.0)
-                (*slot)->lastY = visible.centroid.y;
-        }
-        for (std::size_t index = 0; index < detection.endedTrackCount; ++index) {
-            const int trackId = detection.endedTrackIds[index];
-            const auto slot = std::find_if(pendingEvents.begin(), pendingEvents.end(),
-                                           [&](const std::optional<PendingEvent>& value) {
-                                               return value && value->trackId == trackId;
-                                           });
-            if (slot != pendingEvents.end())
-                finalizePending(*slot);
+        if (!processingAllowed.load(std::memory_order_acquire)) {
+            eventProcessor.discardEntriesFromSource(frameIndex(meta));
+            return;
         }
         if (fatal.load(std::memory_order_acquire))
             throw ConsumerFault{};
     }
 
-    void finalizePending(std::optional<PendingEvent>& pending) {
-        if (!pending)
-            return;
-        resolvePendingDecision(*pending);
+    void finalizePending() {
         run::HitBoundarySnapshot boundary;
         {
             std::lock_guard lock(boundaryMutex);
             boundary = currentBoundary;
         }
-        routing::ObservedRouteTracker route(std::move(boundary));
-        if (pending->lastY)
-            route.addSample(*pending->lastY);
-        pending->event.observedRoute = route.finalize();
-        const bool pulseFailed = pending->pulseFailed;
-        PersistenceItem item;
-        item.sourceIndex = pending->event.sourceFrameIndex;
-        item.event = std::move(pending->event);
-        item.cropBytes = std::move(pending->cropBytes);
-        enqueue(std::move(item));
-        pending.reset();
-        if (pulseFailed)
-            throw ConsumerFault{};
-    }
-
-    void finalizePending() {
-        for (auto& pending : pendingEvents)
-            finalizePending(pending);
-    }
-
-    void resolvePendingDecision(PendingEvent& pending) {
-        if (pending.decisionResolved)
-            return;
         QString localError;
-        const auto decision = decision::DecisionService::decide(
-            pending.routing.triggerMode, pending.event.predictedClassId,
-            pending.routing.hitClassId, &localError);
-        if (!decision) {
-            const qint64 sourceFrameIndex = pending.event.sourceFrameIndex;
-            consumerFault(sourceFrameIndex, localError);
+        if (!eventProcessor.finalizeAll(
+                boundary,
+                [this](const run::RoutingSnapshot& eventRouting,
+                       QString* pulseError) {
+                    return dispatchHit(eventRouting, pulseError);
+                },
+                [this](run::CompletedDropletRunEvent completed,
+                       QString*) {
+                    PersistenceItem item;
+                    item.sourceIndex = completed.event.sourceFrameIndex;
+                    item.event = std::move(completed.event);
+                    item.cropBytes = std::move(completed.cropBytes);
+                    enqueue(std::move(item));
+                    return true;
+                },
+                &localError)) {
+            if (fatal.load(std::memory_order_acquire))
+                throw ConsumerFault{};
+            consumerFault(positiveFrameIndex(), localError);
         }
-        pending.event.decision = *decision;
-        pending.decisionResolved = true;
+    }
+
+    run::DaqPulseStatus dispatchHit(const run::RoutingSnapshot& routing,
+                                    QString* pulseError) {
+        QString localError;
         std::unique_lock pulseLock(pulseMutex);
-        if (*decision == run::Route::Waste) {
-            pending.event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
-        } else if (fatal.load(std::memory_order_acquire) ||
-                   !pulseAllowed.load(std::memory_order_acquire) ||
-                   !reserveExternalCallback(true)) {
-            pending.event.daqPulseStatus =
-                run::DaqPulseStatus::SuppressedNotIssued;
-        } else {
-            const run::DaqPulseStatus pulseStatus =
-                pulse(pending.routing.physicalDaqOutputEnabled, &localError);
-            if (pulseStatus != run::DaqPulseStatus::Issued &&
-                pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
-                pulseStatus != run::DaqPulseStatus::Failed) {
-                const qint64 sourceFrameIndex = pending.event.sourceFrameIndex;
-                consumerFault(
-                    sourceFrameIndex,
-                    QStringLiteral("Hit pulse callback returned an invalid status."));
-            }
-            pending.event.daqPulseStatus = pulseStatus;
-            if (pulseStatus == run::DaqPulseStatus::Failed) {
-                {
-                    std::lock_guard lock(stateMutex);
-                    diagnostic =
-                        localError.isEmpty()
-                            ? QStringLiteral("The Live Hit pulse failed.")
-                            : localError;
-                }
-                fatal.store(true, std::memory_order_release);
-                pending.pulseFailed = true;
-            }
+        if (fatal.load(std::memory_order_acquire) ||
+            !pulseAllowed.load(std::memory_order_acquire) ||
+            !reserveExternalCallback(true)) {
+            return run::DaqPulseStatus::SuppressedNotIssued;
         }
+        const run::DaqPulseStatus status =
+            pulse(routing.physicalDaqOutputEnabled, &localError);
+        if (status == run::DaqPulseStatus::Failed) {
+            const QString failure =
+                localError.isEmpty() ? QStringLiteral("The Live Hit pulse failed.")
+                                     : localError;
+            {
+                std::lock_guard lock(stateMutex);
+                diagnostic = failure;
+            }
+            fatal.store(true, std::memory_order_release);
+            setError(pulseError, failure);
+        } else {
+            setError(pulseError, localError);
+        }
+        return status;
     }
 
     bool enqueue(PersistenceItem item) {
@@ -1537,11 +1400,10 @@ private:
     run::RunIntegrity integrity;
     bool haveDelivered = false;
     qint64 lastDelivered = 0;
-    qint64 eventNumber = 0;
     double elapsedBeforeCurrentRun = 0.0;
     QElapsedTimer activeElapsed;
     std::unique_ptr<LiveFrameDispatcher> dispatcher;
-    std::array<std::optional<PendingEvent>, kDropletTrackCapacity> pendingEvents;
+    run::DropletRunEventProcessor eventProcessor;
     std::optional<run::RunWriterV2> writer;
     std::mutex writerMutex;
     std::mutex pulseMutex;

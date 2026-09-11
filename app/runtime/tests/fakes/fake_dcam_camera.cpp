@@ -275,6 +275,12 @@ DCAMERR dcamprop_getattr(HDCAM, DCAMPROP_ATTR *attribute)
     const auto value = fake_dcam::state.attributes.find(attribute->iProp);
     attribute->attribute =
         value == fake_dcam::state.attributes.end() ? 0 : value->second;
+    if (attribute->iProp == DCAM_IDPROP_EXPOSURETIME) {
+        attribute->valuemin = 0.000001;
+        attribute->valuemax = 10.0;
+        attribute->valuestep = 0.000001;
+        attribute->valuedefault = 0.010;
+    }
     return DCAMERR_SUCCESS;
 }
 
@@ -311,4 +317,3 @@ DCAMERR dcamprop_setvalue(HDCAM, int32 property, double value)
     fake_dcam::state.properties[property] = value;
     return DCAMERR_SUCCESS;
 }
-

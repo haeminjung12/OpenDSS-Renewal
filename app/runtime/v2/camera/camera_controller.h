@@ -3,10 +3,13 @@
 #include "camera_device.h"
 
 #include <QObject>
+#include <QElapsedTimer>
 #include <QMutex>
 #include <QString>
 #include <QStringList>
+#include <QTimer>
 
+#include <atomic>
 #include <optional>
 
 namespace desktop_app::v2 {
@@ -32,8 +35,9 @@ class CameraController final : public QObject
     Q_PROPERTY(QString readoutMode READ readoutMode NOTIFY stateChanged)
     Q_PROPERTY(QStringList resolutionPresets READ resolutionPresets CONSTANT)
     Q_PROPERTY(int resolutionPresetIndex READ resolutionPresetIndex NOTIFY stateChanged)
-    Q_PROPERTY(int previewLutMinimum READ previewLutMinimum NOTIFY previewLutChanged)
-    Q_PROPERTY(int previewLutMaximum READ previewLutMaximum NOTIFY previewLutChanged)
+    Q_PROPERTY(int contrastMinimum READ contrastMinimum NOTIFY contrastChanged)
+    Q_PROPERTY(int contrastMaximum READ contrastMaximum NOTIFY contrastChanged)
+    Q_PROPERTY(bool autoExposureActive READ autoExposureActive NOTIFY autoExposureActiveChanged)
 
 public:
     CameraController(CameraService &service, CameraPreviewImageProvider &previewProvider,
@@ -54,8 +58,9 @@ public:
     QString readoutMode() const;
     QStringList resolutionPresets() const;
     int resolutionPresetIndex() const;
-    int previewLutMinimum() const;
-    int previewLutMaximum() const;
+    int contrastMinimum() const;
+    int contrastMaximum() const;
+    bool autoExposureActive() const;
     bool hasFrame() const;
     quint64 latestDeliveryId() const;
 
@@ -69,11 +74,14 @@ public:
     Q_INVOKABLE bool selectResolutionPreset(int index);
     Q_INVOKABLE bool applyBitDepth(int bitDepth);
     Q_INVOKABLE bool applyExposureMs(double exposureMs);
+    Q_INVOKABLE bool autoExposure();
+    Q_INVOKABLE void cancelAutoExposure();
     Q_INVOKABLE bool applyReadoutMode(const QString &readoutMode);
-    Q_INVOKABLE void setPreviewLutRange(int blackLevel, int whiteLevel);
+    Q_INVOKABLE bool setContrastRange(int low, int high);
+    Q_INVOKABLE bool autoContrast();
     Q_INVOKABLE void acknowledgePreviewReady(const QString &previewSource);
     bool applyProfileSettings(const CameraAppliedSettings &settings,
-                              int lutMinimum, int lutMaximum,
+                              int contrastMinimum, int contrastMaximum,
                               int timeoutMs = 5000);
 
 signals:
@@ -81,7 +89,8 @@ signals:
     void errorChanged();
     void busyChanged();
     void previewSourceChanged();
-    void previewLutChanged();
+    void contrastChanged();
+    void autoExposureActiveChanged();
     void frameReady(desktop_app::v2::CameraFrame frame);
 
     void openRequested();
@@ -97,6 +106,10 @@ private:
     void acceptFrame(CameraFrame frame);
     void updateFrame();
     void updateConfiguration(bool available, CameraAppliedSettings appliedSettings);
+    void updateExposureLimits(bool available, CameraExposureLimits limits,
+                              const QString &error);
+    void processAutoExposureFrame(qint64 monotonicTimestampNs);
+    void finishAutoExposure(const QString &error = {});
     bool requestConfiguration(CameraAppliedSettings requested);
     void setError(const QString &error);
     void setBusy(bool busy);
@@ -116,18 +129,27 @@ private:
     std::optional<bool> pendingCustomResolutionSelected_;
     bool profileApplyTimedOut_ = false;
     CameraAppliedSettings appliedSettings_;
-    int previewLutMinimum_ = 0;
-    int previewLutMaximum_ = 255;
-    int appliedPreviewLutMinimum_ = 0;
-    int appliedPreviewLutMaximum_ = 255;
+    std::atomic<int> contrastRange_ = 0x00ff;
     QMutex pendingPreviewFrameMutex_;
+    std::optional<CameraFrame> latestUnadjustedFrame_;
     std::optional<CameraFrame> pendingPreviewFrame_;
     bool previewDeliveryScheduled_ = false;
     bool previewRevisionInFlight_ = false;
-    bool previewLutUpdatePending_ = false;
     bool defaultBitDepthInitializationPending_ = false;
     bool defaultBitDepthInitialized_ = false;
     std::optional<int> pendingExplicitBitDepth_;
+    bool exposureLimitsAvailable_ = false;
+    CameraExposureLimits exposureLimits_;
+    QString exposureLimitsError_;
+    std::atomic_bool autoExposureActive_ = false;
+    std::atomic_bool autoExposureFrameScheduled_ = false;
+    bool autoExposureApplyPending_ = false;
+    int autoExposureApplications_ = 0;
+    int autoExposureLastP95_ = -1;
+    int autoExposureNoProgress_ = 0;
+    qint64 autoExposureLastTimestampNs_ = 0;
+    QElapsedTimer autoExposureElapsed_;
+    QTimer autoExposureTimeout_;
 };
 
 } // namespace desktop_app::v2

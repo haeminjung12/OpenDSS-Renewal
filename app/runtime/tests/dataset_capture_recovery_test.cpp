@@ -160,10 +160,27 @@ int main(int argc, char** argv) {
     FakeDetector detector;
     DropletFrameProcessor manualProcessor(detector);
     DatasetCaptureService manual(operations, manualProcessor, [&] { return now; });
-    if (!check(manual.start(request(temporary.path(), "manual"), &error), error) ||
+    const QJsonObject expectedCameraSettings{
+        {"device_id", "fake-camera"},
+        {"image_width", 32},
+        {"image_height", 24},
+        {"bit_depth", 8},
+        {"exposure_ms", 4.25},
+        {"readout_mode", "Fast"},
+        {"pixel_format", "gray8"},
+        {"contrast_min", 12},
+        {"contrast_max", 220},
+        {"adjustment_mode", "linear_contrast"},
+        {"source", "production_controller"},
+    };
+    DatasetCaptureRequest manualRequest = request(temporary.path(), "manual");
+    manualRequest.cameraSettings = expectedCameraSettings;
+    if (!check(manual.start(manualRequest, &error), error) ||
         !check(manual.offerFrame(frame(), meta(1), 1000.0, &error), error) ||
         !check(manual.offerFrame(frame(), meta(3), 1000.0, &error), error))
         return 1;
+    manualRequest.cameraSettings["exposure_ms"] = 999.0;
+    manualRequest.cameraSettings.remove("contrast_min");
     now = 50'000'000;
     const bool paused = manual.pause(&error);
     if (!check(paused, error.isEmpty() ? "Manual pause failed: " + manual.snapshot().error : error))
@@ -184,9 +201,12 @@ int main(int argc, char** argv) {
                    manualManifest->data().records.front().sourceFrameIndex == 1 &&
                    manualManifest->data().classes.isEmpty() &&
                    manualManifest->data().labels.isEmpty() &&
+                   manualManifest->data().provenance.crop.width == 96 &&
+                   manualManifest->data().provenance.crop.height == 96 &&
+                   manualManifest->data().provenance.cameraSettings == expectedCameraSettings &&
                    manualManifest->data().provenance.sequence.frameCount == 3 &&
                    manualManifest->data().provenance.sequence.integrity.sourceFrameGaps.count == 1,
-               "Manual capture neutral record/integrity contract failed: " + error))
+               "Manual capture Start snapshot/provenance round-trip failed: " + error))
         return 4;
     for (int index = 1; index <= 3; ++index) {
         const QString path = QDir(manualFolder)
@@ -197,9 +217,20 @@ int main(int argc, char** argv) {
                    "Numbered TIFF is unreadable: " + path))
             return 5;
     }
-    if (!check(detector.calls == 3 &&
-                   QFileInfo(QDir(manualFolder).filePath("crops/droplet_000001.png")).isFile() &&
-                   QFileInfo(QDir(manualFolder).filePath("crops/droplet_000002.png")).isFile(),
+    const QString firstCropPath =
+        QDir(manualFolder).filePath("crops/droplet_000001.png");
+    const QString secondCropPath =
+        QDir(manualFolder).filePath("crops/droplet_000002.png");
+    QImageReader firstCropReader(firstCropPath);
+    QImageReader secondCropReader(secondCropPath);
+    const QImage firstCrop = firstCropReader.read();
+    const QImage secondCrop = secondCropReader.read();
+    const QSize expectedCropSize(desktop_app::CropService::OutputSize,
+                                 desktop_app::CropService::OutputSize);
+    if (!check(detector.calls == 3 && QFileInfo(firstCropPath).isFile() &&
+                   QFileInfo(secondCropPath).isFile() &&
+                   firstCrop.size() == expectedCropSize &&
+                   secondCrop.size() == expectedCropSize,
                "Two same-frame entered crops were not written from one detector call") ||
         !check(operations.snapshot().lifecycle == OperationLifecycle::Idle,
                "Completed capture retained its operation lease"))

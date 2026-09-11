@@ -53,8 +53,12 @@ Rectangle {
     property string cameraCustomHeight: ""
     property string cameraBitDepth: "8-bit"
     property string cameraExposure: ""
+    property bool autoExposureActive: false
+    property bool cameraCollectionLocked: false
     property string cameraReadoutMode: ""
     property string cameraLut: ""
+    property int contrastMinimum: 0
+    property int contrastMaximum: 255
     property string daqDevice: ""
     property string daqOutputChannel: ""
     property bool continuousWaveformActive: false
@@ -132,10 +136,15 @@ Rectangle {
     property alias cameraPreviewImage: cameraPreviewViewer.image
     property alias cameraPreviewPlaceholder: cameraPreviewViewer.placeholder
     property alias cameraExposureField: cameraExposureField
+    property alias autoExposureButton: autoExposureButton
     property alias cameraBitDepthSelector: cameraBitDepthSelector
     property alias cameraReadoutSelector: cameraReadoutSelector
     property alias cameraLutSelector: cameraLutSelector
-    property alias previewLutRangeSlider: previewLutRangeSlider
+    property alias contrastRangeSlider: contrastRangeSlider
+    property alias previewLutRangeSlider: contrastRangeSlider
+    property alias contrastLowField: contrastLowField
+    property alias contrastHighField: contrastHighField
+    property alias autoContrastButton: autoContrastButton
     property alias daqStatusText: daqStatusText
     property alias daqDeviceText: daqDeviceText
     property alias daqRefreshDevicesButton: daqRefreshDevicesButton
@@ -332,22 +341,83 @@ Rectangle {
                             Text { text: qsTr("Bit Depth"); font: Constants.font }
                             AppComboBox { id: cameraBitDepthSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["8-bit", "12-bit", "16-bit"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraBitDepth === "16-bit" ? 2 : root.cameraBitDepth === "12-bit" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
                             Text { text: qsTr("Exposure"); font: Constants.font }
-                            AppTextField { id: cameraExposureField; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: parent.width; height: Constants.appStandardControlHeight }
+                            Row {
+                                width: parent.width
+                                spacing: Constants.spacing
+                                AppTextField { id: cameraExposureField; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); text: root.cameraExposure; width: (parent.width - Constants.spacing) / 2; height: Constants.appStandardControlHeight }
+                                AppButton {
+                                    id: autoExposureButton
+                                    enabled: root.cameraConfigurationAvailable
+                                             && root.cameraStatus !== qsTr("Unavailable")
+                                             && !root.cameraCollectionLocked
+                                             && (root.autoExposureActive
+                                                 || (!root.cameraLocked
+                                                     && root.cameraPreviewSource !== ""))
+                                    text: root.autoExposureActive ? qsTr("Cancel Auto Exposure") : qsTr("Auto Exposure")
+                                    width: (parent.width - Constants.spacing) / 2
+                                    height: Constants.appStandardControlHeight
+                                    Accessible.name: qsTr("Auto Exposure")
+                                }
+                            }
                             Text { text: qsTr("Readout"); font: Constants.font }
                             AppComboBox { id: cameraReadoutSelector; enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable"); model: root.cameraConfigurationAvailable ? ["Fast", "Slow"] : []; currentIndex: !root.cameraConfigurationAvailable ? -1 : root.cameraReadoutMode === "Slow" ? 1 : 0; width: parent.width; height: Constants.appStandardControlHeight }
-                            Text { text: qsTr("LUT"); font: Constants.font }
+                            Text { text: qsTr("Contrast"); font: Constants.font }
                             AppComboBox { id: cameraLutSelector; visible: false; enabled: false; model: ["Linear", "High contrast"]; currentIndex: root.cameraLut === "High contrast" ? 1 : 0; width: 0; height: 0 }
+                            Row {
+                                width: parent.width
+                                spacing: Constants.spacing
+                                Column {
+                                    width: (parent.width - Constants.spacing) / 2
+                                    spacing: 4
+                                    Text { text: qsTr("LOW"); font: Constants.smallFont }
+                                    AppTextField {
+                                        id: contrastLowField
+                                        enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable")
+                                        text: String(root.contrastMinimum)
+                                        width: parent.width
+                                        height: Constants.appStandardControlHeight
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        validator: IntValidator { bottom: 0; top: 255 }
+                                        Accessible.name: qsTr("Contrast LOW")
+                                    }
+                                }
+                                Column {
+                                    width: (parent.width - Constants.spacing) / 2
+                                    spacing: 4
+                                    Text { text: qsTr("HIGH"); font: Constants.smallFont }
+                                    AppTextField {
+                                        id: contrastHighField
+                                        enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable")
+                                        text: String(root.contrastMaximum)
+                                        width: parent.width
+                                        height: Constants.appStandardControlHeight
+                                        inputMethodHints: Qt.ImhDigitsOnly
+                                        validator: IntValidator { bottom: 0; top: 255 }
+                                        Accessible.name: qsTr("Contrast HIGH")
+                                    }
+                                }
+                            }
                             RangeSlider {
-                                id: previewLutRangeSlider
-                                enabled: root.cameraConfigurationAvailable
+                                id: contrastRangeSlider
+                                enabled: root.cameraConfigurationAvailable && !root.cameraLocked && root.cameraStatus !== qsTr("Unavailable")
                                 width: parent.width
                                 from: 0
                                 to: 255
-                                first.value: 0
-                                second.value: 255
-                                Accessible.name: qsTr("LUT")
+                                stepSize: 1
+                                first.value: root.contrastMinimum
+                                second.value: root.contrastMaximum
+                                Accessible.name: qsTr("Contrast range")
                             }
-                            Text { text: qsTr("Presentation LUT only"); color: Constants.mutedTextColor; font: Constants.smallFont; width: parent.width; wrapMode: Text.WordWrap }
+                            AppButton {
+                                id: autoContrastButton
+                                enabled: root.cameraConfigurationAvailable && !root.cameraLocked
+                                         && root.cameraStatus !== qsTr("Unavailable")
+                                         && root.cameraPreviewSource !== ""
+                                text: qsTr("Auto Contrast")
+                                width: parent.width
+                                height: Constants.appStandardControlHeight
+                                Accessible.name: qsTr("Auto Contrast")
+                            }
                         }
                     }
                     AppAccordion {

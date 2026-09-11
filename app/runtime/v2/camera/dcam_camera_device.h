@@ -24,6 +24,7 @@ public:
                                   QString *error) override;
     CameraConfigurationSupport configurationSupport(QString *error) const override;
     bool readConfiguration(CameraAppliedSettings &settings, QString *error) override;
+    bool readExposureLimits(CameraExposureLimits &limits, QString *error) const override;
     CameraConfigurationResult applyConfiguration(
         const CameraAppliedSettings &requested,
         CameraAppliedSettings &applied,
@@ -36,4 +37,3 @@ private:
 };
 
 } // namespace desktop_app::v2
-

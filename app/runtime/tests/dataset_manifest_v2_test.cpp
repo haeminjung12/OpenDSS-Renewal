@@ -104,6 +104,8 @@ int main(int argc, char** argv) {
     const auto loaded = DatasetManifestV2::load(path, &error);
     if (!check(loaded && loaded->data().datasetId == original.datasetId &&
                    loaded->data().provenance.notes == "provenance" &&
+                   loaded->data().provenance.crop.width == 96 &&
+                   loaded->data().provenance.crop.height == 96 &&
                    loaded->data().provenance.sequence.integrity.sourceFrameGaps.count == 1 &&
                    loaded->data().records.front().sourceFrameIndex == 3 &&
                    loaded->counts().labeled == 1 &&
@@ -113,6 +115,66 @@ int main(int argc, char** argv) {
     if (!check(loaded->trainingSamples(&error).size() == 1 && error.isEmpty(),
                "Training join rejected valid reviewed crop: " + error))
         return 3;
+
+    QJsonObject historical64Root = QJsonDocument::fromJson(bytes(path)).object();
+    QJsonObject historical64Capture = historical64Root.value("capture").toObject();
+    QJsonObject historical64Crop = historical64Capture.value("crop_settings").toObject();
+    historical64Crop["width"] = 64;
+    historical64Crop["height"] = 64;
+    historical64Capture["crop_settings"] = historical64Crop;
+    historical64Root["capture"] = historical64Capture;
+    if (!overwrite(path, historical64Root))
+        return 41;
+    const auto loadedHistorical64 = DatasetManifestV2::load(path, &error);
+    if (!check(loadedHistorical64 && loadedHistorical64->data().provenance.crop.width == 64 &&
+                   loadedHistorical64->data().provenance.crop.height == 64,
+               "Historical 64x64 Dataset no longer loads: " + error))
+        return 42;
+    DatasetManifestData prohibitedNative64 = original;
+    prohibitedNative64.provenance.crop.width = 64;
+    prohibitedNative64.provenance.crop.height = 64;
+    if (!check(!DatasetManifestV2::save(path, prohibitedNative64, &error),
+               "Native Dataset save still emitted a 64x64 crop contract"))
+        return 43;
+    if (!check(DatasetManifestV2::save(path, original, &error), error))
+        return 44;
+
+    const auto sameTrainingSamples = [](const QVector<TrainingSample>& left,
+                                        const QVector<TrainingSample>& right) {
+        if (left.size() != right.size())
+            return false;
+        for (qsizetype index = 0; index < left.size(); ++index) {
+            if (left[index].recordId != right[index].recordId ||
+                left[index].classId != right[index].classId ||
+                left[index].cropPath != right[index].cropPath)
+                return false;
+        }
+        return true;
+    };
+    const auto baselineSamples = loaded->trainingSamples(&error);
+    DatasetManifestData differentCameraSettings = original;
+    differentCameraSettings.provenance.cameraSettings = {
+        {"exposure_us", 5000}, {"contrast_low", 12}, {"contrast_high", 240}};
+    if (!check(DatasetManifestV2::save(path, differentCameraSettings, &error), error))
+        return 37;
+    const auto differentCameraManifest = DatasetManifestV2::load(path, &error);
+    const auto differentCameraSamples = differentCameraManifest
+        ? differentCameraManifest->trainingSamples(&error) : QVector<TrainingSample>{};
+    if (!check(differentCameraManifest && error.isEmpty() &&
+                   sameTrainingSamples(baselineSamples, differentCameraSamples),
+               "Camera setting differences changed training samples: " + error))
+        return 38;
+    DatasetManifestData noCameraSettings = original;
+    noCameraSettings.provenance.cameraSettings = {};
+    if (!check(DatasetManifestV2::save(path, noCameraSettings, &error), error))
+        return 39;
+    const auto noCameraManifest = DatasetManifestV2::load(path, &error);
+    const auto noCameraSamples = noCameraManifest
+        ? noCameraManifest->trainingSamples(&error) : QVector<TrainingSample>{};
+    if (!check(noCameraManifest && error.isEmpty() &&
+                   sameTrainingSamples(baselineSamples, noCameraSamples),
+               "Absent camera settings changed training samples: " + error))
+        return 40;
 
     DatasetManifestData legacy = original;
     auto& legacyProvenance = legacy.provenance;
@@ -126,6 +188,8 @@ int main(int argc, char** argv) {
     legacyProvenance.cameraSettings = {};
     legacyProvenance.detectionSettings = {};
     legacyProvenance.programSettings = {};
+    legacyProvenance.crop.width = 64;
+    legacyProvenance.crop.height = 64;
     legacyProvenance.crop.method.clear();
     legacyProvenance.crop.interpolation.clear();
     auto& legacyRecord = legacy.records.front();

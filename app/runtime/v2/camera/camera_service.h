@@ -39,6 +39,9 @@ signals:
     void commandFinished(bool success, const QString &error);
     void configurationChanged(bool available,
                               desktop_app::v2::CameraAppliedSettings appliedSettings);
+    void exposureLimitsChanged(bool available,
+                               desktop_app::v2::CameraExposureLimits limits,
+                               const QString &error);
 
 private:
     bool openDevice(QString *error);
@@ -53,7 +56,9 @@ private:
     CameraState state_;
     std::optional<quint64> lastDeliveryId_;
     std::optional<qint64> lastTimestampNs_;
+    bool exposureLimitsAvailable_ = false;
+    CameraExposureLimits exposureLimits_;
+    QString exposureLimitsError_;
 };
 
 } // namespace desktop_app::v2
-

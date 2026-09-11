@@ -57,6 +57,7 @@ class DcamCamera {
     std::string applyApprovedSettings(const CameraSettings& settings);
     CameraSettingsSupport approvedSettingsSupport(std::string& error) const;
     std::string readApprovedSettings(CameraSettings& settings) const;
+    std::string readExposureLimits(double& minimumMs, double& maximumMs) const;
     std::string start();
     void stop();
     void cleanup();

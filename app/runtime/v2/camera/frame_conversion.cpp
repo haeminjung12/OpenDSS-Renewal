@@ -1,6 +1,8 @@
 #include "frame_conversion.h"
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -69,30 +71,72 @@ QImage convertCameraFrame(const CameraFrame &frame, QString *error)
     return owned.convertToFormat(QImage::Format_Grayscale8);
 }
 
-QImage applyLinearPreviewLut(const QImage &image, int blackLevel, int whiteLevel)
+QImage applyLinearContrast(const QImage &image, int low, int high)
 {
     if (image.isNull())
         return image;
 
-    blackLevel = std::clamp(blackLevel, 0, 255);
-    whiteLevel = std::clamp(whiteLevel, 0, 255);
-    if ((blackLevel == 0 && whiteLevel == 255) || whiteLevel <= blackLevel)
+    low = std::clamp(low, 0, 255);
+    high = std::clamp(high, 0, 255);
+    if ((low == 0 && high == 255) || high <= low)
         return image;
 
     QImage output = image.format() == QImage::Format_Grayscale8
         ? image.copy()
         : image.convertToFormat(QImage::Format_Grayscale8);
+    std::array<uchar, 256> lookup{};
+    for (int value = 0; value < 256; ++value) {
+        lookup[value] = static_cast<uchar>(
+            value <= low ? 0
+            : value >= high ? 255
+            : (value - low) * 255 / (high - low));
+    }
     for (int y = 0; y < output.height(); ++y) {
         uchar *row = output.scanLine(y);
-        for (int x = 0; x < output.width(); ++x) {
-            const int value = row[x];
-            row[x] = static_cast<uchar>(
-                value <= blackLevel ? 0
-                : value >= whiteLevel ? 255
-                : (value - blackLevel) * 255 / (whiteLevel - blackLevel));
-        }
+        for (int x = 0; x < output.width(); ++x)
+            row[x] = lookup[row[x]];
     }
     return output;
+}
+
+QPair<int, int> autoContrastRange(const QImage &image)
+{
+    if (image.isNull() || image.width() <= 0 || image.height() <= 0)
+        return {0, 255};
+
+    const QImage grayscale = image.format() == QImage::Format_Grayscale8
+        ? image : image.convertToFormat(QImage::Format_Grayscale8);
+    std::array<qsizetype, 256> histogram{};
+    qsizetype count = 0;
+    for (int y = 0; y < grayscale.height(); ++y) {
+        const uchar *row = grayscale.constScanLine(y);
+        for (int x = 0; x < grayscale.width(); ++x) {
+            ++histogram[row[x]];
+            ++count;
+        }
+    }
+    if (count == 0)
+        return {0, 255};
+
+    const auto percentile = [&histogram, count](double fraction) {
+        const qsizetype target = std::max<qsizetype>(1, static_cast<qsizetype>(std::ceil(count * fraction)));
+        qsizetype cumulative = 0;
+        for (int value = 0; value < 256; ++value) {
+            cumulative += histogram[value];
+            if (cumulative >= target)
+                return value;
+        }
+        return 255;
+    };
+    int low = percentile(0.01);
+    int high = percentile(0.995);
+    if (low < high)
+        return {low, high};
+    if (low == 0)
+        return {0, 1};
+    if (low == 255)
+        return {254, 255};
+    return {low - 1, low + 1};
 }
 
 } // namespace desktop_app::v2

@@ -13,6 +13,8 @@ struct DatasetCrop {
 
 class CropService final {
   public:
+    static constexpr int OutputSize = 96;
+
     static bool makeDatasetCrop(const cv::Mat& frame, const cv::Rect& boundingBox,
                                 DatasetCrop* output, QString* error = nullptr);
 };

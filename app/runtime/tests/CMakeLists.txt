@@ -781,6 +781,29 @@ add_test(
 )
 set_tests_properties(run_writer_v2_test PROPERTIES TIMEOUT 15)
 
+qt_add_executable(droplet_run_event_processor_test
+  droplet_run_event_processor_test.cpp
+  ../v2/decision/decision_service.cpp
+  ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/droplet_run_event_processor.cpp
+)
+target_include_directories(droplet_run_event_processor_test PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/..
+  ${OpenCV_INCLUDE_DIRS}
+)
+target_link_libraries(droplet_run_event_processor_test PRIVATE
+  Qt6::Core
+  Qt6::Gui
+  ${OpenCV_LIBS}
+)
+add_test(
+  NAME droplet_run_event_processor_test
+  COMMAND ${CMAKE_COMMAND} -E env
+    "PATH=$<TARGET_FILE_DIR:Qt6::Core>\;$<TARGET_FILE_DIR:Qt6::Gui>\;$ENV{PATH}"
+    $<TARGET_FILE:droplet_run_event_processor_test>
+)
+set_tests_properties(droplet_run_event_processor_test PROPERTIES TIMEOUT 15)
+
 qt_add_executable(camera_service_contract_test
   camera_service_contract_test.cpp
   ../v2/camera/camera_service.cpp
@@ -1086,6 +1109,7 @@ qt_add_executable(sequence_test_service_test
   ../v2/decision/decision_service.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/droplet_run_event_processor.cpp
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
@@ -1129,6 +1153,7 @@ qt_add_executable(sequence_test_production_model_probe
   ../v2/model/model_load_service.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/droplet_run_event_processor.cpp
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
@@ -1163,6 +1188,7 @@ qt_add_executable(sequence_test_controller_test
   ../v2/decision/decision_service.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/droplet_run_event_processor.cpp
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
@@ -1211,6 +1237,7 @@ qt_add_executable(live_sorting_service_test
   ../v2/model/model_load_service.cpp
   ../v2/operation/operation_coordinator.cpp
   ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/droplet_run_event_processor.cpp
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp
   ../v2/sequence/sequence_manifest_v2.cpp
@@ -1265,6 +1292,7 @@ qt_add_executable(live_sorting_controller_test
   ../v2/operation/operation_coordinator.cpp
   ../v2/persistence/frame_persistence_service.cpp
   ../v2/routing/observed_route_tracker.cpp
+  ../v2/run/droplet_run_event_processor.cpp
   ../v2/run/run_manifest_v2.cpp
   ../v2/run/run_writer_v2.cpp
   ../v2/sequence/sequence_manifest_v2.cpp

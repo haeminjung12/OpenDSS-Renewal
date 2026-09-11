@@ -210,11 +210,12 @@ std::optional<DatasetManifestV2> DatasetManifestV2::load(const QString& path, QS
         fail(error, "dataset.json is not a valid JSON object.");
         return std::nullopt;
     }
-    return fromJsonObject(document.object(), path, error);
+    return fromJsonObject(document.object(), path, error, true);
 }
 
 std::optional<DatasetManifestV2>
-DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, QString* error) {
+DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path,
+                                  QString* error, bool allowHistorical64) {
     if (root.value("schema_version").toString() != SchemaVersion) {
         fail(error, "Unsupported Dataset schema_version.");
         return std::nullopt;
@@ -379,10 +380,16 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
         !positiveInt(crop, "width", cropData.width, error) ||
         !positiveInt(crop, "height", cropData.height, error) ||
         !string(crop, "pixel_format", cropData.pixelFormat, false, error) ||
-        !string(crop, "file_format", cropData.fileFormat, false, error) ||
-        cropData.width != 64 || cropData.height != 64 ||
-        cropData.pixelFormat != "gray8" || cropData.fileFormat != "png")
-        return fail(error, "Dataset crop settings are fixed at 64x64 gray8 PNG area."),
+        !string(crop, "file_format", cropData.fileFormat, false, error))
+        return std::nullopt;
+    const bool currentSize = cropData.width == 96 && cropData.height == 96;
+    const bool historicalSize = cropData.width == 64 && cropData.height == 64 &&
+                                (allowHistorical64 || legacyCropOnly);
+    if ((!currentSize && !historicalSize) || cropData.pixelFormat != "gray8" ||
+        cropData.fileFormat != "png")
+        return fail(error,
+                    "Dataset crop settings must be current 96x96 or historical "
+                    "64x64 gray8 PNG area."),
                std::nullopt;
     if (legacyCropOnly) {
         if (!nullish(crop.value("method")) ||
@@ -397,7 +404,8 @@ DatasetManifestV2::fromJsonObject(const QJsonObject& root, const QString& path, 
                cropData.method != "centered_max_bbox_clamped" ||
                cropData.interpolation != "area") {
         return fail(error,
-                    "Dataset crop settings are fixed at 64x64 gray8 PNG area."),
+                    "Dataset crop settings must use centered_max_bbox_clamped "
+                    "area interpolation."),
                std::nullopt;
     }
 
@@ -670,7 +678,7 @@ bool DatasetManifestV2::save(const QString& path, const DatasetManifestData& dat
         {"records", records}, {"labels", labels}};
     if (!p.provenanceMode.isEmpty())
         root.insert("provenance_mode", p.provenanceMode);
-    if (!fromJsonObject(root, path, error))
+    if (!fromJsonObject(root, path, error, false))
         return false;
     return desktop_app::writeJsonObjectAtomically(path, root, error) &&
            load(path, error).has_value();

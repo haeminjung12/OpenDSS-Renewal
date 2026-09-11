@@ -40,15 +40,34 @@ int main(int argc, char **argv)
     ok &= check(std::memcmp(converted8.constScanLine(0), "\x00\x11\x22", 3) == 0
                     && std::memcmp(converted8.constScanLine(1), "\x33\x44\x55", 3) == 0,
                 "Mono8 conversion must copy active pixels and skip row padding.");
-    const QImage lutImage = applyLinearPreviewLut(converted8, 17, 68);
+    const QImage lutImage = applyLinearContrast(converted8, 17, 68);
     ok &= check(lutImage.constScanLine(0)[0] == 0
                     && lutImage.constScanLine(0)[1] == 0
                     && lutImage.constScanLine(0)[2] == 85
                     && lutImage.constScanLine(1)[0] == 170
                     && lutImage.constScanLine(1)[1] == 255,
-                "The preview LUT must linearly clamp black and white display levels.");
+                "Contrast must linearly clamp LOW and HIGH levels.");
     ok &= check(converted8.constScanLine(0)[2] == 0x22,
-                "Preview LUT conversion must not modify the source image.");
+                "Contrast conversion must not modify the source image.");
+    QImage allValues(256, 1, QImage::Format_Grayscale8);
+    for (int value = 0; value < 256; ++value)
+        allValues.scanLine(0)[value] = static_cast<uchar>(value);
+    const QImage allValuesAdjusted = applyLinearContrast(allValues, 17, 68);
+    bool exactLinearContrast = true;
+    for (int value = 0; value < 256; ++value) {
+        const int expected = value <= 17 ? 0
+            : value >= 68 ? 255
+            : (value - 17) * 255 / (68 - 17);
+        exactLinearContrast &= allValuesAdjusted.constScanLine(0)[value] == expected;
+    }
+    ok &= check(exactLinearContrast,
+                "Contrast lookup must preserve exact linear-clamp output for every byte value.");
+    ok &= check(autoContrastRange(QImage()) == QPair<int, int>(0, 255),
+                "Auto Contrast must retain the default range for an empty frame.");
+    QImage flat(2, 2, QImage::Format_Grayscale8);
+    flat.fill(127);
+    ok &= check(autoContrastRange(flat) == QPair<int, int>(126, 128),
+                "Auto Contrast must produce a valid deterministic range for a flat frame.");
 
     CameraFrame mono16;
     mono16.pixelFormat = CameraPixelFormat::Mono16;

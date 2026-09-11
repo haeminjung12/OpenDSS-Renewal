@@ -36,6 +36,7 @@ CameraService::CameraService(std::unique_ptr<ICameraDevice> device,
 {
     qRegisterMetaType<CameraFrame>();
     qRegisterMetaType<CameraAppliedSettings>();
+    qRegisterMetaType<CameraExposureLimits>();
     pollTimer_->setInterval(0);
     pollTimer_->setTimerType(Qt::PreciseTimer);
     connect(pollTimer_, &QTimer::timeout, this, &CameraService::drainFrames);
@@ -111,6 +112,8 @@ bool CameraService::openDevice(QString *error)
         QMutexLocker locker(&stateMutex_);
         state_.configurationAvailable = false;
     }
+    exposureLimitsAvailable_ = device_->readExposureLimits(exposureLimits_, &deviceError);
+    exposureLimitsError_ = exposureLimitsAvailable_ ? QString() : deviceError;
     publish(CameraStatus::Ready);
     setError(error, {});
     return true;
@@ -176,6 +179,9 @@ void CameraService::close()
 bool CameraService::closeDevice(QString *error)
 {
     pollTimer_->stop();
+    exposureLimitsAvailable_ = false;
+    exposureLimits_ = {};
+    exposureLimitsError_.clear();
     if (!device_) {
         lastDeliveryId_.reset();
         lastTimestampNs_.reset();
@@ -365,7 +371,7 @@ void CameraService::publish(CameraStatus status, const QString &fault)
     }
     emit stateChanged(static_cast<int>(published.status), published.deviceId, published.fault);
     emit configurationChanged(published.configurationAvailable, published.appliedSettings);
+    emit exposureLimitsChanged(exposureLimitsAvailable_, exposureLimits_, exposureLimitsError_);
 }
 
 } // namespace desktop_app::v2
-

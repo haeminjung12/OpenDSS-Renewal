@@ -36,6 +36,10 @@ struct DCAMPROP_ATTR {
     int32 option = 0;
     int32 iReserved1 = 0;
     int32 attribute = 0;
+    double valuemin = 0.0;
+    double valuemax = 0.0;
+    double valuestep = 0.0;
+    double valuedefault = 0.0;
 };
 
 DCAMERR dcamprop_getattr(HDCAM camera, DCAMPROP_ATTR *attribute);

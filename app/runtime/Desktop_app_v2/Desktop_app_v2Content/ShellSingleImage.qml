@@ -130,6 +130,14 @@ Item {
         return names.join(", ")
     }
 
+    function formatExposureMs(value) {
+        const text = String(value)
+        if (text.trim() === "")
+            return ""
+        const numericValue = Number(value)
+        return Number.isFinite(numericValue) ? numericValue.toFixed(2) : text
+    }
+
     function commitDaqDraft(spinBox, propertyName, scale) {
         if (!root.daqController || root.daqDraftCommitInProgress
                 || !root.daqController.canApply)
@@ -664,11 +672,19 @@ Item {
                                                   : state.cameraCustomHeight
         cameraBitDepth: root.cameraController ? root.cameraController.bitDepth
                                               : state.cameraBitDepth
-        cameraExposure: root.cameraController ? root.cameraController.exposureMs
-                                              : state.cameraExposure
+        cameraExposure: root.formatExposureMs(
+                            root.cameraController ? root.cameraController.exposureMs
+                                                  : state.cameraExposure)
+        autoExposureActive: root.cameraController
+                            ? root.cameraController.autoExposureActive : false
+        cameraCollectionLocked: root.captureWorkflowController
+                                ? root.captureWorkflowController.captureActive
+                                : state.capturing
         cameraReadoutMode: root.cameraController ? root.cameraController.readoutMode
                                                  : state.cameraReadoutMode
         cameraLut: root.cameraController ? qsTr("Linear") : state.cameraLut
+        contrastMinimum: root.cameraController ? root.cameraController.contrastMinimum : 0
+        contrastMaximum: root.cameraController ? root.cameraController.contrastMaximum : 255
         daqDevice: root.daqController ? root.discoveredDaqDeviceText() : state.daqDevice
         daqOutputChannel: root.daqController
                           ? root.daqController.selectedOutputChannel : state.daqOutputChannel
@@ -1418,16 +1434,16 @@ Item {
         value: 0
     }
     Binding {
-        target: screen.previewLutRangeSlider.first
+        target: screen.contrastRangeSlider.first
         property: "value"
         when: !!root.cameraController
-        value: root.cameraController ? root.cameraController.previewLutMinimum : 0
+        value: root.cameraController ? root.cameraController.contrastMinimum : 0
     }
     Binding {
-        target: screen.previewLutRangeSlider.second
+        target: screen.contrastRangeSlider.second
         property: "value"
         when: !!root.cameraController
-        value: root.cameraController ? root.cameraController.previewLutMaximum : 255
+        value: root.cameraController ? root.cameraController.contrastMaximum : 255
     }
     Connections {
         target: screen.cameraResolutionSelector
@@ -1499,21 +1515,65 @@ Item {
         }
     }
     Connections {
-        target: screen.previewLutRangeSlider.first
+        target: screen.contrastRangeSlider.first
         function onMoved() {
             if (root.cameraController)
-                root.cameraController.setPreviewLutRange(
-                            Math.round(screen.previewLutRangeSlider.first.value),
-                            Math.round(screen.previewLutRangeSlider.second.value))
+                root.cameraController.setContrastRange(
+                            Math.round(screen.contrastRangeSlider.first.value),
+                            Math.round(screen.contrastRangeSlider.second.value))
         }
     }
     Connections {
-        target: screen.previewLutRangeSlider.second
+        target: screen.contrastRangeSlider.second
         function onMoved() {
             if (root.cameraController)
-                root.cameraController.setPreviewLutRange(
-                            Math.round(screen.previewLutRangeSlider.first.value),
-                            Math.round(screen.previewLutRangeSlider.second.value))
+                root.cameraController.setContrastRange(
+                            Math.round(screen.contrastRangeSlider.first.value),
+                            Math.round(screen.contrastRangeSlider.second.value))
+        }
+    }
+    Connections {
+        target: screen.autoExposureButton
+        function onClicked() {
+            if (!root.cameraController)
+                return
+            if (root.cameraController.autoExposureActive)
+                root.cameraController.cancelAutoExposure()
+            else
+                root.cameraController.autoExposure()
+        }
+    }
+    Connections {
+        target: screen.contrastLowField
+        function onEditingFinished() {
+            if (!root.cameraController)
+                return
+            const low = Number(screen.contrastLowField.text)
+            if (Number.isInteger(low))
+                root.cameraController.setContrastRange(
+                            low, screen.contrastMaximum)
+            screen.contrastLowField.text = Qt.binding(
+                        function() { return String(screen.contrastMinimum) })
+        }
+    }
+    Connections {
+        target: screen.contrastHighField
+        function onEditingFinished() {
+            if (!root.cameraController)
+                return
+            const high = Number(screen.contrastHighField.text)
+            if (Number.isInteger(high))
+                root.cameraController.setContrastRange(
+                            screen.contrastMinimum, high)
+            screen.contrastHighField.text = Qt.binding(
+                        function() { return String(screen.contrastMaximum) })
+        }
+    }
+    Connections {
+        target: screen.autoContrastButton
+        function onClicked() {
+            if (root.cameraController)
+                root.cameraController.autoContrast()
         }
     }
     Connections {

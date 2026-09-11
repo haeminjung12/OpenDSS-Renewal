@@ -60,7 +60,7 @@ Results keeps the loaded Run in the center. In `RunListSection` on the right, on
 
 Settings uses a centered column with Storage, Application Information, and Diagnostics only.
 
-`BottomHardwarePanel` Camera content is Status, Device, Resolution preset, conditional Custom Width/Height, Bit Depth default 8-bit for a new/default state, Exposure, Readout mode default Fastest, and a section titled exactly `LUT`. Saved profiles retain their supported Bit Depth. LUT behavior remains preview-only and no numeric LUT values are displayed beneath its title. DAQ content is Status, auto-detected Device, conditional Device selector, Output Channel, and reported maximum voltage range/frequency. Only adapter-supported settings appear.
+`BottomHardwarePanel` Camera content is Status, Device, Resolution preset, conditional Custom Width/Height, Bit Depth default 8-bit for a new/default state, Exposure with Auto Exposure, Readout mode default Fastest, and a section titled exactly `Contrast`. Saved profiles retain their supported Bit Depth. Contrast exposes synchronized LOW/HIGH numeric inputs, a two-handle range slider, and Auto Contrast. The effective contrast transform is part of Camera processing rather than preview-only presentation. DAQ content is Status, auto-detected Device, conditional Device selector, Output Channel, and reported maximum voltage range/frequency. Only adapter-supported settings appear.
 
 ### Shared component plan
 
@@ -1234,7 +1234,7 @@ Camera unavailable; Ready with blank Duration; Ready with Duration; Starting; Ru
 | **Paused panel** | Paused status; frozen active counters; explanation that preview continues while frame writing, detection, and Droplet Crop creation stop; Resume; Stop. |
 | **Completed panel** | Final counts; Dataset location; Open in Label; Open Folder; Start New Droplet Dataset Capture. |
 | **Required hardware/artifact** | Camera Streaming; loadable fixed qualified processing configuration; writable Dataset location; global operation slot. No model or DAQ. |
-| **Output** | `dataset.json`, full-frame Image Sequence, and one 64 × 64 grayscale PNG Droplet Crop per completed detection, initially Unlabeled. |
+| **Output** | `dataset.json`, full-frame Image Sequence, and one 96 × 96 grayscale PNG Droplet Crop per completed detection, initially Unlabeled. |
 | **Direct disabled reasons** | **Another operation is active** → **Camera unavailable** → **Processing configuration unavailable** → **Output folder is not writable**. |
 | **Applicable presentations** | Unavailable, Ready, Starting, Running, Paused, Stopping, Completed, Interrupted, Failed. |
 | **Next likely action** | Open in Label. |
@@ -1280,6 +1280,7 @@ If detection and persisted crop counts differ transiently because of queued writ
 - Every newly persisted crop begins as Unlabeled. No automatic label, scientific acceptance, or candidate rejection appears.
 - Pause stops full-frame writes, detection, and Droplet Crop creation while the live preview continues.
 - The Camera panel section locks from Starting through Stopping. The DAQ section remains independently editable when available and idle.
+- `dataset.json` records the effective Camera and Contrast settings accepted at Start, including exposure, readout, image format, and Contrast LOW/HIGH values. These facts are read-only provenance: missing fields in older Datasets and mismatches with later Camera settings MUST NOT affect Dataset loading, Label, Training, Model Test, or inference compatibility.
 - Completion provides Open in Label as the primary contextual action. It may preselect the Dataset but must not define classes or begin labeling automatically.
 - Interrupted messaging must report whether a readable `dataset.json` was finalized, whether full frames/crops remain, and whether Open Dataset or only Open Folder is valid.
 
@@ -1372,7 +1373,7 @@ No recommendation, preselection, or quality language should imply which class co
 ## 10.5 Crop collection and virtualization
 
 - The collection MUST virtualize image loading and component creation so large Datasets remain responsive.
-- Thumbnail aspect treatment must preserve the complete 64 × 64 crop without unintended clipping.
+- Thumbnail aspect treatment must preserve the complete 96 × 96 crop without unintended clipping.
 - Loading placeholders use neutral skeletons or reserved boxes, not false image content.
 - A missing crop uses a factual missing-file tile with crop ID/path context and must not be visually confused with Removed.
 - The default grid cell MUST be exactly 185 × 185 logical px and square. A visual-density control MAY offer other sizes, but initial/default presentation remains 185 × 185 logical px and crop order/state must not change.
@@ -2895,11 +2896,14 @@ Minimum Size    <current integer value> px²    [ Set ]
 
 This UI exposes the existing qualified detector threshold; it does not authorize replacement or behavioral modification of protected detector mechanics. Implementation must reuse the current authoritative threshold boundary and satisfy protected-asset change control with the smallest direct adapter needed by the current consumer.
 
-### 19.3.2 Camera default and LUT
+### 19.3.2 Camera default, Contrast, and Auto Exposure
 
 - Bit Depth is exactly `8-bit` only for a new/default live-Camera state. A legacy live-Camera profile with no Bit Depth field resolves to `8-bit`. Loading a saved supported Setup Profile preserves its explicit saved Bit Depth and MUST NOT overwrite that value with the default. Loaded image files and sequences retain their native bit depth and are never converted by this live-Camera default.
-- Auto Exposure is removed from the product. There is no Auto Exposure button, action, state, algorithm, service/controller path, protected DCAM bounds expansion, mock state, or placeholder. Manual Exposure remains unchanged.
-- The visible section title is exactly `LUT`. Retain the existing preview-only LUT slider and required LUT behavior. Remove the displayed numeric row beneath it; the slider retains its accessible name, role, and current value without a replacement visual numeric readout.
+- Manual Exposure remains available and an adjacent **Auto Exposure** action performs a bounded, non-blocking feedback loop. Each iteration applies one exposure candidate, waits for a genuinely newer unadjusted Camera frame, evaluates the unadjusted 8-bit intensity distribution and clipping, and adjusts toward an initial 95th-percentile target near `180`. The operation stops on convergence, Camera-reported bounds, its iteration/time limit, cancellation, Camera loss, or configuration failure. It MUST NOT meter the contrast-adjusted image, block the UI thread, or silently exceed Camera-reported limits.
+- The visible section title is exactly `Contrast`. It contains a two-handle range slider, numeric inputs labeled **LOW** and **HIGH**, and an **Auto Contrast** action. LOW and HIGH use the same integer bounds, step, precision, and ordering rules as the slider. Numeric edits and slider movement are bidirectionally synchronized through one authoritative applied range; invalid input cannot create a displayed/effective mismatch.
+- Auto Contrast derives LOW/HIGH from the current unadjusted Camera frame using a deterministic clipped-percentile histogram calculation, initially `1%` LOW and `99.5%` HIGH. It changes only the Contrast range and never changes exposure.
+- The Contrast transform is applied once at the authoritative Camera image-processing boundary. The same adjusted pixels feed the preview, detector, Droplet Crop generation, Live optional image persistence, Single Image TIFFs, Image Sequence TIFFs, and Dataset full frames/crops. Auto Exposure and Auto Contrast analysis use the unadjusted converted frame. No downstream Camera consumer may silently substitute the unadjusted image.
+- Exposure and Contrast controls are locked while Image Sequence or Droplet Dataset Capture owns the Camera. Therefore one effective Start snapshot is truthful for the complete capture; no per-frame settings history is required.
 
 ### 19.3.3 DAQ numeric-step responsiveness
 
@@ -3002,7 +3006,7 @@ DAQ Output Channel is a DAQ technical setting in the panel and remains distinct 
 
 ## 19.11 Minimum mock states
 
-Idle Camera/DAQ available; Camera unavailable/DAQ Ready; Camera Streaming; DAQ Active; invalid Camera number; rejected DAQ channel; Camera locked by Image Sequence; Camera locked by Droplet Dataset Capture; DAQ locked by Sequence Test; Sequence Test with DAQ off; Live Camera/DAQ lock with Detector Configuration editable; Live paused with Detector Configuration editable; Minimum Size Set with a visible frame; Set disabled with no frame; display-to-source rectangle mapping; immediate in-run threshold update with no Run-file provenance; new/default Camera at 8-bit; saved explicit non-8-bit profile preserved; LUT without displayed numeric values; responsive repeated DAQ `+`/`−`; Starting/Stopping lock; long device names; unsupported property absent rather than disabled placeholder; 200% scaling; focus return after close.
+Idle Camera/DAQ available; Camera unavailable/DAQ Ready; Camera Streaming; DAQ Active; invalid Camera number; rejected DAQ channel; Camera locked by Image Sequence; Camera locked by Droplet Dataset Capture; DAQ locked by Sequence Test; Sequence Test with DAQ off; Live Camera/DAQ lock with Detector Configuration editable; Live paused with Detector Configuration editable; Minimum Size Set with a visible frame; Set disabled with no frame; display-to-source rectangle mapping; immediate in-run threshold update with no Run-file provenance; new/default Camera at 8-bit; saved explicit non-8-bit profile preserved; Contrast LOW/HIGH numeric and slider synchronization; Auto Contrast on empty, flat, dark, bright, and saturated frames; iterative Auto Exposure convergence, bounds, cancellation, timeout, and failure; identical contrast-adjusted preview/detector/crop/saved pixels; responsive repeated DAQ `+`/`−`; Starting/Stopping lock; long device names; unsupported property absent rather than disabled placeholder; 200% scaling; focus return after close.
 
 **Source basis:** *OpenDSS Approved v2 Product Model* §5.2, §§11–13 and D-002, D-016; *OpenDSS v2 Information Architecture and Screen Inventory* §§1.6–1.7 and §6; *OpenDSS v2 Low-Fidelity Interaction and Application-State Specification* §5, §17, and applicable workspace ownership rules; *OpenDSS Detailed User Workflow Specification* hardware, concurrency, and error requirements as amended by *OpenDSS Approved v2 Product Model*; *OpenDSS Product Design Specification*, Draft v0.1 §§4–6, §8 contextual-panel evidence, and §§9–10 as adapted.
 

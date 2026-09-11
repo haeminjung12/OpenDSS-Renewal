@@ -187,8 +187,8 @@ std::string DcamCamera::applyApprovedSettings(const CameraSettings& settings) {
     setRequired(DCAM_IDPROP_SUBARRAYMODE, DCAMPROP_MODE__ON, "subarray on");
     setRequired(DCAM_IDPROP_IMAGE_PIXELTYPE, settings.pixelType, "pixel type");
     setRequired(DCAM_IDPROP_BITSPERCHANNEL, settings.bits, "bits");
-    setRequired(DCAM_IDPROP_EXPOSURETIME, settings.exposureMs / 1000.0, "exposure");
     setRequired(DCAM_IDPROP_READOUTSPEED, settings.readoutSpeed, "readout speed");
+    setRequired(DCAM_IDPROP_EXPOSURETIME, settings.exposureMs / 1000.0, "exposure");
 
     const DCAMERR allocError = dcambuf_alloc(hdcam_, bufferCount_);
     if (firstError.empty() && failed(allocError))
@@ -238,6 +238,25 @@ CameraSettingsSupport DcamCamera::approvedSettingsSupport(std::string& error) co
             return CameraSettingsSupport::Unsupported;
     }
     return CameraSettingsSupport::Supported;
+}
+
+std::string DcamCamera::readExposureLimits(double& minimumMs, double& maximumMs) const {
+    if (!opened_)
+        return "Camera not opened";
+
+    DCAMPROP_ATTR attribute = {};
+    attribute.cbSize = sizeof(attribute);
+    attribute.iProp = DCAM_IDPROP_EXPOSURETIME;
+    const DCAMERR result = dcamprop_getattr(hdcam_, &attribute);
+    if (failed(result))
+        return errText("exposure limits", result);
+    if (!(attribute.attribute & DCAMPROP_ATTR_READABLE)
+        || attribute.valuemin <= 0.0 || attribute.valuemax < attribute.valuemin) {
+        return "Camera reported invalid exposure limits";
+    }
+    minimumMs = attribute.valuemin * 1000.0;
+    maximumMs = attribute.valuemax * 1000.0;
+    return {};
 }
 
 std::string DcamCamera::readApprovedSettings(CameraSettings& settings) const {

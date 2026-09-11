@@ -27,6 +27,7 @@
 #endif
 
 #include "autogen/environment.h"
+#include "../../crops/crop_service.h"
 #include "../../detection/droplet_detector_adapters.h"
 #include "../../detection/droplet_frame_processor.h"
 #include "../../desktop_app/model_registry_service.h"
@@ -308,6 +309,8 @@ int main(int argc, char *argv[])
     const QJsonObject cropSettings{
         {QStringLiteral("configuration_id"),
          QStringLiteral("fast_event_detector_bbox_crop_v1")},
+        {QStringLiteral("width"), desktop_app::CropService::OutputSize},
+        {QStringLiteral("height"), desktop_app::CropService::OutputSize},
         {QStringLiteral("qualification"), QStringLiteral("PROVISIONAL")},
     };
     const QJsonObject timingSettings{
@@ -348,6 +351,14 @@ int main(int argc, char *argv[])
                 {QStringLiteral("image_width"), acceptedWidth},
                 {QStringLiteral("image_height"), acceptedHeight},
                 {QStringLiteral("bit_depth"), acceptedBitDepth},
+                {QStringLiteral("exposure_ms"),
+                 cameraController.exposureMs().toDouble()},
+                {QStringLiteral("readout_mode"), cameraController.readoutMode()},
+                {QStringLiteral("pixel_format"), QStringLiteral("gray8")},
+                {QStringLiteral("contrast_min"), cameraController.contrastMinimum()},
+                {QStringLiteral("contrast_max"), cameraController.contrastMaximum()},
+                {QStringLiteral("adjustment_mode"),
+                 QStringLiteral("linear_contrast")},
                 {QStringLiteral("source"), QStringLiteral("production_controller")},
             };
         },
@@ -407,14 +418,16 @@ int main(int argc, char *argv[])
                                          Qt::CaseInsensitive) == 0
                         ? desktop_app::v2::CameraReadoutMode::Slow
                         : desktop_app::v2::CameraReadoutMode::Fast;
-                    const int lutMinimum =
-                        camera.value(QStringLiteral("preview_lut_min"))
-                            .toInt(cameraController.previewLutMinimum());
-                    const int lutMaximum =
-                        camera.value(QStringLiteral("preview_lut_max"))
-                            .toInt(cameraController.previewLutMaximum());
+                    const int contrastMinimum = (camera.contains(QStringLiteral("contrast_min"))
+                        ? camera.value(QStringLiteral("contrast_min"))
+                        : camera.value(QStringLiteral("preview_lut_min")))
+                        .toInt(cameraController.contrastMinimum());
+                    const int contrastMaximum = (camera.contains(QStringLiteral("contrast_max"))
+                        ? camera.value(QStringLiteral("contrast_max"))
+                        : camera.value(QStringLiteral("preview_lut_max")))
+                        .toInt(cameraController.contrastMaximum());
                     const bool applied = cameraController.applyProfileSettings(
-                        settings, lutMinimum, lutMaximum);
+                        settings, contrastMinimum, contrastMaximum);
                     if (!applied && error)
                         *error = cameraController.error();
                     return applied;
@@ -466,10 +479,8 @@ int main(int argc, char *argv[])
                  cameraController.exposureMs().toDouble()},
                 {QStringLiteral("readout_mode"),
                  cameraController.readoutMode()},
-                {QStringLiteral("preview_lut_min"),
-                 cameraController.previewLutMinimum()},
-                {QStringLiteral("preview_lut_max"),
-                 cameraController.previewLutMaximum()},
+                {QStringLiteral("contrast_min"), cameraController.contrastMinimum()},
+                {QStringLiteral("contrast_max"), cameraController.contrastMaximum()},
                 {QStringLiteral("source"), QStringLiteral("production_controller")},
             };
             facts.daqSettings = daqService.settingsSnapshot();

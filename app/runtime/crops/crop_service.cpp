@@ -36,8 +36,8 @@ bool CropService::makeDatasetCrop(const cv::Mat& frame, const cv::Rect& bounding
     x = (std::max)(0, (std::min)(x, frame.cols - side));
     y = (std::max)(0, (std::min)(y, frame.rows - side));
     output->sourceRect = cv::Rect(x, y, side, side);
-    cv::resize(frame(output->sourceRect), output->image, cv::Size(64, 64), 0, 0,
-               cv::INTER_AREA);
+    cv::resize(frame(output->sourceRect), output->image,
+               cv::Size(OutputSize, OutputSize), 0, 0, cv::INTER_AREA);
     return output->image.type() == CV_8UC1 && output->image.isContinuous();
 }
 

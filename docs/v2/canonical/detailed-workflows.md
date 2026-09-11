@@ -331,7 +331,7 @@ OpenDropletSortingSuite
 |---|---|
 | **Frame** | One full camera image. |
 | **Image Sequence** | An ordered series of full-frame TIFF images. |
-| **Droplet Crop** | One saved 64 × 64 PNG representing the first complete appearance of one detected droplet. |
+| **Droplet Crop** | One saved 96 × 96 PNG representing the first complete appearance of one detected droplet. |
 | **Dataset** | The result of Droplet Dataset Capture, consisting of a full image sequence, Droplet Crops, class definitions, labels, and `dataset.json`. |
 | **Class ID** | Immutable numerical class identifier: `0`, `1`, or `2`. |
 | **Class Name** | User-editable text describing a Class ID. |
@@ -837,7 +837,7 @@ For each detected droplet:
 1. The existing droplet-detection algorithm identifies the first frame in which the droplet is fully present in the frame.
 2. The system creates exactly one Droplet Crop.
 3. The crop is converted to the supported dataset format:
-   - 64 × 64 pixels;
+   - 96 × 96 pixels;
    - grayscale;
    - PNG.
 4. The system records the source frame index and detection timestamp.
@@ -959,7 +959,7 @@ When technically possible, it SHOULD finalize a recoverable `dataset.json` with 
 - Every completed detection produces one and only one Droplet Crop.
 - No crop is automatically labeled.
 - No crop is rejected by application policy.
-- A full TIFF sequence and 64 × 64 PNG crops are preserved.
+- A full TIFF sequence and 96 × 96 PNG crops are preserved.
 - `dataset.json` is created when the operation ends.
 - The Dataset can be opened by Label, Train, and Model Test through the same dataset-loading contract.
 
@@ -3226,7 +3226,7 @@ No placeholder buttons SHALL be added for excluded features.
 **And** the camera is streaming  
 **When** Droplet Dataset Capture runs  
 **Then** full TIFF frames are recorded  
-**And** one 64 × 64 PNG is saved for each detected droplet  
+**And** one 96 × 96 PNG is saved for each detected droplet
 **And** no labels, Hit/Waste values, or model outputs are assigned  
 **And** `dataset.json` is finalized.
 
@@ -3554,7 +3554,7 @@ The new application layer SHALL follow this specification instead.
 
 The existing trainer already defines an automatic 70/15/15 split and seed 1729. Its ONNX export uses a `logits` output, and the current C++ inference code copies the raw output scores and selects the maximum value. This supports the user-facing **Class Score** and argmax-based Predicted Class contract.
 
-The existing pipeline also converts input to grayscale when needed, creates a square crop, resizes it, and writes PNG output. This provides an implementation basis for the fixed 64 × 64 Droplet Crop contract, subject to configuration in the reconstructed workflow.
+The existing pipeline also converts input to grayscale when needed, creates a square crop, resizes it, and writes PNG output. This provides an implementation basis for the fixed 96 × 96 Droplet Crop contract, subject to configuration in the reconstructed workflow.
 
 ---
 

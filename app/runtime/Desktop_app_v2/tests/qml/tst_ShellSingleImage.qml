@@ -956,6 +956,7 @@ Item {
         property string customHeight: ""
         property string bitDepth: ""
         property string exposureMs: ""
+        property bool autoExposureActive: false
         property string readoutMode: ""
         property var resolutionPresets: [
             "2304 x 2304", "2304 x 1152", "2304 x 576", "2304 x 288",
@@ -966,16 +967,19 @@ Item {
             "Custom", "512 x 128", "512 x 64", "256 x 64", "256 x 32"
         ]
         property int resolutionPresetIndex: -1
-        property int previewLutMinimum: 0
-        property int previewLutMaximum: 255
+        property int contrastMinimum: 0
+        property int contrastMaximum: 255
         property int startCallCount: 0
         property int stopCallCount: 0
         property int recoverCallCount: 0
         property int resolutionCallCount: 0
         property int bitDepthCallCount: 0
         property int exposureCallCount: 0
+        property int autoExposureCallCount: 0
+        property int cancelAutoExposureCallCount: 0
         property int readoutCallCount: 0
-        property int lutCallCount: 0
+        property int contrastCallCount: 0
+        property int autoContrastCallCount: 0
         property int previewReadyCallCount: 0
         property string lastPreviewReadySource: ""
         property int requestedWidth: 0
@@ -1021,10 +1025,30 @@ Item {
             requestedReadoutMode = mode
             return true
         }
-        function setPreviewLutRange(minimum, maximum) {
-            ++lutCallCount
-            previewLutMinimum = minimum
-            previewLutMaximum = maximum
+        function setContrastRange(minimum, maximum) {
+            ++contrastCallCount
+            if (!Number.isInteger(minimum) || !Number.isInteger(maximum)
+                    || minimum < 0 || maximum > 255 || minimum >= maximum)
+                return false
+            contrastMinimum = minimum
+            contrastMaximum = maximum
+            return true
+        }
+        function autoExposure() {
+            ++autoExposureCallCount
+            autoExposureActive = true
+            return true
+        }
+        function cancelAutoExposure() {
+            ++cancelAutoExposureCallCount
+            autoExposureActive = false
+            return true
+        }
+        function autoContrast() {
+            ++autoContrastCallCount
+            contrastMinimum = 12
+            contrastMaximum = 240
+            return true
         }
         function acknowledgePreviewReady(source) {
             ++previewReadyCallCount
@@ -1256,8 +1280,12 @@ Item {
         verify(!unavailableCameraShell.form.cameraResolutionSelector.enabled)
         verify(!unavailableCameraShell.form.cameraBitDepthSelector.enabled)
         verify(!unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(!unavailableCameraShell.form.autoExposureButton.enabled)
         verify(!unavailableCameraShell.form.cameraReadoutSelector.enabled)
-        verify(!unavailableCameraShell.form.previewLutRangeSlider.enabled)
+        verify(!unavailableCameraShell.form.contrastRangeSlider.enabled)
+        verify(!unavailableCameraShell.form.contrastLowField.enabled)
+        verify(!unavailableCameraShell.form.contrastHighField.enabled)
+        verify(!unavailableCameraShell.form.autoContrastButton.enabled)
         compare(unavailableCameraShell.form.cameraResolutionSelector.currentIndex, -1)
         compare(unavailableCameraShell.form.cameraBitDepthSelector.currentIndex, -1)
         compare(unavailableCameraShell.form.cameraReadoutSelector.currentIndex, -1)
@@ -1282,17 +1310,30 @@ Item {
         unavailableCameraController.bitDepth = "12-bit"
         unavailableCameraController.exposureMs = "10"
         unavailableCameraController.readoutMode = "Fast"
-        unavailableCameraController.previewLutMinimum = 12
-        unavailableCameraController.previewLutMaximum = 220
+        unavailableCameraController.contrastMinimum = 12
+        unavailableCameraController.contrastMaximum = 220
+        unavailableCameraController.previewSource = ""
+        wait(0)
+        verify(!unavailableCameraShell.form.autoExposureButton.enabled)
+        unavailableCameraController.previewSource =
+                "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
         unavailableCameraController.resolutionCallCount = 0
         wait(0)
         verify(unavailableCameraShell.form.cameraResolutionSelector.enabled)
         verify(unavailableCameraShell.form.cameraBitDepthSelector.enabled)
         verify(unavailableCameraShell.form.cameraExposureField.enabled)
+        verify(unavailableCameraShell.form.autoExposureButton.enabled)
         verify(unavailableCameraShell.form.cameraReadoutSelector.enabled)
         compare(unavailableCameraShell.form.cameraResolutionSelector.currentIndex, 0)
         compare(unavailableCameraShell.form.cameraBitDepthSelector.currentIndex, 1)
-        compare(unavailableCameraShell.form.cameraExposureField.text, "10")
+        compare(unavailableCameraShell.form.cameraExposureField.text, "10.00")
+        unavailableCameraController.exposureMs = "0.519"
+        wait(0)
+        compare(unavailableCameraShell.form.cameraExposureField.text, "0.52")
+        unavailableCameraController.exposureMs = "10"
+        wait(0)
+        compare(unavailableCameraShell.form.autoExposureButton.text,
+                qsTr("Auto Exposure"))
         compare(unavailableCameraShell.form.cameraReadoutSelector.currentIndex, 0)
 
         compare(unavailableCameraShell.form.cameraResolutionSelector.model.length, 25)
@@ -1300,10 +1341,16 @@ Item {
         compare(unavailableCameraShell.form.cameraResolutionSelector.model[21], "512 x 128")
         compare(unavailableCameraShell.form.cameraLutSelector.model.length, 1)
         compare(unavailableCameraShell.form.cameraLutSelector.model[0], "Linear")
-        compare(unavailableCameraShell.form.previewLutRangeSlider.Accessible.name,
-                qsTr("LUT"))
-        compare(unavailableCameraShell.form.previewLutRangeSlider.first.value, 12)
-        compare(unavailableCameraShell.form.previewLutRangeSlider.second.value, 220)
+        compare(unavailableCameraShell.form.contrastRangeSlider.Accessible.name,
+                qsTr("Contrast range"))
+        compare(unavailableCameraShell.form.contrastLowField.Accessible.name,
+                qsTr("Contrast LOW"))
+        compare(unavailableCameraShell.form.contrastHighField.Accessible.name,
+                qsTr("Contrast HIGH"))
+        compare(unavailableCameraShell.form.contrastRangeSlider.first.value, 12)
+        compare(unavailableCameraShell.form.contrastRangeSlider.second.value, 220)
+        compare(unavailableCameraShell.form.contrastLowField.text, "12")
+        compare(unavailableCameraShell.form.contrastHighField.text, "220")
         unavailableCameraShell.form.cameraResolutionSelector.activated(10)
         compare(unavailableCameraController.resolutionCallCount, 1)
         compare(unavailableCameraController.requestedWidth, 1152)
@@ -1324,14 +1371,45 @@ Item {
         unavailableCameraShell.form.cameraExposureField.editingFinished()
         compare(unavailableCameraController.exposureCallCount, 1)
         compare(unavailableCameraController.requestedExposureMs, 4.5)
+        unavailableCameraShell.form.autoExposureButton.clicked()
+        compare(unavailableCameraController.autoExposureCallCount, 1)
+        compare(unavailableCameraShell.form.autoExposureButton.text,
+                qsTr("Cancel Auto Exposure"))
+        unavailableCameraController.busy = true
+        wait(0)
+        verify(unavailableCameraShell.form.autoExposureButton.enabled)
+        unavailableCameraShell.form.autoExposureButton.clicked()
+        compare(unavailableCameraController.cancelAutoExposureCallCount, 1)
+        unavailableCameraController.busy = false
         unavailableCameraShell.form.cameraReadoutSelector.activated(1)
         compare(unavailableCameraController.readoutCallCount, 1)
         compare(unavailableCameraController.requestedReadoutMode, "Slow")
-        unavailableCameraShell.form.previewLutRangeSlider.first.value = 24
-        unavailableCameraShell.form.previewLutRangeSlider.first.moved()
-        compare(unavailableCameraController.lutCallCount, 1)
-        compare(unavailableCameraController.previewLutMinimum, 24)
-        compare(unavailableCameraController.previewLutMaximum, 220)
+        unavailableCameraShell.form.contrastRangeSlider.first.value = 24
+        unavailableCameraShell.form.contrastRangeSlider.first.moved()
+        compare(unavailableCameraController.contrastCallCount, 1)
+        compare(unavailableCameraController.contrastMinimum, 24)
+        compare(unavailableCameraController.contrastMaximum, 220)
+        compare(unavailableCameraShell.form.contrastLowField.text, "24")
+        unavailableCameraShell.form.contrastHighField.text = "210"
+        unavailableCameraShell.form.contrastHighField.editingFinished()
+        compare(unavailableCameraController.contrastCallCount, 2)
+        compare(unavailableCameraShell.form.contrastRangeSlider.second.value, 210)
+        unavailableCameraShell.form.contrastLowField.text = "210"
+        unavailableCameraShell.form.contrastLowField.editingFinished()
+        compare(unavailableCameraController.contrastMinimum, 24)
+        compare(unavailableCameraShell.form.contrastLowField.text, "24")
+        unavailableCameraShell.form.autoContrastButton.clicked()
+        compare(unavailableCameraController.autoContrastCallCount, 1)
+        compare(unavailableCameraShell.form.contrastLowField.text, "12")
+        compare(unavailableCameraShell.form.contrastHighField.text, "240")
+        unavailableCameraShell.mockState.capturing = true
+        wait(0)
+        verify(!unavailableCameraShell.form.autoExposureButton.enabled)
+        verify(!unavailableCameraShell.form.contrastRangeSlider.enabled)
+        verify(!unavailableCameraShell.form.contrastLowField.enabled)
+        verify(!unavailableCameraShell.form.contrastHighField.enabled)
+        verify(!unavailableCameraShell.form.autoContrastButton.enabled)
+        unavailableCameraShell.mockState.capturing = false
 
         unavailableCameraShell.form.startCameraButton.clicked()
         compare(unavailableCameraController.startCallCount, 1)

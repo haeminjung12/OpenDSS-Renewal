@@ -52,8 +52,8 @@ struct DatasetSequenceInfo {
 };
 
 struct DatasetCropSettings {
-    int width = 64;
-    int height = 64;
+    int width = 96;
+    int height = 96;
     QString pixelFormat = "gray8";
     QString fileFormat = "png";
     QString method = "centered_max_bbox_clamped";
@@ -115,7 +115,8 @@ class DatasetManifestV2 {
   private:
     static std::optional<DatasetManifestV2> fromJsonObject(const QJsonObject& root,
                                                            const QString& path,
-                                                           QString* error);
+                                                           QString* error,
+                                                           bool allowHistorical64);
 
     QString datasetRoot_;
     DatasetManifestData data_;

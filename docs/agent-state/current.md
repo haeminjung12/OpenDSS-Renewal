@@ -6,15 +6,17 @@ State format: `1`
 - Mode: `debug`
 - User-facing Lead: `Debug Lead`
 - Checkpoint branch: `codex/debug-lead`
-- Checkpoint commit: `0619022da0edcd963d5f6733e2ae7c5c532d03be`
-- Active ID: `DBG-021`
-- Status: `DBG-019 through DBG-021 debug checkpoint committed and ready for Implementation worker adoption`
-- Dirty paths at checkpoint: `none`
-- Updated: `2026-08-01T13:33:14-05:00`
+- Checkpoint commit: `7bba44a4ec167149c387900d83fb3ddb395b2104`
+- Active ID: `DBG-INTAKE`
+- Status: `DBG-028 fixed and verified; awaiting the next accepted bug`
+- Dirty paths at checkpoint: `Camera controller/conversion/preview provider; Setup Profile persistence; Camera QML and focused tests; canonical design/state/ledger; deferred consolidation note`
+- Updated: `2026-09-11T10:45:54-05:00`
 
 ## Accepted decisions
 
 - The Debug Lead is the sole user-facing agent for OpenDSS debugging.
+- The user confirmed that offline native-crop experiment materialization must resize directly to `96 x 96`; the unintended intermediate `64 x 64` conversion is rejected. Historical hash-bound datasets, checkpoints, and reports remain immutable, while reusable materializers and focused regression coverage are corrected under `DBG-027`.
+- The user clarified that the installed main program is the required correction target. Under `DBG-028`, every newly produced production Droplet Crop must be direct `96 x 96`; the shared crop service, native Dataset manifest contract, run provenance, and visible Label placeholder move together. Existing 64 x 64 Datasets remain readable and historical offline artifacts remain unchanged.
 - Workers and validators report only to the Debug Lead and do not edit canonical state or the bug ledger.
 - Normally use no more than two internal workers and one validator concurrently.
 - Every accepted bug receives one stable `DBG-*` ID before production changes.
@@ -51,6 +53,11 @@ State format: `1`
 - The user authorized a simple shared-runtime consolidation alongside DBG-021: one concrete `DropletFrameProcessor` owns detector invocation, track output, and new-entry crop creation for all current workspaces and maintained headless paths; one concrete frame-persistence service owns the verified DBG-020 bounded spool and post-stop TIFF finalization for Fast Image Sequence, Dataset Capture full frames, and Live optional recording. Sequence Test remains a reader. Do not add factories, registries, service locators, or workspace-specific copies.
 - DBG-021 is implemented through those two concrete services. New droplets are cropped/inferred once while older droplets retain independent route tracks until their own configured disappearance; current GUI workspaces and maintained CLI/headless paths use the same detector/crop API.
 - The reusable routing API now owns `centeredHitBoundary(width, height, hitSide)`. Live and Sequence Test use it for their initial and Reset boundaries. Positive-Y remains Bottom is Hit, Negative-Y remains Top is Hit, and each pending track supplies its own last valid centroid Y to `ObservedRouteTracker`.
+- The user superseded the prior Auto Exposure removal and preview-only LUT decisions. The Camera section is renamed `Contrast`; LOW/HIGH numeric inputs synchronize bidirectionally with the range control; Auto Contrast uses initial unadjusted-frame `1%`/`99.5%` percentiles; the adjusted image feeds preview, detector, crops, and all Camera-derived persistence.
+- Exposure and Contrast remain locked while Image Sequence or Dataset Capture owns Camera. Dataset `camera_settings` records one effective Start snapshot as retrieval-only provenance; missing or mismatched settings never affect loading, labeling, training, Model Test, or inference compatibility.
+- Iterative Auto Exposure is a separate `DBG-023` after `DBG-022`, starts from an unadjusted-frame p95 target near `180`, and requires clipping/convergence safeguards, Camera-reported bounds, cancellation/time limits, deterministic fake tests, and one bounded Camera HIL pass. Dataset provenance completion follows as `DBG-024`.
+- The user authorized `DBG-026` to replace the duplicated deterministic Live/Sequence Test droplet-event lifecycle with one concrete shared component. `DropletFrameProcessor` remains the detector/track/crop owner; Live and Sequence Test retain their existing acquisition, scheduling, threading, persistence, and physical DAQ-dispatch ownership.
+- `DBG-026` is complete. `run::DropletRunEventProcessor` is the single concrete owner of event identity, crop encoding, classification-result validation and argmax, decision resolution, last-Y and observed-route tracking, ended-track completion, and pending flush for both Live and Sequence Test. Caller-owned callbacks preserve each workspace's distinct persistence and DAQ-dispatch behavior.
 
 ## Accepted evidence
 
@@ -61,6 +68,16 @@ State format: `1`
 - DBG-021 bounded evidence: 19 crops and 33 source TIFFs only were inspected. Event 17 maps to source index 1576 and remains centered with a partial second droplet; event 26 maps to 1853 and shows two simultaneous droplets with a blank/incorrect crop; event 29 maps to 1977 and is edge-only near the nozzle, a separate merged/partial-mask uncertainty.
 - DBG-021 Candidate A is implemented in `fast_event_detector.cpp`: aggregate upper-mask rejection is removed, component-local limits remain, and only an uninterrupted active event uses allocation-free squared-distance association with area/label tie-breaks. No-track and post-gap paths preserve strict-largest selection.
 - DBG-021 focused characterization covers aggregate-over-cap components, active area-rank swapping, deterministic ties, merged component-local rejection, and post-gap two-candidate legacy selection; direct/adapter parity includes a multi-component frame. The corrected fresh Plan Guardian gate passed.
+- DBG-022 uses one CameraController-owned adjusted-frame boundary. The preview provider and every existing Live/Capture/Dataset/Image Sequence/Single Image consumer receive the same adjusted Mono8 `frameReady` publication; no per-consumer contrast implementation was added.
+- DBG-023 focused Release tests pass for Camera controller, Camera service contract, DCAM device, and the isolated QML Auto Exposure contract. Controller coverage includes multi-step convergence, exposure limit, flat/no-progress, three-second no-frame timeout, and cancellation. The real Camera converged from approximately `0.515 ms` to `14.515 ms` without a readback error after DCAM configuration ordering was corrected to apply readout speed before exposure; the original exposure was restored to factual `0.519 ms`, the Camera returned Connected, and the app closed normally. No DAQ output occurred.
+- A fresh DBG-023 closure Plan Guardian returned `PASS` after the two missing deterministic termination cases were added and the affected controller test passed 1/1.
+- DBG-024 is bounded to the existing one-time Dataset Capture `camera_settings` Start snapshot: add factual exposure, readout mode, adjusted `gray8` pixel format, Contrast LOW/HIGH, and `linear_contrast` adjustment mode in the production provider and prove manifest round trip plus training neutrality. Do not change persistence, training, Model Test, inference, or Camera behavior.
+- DBG-024 production snapshot now contains those exact facts. Focused Release `dataset_capture_recovery_test` and `dataset_manifest_v2_test` passed 2/2; the v2 application target compiled successfully; `git diff --check` passed.
+- A fresh DBG-024 closure Plan Guardian returned `PASS`; all three Camera-priority fix records are fixed and verified.
+- DBG-025 root cause is accepted as the extra adjusted-`QImage` allocation/pass plus CameraFrame copy-back in `CameraController::acceptFrame`, after the required normalized frame was already retained for Auto Exposure/Auto Contrast. The correction replaces those two adjusted-image steps with one exact LUT pass on one detached normalized-frame copy, leaves DCAM acquisition and the fixed ring unchanged, and formats exposure to two decimals only in QML.
+- A fresh DBG-025 closure Plan Guardian returned `PASS`; the implementation, focused tests, exact physical no-DAQ HIL, and corrected durable description align with the protected ordered-delivery boundary.
+- DBG-026 focused Release verification passed 5/5: the direct shared-component characterization, Sequence Test service/controller, and Live service/controller tests. The Sequence controller's one load-sensitive timeout passed three consecutive isolated reruns and the final combined gate. The complete v2 Release application and all Qt Design Studio dependencies compiled and linked successfully from the qualified short build root `C:\b\d13`; executable SHA-256 is `66E704B4EACD6E43A53AC608FB14DA3F5023CCDF74BDB1FBDEA0A6EB0223641F`. The earlier nested-root failure was a 299-character MSBuild tracking path, not a product-code failure. `git diff --check` passed for the bounded implementation paths.
+- A fresh DBG-026 closure Plan Guardian returned `PASS`; the exact production write set and preserved owner boundaries match the user-authorized first consolidation slice.
 
 ## Verification
 
@@ -148,7 +165,9 @@ State format: `1`
 - The final production replay over the same bounded windows passed with zero failures/capacity overflow, five one-time entry crops, and stable two-track overlap through all four native spans. Detector/processor timing was 0.601 ms average and 0.738 ms p95. Evidence is `docs/debug/evidence/DBG-021-production-multitrack-replay-20260801.{md,json}`; JSON SHA-256 is `58D5E4AF09A38570691CF6173F3247A6681982C82D5384F4256AA8B5099818F2`.
 - The focused Release gate passed 7/7 and Release `ALL_BUILD` passed. The one requested physical camera check also passed: 270/270 full frames and 2800/2800 fast-ROI frames reached detector completion with zero missing IDs, ordering faults, pixel mismatches, or source coalescing. No DAQ output occurred.
 - Centered-boundary verification: affected builds passed, the V2 app compilation passed, and `sequence_test_decision_route_test`, `sequence_test_controller_test`, and `live_sorting_controller_test` passed 3/3. Four stale Live fixtures were updated to block event persistence rather than the superseded full-frame persistence hook.
+- `DBG-028` is fixed: production `CropService` now creates direct 96 x 96 crops; new native Dataset manifests/PNGs and run/Label provenance report 96; historical 64 x 64 Dataset manifests remain readable but native saves reject them. Release crop/Dataset tests passed 3/3, the actual-v2 app and QML test target built against the exact locked ONNX Runtime 1.25.1 CUDA 13 SDK, QML CTest passed 2/2, `git diff --check` passed, and the fresh Plan Guardian returned `PASS`. The completed `DBG-027` offline files remain untouched.
+- A fresh standalone of the current post-DBG-028 Debug Lead tree was rebuilt and package-checked on 2026-09-11. ZIP: `C:\b\d13\standalone-20260911\OpenDSS_Standalone_Current_96x96_20260911.zip`, SHA-256 `AD4F804332268F9C77278EDF4B1425217B9083E11C29804C560F0A0E2A16941C`; enclosed `OpenDSS.exe` SHA-256 `5D517A72A69D285FE2C95E4ED4BA9CF9A9CD3232589EABC5B3FE3D8C68F6432F`. Package manifest status is pass, and the unrelated `binary_transfer.py` is absent.
 
 ## Exact next action
 
-Implementation worker adopts checkpoint `0619022da0edcd963d5f6733e2ae7c5c532d03be`, runs `$opendss-agent-rules-init` once in its implementation worktree, preserves the verified shared APIs and evidence, and waits for the user's next explicit implementation scope. Keep merged/partial-component separation, including Event 29, outside the verified claim.
+Await the next user-confirmed bug at `DBG-INTAKE`. Preserve the deferred API-consolidation assessment separately; treat packaging exclusion of unused publication experiment source as a distinct cleanup if authorized.

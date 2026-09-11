@@ -2,10 +2,12 @@
 
 #include "camera_preview_image_provider.h"
 #include "camera_service.h"
+#include "frame_conversion.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
 
 #include <QEventLoop>
 #include <QMetaObject>
@@ -58,6 +60,83 @@ QString statusText(int status)
     return QStringLiteral("Unavailable");
 }
 
+CameraFrame grayscale8Frame(CameraFrame frame, const QImage &image)
+{
+    frame.pixelFormat = CameraPixelFormat::Mono8;
+    frame.bitDepth = 8;
+    frame.rowBytes = image.width();
+    frame.bytes.resize(static_cast<qsizetype>(image.width()) * image.height());
+    for (int y = 0; y < image.height(); ++y) {
+        std::memcpy(frame.bytes.data() + static_cast<qsizetype>(y) * image.width(),
+                    image.constScanLine(y),
+                    static_cast<size_t>(image.width()));
+    }
+    return frame;
+}
+
+CameraFrame adjustedGrayscale8Frame(CameraFrame frame, int low, int high)
+{
+    low = std::clamp(low, 0, 255);
+    high = std::clamp(high, 0, 255);
+    if ((low == 0 && high == 255) || high <= low)
+        return frame;
+
+    std::array<uchar, 256> lookup{};
+    for (int value = 0; value < 256; ++value) {
+        lookup[value] = static_cast<uchar>(
+            value <= low ? 0
+            : value >= high ? 255
+            : (value - low) * 255 / (high - low));
+    }
+
+    frame.bytes.detach();
+    for (int y = 0; y < frame.height; ++y) {
+        uchar *row = reinterpret_cast<uchar *>(
+            frame.bytes.data() + static_cast<qsizetype>(y) * frame.rowBytes);
+        for (int x = 0; x < frame.width; ++x)
+            row[x] = lookup[row[x]];
+    }
+    return frame;
+}
+
+int packedContrastRange(int low, int high)
+{
+    return (low << 8) | high;
+}
+
+int contrastLow(int range)
+{
+    return (range >> 8) & 0xff;
+}
+
+int contrastHigh(int range)
+{
+    return range & 0xff;
+}
+
+int percentile95(const CameraFrame &frame)
+{
+    std::array<qsizetype, 256> histogram{};
+    qsizetype count = 0;
+    for (int y = 0; y < frame.height; ++y) {
+        const uchar *row = reinterpret_cast<const uchar *>(
+            frame.bytes.constData() + static_cast<qsizetype>(y) * frame.rowBytes);
+        for (int x = 0; x < frame.width; ++x) {
+            ++histogram[row[x]];
+            ++count;
+        }
+    }
+    const qsizetype target = std::max<qsizetype>(1,
+        static_cast<qsizetype>(std::ceil(static_cast<double>(count) * 0.95)));
+    qsizetype cumulative = 0;
+    for (int value = 0; value < 256; ++value) {
+        cumulative += histogram[value];
+        if (cumulative >= target)
+            return value;
+    }
+    return 255;
+}
+
 } // namespace
 
 CameraController::CameraController(CameraService &service,
@@ -88,8 +167,31 @@ CameraController::CameraController(CameraService &service,
             this, &CameraController::setError, Qt::QueuedConnection);
     connect(&service_, &CameraService::configurationChanged,
             this, &CameraController::updateConfiguration, Qt::QueuedConnection);
+    connect(&service_, &CameraService::exposureLimitsChanged,
+            this, &CameraController::updateExposureLimits, Qt::QueuedConnection);
+    autoExposureTimeout_.setSingleShot(true);
+    connect(&autoExposureTimeout_, &QTimer::timeout, this, [this] {
+        if (autoExposureActive())
+            finishAutoExposure(QStringLiteral("Auto Exposure timed out after 3 seconds."));
+    });
     connect(&service_, &CameraService::commandFinished, this,
             [this](bool success, const QString &error) {
+                if (autoExposureApplyPending_) {
+                    autoExposureApplyPending_ = false;
+                    if (!success) {
+                        setBusy(false);
+                        if (autoExposureActive()) {
+                            finishAutoExposure(error.isEmpty()
+                                ? QStringLiteral("Auto Exposure could not apply the exposure.")
+                                : error);
+                        }
+                        return;
+                    }
+                    if (autoExposureActive())
+                        setError({});
+                    setBusy(false);
+                    return;
+                }
                 if (defaultBitDepthInitializationPending_) {
                     if (success && configurationAvailable_
                         && appliedSettings_.bitDepth != 8) {
@@ -237,14 +339,19 @@ int CameraController::resolutionPresetIndex() const
         : presetIndex(appliedSettings_.width, appliedSettings_.height);
 }
 
-int CameraController::previewLutMinimum() const
+int CameraController::contrastMinimum() const
 {
-    return previewLutMinimum_;
+    return contrastLow(contrastRange_.load(std::memory_order_relaxed));
 }
 
-int CameraController::previewLutMaximum() const
+int CameraController::contrastMaximum() const
 {
-    return previewLutMaximum_;
+    return contrastHigh(contrastRange_.load(std::memory_order_relaxed));
+}
+
+bool CameraController::autoExposureActive() const
+{
+    return autoExposureActive_.load(std::memory_order_relaxed);
 }
 
 bool CameraController::hasFrame() const
@@ -272,11 +379,13 @@ bool CameraController::start()
 
 bool CameraController::stop()
 {
+    cancelAutoExposure();
     return request(&CameraController::stopRequested);
 }
 
 bool CameraController::recover()
 {
+    cancelAutoExposure();
     const bool requested = request(&CameraController::recoverRequested);
     if (requested && !defaultBitDepthInitialized_)
         defaultBitDepthInitializationPending_ = true;
@@ -285,6 +394,7 @@ bool CameraController::recover()
 
 bool CameraController::close()
 {
+    cancelAutoExposure();
     return request(&CameraController::closeRequested);
 }
 
@@ -338,9 +448,54 @@ bool CameraController::applyBitDepth(int bitDepth)
 
 bool CameraController::applyExposureMs(double exposureMs)
 {
+    if (autoExposureActive()) {
+        setError(QStringLiteral("Manual exposure is unavailable while Auto Exposure is active."));
+        return false;
+    }
     CameraAppliedSettings requested = appliedSettings_;
     requested.exposureMs = exposureMs;
     return requestConfiguration(requested);
+}
+
+bool CameraController::autoExposure()
+{
+    if (autoExposureActive())
+        return false;
+    if (!streaming() || !configurationAvailable_) {
+        setError(QStringLiteral("Auto Exposure requires a streaming Camera."));
+        return false;
+    }
+    if (busy_) {
+        setError(QStringLiteral("Auto Exposure cannot start while the Camera is busy."));
+        return false;
+    }
+    if (!exposureLimitsAvailable_) {
+        setError(exposureLimitsError_.isEmpty()
+            ? QStringLiteral("Camera exposure limits are not available.")
+            : exposureLimitsError_);
+        return false;
+    }
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        autoExposureLastTimestampNs_ = latestUnadjustedFrame_
+            ? latestUnadjustedFrame_->monotonicTimestampNs : 0;
+    }
+    autoExposureApplications_ = 0;
+    autoExposureLastP95_ = -1;
+    autoExposureNoProgress_ = 0;
+    autoExposureApplyPending_ = false;
+    autoExposureElapsed_.start();
+    autoExposureTimeout_.start(3000);
+    setError({});
+    autoExposureActive_.store(true, std::memory_order_relaxed);
+    emit autoExposureActiveChanged();
+    return true;
+}
+
+void CameraController::cancelAutoExposure()
+{
+    if (autoExposureActive())
+        finishAutoExposure();
 }
 
 bool CameraController::applyReadoutMode(const QString &readoutMode)
@@ -357,33 +512,64 @@ bool CameraController::applyReadoutMode(const QString &readoutMode)
     return requestConfiguration(requested);
 }
 
-void CameraController::setPreviewLutRange(int blackLevel, int whiteLevel)
+bool CameraController::setContrastRange(int low, int high)
 {
-    blackLevel = std::clamp(blackLevel, 0, 255);
-    whiteLevel = std::clamp(whiteLevel, 0, 255);
-    if (whiteLevel < blackLevel)
-        whiteLevel = blackLevel;
-    if (previewLutMinimum_ == blackLevel && previewLutMaximum_ == whiteLevel)
-        return;
+    if (low < 0 || high > 255 || low >= high) {
+        setError(QStringLiteral("Contrast LOW must be less than HIGH within 0 to 255."));
+        return false;
+    }
+    const int requestedRange = packedContrastRange(low, high);
+    const int previousRange = contrastRange_.exchange(
+        requestedRange, std::memory_order_relaxed);
+    setError({});
+    if (previousRange == requestedRange)
+        return true;
 
-    previewLutMinimum_ = blackLevel;
-    previewLutMaximum_ = whiteLevel;
-    emit previewLutChanged();
+    emit contrastChanged();
+
+    std::optional<CameraFrame> latestFrame;
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        latestFrame = latestUnadjustedFrame_;
+    }
+    std::optional<CameraFrame> adjustedPreview;
+    if (latestFrame) {
+        const QImage image = applyLinearContrast(
+            convertCameraFrame(*latestFrame), low, high);
+        adjustedPreview = grayscale8Frame(*latestFrame, image);
+    }
 
     bool publishImmediately = false;
     {
         QMutexLocker locker(&pendingPreviewFrameMutex_);
-        previewLutUpdatePending_ =
-            previewLutMinimum_ != appliedPreviewLutMinimum_
-            || previewLutMaximum_ != appliedPreviewLutMaximum_;
-        if (previewLutUpdatePending_ && hasFrame_ && !previewRevisionInFlight_
-            && !previewDeliveryScheduled_) {
+        if (adjustedPreview && latestUnadjustedFrame_
+            && latestUnadjustedFrame_->deliveryId == adjustedPreview->deliveryId
+            && contrastRange_.load(std::memory_order_relaxed) == requestedRange) {
+            pendingPreviewFrame_ = std::move(adjustedPreview);
+        }
+        if (pendingPreviewFrame_ && !previewRevisionInFlight_ && !previewDeliveryScheduled_) {
             previewDeliveryScheduled_ = true;
             publishImmediately = true;
         }
     }
     if (publishImmediately)
         updateFrame();
+    return true;
+}
+
+bool CameraController::autoContrast()
+{
+    QImage image;
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        if (!latestUnadjustedFrame_) {
+            setError(QStringLiteral("Auto Contrast requires a camera frame."));
+            return false;
+        }
+        image = convertCameraFrame(*latestUnadjustedFrame_);
+    }
+    const auto range = autoContrastRange(image);
+    return setContrastRange(range.first, range.second);
 }
 
 void CameraController::acknowledgePreviewReady(const QString &previewSource)
@@ -397,8 +583,7 @@ void CameraController::acknowledgePreviewReady(const QString &previewSource)
         if (!previewRevisionInFlight_)
             return;
         previewRevisionInFlight_ = false;
-        if ((pendingPreviewFrame_ || (previewLutUpdatePending_ && hasFrame_))
-            && !previewDeliveryScheduled_) {
+        if (pendingPreviewFrame_ && !previewDeliveryScheduled_) {
             previewDeliveryScheduled_ = true;
             scheduleDelivery = true;
         }
@@ -410,7 +595,7 @@ void CameraController::acknowledgePreviewReady(const QString &previewSource)
 }
 
 bool CameraController::applyProfileSettings(
-    const CameraAppliedSettings &settings, int lutMinimum, int lutMaximum,
+    const CameraAppliedSettings &settings, int contrastMinimum, int contrastMaximum,
     int timeoutMs)
 {
     if (!requestConfiguration(settings))
@@ -448,8 +633,7 @@ bool CameraController::applyProfileSettings(
         }
         return false;
     }
-    setPreviewLutRange(lutMinimum, lutMaximum);
-    return true;
+    return setContrastRange(contrastMinimum, contrastMaximum);
 }
 
 bool CameraController::request(void (CameraController::*signal)())
@@ -489,12 +673,18 @@ void CameraController::updateState(int status, const QString &deviceId,
     deviceId_ = deviceId;
     serviceFault_ = fault;
     if (unavailable) {
+        if (autoExposureActive()) {
+            finishAutoExposure(fault.isEmpty()
+                ? QStringLiteral("Auto Exposure stopped because the Camera became unavailable.")
+                : fault);
+        }
         configurationAvailable_ = false;
         hasFrame_ = false;
         latestDeliveryId_ = 0;
         {
             QMutexLocker locker(&pendingPreviewFrameMutex_);
             pendingPreviewFrame_.reset();
+            latestUnadjustedFrame_.reset();
             previewDeliveryScheduled_ = false;
             previewRevisionInFlight_ = false;
         }
@@ -527,18 +717,123 @@ void CameraController::updateConfiguration(bool available,
         emit stateChanged();
 }
 
+void CameraController::updateExposureLimits(bool available,
+                                            CameraExposureLimits limits,
+                                            const QString &error)
+{
+    exposureLimitsAvailable_ = available
+        && std::isfinite(limits.minimumMs) && std::isfinite(limits.maximumMs)
+        && limits.minimumMs > 0.0 && limits.maximumMs >= limits.minimumMs;
+    exposureLimits_ = limits;
+    exposureLimitsError_ = exposureLimitsAvailable_ ? QString()
+        : error.isEmpty() ? QStringLiteral("Camera reported invalid exposure limits.") : error;
+    if (!exposureLimitsAvailable_ && autoExposureActive()) {
+        finishAutoExposure(exposureLimitsError_.isEmpty()
+            ? QStringLiteral("Camera exposure limits became unavailable.")
+            : exposureLimitsError_);
+    }
+}
+
+void CameraController::processAutoExposureFrame(qint64 monotonicTimestampNs)
+{
+    autoExposureFrameScheduled_.store(false, std::memory_order_release);
+    if (!autoExposureActive() || autoExposureApplyPending_ || busy_
+        || autoExposureElapsed_.elapsed() >= 3000
+        || monotonicTimestampNs <= autoExposureLastTimestampNs_) {
+        return;
+    }
+
+    CameraFrame frame;
+    {
+        QMutexLocker locker(&pendingPreviewFrameMutex_);
+        if (!latestUnadjustedFrame_
+            || latestUnadjustedFrame_->monotonicTimestampNs
+                <= autoExposureLastTimestampNs_) {
+            return;
+        }
+        frame = *latestUnadjustedFrame_;
+    }
+    autoExposureLastTimestampNs_ = frame.monotonicTimestampNs;
+    const int p95 = percentile95(frame);
+    if (std::abs(p95 - 180) <= 8) {
+        finishAutoExposure();
+        return;
+    }
+    if (p95 == autoExposureLastP95_)
+        ++autoExposureNoProgress_;
+    else
+        autoExposureNoProgress_ = 0;
+    autoExposureLastP95_ = p95;
+    if (autoExposureNoProgress_ >= 2) {
+        finishAutoExposure(QStringLiteral("Auto Exposure stopped because image brightness did not change."));
+        return;
+    }
+    if (autoExposureApplications_ >= 8) {
+        finishAutoExposure(QStringLiteral("Auto Exposure stopped after 8 exposure adjustments."));
+        return;
+    }
+
+    const double factor = p95 == 0 ? 2.0
+        : std::clamp(180.0 / static_cast<double>(p95), 0.5, 2.0);
+    const double current = appliedSettings_.exposureMs;
+    const double candidate = std::clamp(current * factor,
+        exposureLimits_.minimumMs, exposureLimits_.maximumMs);
+    if (std::abs(candidate - current) <= 1e-9) {
+        finishAutoExposure(QStringLiteral("Auto Exposure reached the Camera exposure limit before convergence."));
+        return;
+    }
+
+    CameraAppliedSettings requested = appliedSettings_;
+    requested.exposureMs = candidate;
+    autoExposureApplyPending_ = true;
+    ++autoExposureApplications_;
+    if (!requestConfiguration(requested)) {
+        autoExposureApplyPending_ = false;
+        finishAutoExposure(error().isEmpty()
+            ? QStringLiteral("Auto Exposure could not apply the next exposure.") : error());
+    }
+}
+
+void CameraController::finishAutoExposure(const QString &error)
+{
+    if (!autoExposureActive())
+        return;
+    autoExposureTimeout_.stop();
+    autoExposureActive_.store(false, std::memory_order_relaxed);
+    if (!error.isNull())
+        setError(error);
+    emit autoExposureActiveChanged();
+}
+
 void CameraController::acceptFrame(CameraFrame frame)
 {
-    emit frameReady(frame);
+    QString conversionError;
+    const QImage unadjusted = convertCameraFrame(frame, &conversionError);
+    if (unadjusted.isNull()) {
+        setError(conversionError);
+        return;
+    }
+    const CameraFrame normalized = grayscale8Frame(std::move(frame), unadjusted);
+    const int contrastRange = contrastRange_.load(std::memory_order_relaxed);
+    const CameraFrame adjusted = adjustedGrayscale8Frame(
+        normalized, contrastLow(contrastRange), contrastHigh(contrastRange));
+    emit frameReady(adjusted);
 
     bool queueDelivery = false;
     {
         QMutexLocker locker(&pendingPreviewFrameMutex_);
-        pendingPreviewFrame_ = std::move(frame);
+        latestUnadjustedFrame_ = normalized;
+        pendingPreviewFrame_ = adjusted;
         if (!previewDeliveryScheduled_ && !previewRevisionInFlight_) {
             previewDeliveryScheduled_ = true;
             queueDelivery = true;
         }
+    }
+    if (autoExposureActive()
+        && !autoExposureFrameScheduled_.exchange(true, std::memory_order_acq_rel)) {
+        QMetaObject::invokeMethod(this, [this, timestamp = normalized.monotonicTimestampNs] {
+            processAutoExposureFrame(timestamp);
+        }, Qt::QueuedConnection);
     }
     if (queueDelivery) {
         QMetaObject::invokeMethod(this, [this] { updateFrame(); },
@@ -549,30 +844,21 @@ void CameraController::acceptFrame(CameraFrame frame)
 void CameraController::updateFrame()
 {
     std::optional<CameraFrame> frame;
-    bool updateLut = false;
     {
         QMutexLocker locker(&pendingPreviewFrameMutex_);
         previewDeliveryScheduled_ = false;
         if (previewRevisionInFlight_)
             return;
-        if (!pendingPreviewFrame_ && !(previewLutUpdatePending_ && hasFrame_)) {
+        if (!pendingPreviewFrame_) {
             return;
         }
         frame = std::move(pendingPreviewFrame_);
         pendingPreviewFrame_.reset();
-        updateLut = previewLutUpdatePending_;
-        previewLutUpdatePending_ = false;
         previewRevisionInFlight_ = true;
     }
 
     setError({});
     quint64 revision = 0;
-    if (updateLut) {
-        revision = previewProvider_.setPreviewLutRange(
-            previewLutMinimum_, previewLutMaximum_);
-        appliedPreviewLutMinimum_ = previewLutMinimum_;
-        appliedPreviewLutMaximum_ = previewLutMaximum_;
-    }
     if (frame) {
         latestDeliveryId_ = frame->deliveryId;
         hasFrame_ = true;

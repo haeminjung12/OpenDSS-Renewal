@@ -320,7 +320,7 @@ Rectangle {
                                     width: Math.min(parent.width, parent.height)
                                     height: width
                                     anchors.centerIn: parent
-                                    placeholderText: qsTr("Selected Crop\n64 × 64")
+                                    placeholderText: qsTr("Selected Crop\n96 × 96")
 
                                     Item {
                                         id: smallDropletSelectionOverlay

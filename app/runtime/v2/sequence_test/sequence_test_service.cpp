@@ -1,14 +1,13 @@
 #include "sequence_test_service.h"
 
-#include "../decision/decision_service.h"
 #include "../model/model_load_service.h"
 #include "../operation/operation_coordinator.h"
 #include "../routing/observed_route_tracker.h"
+#include "../run/droplet_run_event_processor.h"
 #include "../run/run_writer_v2.h"
 #include "../sequence/sequence_manifest_v2.h"
 #include "../../detection/droplet_frame_processor.h"
 
-#include <QBuffer>
 #include <QDateTime>
 #include <QDebug>
 #include <QDir>
@@ -16,14 +15,12 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QImage>
-#include <QImageWriter>
 #include <QJsonDocument>
 #include <QRegularExpression>
 #include <QTemporaryFile>
 #include <QUuid>
 
 #include <algorithm>
-#include <array>
 #include <chrono>
 #include <cmath>
 #include <exception>
@@ -56,22 +53,6 @@ QString uniqueRunFolder(const QString& root, const QString& requestedName) {
         if (!QFileInfo::exists(path))
             return path;
     }
-}
-
-QByteArray pngBytes(const cv::Mat& image, QString* error) {
-    QImage view(image.data, image.cols, image.rows, image.step, QImage::Format_Grayscale8);
-    QByteArray bytes;
-    QBuffer buffer(&bytes);
-    if (!buffer.open(QIODevice::WriteOnly)) {
-        setError(error, QStringLiteral("Could not open the Droplet Crop buffer."));
-        return {};
-    }
-    QImageWriter writer(&buffer, "PNG");
-    if (!writer.write(view)) {
-        setError(error, writer.errorString());
-        return {};
-    }
-    return bytes;
 }
 
 std::optional<QString> metadataModelName(const QString& path, QString* error) {
@@ -242,17 +223,6 @@ void reportProgress(const ProgressCallback& callback,
         qWarning().noquote() << "Sequence Test progress observer failed.";
     }
 }
-
-struct PendingEvent {
-    int trackId = 0;
-    run::RunEvent event;
-    QByteArray cropBytes;
-    std::optional<double> lastY;
-    run::RoutingSnapshot routing;
-    bool decisionResolved = false;
-    bool pulseFailed = false;
-    QString pulseError;
-};
 
 class RunningGuard final {
 public:
@@ -604,118 +574,89 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
     processor_.reset();
     elapsed.start();
     const auto scheduleStart = std::chrono::steady_clock::now();
-    qint64 eventNumber = 0;
     QString failureReason = QStringLiteral("processing_failed");
-    std::array<std::optional<PendingEvent>, kDropletTrackCapacity> pending;
+    run::DropletRunEventProcessor eventProcessor;
+    run::DropletRunEventProcessor::Classifier classifier;
+    if (model) {
+        classifier = [&model](const cv::Mat& crop,
+                              QString* classifierError)
+            -> std::optional<QVector<double>> {
+            const auto result = model->classify(crop, classifierError);
+            return result ? std::optional<QVector<double>>(result->scores)
+                          : std::nullopt;
+        };
+    }
+    eventProcessor.reset(model ? std::optional<run::ModelSnapshot>(model->snapshot)
+                               : std::nullopt,
+                         std::move(classifier));
 
-    const auto resolvePendingDecision = [&](PendingEvent& item) -> bool {
-        if (item.decisionResolved)
-            return true;
-        const auto decision = decision::DecisionService::decide(
-            item.routing.triggerMode, item.event.predictedClassId,
-            item.routing.hitClassId, &localError);
-        if (!decision)
-            return false;
-        item.event.decision = *decision;
-        item.decisionResolved = true;
-
-        if (item.event.decision == run::Route::Waste) {
-            item.event.daqPulseStatus = run::DaqPulseStatus::NotRequested;
-        } else if (!item.routing.physicalDaqOutputEnabled) {
-            item.event.daqPulseStatus =
-                run::DaqPulseStatus::SuppressedNotIssued;
-        } else {
-            localError.clear();
-            bool dispatchPulse = false;
-            {
-                std::lock_guard lock(controlMutex_);
-                if (!stopRequested_) {
-                    pulseInFlight_ = true;
-                    pulseThread_ = std::this_thread::get_id();
-                    dispatchPulse = true;
-                }
-            }
-            if (!dispatchPulse) {
-                localError =
-                    QStringLiteral("Stop was requested before DAQ Hit output dispatch.");
-                item.event.daqPulseStatus =
-                    run::DaqPulseStatus::SuppressedNotIssued;
-                qWarning().noquote()
-                    << "Sequence Test DAQ Hit output suppressed:" << localError;
-            } else {
-                run::DaqPulseStatus pulseStatus = run::DaqPulseStatus::Failed;
-                try {
-                    pulseStatus = hitPulse_(true, &localError);
-                } catch (const std::exception& exception) {
-                    localError =
-                        QStringLiteral("DAQ Hit output failed: %1").arg(exception.what());
-                } catch (...) {
-                    localError = QStringLiteral("DAQ Hit output failed.");
-                }
-                {
-                    std::lock_guard lock(controlMutex_);
-                    pulseInFlight_ = false;
-                    pulseThread_ = {};
-                }
-                pulseFinished_.notify_all();
-                if (pulseStatus != run::DaqPulseStatus::Issued &&
-                    pulseStatus != run::DaqPulseStatus::SuppressedNotIssued &&
-                    pulseStatus != run::DaqPulseStatus::Failed) {
-                    pulseStatus = run::DaqPulseStatus::Failed;
-                    localError =
-                        QStringLiteral("DAQ Hit output returned an invalid status.");
-                } else if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued &&
-                           localError.trimmed().isEmpty()) {
-                    pulseStatus = run::DaqPulseStatus::Failed;
-                    localError =
-                        QStringLiteral("DAQ Hit output was suppressed without a reason.");
-                }
-                item.event.daqPulseStatus = pulseStatus;
-                if (pulseStatus == run::DaqPulseStatus::SuppressedNotIssued) {
-                    qWarning().noquote()
-                        << "Sequence Test DAQ Hit output suppressed:" << localError;
-                } else if (pulseStatus == run::DaqPulseStatus::Failed) {
-                    item.pulseError =
-                        localError.isEmpty()
-                            ? QStringLiteral("The Sequence Test DAQ Hit output failed.")
-                            : localError;
-                    failureReason = QStringLiteral("daq_pulse_failed");
-                    item.pulseFailed = true;
-                }
+    const auto dispatchHit = [&](const run::RoutingSnapshot& routing,
+                                 QString* outputError) {
+        if (!routing.physicalDaqOutputEnabled)
+            return run::DaqPulseStatus::SuppressedNotIssued;
+        QString dispatchError;
+        bool dispatchPulse = false;
+        {
+            std::lock_guard lock(controlMutex_);
+            if (!stopRequested_) {
+                pulseInFlight_ = true;
+                pulseThread_ = std::this_thread::get_id();
+                dispatchPulse = true;
             }
         }
-        return true;
+        if (!dispatchPulse) {
+            dispatchError =
+                QStringLiteral("Stop was requested before DAQ Hit output dispatch.");
+            qWarning().noquote()
+                << "Sequence Test DAQ Hit output suppressed:" << dispatchError;
+            setError(outputError, dispatchError);
+            return run::DaqPulseStatus::SuppressedNotIssued;
+        }
+
+        run::DaqPulseStatus status = run::DaqPulseStatus::Failed;
+        try {
+            status = hitPulse_(true, &dispatchError);
+        } catch (const std::exception& exception) {
+            dispatchError =
+                QStringLiteral("DAQ Hit output failed: %1").arg(exception.what());
+        } catch (...) {
+            dispatchError = QStringLiteral("DAQ Hit output failed.");
+        }
+        {
+            std::lock_guard lock(controlMutex_);
+            pulseInFlight_ = false;
+            pulseThread_ = {};
+        }
+        pulseFinished_.notify_all();
+        if (status != run::DaqPulseStatus::Issued &&
+            status != run::DaqPulseStatus::SuppressedNotIssued &&
+            status != run::DaqPulseStatus::Failed) {
+            status = run::DaqPulseStatus::Failed;
+            dispatchError =
+                QStringLiteral("DAQ Hit output returned an invalid status.");
+        } else if (status == run::DaqPulseStatus::SuppressedNotIssued &&
+                   dispatchError.trimmed().isEmpty()) {
+            status = run::DaqPulseStatus::Failed;
+            dispatchError =
+                QStringLiteral("DAQ Hit output was suppressed without a reason.");
+        }
+        if (status == run::DaqPulseStatus::SuppressedNotIssued) {
+            qWarning().noquote()
+                << "Sequence Test DAQ Hit output suppressed:" << dispatchError;
+        } else if (status == run::DaqPulseStatus::Failed) {
+            if (dispatchError.isEmpty())
+                dispatchError =
+                    QStringLiteral("The Sequence Test DAQ Hit output failed.");
+            failureReason = QStringLiteral("daq_pulse_failed");
+        }
+        setError(outputError, dispatchError);
+        return status;
     };
 
-    const auto finalizePending = [&](std::optional<PendingEvent>& slot) -> bool {
-        if (!slot)
-            return true;
-        PendingEvent& item = *slot;
-        if (!resolvePendingDecision(item))
-            return false;
-        run::HitBoundarySnapshot boundary;
-        {
-            std::lock_guard lock(boundaryMutex_);
-            boundary = currentBoundary_;
-        }
-        routing::ObservedRouteTracker route(std::move(boundary));
-        if (item.lastY)
-            route.addSample(*item.lastY);
-        item.event.observedRoute = route.finalize();
-
-        if (!writer->appendEvent(item.event, item.cropBytes, &localError)) {
-            if (item.pulseFailed && localError != item.pulseError)
-                localError = item.pulseError + QStringLiteral(" ") + localError;
-            return false;
-        }
-        const bool pulseFailed = item.pulseFailed;
-        const QString pulseError = item.pulseError;
-        slot.reset();
-        if (pulseFailed) {
-            localError = pulseError;
-            return false;
-        }
-        return true;
+    const auto completeEvent = [&](run::CompletedDropletRunEvent completed,
+                                   QString* completionError) {
+        return writer->appendEvent(completed.event, completed.cropBytes,
+                                   completionError);
     };
 
     bool processingOk = true;
@@ -754,132 +695,19 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
             break;
         }
 
-        for (std::size_t index = 0; index < detection.rejectedCount; ++index) {
-            if (!detection.rejectedAreas ||
-                !std::isfinite(detection.rejectedAreas[index]) ||
-                detection.rejectedAreas[index] <= 0.0) {
-                localError = QStringLiteral("Rejected candidate area is invalid.");
-                processingOk = false;
-                break;
-            }
-            ++eventNumber;
-            run::RunEvent event;
-            event.eventId =
-                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
-            event.detectionTimestamp =
-                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-            event.sourceFrameIndex = frameIndex;
-            event.rejected = 1;
-            if (!writer->appendEvent(event, {}, &localError)) {
-                processingOk = false;
-                break;
-            }
+        run::RoutingSnapshot routing;
+        run::HitBoundarySnapshot boundary;
+        {
+            std::lock_guard configurationLock(configurationMutex_);
+            routing = currentRouting_;
+            std::lock_guard boundaryLock(boundaryMutex_);
+            boundary = currentBoundary_;
         }
-        if (!processingOk)
+        if (!eventProcessor.processFrame(processing, frameIndex, routing, boundary,
+                                         dispatchHit, completeEvent, &localError)) {
+            processingOk = false;
             break;
-
-        for (std::size_t index = 0; index < processing.enteredCropCount; ++index) {
-            const DropletEnteredCrop& entered = processing.enteredCrops[index];
-            const auto slot = std::find_if(
-                pending.begin(), pending.end(), [](const auto& value) { return !value; });
-            if (slot == pending.end()) {
-                localError = QStringLiteral("Droplet track capacity was exceeded.");
-                processingOk = false;
-                break;
-            }
-            ++eventNumber;
-            const QString eventId =
-                QStringLiteral("event_%1").arg(eventNumber, 6, 10, QLatin1Char('0'));
-            const QString detectionTimestamp =
-                QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs);
-            slot->emplace();
-            PendingEvent& item = **slot;
-            item.trackId = entered.trackId;
-            {
-                std::lock_guard lock(configurationMutex_);
-                item.routing = currentRouting_;
-            }
-            item.event.eventId = eventId;
-            item.event.detectionTimestamp = detectionTimestamp;
-            item.event.sourceFrameIndex = frameIndex;
-            item.event.cropPath =
-                QStringLiteral("crops/droplet_%1.png")
-                    .arg(eventNumber, 6, 10, QLatin1Char('0'));
-            item.cropBytes = pngBytes(entered.crop.image, &localError);
-            if (item.cropBytes.isEmpty()) {
-                processingOk = false;
-                break;
-            }
-            if (model) {
-                QElapsedTimer inferenceTimer;
-                inferenceTimer.start();
-                auto result = model->classify(entered.crop.image, &localError);
-                const double inferenceMs =
-                    static_cast<double>(inferenceTimer.nsecsElapsed()) /
-                    1'000'000.0;
-                if (!result ||
-                    result->scores.size() != model->snapshot.classes.size() ||
-                    std::any_of(result->scores.begin(), result->scores.end(),
-                                [](double score) {
-                                    return !std::isfinite(score);
-                                })) {
-                    if (localError.isEmpty())
-                        localError =
-                            QStringLiteral("Model inference result is invalid.");
-                    processingOk = false;
-                    break;
-                }
-                int bestIndex = 0;
-                for (int index = 1; index < result->scores.size(); ++index) {
-                    if (result->scores[index] > result->scores[bestIndex])
-                        bestIndex = index;
-                }
-                item.event.predictedClassId =
-                    model->snapshot.classes.at(bestIndex).id;
-                item.event.scores = result->scores;
-                item.event.inferenceTimeMs = inferenceMs;
-            }
         }
-        if (!processingOk)
-            break;
-        for (auto& slot : pending) {
-            if (!slot)
-                continue;
-            const bool stillVisible = std::any_of(
-                detection.visibleTracks.begin(),
-                detection.visibleTracks.begin() + detection.visibleTrackCount,
-                [&](const DropletTrackObservation& visible) {
-                    return visible.trackId == slot->trackId;
-                });
-            if (!stillVisible && !resolvePendingDecision(*slot)) {
-                processingOk = false;
-                break;
-            }
-        }
-        if (!processingOk)
-            break;
-        for (std::size_t index = 0; index < detection.visibleTrackCount; ++index) {
-            const DropletTrackObservation& visible = detection.visibleTracks[index];
-            if (!std::isfinite(visible.centroid.y) || visible.centroid.y < 0.0)
-                continue;
-            for (auto& slot : pending) {
-                if (slot && slot->trackId == visible.trackId)
-                    slot->lastY = visible.centroid.y;
-            }
-        }
-        for (std::size_t index = 0; index < detection.endedTrackCount; ++index) {
-            const int endedTrackId = detection.endedTrackIds[index];
-            for (auto& slot : pending) {
-                if (slot && slot->trackId == endedTrackId && !finalizePending(slot)) {
-                    processingOk = false;
-                    break;
-                }
-            }
-            if (!processingOk)
-                break;
-        }
-        if (!processingOk)
-            break;
         ++processedFrames;
         const double progressSeconds =
             static_cast<double>(elapsed.nsecsElapsed()) / 1'000'000'000.0;
@@ -891,12 +719,13 @@ bool SequenceTestService::run(const SequenceTestRequest& request, QString* error
              lastProgressAchievedFps});
     }
     if (processingOk) {
-        for (auto& slot : pending) {
-            if (!finalizePending(slot)) {
-                processingOk = false;
-                break;
-            }
+        run::HitBoundarySnapshot boundary;
+        {
+            std::lock_guard lock(boundaryMutex_);
+            boundary = currentBoundary_;
         }
+        processingOk = eventProcessor.finalizeAll(
+            boundary, dispatchHit, completeEvent, &localError);
     }
 
     bool stopped = false;

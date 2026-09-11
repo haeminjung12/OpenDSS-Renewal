@@ -360,6 +360,25 @@ bool DcamCameraDevice::readConfiguration(CameraAppliedSettings &settings, QStrin
     return true;
 }
 
+bool DcamCameraDevice::readExposureLimits(CameraExposureLimits &limits, QString *error) const
+{
+    if (!camera_ || !camera_->isOpened()) {
+        setError(error, QStringLiteral("The DCAM camera is not open."));
+        return false;
+    }
+    double minimumMs = 0.0;
+    double maximumMs = 0.0;
+    const std::string result = camera_->readExposureLimits(minimumMs, maximumMs);
+    if (!result.empty()) {
+        setError(error, messageFrom(result));
+        return false;
+    }
+    limits.minimumMs = minimumMs;
+    limits.maximumMs = maximumMs;
+    setError(error, {});
+    return true;
+}
+
 CameraConfigurationResult DcamCameraDevice::applyConfiguration(
     const CameraAppliedSettings &requested,
     CameraAppliedSettings &applied,
@@ -428,4 +447,3 @@ CameraConfigurationResult DcamCameraDevice::applyConfiguration(
 }
 
 } // namespace desktop_app::v2
-

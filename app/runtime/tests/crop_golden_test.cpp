@@ -23,7 +23,10 @@ bool check(const cv::Mat& frame, const cv::Rect& bbox) {
     const cv::Rect bounded = bbox & cv::Rect(0, 0, frame.cols, frame.rows);
     const cv::Rect expectedRect = referenceRect(bounded, frame.size());
     cv::Mat expected;
-    cv::resize(frame(expectedRect), expected, {64, 64}, 0, 0, cv::INTER_AREA);
+    cv::resize(frame(expectedRect), expected,
+               {desktop_app::CropService::OutputSize,
+                desktop_app::CropService::OutputSize},
+               0, 0, cv::INTER_AREA);
     desktop_app::DatasetCrop actual;
     QString error;
     return desktop_app::CropService::makeDatasetCrop(frame, bbox, &actual, &error) &&
@@ -40,7 +43,7 @@ int main() {
             frame.at<uchar>(y, x) = static_cast<uchar>((x * 7 + y * 13) % 256);
     if (!check(frame, {30, 20, 15, 29}) || !check(frame, {-4, 3, 18, 9}) ||
         !check(frame, {70, 60, 45, 12}) || !check(frame, {-20, -20, 200, 200})) {
-        std::cerr << "Dataset crop does not match legacy centered/clamped INTER_AREA pixels.\n";
+        std::cerr << "Dataset crop does not match 96x96 centered/clamped INTER_AREA pixels.\n";
         return 1;
     }
     desktop_app::DatasetCrop output;

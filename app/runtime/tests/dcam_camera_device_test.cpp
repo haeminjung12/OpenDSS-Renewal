@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QDebug>
 
+#include <cmath>
 #include <utility>
 #include <vector>
 
@@ -88,6 +89,12 @@ int main(int argc, char **argv)
                         == CameraConfigurationSupport::Supported
                     && error.isEmpty(),
                 "All required readable/writable attributes must enable configuration.");
+    CameraExposureLimits exposureLimits;
+    ok &= check(device.readExposureLimits(exposureLimits, &error)
+                    && std::abs(exposureLimits.minimumMs - 0.001) < 1e-9
+                    && std::abs(exposureLimits.maximumMs - 10000.0) < 1e-9
+                    && error.isEmpty(),
+                "DCAM exposure limits must be reported factually in milliseconds.");
     fake_dcam::setAttribute(DCAM_IDPROP_EXPOSURETIME,
                             DCAMPROP_ATTR_READABLE);
     ok &= check(device.configurationSupport(&error)
@@ -144,9 +151,9 @@ int main(int argc, char **argv)
         {DCAM_IDPROP_SUBARRAYMODE, DCAMPROP_MODE__ON},
         {DCAM_IDPROP_IMAGE_PIXELTYPE, DCAM_PIXELTYPE_MONO8},
         {DCAM_IDPROP_BITSPERCHANNEL, 8.0},
-        {DCAM_IDPROP_EXPOSURETIME, 0.005},
         {DCAM_IDPROP_READOUTSPEED,
          static_cast<double>(DCAMPROP_READOUTSPEED__FASTEST)},
+        {DCAM_IDPROP_EXPOSURETIME, 0.005},
     };
     ok &= check(fake_dcam::propertyWrites() == expectedWrites
                     && fake_dcam::releases() == 1
@@ -328,4 +335,3 @@ int main(int argc, char **argv)
 
     return ok ? 0 : 1;
 }
-
